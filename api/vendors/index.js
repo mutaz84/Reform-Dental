@@ -1,0 +1,86 @@
+const sql = require('mssql');
+
+function getConfig() {
+    const connStr = process.env.SQL_CONNECTION_STRING;
+    if (connStr) {
+        const serverMatch = connStr.match(/Server=tcp:([^,]+)/i);
+        const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
+        const userMatch = connStr.match(/User ID=([^;]+)/i);
+        const passMatch = connStr.match(/Password=([^;]+)/i);
+        
+        return {
+            server: serverMatch ? serverMatch[1] : '',
+            database: dbMatch ? dbMatch[1] : '',
+            user: userMatch ? userMatch[1] : '',
+            password: passMatch ? passMatch[1] : '',
+            options: { encrypt: true, trustServerCertificate: false }
+        };
+    }
+    return {};
+}
+
+module.exports = async function (context, req) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+    };
+
+    if (req.method === 'OPTIONS') {
+        context.res = { status: 204, headers };
+        return;
+    }
+
+    try {
+        const pool = await sql.connect(getConfig());
+        const id = req.params.id;
+
+        if (req.method === 'GET') {
+            if (id) {
+                const result = await pool.request()
+                    .input('id', sql.Int, id)
+                    .query('SELECT * FROM Vendors WHERE Id = @id AND IsActive = 1');
+                context.res = { status: 200, headers, body: result.recordset[0] || null };
+            } else {
+                const result = await pool.request()
+                    .query('SELECT * FROM Vendors WHERE IsActive = 1 ORDER BY Name');
+                context.res = { status: 200, headers, body: result.recordset };
+            }
+        } else if (req.method === 'POST') {
+            const body = req.body;
+            const result = await pool.request()
+                .input('name', sql.NVarChar, body.name)
+                .input('contactPerson', sql.NVarChar, body.contactPerson)
+                .input('phone', sql.NVarChar, body.phone)
+                .input('email', sql.NVarChar, body.email)
+                .input('address', sql.NVarChar, body.address)
+                .input('notes', sql.NVarChar, body.notes)
+                .query(`INSERT INTO Vendors (Name, ContactPerson, Phone, Email, Address, Notes) 
+                        OUTPUT INSERTED.Id VALUES (@name, @contactPerson, @phone, @email, @address, @notes)`);
+            context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
+        } else if (req.method === 'PUT' && id) {
+            const body = req.body;
+            await pool.request()
+                .input('id', sql.Int, id)
+                .input('name', sql.NVarChar, body.name)
+                .input('contactPerson', sql.NVarChar, body.contactPerson)
+                .input('phone', sql.NVarChar, body.phone)
+                .input('email', sql.NVarChar, body.email)
+                .input('address', sql.NVarChar, body.address)
+                .input('notes', sql.NVarChar, body.notes)
+                .query(`UPDATE Vendors SET Name=@name, ContactPerson=@contactPerson, Phone=@phone, Email=@email, Address=@address, Notes=@notes WHERE Id=@id`);
+            context.res = { status: 200, headers, body: { message: 'Vendor updated' } };
+        } else if (req.method === 'DELETE' && id) {
+            await pool.request()
+                .input('id', sql.Int, id)
+                .query('UPDATE Vendors SET IsActive = 0 WHERE Id = @id');
+            context.res = { status: 200, headers, body: { message: 'Vendor deleted' } };
+        }
+
+        await pool.close();
+    } catch (err) {
+        context.log.error('Database error:', err);
+        context.res = { status: 500, headers, body: { error: err.message } };
+    }
+};
