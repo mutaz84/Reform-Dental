@@ -30195,19 +30195,29 @@ window.addEventListener('load', function() {
         };
 
         // Initialize filters when DOM is ready
+        let filterInitRetries = 0;
+        const MAX_FILTER_RETRIES = 10;
+        
         function ensureFilterInitialization() {
             // Wait for DOM and employee resources to be ready
             const employeeFilterEl = document.getElementById('whEmployeeFilter');
             
             if (!employeeFilterEl) {
-                console.log('whEmployeeFilter not found yet, retrying in 500ms...');
-                setTimeout(ensureFilterInitialization, 500);
+                if (filterInitRetries < MAX_FILTER_RETRIES) {
+                    filterInitRetries++;
+                    setTimeout(ensureFilterInitialization, 500);
+                }
                 return;
             }
             
             if (typeof employeeResources === 'undefined' || employeeResources.length === 0) {
-                console.warn('employeeResources not found, retrying in 500ms...');
-                setTimeout(ensureFilterInitialization, 500);
+                if (filterInitRetries < MAX_FILTER_RETRIES) {
+                    filterInitRetries++;
+                    console.log('Waiting for employee data... (' + filterInitRetries + '/' + MAX_FILTER_RETRIES + ')');
+                    setTimeout(ensureFilterInitialization, 500);
+                } else {
+                    console.log('No employees found after max retries - this is OK if no employees are configured');
+                }
                 return;
             }
             
