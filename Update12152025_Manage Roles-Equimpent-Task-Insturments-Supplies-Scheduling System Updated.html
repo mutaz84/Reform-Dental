@@ -11010,40 +11010,54 @@
         
         // Save a single user to the database API
         async function saveUserToAPI(username, userData) {
-            if (typeof API_BASE_URL === 'undefined') return; // API not configured
+            if (typeof API_BASE_URL === 'undefined') {
+                console.log('⚠️ API_BASE_URL not defined, skipping database sync');
+                return;
+            }
             try {
+                console.log('📤 Saving user to database:', username);
+                const payload = {
+                    username: username,
+                    password: userData.password || 'changeme123',
+                    firstName: userData.firstName || '',
+                    lastName: userData.lastName || '',
+                    role: userData.role || 'user',
+                    staffType: userData.staffType || 'non-clinical',
+                    employeeType: userData.employeeType || 'full-time',
+                    employeeStatus: userData.employeeStatus || 'active',
+                    workEmail: userData.workEmail || '',
+                    personalEmail: userData.personalEmail || '',
+                    cellPhone: userData.cellPhone || '',
+                    homePhone: userData.homePhone || '',
+                    address: userData.address || '',
+                    city: userData.city || '',
+                    state: userData.state || '',
+                    zipCode: userData.zipCode || '',
+                    hireDate: userData.hireDate || null,
+                    hourlyRate: userData.hourlyRate || null,
+                    salary: userData.salary || null,
+                    color: userData.color || '#3b82f6'
+                };
+                console.log('📦 Payload:', JSON.stringify(payload));
+                
                 const response = await fetch(`${API_BASE_URL}/users`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        username: username,
-                        password: userData.password || 'changeme123',
-                        firstName: userData.firstName || '',
-                        lastName: userData.lastName || '',
-                        role: userData.role || 'user',
-                        staffType: userData.staffType || 'non-clinical',
-                        employeeType: userData.employeeType || 'full-time',
-                        employeeStatus: userData.employeeStatus || 'active',
-                        workEmail: userData.workEmail || '',
-                        personalEmail: userData.personalEmail || '',
-                        cellPhone: userData.cellPhone || '',
-                        homePhone: userData.homePhone || '',
-                        address: userData.address || '',
-                        city: userData.city || '',
-                        state: userData.state || '',
-                        zipCode: userData.zipCode || '',
-                        hireDate: userData.hireDate || null,
-                        hourlyRate: userData.hourlyRate || null,
-                        salary: userData.salary || null,
-                        color: userData.color || '#3b82f6'
-                    })
+                    body: JSON.stringify(payload)
                 });
+                
+                const result = await response.json();
+                
                 if (response.ok) {
-                    console.log('✅ User saved to database:', username);
+                    console.log('✅ User saved to database:', username, result);
                     showSyncStatus('User saved to database', true);
+                } else {
+                    console.error('❌ API error:', response.status, result);
+                    showSyncStatus('Failed to save user to database: ' + (result.error || result.details || 'Unknown error'), false);
                 }
             } catch (error) {
                 console.error('❌ Error saving user to API:', error);
+                showSyncStatus('Error saving to database: ' + error.message, false);
             }
         }
 
