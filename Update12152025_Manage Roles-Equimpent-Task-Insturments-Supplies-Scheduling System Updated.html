@@ -10581,31 +10581,72 @@
             }
         }
 
-        // Handle login form submission
-        function handleLogin(event) {
+        // Handle login form submission - Uses API for secure authentication
+        async function handleLogin(event) {
             event.preventDefault();
-            
-            console.log('handleLogin function called');
             
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
             const errorDiv = document.getElementById('loginError');
+            const submitBtn = document.querySelector('#loginForm button[type="submit"]');
             
-            console.log('Login attempt for username:', username);
-            console.log('Password length:', password.length);
+            // Show loading state
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing In...';
+            }
             
-            // Load users from storage
+            // Try API login first (secure - passwords checked server-side)
+            if (typeof API_BASE_URL !== 'undefined') {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, password })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok && result.success) {
+                        console.log('✅ API login successful');
+                        
+                        // Store session
+                        localStorage.setItem('loggedInUser', username);
+                        localStorage.setItem('userRole', result.user.role);
+                        localStorage.setItem('userName', `${result.user.firstName} ${result.user.lastName}`);
+                        localStorage.setItem('currentUser', JSON.stringify({
+                            username: username,
+                            role: result.user.role,
+                            name: `${result.user.firstName} ${result.user.lastName}`,
+                            firstName: result.user.firstName,
+                            lastName: result.user.lastName,
+                            permissions: getDefaultPermissions(result.user.role)
+                        }));
+                        
+                        // Show success
+                        errorDiv.style.display = 'block';
+                        errorDiv.style.background = '#d4edda';
+                        errorDiv.style.borderColor = '#c3e6cb';
+                        errorDiv.style.color = '#155724';
+                        errorDiv.textContent = 'Login successful! Redirecting...';
+                        
+                        setTimeout(() => {
+                            checkAuth();
+                            updateUIForRole();
+                        }, 500);
+                        return;
+                    }
+                } catch (apiError) {
+                    console.log('API login unavailable, using local fallback');
+                }
+            }
+            
+            // Fallback to localStorage (for offline/local testing)
             const users = loadUsers();
-            console.log('Available users:', Object.keys(users));
-            console.log('Full users object:', users);
             
-            // Validate credentials
             if (users[username] && users[username].password === password) {
-                console.log('Login successful for:', username);
-                // Successful login
                 const user = users[username];
                 
-                // Ensure user has permissions (migrate old users)
                 if (!user.permissions) {
                     user.permissions = getDefaultPermissions(user.role);
                     users[username] = user;
@@ -10615,8 +10656,6 @@
                 localStorage.setItem('loggedInUser', username);
                 localStorage.setItem('userRole', user.role);
                 localStorage.setItem('userName', user.name);
-                
-                // Store full current user object for permission checks
                 localStorage.setItem('currentUser', JSON.stringify({
                     username: username,
                     role: user.role,
@@ -10626,10 +10665,6 @@
                     permissions: user.permissions
                 }));
                 
-                // Hide error message
-                errorDiv.style.display = 'none';
-                
-                // Show success and redirect
                 errorDiv.style.display = 'block';
                 errorDiv.style.background = '#d4edda';
                 errorDiv.style.borderColor = '#c3e6cb';
@@ -10642,12 +10677,17 @@
                 }, 500);
             } else {
                 // Failed login
-                console.log('Login failed for:', username);
                 errorDiv.style.display = 'block';
                 errorDiv.style.background = '#f8d7da';
                 errorDiv.style.borderColor = '#f5c6cb';
                 errorDiv.style.color = '#721c24';
                 errorDiv.textContent = 'Invalid username or password. Please try again.';
+            }
+            
+            // Reset button
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = 'Sign In';
             }
         }
 
@@ -10672,10 +10712,8 @@
 
         // Initialize auth check on page load
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('Page loaded, initializing...');
             initializeUsers(); // Force initialization first
-            const users = loadUsers();
-            console.log('Users loaded:', users);
+            loadUsers(); // Load users without logging
             checkAuth();
             updateUIForRole();
         });
