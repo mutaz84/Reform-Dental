@@ -10965,9 +10965,48 @@
             return usersJson ? JSON.parse(usersJson) : {};
         }
 
-        // Save users to localStorage
+        // Save users to localStorage and optionally sync to API
         function saveUsers(users) {
             localStorage.setItem('appUsers', JSON.stringify(users));
+        }
+        
+        // Save a single user to the database API
+        async function saveUserToAPI(username, userData) {
+            if (typeof API_BASE_URL === 'undefined') return; // API not configured
+            try {
+                const response = await fetch(`${API_BASE_URL}/users`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: username,
+                        password: userData.password || 'changeme123',
+                        firstName: userData.firstName || '',
+                        lastName: userData.lastName || '',
+                        role: userData.role || 'user',
+                        staffType: userData.staffType || 'non-clinical',
+                        employeeType: userData.employeeType || 'full-time',
+                        employeeStatus: userData.employeeStatus || 'active',
+                        workEmail: userData.workEmail || '',
+                        personalEmail: userData.personalEmail || '',
+                        cellPhone: userData.cellPhone || '',
+                        homePhone: userData.homePhone || '',
+                        address: userData.address || '',
+                        city: userData.city || '',
+                        state: userData.state || '',
+                        zipCode: userData.zipCode || '',
+                        hireDate: userData.hireDate || null,
+                        hourlyRate: userData.hourlyRate || null,
+                        salary: userData.salary || null,
+                        color: userData.color || '#3b82f6'
+                    })
+                });
+                if (response.ok) {
+                    console.log('✅ User saved to database:', username);
+                    showSyncStatus('User saved to database', true);
+                }
+            } catch (error) {
+                console.error('❌ Error saving user to API:', error);
+            }
         }
 
         // Update UI based on user role and permissions
@@ -11232,6 +11271,9 @@
             
             // Save to storage
             saveUsers(users);
+            
+            // Also save to database API
+            saveUserToAPI(username, users[username]);
             
             // Show success message
             errorDiv.style.display = 'block';
@@ -11741,9 +11783,13 @@
             return rooms ? JSON.parse(rooms) : [];
         }
 
-        // Save rooms to localStorage
-        function saveRooms(rooms) {
+        // Save rooms to localStorage and sync to API
+        function saveRooms(rooms, newItem = null) {
             localStorage.setItem('rooms', JSON.stringify(rooms));
+            // Sync new item to API if provided
+            if (newItem && typeof saveRoomToAPI === 'function') {
+                saveRoomToAPI(newItem);
+            }
         }
 
         // ============ RESET DATA FUNCTIONS ============
@@ -12305,7 +12351,14 @@
             
             // Add to rooms array
             rooms.push(newRoom);
-            saveRooms(rooms);
+            // Save to localStorage and sync to API
+            saveRooms(rooms, {
+                name: roomName,
+                clinicId: officeID ? parseInt(officeID) : null,
+                type: roomType,
+                color: color,
+                status: status
+            });
             
             // Show success message
             errorDiv.style.display = 'block';
@@ -12381,9 +12434,13 @@
             return offices ? JSON.parse(offices) : [];
         }
 
-        // Save offices to localStorage
-        function saveOffices(offices) {
+        // Save offices (clinics) to localStorage and sync to API
+        function saveOffices(offices, newItem = null) {
             localStorage.setItem('offices', JSON.stringify(offices));
+            // Sync new item to API if provided
+            if (newItem && typeof createClinicViaAPI === 'function') {
+                createClinicViaAPI(newItem);
+            }
         }
 
         // Open offices management modal
@@ -12522,7 +12579,15 @@
             
             // Add to offices array
             offices.push(newOffice);
-            saveOffices(offices);
+            // Save to localStorage and sync to API
+            saveOffices(offices, {
+                name: officeName,
+                address: address,
+                city: city,
+                state: state,
+                phone: phone,
+                email: email
+            });
             
             // Show success message
             errorDiv.style.display = 'block';
@@ -16380,9 +16445,13 @@
             return equipment ? JSON.parse(equipment) : [];
         }
 
-        // Save equipment to localStorage
-        function saveEquipment(equipment) {
+        // Save equipment to localStorage and sync to API
+        function saveEquipment(equipment, newItem = null) {
             localStorage.setItem('equipment', JSON.stringify(equipment));
+            // Sync new item to API if provided
+            if (newItem && typeof saveEquipmentToAPI === 'function') {
+                saveEquipmentToAPI(newItem);
+            }
         }
 
         // Open equipment management modal
@@ -16602,7 +16671,16 @@
                 };
                 
                 equipment.push(newEquipment);
-                saveEquipment(equipment);
+                // Save to localStorage and sync to API
+                saveEquipment(equipment, {
+                    name: equipmentName,
+                    serialNumber: serialNumber,
+                    clinicId: officeId ? parseInt(officeId) : null,
+                    status: status,
+                    purchaseDate: purchaseDate || null,
+                    warranty: warrantyExpiry || '',
+                    notes: notes
+                });
                 
                 errorDiv.style.display = 'block';
                 errorDiv.style.background = '#d4edda';
@@ -16788,9 +16866,13 @@
             return instruments ? JSON.parse(instruments) : [];
         }
 
-        // Save instruments to localStorage
-        function saveInstruments(instruments) {
+        // Save instruments to localStorage and sync to API
+        function saveInstruments(instruments, newItem = null) {
             localStorage.setItem('instruments', JSON.stringify(instruments));
+            // Sync new item to API if provided
+            if (newItem && typeof saveInstrumentToAPI === 'function') {
+                saveInstrumentToAPI(newItem);
+            }
         }
 
         // Open instruments management modal
@@ -16983,7 +17065,16 @@
                 };
                 
                 instruments.push(newInstrument);
-                saveInstruments(instruments);
+                // Save to localStorage and sync to API
+                saveInstruments(instruments, {
+                    name: instrumentName,
+                    category: category,
+                    clinicId: officeId ? parseInt(officeId) : null,
+                    quantity: quantity || 1,
+                    status: condition || 'available',
+                    sterilizationDate: lastSterilized || null,
+                    notes: notes
+                });
                 
                 errorDiv.style.display = 'block';
                 errorDiv.style.background = '#d4edda';
@@ -17424,9 +17515,13 @@
             return supplies ? JSON.parse(supplies) : [];
         }
 
-        // Save supplies to localStorage
-        function saveSupplies(supplies) {
+        // Save supplies to localStorage and sync to API
+        function saveSupplies(supplies, newItem = null) {
             localStorage.setItem('supplies', JSON.stringify(supplies));
+            // Sync new item to API if provided
+            if (newItem && typeof saveSupplyToAPI === 'function') {
+                saveSupplyToAPI(newItem);
+            }
         }
 
         // Open supplies management modal
@@ -17582,7 +17677,17 @@
                 };
                 
                 supplies.push(newSupply);
-                saveSupplies(supplies);
+                // Save to localStorage and sync to API
+                saveSupplies(supplies, {
+                    name: supplyName,
+                    category: category,
+                    clinicId: officeId ? parseInt(officeId) : null,
+                    quantity: quantityInStock || 0,
+                    minQuantity: reorderLevel || 0,
+                    unit: unit,
+                    unitPrice: unitCost || null,
+                    notes: notes
+                });
                 
                 errorDiv.style.display = 'block';
                 errorDiv.style.background = '#d4edda';
@@ -28169,9 +28274,31 @@ window.addEventListener('load', function() {
                     taskData.completedTime = window.tasksData[index].completedTime;
                     taskData.notes = window.tasksData[index].notes;
                     window.tasksData[index] = taskData;
+                    // Update in database
+                    if (typeof updateTaskViaAPI === 'function') {
+                        updateTaskViaAPI(taskId.replace('task-', ''), {
+                            title: taskData.title,
+                            description: taskData.description,
+                            dueDate: taskData.dueDate || null,
+                            priority: taskData.priority,
+                            status: taskData.status,
+                            category: taskData.category
+                        });
+                    }
                 }
             } else {
                 window.tasksData.push(taskData);
+                // Save to database
+                if (typeof saveTaskToAPI === 'function') {
+                    saveTaskToAPI({
+                        title: taskData.title,
+                        description: taskData.description,
+                        dueDate: taskData.dueDate || null,
+                        priority: taskData.priority,
+                        status: taskData.status,
+                        category: taskData.category
+                    });
+                }
             }
             
             // Save to localStorage
@@ -34268,6 +34395,473 @@ function showSyncStatus(message, isSuccess = true) {
     
     setTimeout(() => statusDiv.remove(), 3000);
 }
+
+// ============ EQUIPMENT API FUNCTIONS ============
+async function saveEquipmentToAPI(equipmentData) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/equipment`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: equipmentData.name,
+                serialNumber: equipmentData.serialNumber || '',
+                clinicId: equipmentData.clinicId || null,
+                status: equipmentData.status || 'operational',
+                purchaseDate: equipmentData.purchaseDate || null,
+                warranty: equipmentData.warranty || '',
+                notes: equipmentData.notes || ''
+            })
+        });
+        if (response.ok) {
+            console.log('✅ Equipment saved to database');
+            showSyncStatus('Equipment saved to database', true);
+        }
+    } catch (error) {
+        console.error('❌ Error saving equipment to API:', error);
+    }
+}
+
+async function updateEquipmentViaAPI(id, equipmentData) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/equipment/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(equipmentData)
+        });
+        if (response.ok) {
+            console.log('✅ Equipment updated in database');
+            showSyncStatus('Equipment updated', true);
+        }
+    } catch (error) {
+        console.error('❌ Error updating equipment:', error);
+    }
+}
+
+async function deleteEquipmentViaAPI(id) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        await fetch(`${API_BASE_URL}/equipment/${id}`, { method: 'DELETE' });
+        console.log('✅ Equipment deleted from database');
+    } catch (error) {
+        console.error('❌ Error deleting equipment:', error);
+    }
+}
+
+async function syncEquipmentFromAPI() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/equipment`);
+        if (!response.ok) return false;
+        const apiEquipment = await response.json();
+        if (apiEquipment && apiEquipment.length > 0) {
+            const localEquipment = apiEquipment.map(e => ({
+                id: `eq-${e.Id || e.id}`,
+                name: e.Name || e.name,
+                serialNumber: e.SerialNumber || e.serialNumber || '',
+                office: e.ClinicId || e.clinicId || '',
+                status: e.Status || e.status || 'operational',
+                purchaseDate: e.PurchaseDate || e.purchaseDate || '',
+                warranty: e.Warranty || e.warranty || '',
+                notes: e.Notes || e.notes || ''
+            }));
+            localStorage.setItem('equipment', JSON.stringify(localEquipment));
+            console.log('✅ Synced', localEquipment.length, 'equipment items from API');
+        }
+        return true;
+    } catch (error) {
+        console.error('❌ Error syncing equipment:', error);
+        return false;
+    }
+}
+
+// ============ INSTRUMENTS API FUNCTIONS ============
+async function saveInstrumentToAPI(instrumentData) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/instruments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: instrumentData.name,
+                category: instrumentData.category || '',
+                clinicId: instrumentData.clinicId || null,
+                quantity: instrumentData.quantity || 1,
+                status: instrumentData.status || 'available',
+                sterilizationDate: instrumentData.sterilizationDate || null,
+                notes: instrumentData.notes || ''
+            })
+        });
+        if (response.ok) {
+            console.log('✅ Instrument saved to database');
+            showSyncStatus('Instrument saved to database', true);
+        }
+    } catch (error) {
+        console.error('❌ Error saving instrument to API:', error);
+    }
+}
+
+async function syncInstrumentsFromAPI() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/instruments`);
+        if (!response.ok) return false;
+        const apiInstruments = await response.json();
+        if (apiInstruments && apiInstruments.length > 0) {
+            const localInstruments = apiInstruments.map(i => ({
+                id: `inst-${i.Id || i.id}`,
+                name: i.Name || i.name,
+                category: i.Category || i.category || '',
+                office: i.ClinicId || i.clinicId || '',
+                quantity: i.Quantity || i.quantity || 1,
+                status: i.Status || i.status || 'available',
+                sterilizationDate: i.SterilizationDate || i.sterilizationDate || '',
+                notes: i.Notes || i.notes || ''
+            }));
+            localStorage.setItem('instruments', JSON.stringify(localInstruments));
+            console.log('✅ Synced', localInstruments.length, 'instruments from API');
+        }
+        return true;
+    } catch (error) {
+        console.error('❌ Error syncing instruments:', error);
+        return false;
+    }
+}
+
+// ============ SUPPLIES API FUNCTIONS ============
+async function saveSupplyToAPI(supplyData) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/supplies`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: supplyData.name,
+                category: supplyData.category || '',
+                clinicId: supplyData.clinicId || null,
+                quantity: supplyData.quantity || 0,
+                minQuantity: supplyData.minQuantity || 0,
+                unit: supplyData.unit || '',
+                unitPrice: supplyData.unitPrice || null,
+                notes: supplyData.notes || ''
+            })
+        });
+        if (response.ok) {
+            console.log('✅ Supply saved to database');
+            showSyncStatus('Supply saved to database', true);
+        }
+    } catch (error) {
+        console.error('❌ Error saving supply to API:', error);
+    }
+}
+
+async function syncSuppliesFromAPI() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/supplies`);
+        if (!response.ok) return false;
+        const apiSupplies = await response.json();
+        if (apiSupplies && apiSupplies.length > 0) {
+            const localSupplies = apiSupplies.map(s => ({
+                id: `sup-${s.Id || s.id}`,
+                name: s.Name || s.name,
+                category: s.Category || s.category || '',
+                office: s.ClinicId || s.clinicId || '',
+                quantity: s.Quantity || s.quantity || 0,
+                minQuantity: s.MinQuantity || s.minQuantity || 0,
+                unit: s.Unit || s.unit || '',
+                unitPrice: s.UnitPrice || s.unitPrice || 0,
+                notes: s.Notes || s.notes || ''
+            }));
+            localStorage.setItem('supplies', JSON.stringify(localSupplies));
+            console.log('✅ Synced', localSupplies.length, 'supplies from API');
+        }
+        return true;
+    } catch (error) {
+        console.error('❌ Error syncing supplies:', error);
+        return false;
+    }
+}
+
+// ============ TASKS API FUNCTIONS ============
+async function saveTaskToAPI(taskData) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/tasks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: taskData.title || taskData.name,
+                description: taskData.description || '',
+                assignedUserId: taskData.assignedUserId || null,
+                clinicId: taskData.clinicId || null,
+                dueDate: taskData.dueDate || null,
+                priority: taskData.priority || 'medium',
+                status: taskData.status || 'pending',
+                category: taskData.category || ''
+            })
+        });
+        if (response.ok) {
+            const result = await response.json();
+            console.log('✅ Task saved to database:', result.id);
+            showSyncStatus('Task saved to database', true);
+            return result;
+        }
+    } catch (error) {
+        console.error('❌ Error saving task to API:', error);
+    }
+    return null;
+}
+
+async function updateTaskViaAPI(id, taskData) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(taskData)
+        });
+        if (response.ok) {
+            console.log('✅ Task updated in database');
+            showSyncStatus('Task updated', true);
+        }
+    } catch (error) {
+        console.error('❌ Error updating task:', error);
+    }
+}
+
+async function deleteTaskViaAPI(id) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        await fetch(`${API_BASE_URL}/tasks/${id}`, { method: 'DELETE' });
+        console.log('✅ Task deleted from database');
+    } catch (error) {
+        console.error('❌ Error deleting task:', error);
+    }
+}
+
+async function syncTasksFromAPI() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/tasks`);
+        if (!response.ok) return false;
+        const apiTasks = await response.json();
+        if (apiTasks && apiTasks.length > 0) {
+            const localTasks = apiTasks.map(t => ({
+                id: `task-${t.Id || t.id}`,
+                title: t.Title || t.title,
+                description: t.Description || t.description || '',
+                assignedTo: t.AssignedUserId || t.assignedUserId || '',
+                clinic: t.ClinicId || t.clinicId || '',
+                dueDate: t.DueDate || t.dueDate || '',
+                priority: t.Priority || t.priority || 'medium',
+                status: t.Status || t.status || 'pending',
+                category: t.Category || t.category || ''
+            }));
+            localStorage.setItem('tasks', JSON.stringify(localTasks));
+            console.log('✅ Synced', localTasks.length, 'tasks from API');
+        }
+        return true;
+    } catch (error) {
+        console.error('❌ Error syncing tasks:', error);
+        return false;
+    }
+}
+
+// ============ ROOMS API FUNCTIONS ============
+async function saveRoomToAPI(roomData) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/rooms`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: roomData.name,
+                clinicId: roomData.clinicId || null,
+                type: roomData.type || 'operatory',
+                color: roomData.color || '#3b82f6',
+                status: roomData.status || 'available'
+            })
+        });
+        if (response.ok) {
+            console.log('✅ Room saved to database');
+            showSyncStatus('Room saved to database', true);
+        }
+    } catch (error) {
+        console.error('❌ Error saving room to API:', error);
+    }
+}
+
+async function syncRoomsFromAPI() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/rooms`);
+        if (!response.ok) return false;
+        const apiRooms = await response.json();
+        if (apiRooms && apiRooms.length > 0) {
+            const localRooms = apiRooms.map(r => ({
+                id: `room-${r.Id || r.id}`,
+                name: r.Name || r.name,
+                clinic: r.ClinicId || r.clinicId || '',
+                type: r.Type || r.type || 'operatory',
+                color: r.Color || r.color || '#3b82f6',
+                status: r.Status || r.status || 'available'
+            }));
+            localStorage.setItem('rooms', JSON.stringify(localRooms));
+            console.log('✅ Synced', localRooms.length, 'rooms from API');
+        }
+        return true;
+    } catch (error) {
+        console.error('❌ Error syncing rooms:', error);
+        return false;
+    }
+}
+
+// ============ SCHEDULES API FUNCTIONS ============
+async function saveScheduleToAPI(scheduleData) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/schedules`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: scheduleData.userId || null,
+                clinicId: scheduleData.clinicId || null,
+                roomId: scheduleData.roomId || null,
+                startDate: scheduleData.startDate,
+                endDate: scheduleData.endDate || null,
+                startTime: scheduleData.startTime,
+                endTime: scheduleData.endTime,
+                daysOfWeek: scheduleData.daysOfWeek || '',
+                color: scheduleData.color || '#3b82f6',
+                notes: scheduleData.notes || ''
+            })
+        });
+        if (response.ok) {
+            const result = await response.json();
+            console.log('✅ Schedule saved to database:', result.id);
+            showSyncStatus('Schedule saved to database', true);
+            return result;
+        }
+    } catch (error) {
+        console.error('❌ Error saving schedule to API:', error);
+    }
+    return null;
+}
+
+async function syncSchedulesFromAPI() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/schedules`);
+        if (!response.ok) return false;
+        const apiSchedules = await response.json();
+        if (apiSchedules && apiSchedules.length > 0) {
+            const localSchedules = apiSchedules.map(s => ({
+                id: `sched-${s.Id || s.id}`,
+                employee: s.UserId || s.userId || '',
+                employeeName: s.EmployeeName || '',
+                clinic: s.ClinicId || s.clinicId || '',
+                clinicName: s.ClinicName || '',
+                room: s.RoomId || s.roomId || '',
+                roomName: s.RoomName || '',
+                startDate: s.StartDate || s.startDate,
+                endDate: s.EndDate || s.endDate || '',
+                startTime: s.StartTime || s.startTime,
+                endTime: s.EndTime || s.endTime,
+                daysOfWeek: s.DaysOfWeek || s.daysOfWeek || '',
+                color: s.Color || s.color || '#3b82f6',
+                notes: s.Notes || s.notes || ''
+            }));
+            localStorage.setItem('schedules', JSON.stringify(localSchedules));
+            console.log('✅ Synced', localSchedules.length, 'schedules from API');
+        }
+        return true;
+    } catch (error) {
+        console.error('❌ Error syncing schedules:', error);
+        return false;
+    }
+}
+
+// ============ VENDORS API FUNCTIONS ============
+async function saveVendorToAPI(vendorData) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/vendors`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: vendorData.name,
+                contactPerson: vendorData.contactPerson || '',
+                phone: vendorData.phone || '',
+                email: vendorData.email || '',
+                address: vendorData.address || '',
+                notes: vendorData.notes || ''
+            })
+        });
+        if (response.ok) {
+            console.log('✅ Vendor saved to database');
+            showSyncStatus('Vendor saved to database', true);
+        }
+    } catch (error) {
+        console.error('❌ Error saving vendor to API:', error);
+    }
+}
+
+async function syncVendorsFromAPI() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/vendors`);
+        if (!response.ok) return false;
+        const apiVendors = await response.json();
+        if (apiVendors && apiVendors.length > 0) {
+            const localVendors = apiVendors.map(v => ({
+                id: `vendor-${v.Id || v.id}`,
+                name: v.Name || v.name,
+                contactPerson: v.ContactPerson || v.contactPerson || '',
+                phone: v.Phone || v.phone || '',
+                email: v.Email || v.email || '',
+                address: v.Address || v.address || '',
+                notes: v.Notes || v.notes || ''
+            }));
+            localStorage.setItem('vendors', JSON.stringify(localVendors));
+            console.log('✅ Synced', localVendors.length, 'vendors from API');
+        }
+        return true;
+    } catch (error) {
+        console.error('❌ Error syncing vendors:', error);
+        return false;
+    }
+}
+
+// ============ ENHANCED LOAD ALL DATA ============
+async function loadAllDataFromAPI() {
+    console.log('🔄 Loading ALL data from API...');
+    showSyncStatus('Syncing with database...', true);
+    
+    try {
+        await Promise.all([
+            syncUsersFromAPI(),
+            syncClinicsFromAPI(),
+            syncRoomsFromAPI(),
+            syncEquipmentFromAPI(),
+            syncInstrumentsFromAPI(),
+            syncSuppliesFromAPI(),
+            syncTasksFromAPI(),
+            syncSchedulesFromAPI(),
+            syncVendorsFromAPI()
+        ]);
+        
+        console.log('✅ All data synced from database');
+        showSyncStatus('All data synced from database!', true);
+        
+        // Refresh UI if needed
+        if (typeof renderUsersTable === 'function') renderUsersTable();
+        if (typeof displayEquipmentList === 'function') displayEquipmentList();
+        if (typeof displayInstrumentsList === 'function') displayInstrumentsList();
+        if (typeof displaySuppliesList === 'function') displaySuppliesList();
+        
+    } catch (error) {
+        console.error('❌ Error loading data from API:', error);
+        showSyncStatus('Error syncing data', false);
+    }
+}
+
+// Override loadDataFromAPI to use enhanced version
+loadDataFromAPI = loadAllDataFromAPI;
 </script>
 
 </body></html>
