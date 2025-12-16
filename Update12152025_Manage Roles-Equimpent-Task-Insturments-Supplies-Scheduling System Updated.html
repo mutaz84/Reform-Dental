@@ -34021,7 +34021,243 @@ document.addEventListener('DOMContentLoaded', function() {
     if (typeof syncAllData === 'function') {
         syncAllData();
     }
+    
+    // Load data from API on startup
+    if (typeof loadDataFromAPI === 'function') {
+        loadDataFromAPI();
+    }
 });
+
+// ========================================
+// API INTEGRATION - Connect to Azure SQL Database
+// ========================================
+const API_BASE_URL = '/api';
+
+// Fetch users from API and sync with localStorage
+async function fetchUsersFromAPI() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/users`);
+        if (!response.ok) throw new Error('Failed to fetch users');
+        const users = await response.json();
+        console.log('✅ Fetched', users.length, 'users from API');
+        return users;
+    } catch (error) {
+        console.error('❌ Error fetching users from API:', error);
+        return null;
+    }
+}
+
+// Fetch clinics from API
+async function fetchClinicsFromAPI() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/clinics`);
+        if (!response.ok) throw new Error('Failed to fetch clinics');
+        const clinics = await response.json();
+        console.log('✅ Fetched', clinics.length, 'clinics from API');
+        return clinics;
+    } catch (error) {
+        console.error('❌ Error fetching clinics from API:', error);
+        return null;
+    }
+}
+
+// Sync API users to localStorage format
+async function syncUsersFromAPI() {
+    const apiUsers = await fetchUsersFromAPI();
+    if (!apiUsers) return false;
+    
+    // Convert API format to localStorage format
+    const localUsers = {};
+    apiUsers.forEach(user => {
+        const username = user.Username || user.username;
+        localUsers[username] = {
+            id: user.Id || user.id,
+            password: '***', // Don't store passwords in localStorage
+            role: user.Role || user.role || 'user',
+            name: `${user.FirstName || ''} ${user.LastName || ''}`.trim(),
+            firstName: user.FirstName || user.firstName || '',
+            lastName: user.LastName || user.lastName || '',
+            jobTitle: user.JobTitle || user.jobTitle || '',
+            staffType: user.StaffType || user.staffType || 'non-clinical',
+            employeeStatus: user.EmployeeStatus || user.employeeStatus || 'active',
+            workEmail: user.WorkEmail || user.workEmail || '',
+            cellPhone: user.CellPhone || user.cellPhone || '',
+            permissions: getDefaultPermissions(user.Role || user.role || 'user')
+        };
+    });
+    
+    // Merge with existing localStorage users (keep local-only users)
+    const existingUsers = JSON.parse(localStorage.getItem('appUsers') || '{}');
+    const mergedUsers = { ...existingUsers, ...localUsers };
+    
+    localStorage.setItem('appUsers', JSON.stringify(mergedUsers));
+    console.log('✅ Synced', Object.keys(localUsers).length, 'users from API to localStorage');
+    
+    // Refresh employee resources
+    if (typeof loadEmployeeResourcesFromUsers === 'function') {
+        loadEmployeeResourcesFromUsers();
+    }
+    
+    // Refresh the users table if visible
+    if (typeof renderUsersTable === 'function') {
+        renderUsersTable();
+    }
+    
+    return true;
+}
+
+// Sync API clinics to localStorage
+async function syncClinicsFromAPI() {
+    const apiClinics = await fetchClinicsFromAPI();
+    if (!apiClinics || apiClinics.length === 0) return false;
+    
+    // Convert API format to localStorage format
+    const localClinics = apiClinics.map(clinic => ({
+        id: `clinic-${clinic.Id || clinic.id}`,
+        name: clinic.Name || clinic.name,
+        address: clinic.Address || clinic.address || '',
+        city: clinic.City || clinic.city || '',
+        state: clinic.State || clinic.state || '',
+        phone: clinic.Phone || clinic.phone || '',
+        email: clinic.Email || clinic.email || '',
+        color: clinic.Color || clinic.color || '#3b82f6',
+        icon: clinic.Icon || clinic.icon || 'fa-hospital'
+    }));
+    
+    localStorage.setItem('clinics', JSON.stringify(localClinics));
+    
+    // Update master data
+    if (typeof masterData !== 'undefined') {
+        masterData.clinics = localClinics;
+    }
+    
+    console.log('✅ Synced', localClinics.length, 'clinics from API');
+    return true;
+}
+
+// Create user via API
+async function createUserViaAPI(userData) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: userData.username,
+                password: userData.password || 'changeme123',
+                firstName: userData.firstName,
+                lastName: userData.lastName,
+                role: userData.role || 'user',
+                staffType: userData.staffType || 'non-clinical',
+                employeeStatus: userData.employeeStatus || 'active'
+            })
+        });
+        
+        if (!response.ok) throw new Error('Failed to create user');
+        const result = await response.json();
+        console.log('✅ User created via API:', result);
+        
+        // Sync users after creation
+        await syncUsersFromAPI();
+        return result;
+    } catch (error) {
+        console.error('❌ Error creating user via API:', error);
+        return null;
+    }
+}
+
+// Login via API
+async function loginViaAPI(username, password) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok || !result.success) {
+            console.error('❌ Login failed:', result.error);
+            return null;
+        }
+        
+        console.log('✅ Login successful:', result.user);
+        return result.user;
+    } catch (error) {
+        console.error('❌ Error during API login:', error);
+        return null;
+    }
+}
+
+// Create clinic via API
+async function createClinicViaAPI(clinicData) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/clinics`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: clinicData.name,
+                address: clinicData.address,
+                city: clinicData.city,
+                state: clinicData.state,
+                phone: clinicData.phone,
+                email: clinicData.email
+            })
+        });
+        
+        if (!response.ok) throw new Error('Failed to create clinic');
+        const result = await response.json();
+        console.log('✅ Clinic created via API:', result);
+        
+        // Sync clinics after creation
+        await syncClinicsFromAPI();
+        return result;
+    } catch (error) {
+        console.error('❌ Error creating clinic via API:', error);
+        return null;
+    }
+}
+
+// Load all data from API on startup
+async function loadDataFromAPI() {
+    console.log('🔄 Loading data from API...');
+    
+    try {
+        // Sync users first
+        await syncUsersFromAPI();
+        
+        // Sync clinics
+        await syncClinicsFromAPI();
+        
+        console.log('✅ All data synced from API');
+    } catch (error) {
+        console.error('❌ Error loading data from API:', error);
+    }
+}
+
+// Show API sync status
+function showSyncStatus(message, isSuccess = true) {
+    const statusDiv = document.createElement('div');
+    statusDiv.style.cssText = `
+        position: fixed; 
+        bottom: 20px; 
+        right: 20px; 
+        background: ${isSuccess ? '#10b981' : '#ef4444'}; 
+        color: white; 
+        padding: 0.75rem 1.25rem; 
+        border-radius: 8px; 
+        z-index: 10001; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        font-size: 0.875rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    `;
+    statusDiv.innerHTML = `<i class="fas fa-${isSuccess ? 'cloud-download-alt' : 'exclamation-triangle'}"></i> ${message}`;
+    document.body.appendChild(statusDiv);
+    
+    setTimeout(() => statusDiv.remove(), 3000);
+}
 </script>
 
 </body></html>
