@@ -1,7 +1,7 @@
 // Schedules API Functions
 const { app } = require('@azure/functions');
-const { execute } = require('../shared/database');
-const { successResponse, errorResponse, handleOptions } = require('../shared/response');
+const { execute } = require('./shared/database');
+const { successResponse, errorResponse, handleOptions } = require('./shared/response');
 
 // GET all schedules
 app.http('getSchedules', {
