@@ -11052,6 +11052,16 @@
                 if (response.ok) {
                     console.log('✅ User saved to database:', username, result);
                     showSyncStatus('User saved to database', true);
+                    
+                    // Store the database ID back in localStorage
+                    if (result.id) {
+                        const users = JSON.parse(localStorage.getItem('appUsers') || '{}');
+                        if (users[username]) {
+                            users[username].id = result.id;
+                            localStorage.setItem('appUsers', JSON.stringify(users));
+                            console.log('📝 Stored database ID:', result.id, 'for user:', username);
+                        }
+                    }
                 } else {
                     console.error('❌ API error:', response.status, result);
                     showSyncStatus('Failed to save user to database: ' + (result.error || result.details || 'Unknown error'), false);
@@ -11470,14 +11480,20 @@
             if (confirm(`Are you sure you want to delete user "${username}"?`)) {
                 const users = loadUsers();
                 const userId = users[username]?.id;
+                console.log('🗑️ Deleting user:', username, 'Database ID:', userId);
+                
+                // Delete from database FIRST (before removing from local storage)
+                if (userId) {
+                    deleteUserViaAPI(userId);
+                } else {
+                    console.warn('⚠️ User has no database ID, cannot delete from Azure');
+                    showSyncStatus('User deleted locally only (no database ID)', false);
+                }
+                
+                // Then delete from localStorage
                 delete users[username];
                 saveUsers(users);
                 displayUsersList();
-                
-                // Also delete from database
-                if (userId && typeof deleteUserViaAPI === 'function') {
-                    deleteUserViaAPI(userId);
-                }
             }
         }
 
