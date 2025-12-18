@@ -13346,6 +13346,31 @@
             }
         }
 
+        // Refresh vendors from API (manual refresh button)
+        async function refreshVendorsFromAPI() {
+            const refreshBtn = event.target.closest('button');
+            const originalContent = refreshBtn.innerHTML;
+            refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing...';
+            refreshBtn.disabled = true;
+            
+            try {
+                await syncVendorsFromAPI();
+                displayVendorsList();
+                refreshBtn.innerHTML = '<i class="fas fa-check"></i> Synced!';
+                setTimeout(() => {
+                    refreshBtn.innerHTML = originalContent;
+                    refreshBtn.disabled = false;
+                }, 1500);
+            } catch (error) {
+                console.error('Error refreshing vendors:', error);
+                refreshBtn.innerHTML = '<i class="fas fa-times"></i> Error';
+                setTimeout(() => {
+                    refreshBtn.innerHTML = originalContent;
+                    refreshBtn.disabled = false;
+                }, 1500);
+            }
+        }
+
         // Open schedule manager modal
         function openScheduleManager() {
             // Remove existing modal if any
@@ -33936,10 +33961,16 @@ document.addEventListener('keydown', function(e) {
                         <i class="fas fa-list" style="color: var(--accent-primary);"></i>
                         Vendors List
                     </h4>
-                    <button onclick="openAddVendorForm()" style="padding: 0.75rem 1.5rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
-                        <i class="fas fa-plus"></i>
-                        Add New Vendor
-                    </button>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button onclick="refreshVendorsFromAPI()" style="padding: 0.75rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Refresh from database">
+                            <i class="fas fa-sync-alt"></i>
+                            Refresh
+                        </button>
+                        <button onclick="openAddVendorForm()" style="padding: 0.75rem 1.5rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                            <i class="fas fa-plus"></i>
+                            Add New Vendor
+                        </button>
+                    </div>
                 </div>
                 <div style="overflow-x: auto;">
                     <table style="width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 8px; overflow: hidden;">
