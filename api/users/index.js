@@ -151,9 +151,10 @@ module.exports = async function (context, req) {
                         Color=@color, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'User updated' } };
         } else if (req.method === 'DELETE' && id) {
+            // Hard delete - actually remove the user from database
             await pool.request()
                 .input('id', sql.Int, id)
-                .query('UPDATE Users SET IsActive = 0 WHERE Id = @id');
+                .query('DELETE FROM Users WHERE Id = @id');
             context.res = { status: 200, headers, body: { message: 'User deleted' } };
         }
 
