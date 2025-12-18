@@ -11235,6 +11235,7 @@
             const modalIds = [
                 'userManagementModal',
                 'officesManagementModal',
+                'roomsManagementModal',
                 'vendorsManagementModal',
                 'equipmentManagementModal',
                 'instrumentsManagementModal',
@@ -12676,6 +12677,9 @@
         function createRoom(event) {
             event.preventDefault();
             
+            const editId = document.getElementById('editRoomId').value;
+            const isEdit = !!editId;
+            
             const officeID = document.getElementById('newOfficeID').value;
             const roomNumber = document.getElementById('newRoomNumber').value.trim();
             const roomName = document.getElementById('newRoomName').value.trim();
@@ -12709,50 +12713,77 @@
             // Load existing rooms
             const rooms = loadRooms();
             
-            // Check if room number already exists for this office
-            const roomExists = rooms.some(r => r.officeID === officeID && r.roomNumber === roomNumber);
-            if (roomExists) {
+            if (isEdit) {
+                // Update existing room
+                const index = rooms.findIndex(r => r.roomID === parseInt(editId));
+                if (index > -1) {
+                    rooms[index] = {
+                        ...rooms[index],
+                        officeID,
+                        roomNumber,
+                        roomName,
+                        roomType,
+                        roomCategory,
+                        dimensions,
+                        color,
+                        status,
+                        notes,
+                        isActive,
+                        modifiedDate: new Date().toISOString()
+                    };
+                    saveRooms(rooms);
+                    
+                    errorDiv.style.display = 'block';
+                    errorDiv.style.background = '#d4edda';
+                    errorDiv.style.borderColor = '#c3e6cb';
+                    errorDiv.style.color = '#155724';
+                    errorDiv.textContent = `Room "${roomName}" updated successfully!`;
+                }
+            } else {
+                // Check if room number already exists for this office
+                const roomExists = rooms.some(r => r.officeID === officeID && r.roomNumber === roomNumber);
+                if (roomExists) {
+                    errorDiv.style.display = 'block';
+                    errorDiv.textContent = 'A room with this number already exists in the selected office.';
+                    return;
+                }
+                
+                // Create new room object
+                const newRoom = {
+                    roomID: Date.now(),
+                    officeID,
+                    roomNumber,
+                    roomName,
+                    roomType,
+                    roomCategory,
+                    dimensions,
+                    color,
+                    status,
+                    notes,
+                    isActive,
+                    createdDate: new Date().toISOString()
+                };
+                
+                rooms.push(newRoom);
+                saveRooms(rooms, {
+                    name: roomName,
+                    clinicId: officeID ? parseInt(officeID) : null,
+                    type: roomType,
+                    color: color,
+                    status: status
+                });
+                
                 errorDiv.style.display = 'block';
-                errorDiv.textContent = 'A room with this number already exists in the selected office.';
-                return;
+                errorDiv.style.background = '#d4edda';
+                errorDiv.style.borderColor = '#c3e6cb';
+                errorDiv.style.color = '#155724';
+                errorDiv.textContent = `Room "${roomName}" created successfully!`;
             }
             
-            // Create new room object
-            const newRoom = {
-                roomID: Date.now(), // Generate unique ID
-                officeID: officeID,
-                roomNumber: roomNumber,
-                roomName: roomName,
-                roomType: roomType,
-                roomCategory: roomCategory,
-                dimensions: dimensions,
-                color: color,
-                status: status,
-                notes: notes,
-                isActive: isActive,
-                createdDate: new Date().toISOString()
-            };
-            
-            // Add to rooms array
-            rooms.push(newRoom);
-            // Save to localStorage and sync to API
-            saveRooms(rooms, {
-                name: roomName,
-                clinicId: officeID ? parseInt(officeID) : null,
-                type: roomType,
-                color: color,
-                status: status
-            });
-            
-            // Show success message
-            errorDiv.style.display = 'block';
-            errorDiv.style.background = '#d4edda';
-            errorDiv.style.borderColor = '#c3e6cb';
-            errorDiv.style.color = '#155724';
-            errorDiv.textContent = `Room "${roomName}" created successfully!`;
-            
-            // Reset form
+            // Reset form and hide form section
             document.getElementById('createRoomForm').reset();
+            document.getElementById('editRoomId').value = '';
+            document.getElementById('roomFormSection').style.display = 'none';
             
             // Refresh rooms list
             displayRoomsList();
@@ -12769,35 +12800,101 @@
         // Display rooms list
         function displayRoomsList() {
             const rooms = loadRooms();
+            const offices = loadOffices();
             const roomsList = document.getElementById('roomsList');
             
             if (!roomsList) return;
             
             if (rooms.length === 0) {
-                roomsList.innerHTML = '<p style="color: var(--text-tertiary); text-align: center; padding: 2rem;">No rooms added yet.</p>';
+                roomsList.innerHTML = '<tr><td colspan="6" style="padding: 2rem; text-align: center; color: var(--text-tertiary);">No rooms added yet. Click "Add New Room" to get started.</td></tr>';
                 return;
             }
             
-            roomsList.innerHTML = rooms.map(room => `
-                <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="flex: 1;">
-                        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
-                            <div style="width: 30px; height: 30px; border-radius: 6px; background: ${room.color};"></div>
+            roomsList.innerHTML = rooms.map(room => {
+                const office = offices.find(o => o.officeID == room.officeID);
+                const officeName = office ? office.officeName : 'Unknown';
+                
+                return `
+                <tr style="border-bottom: 1px solid var(--border-color); transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='transparent'">
+                    <td style="padding: 1rem; color: var(--text-primary);">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <div style="width: 24px; height: 24px; border-radius: 4px; background: ${room.color || '#06b6d4'};"></div>
                             <div>
-                                <div style="font-weight: 600; color: var(--text-primary); font-size: 1.05rem;">${room.roomName}</div>
-                                <div style="color: var(--text-secondary); font-size: 0.9rem;">Room #${room.roomNumber} • ${room.roomType}</div>
+                                <div style="font-weight: 600;">${room.roomName}</div>
+                                <div style="font-size: 0.8rem; color: var(--text-tertiary);">#${room.roomNumber}</div>
                             </div>
                         </div>
-                        <div style="display: flex; gap: 1.5rem; margin-top: 0.75rem; flex-wrap: wrap;">
-                            ${room.dimensions ? `<span style="color: var(--text-tertiary); font-size: 0.85rem;"><i class="fas fa-ruler-combined" style="margin-right: 0.4rem;"></i>${room.dimensions}</span>` : ''}
-                            <span style="color: var(--text-tertiary); font-size: 0.85rem;"><i class="fas fa-circle" style="margin-right: 0.4rem; color: ${room.isActive ? '#10b981' : '#ef4444'};"></i>${room.status}</span>
+                    </td>
+                    <td style="padding: 1rem; color: var(--text-secondary);">${officeName}</td>
+                    <td style="padding: 1rem;">
+                        <span style="background: #06b6d420; color: #06b6d4; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">${room.roomType}</span>
+                    </td>
+                    <td style="padding: 1rem; color: var(--text-secondary);">${room.roomCategory || '-'}</td>
+                    <td style="padding: 1rem;">
+                        <span style="color: ${room.status === 'Active' ? '#10b981' : room.status === 'Maintenance' ? '#f59e0b' : '#ef4444'};">
+                            <i class="fas fa-circle" style="font-size: 0.5rem; margin-right: 0.5rem;"></i>${room.status}
+                        </span>
+                    </td>
+                    <td style="padding: 1rem; text-align: center;">
+                        <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                            <button onclick="editRoom(${room.roomID})" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit Room">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="deleteRoom(${room.roomID})" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete Room">
+                                <i class="fas fa-trash"></i>
+                            </button>
                         </div>
-                    </div>
-                    <button onclick="deleteRoom(${room.roomID})" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
-            `).join('');
+                    </td>
+                </tr>
+            `;
+            }).join('');
+        }
+
+        // Open Add Room Form
+        function openAddRoomForm() {
+            document.getElementById('roomFormSection').style.display = 'block';
+            document.getElementById('roomFormTitle').textContent = 'Add New Room';
+            document.getElementById('roomSubmitBtn').innerHTML = '<i class="fas fa-plus-circle" style="margin-right: 0.5rem;"></i>Add Room';
+            document.getElementById('editRoomId').value = '';
+            document.getElementById('createRoomForm').reset();
+            document.getElementById('newIsActive').checked = true;
+            populateOfficeDropdownForRooms();
+            document.getElementById('roomFormSection').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Close Room Form
+        function closeRoomForm() {
+            document.getElementById('roomFormSection').style.display = 'none';
+            document.getElementById('createRoomForm').reset();
+            document.getElementById('editRoomId').value = '';
+        }
+
+        // Edit Room
+        function editRoom(roomID) {
+            const rooms = loadRooms();
+            const room = rooms.find(r => r.roomID === roomID);
+            
+            if (!room) return;
+            
+            document.getElementById('roomFormSection').style.display = 'block';
+            document.getElementById('roomFormTitle').textContent = 'Edit Room';
+            document.getElementById('roomSubmitBtn').innerHTML = '<i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save Changes';
+            
+            populateOfficeDropdownForRooms();
+            
+            document.getElementById('editRoomId').value = room.roomID;
+            document.getElementById('newOfficeID').value = room.officeID || '';
+            document.getElementById('newRoomNumber').value = room.roomNumber || '';
+            document.getElementById('newRoomName').value = room.roomName || '';
+            document.getElementById('newRoomType').value = room.roomType || '';
+            document.getElementById('newRoomCategory').value = room.roomCategory || '';
+            document.getElementById('newDimensions').value = room.dimensions || '';
+            document.getElementById('newRoomColor').value = room.color || '#06b6d4';
+            document.getElementById('newRoomStatus').value = room.status || 'Active';
+            document.getElementById('newRoomNotes').value = room.notes || '';
+            document.getElementById('newIsActive').checked = room.isActive !== false;
+            
+            document.getElementById('roomFormSection').scrollIntoView({ behavior: 'smooth' });
         }
 
         // Delete room
@@ -32526,9 +32623,38 @@ document.addEventListener('keydown', function(e) {
         </div>
         
         <div class="modal-body" style="padding: 2rem;">
-            <!-- Add New Room Form -->
-            <div style="background: var(--bg-secondary); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
-                <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Add New Room</h4>
+            <!-- Rooms List First -->
+            <div style="margin-bottom: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h4 style="margin: 0; color: var(--text-primary);">Rooms</h4>
+                    <button onclick="openAddRoomForm()" style="padding: 0.75rem 1.5rem; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; transition: all 0.3s ease; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.3);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(6, 182, 212, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(6, 182, 212, 0.3)'">
+                        <i class="fas fa-plus-circle"></i>
+                        Add New Room
+                    </button>
+                </div>
+                <div style="background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border-color); overflow: hidden;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: var(--bg-secondary);">
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Room</th>
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Office</th>
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Type</th>
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Category</th>
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Status</th>
+                                <th style="padding: 1rem; text-align: center; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="roomsList">
+                            <!-- Rooms will be dynamically added here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Add/Edit Room Form (Hidden by default) -->
+            <div id="roomFormSection" style="display: none; background: var(--bg-secondary); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                <h4 id="roomFormTitle" style="margin: 0 0 1rem 0; color: var(--text-primary);">Add New Room</h4>
+                <input type="hidden" id="editRoomId" value="">
                 <form id="createRoomForm" onsubmit="createRoom(event)">
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
@@ -32614,24 +32740,16 @@ document.addEventListener('keydown', function(e) {
 
                     <div id="createRoomError" class="login-error" style="display: none;"></div>
                     <div style="display: flex; gap: 1rem;">
-                        <button type="submit" class="login-btn" style="width: auto; padding: 0.75rem 2rem;">
+                        <button type="submit" id="roomSubmitBtn" class="login-btn" style="width: auto; padding: 0.75rem 2rem;">
                             <i class="fas fa-plus-circle" style="margin-right: 0.5rem;"></i>
                             Add Room
                         </button>
-                        <button type="button" onclick="closeRoomsManagement()" style="padding: 0.75rem 2rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-weight: 600; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                        <button type="button" onclick="closeRoomForm()" style="padding: 0.75rem 2rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-weight: 600; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
                             <i class="fas fa-times" style="margin-right: 0.5rem;"></i>
-                            Close
+                            Cancel
                         </button>
                     </div>
                 </form>
-            </div>
-
-            <!-- Rooms List -->
-            <div>
-                <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Existing Rooms</h4>
-                <div id="roomsList" style="display: grid; gap: 1rem;">
-                    <!-- Rooms will be dynamically added here -->
-                </div>
             </div>
         </div>
     </div>
