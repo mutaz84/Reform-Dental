@@ -9349,23 +9349,14 @@
                                 <i class="fas fa-clipboard-check" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
                                 My Duties
                             </h2>
+                            <button onclick="openDutiesManagement()" style="padding: 0.5rem 1rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem;">
+                                <i class="fas fa-cog"></i> Manage Duties
+                            </button>
                         </div>
-                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                            <div style="padding: 0.75rem; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #ef4444;">
-                                <div style="font-weight: 600; color: #212529; font-size: 0.9rem;">Morning Sterilization</div>
-                                <div style="font-size: 0.75rem; color: #6c757d; margin-top: 0.25rem;"><i class="fas fa-clock"></i> 7:30 AM</div>
-                            </div>
-                            <div style="padding: 0.75rem; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #eab308;">
-                                <div style="font-weight: 600; color: #212529; font-size: 0.9rem;">Patient Check-ins</div>
-                                <div style="font-size: 0.75rem; color: #6c757d; margin-top: 0.25rem;"><i class="fas fa-clock"></i> 8:00 AM - 5:00 PM</div>
-                            </div>
-                            <div style="padding: 0.75rem; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #10b981;">
-                                <div style="font-weight: 600; color: #212529; font-size: 0.9rem;">Inventory Check</div>
-                                <div style="font-size: 0.75rem; color: #6c757d; margin-top: 0.25rem;"><i class="fas fa-calendar"></i> Every Friday</div>
-                            </div>
-                            <div style="padding: 0.75rem; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #ef4444;">
-                                <div style="font-weight: 600; color: #212529; font-size: 0.9rem;">End-of-Day Reconciliation</div>
-                                <div style="font-size: 0.75rem; color: #6c757d; margin-top: 0.25rem;"><i class="fas fa-clock"></i> 5:00 PM</div>
+                        <div id="myDutiesContainer" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                                <i class="fas fa-spinner fa-spin" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+                                <p>Loading duties...</p>
                             </div>
                         </div>
                     </div>
@@ -10699,6 +10690,9 @@
             loadUsers(); // Load users without logging
             checkAuth();
             updateUIForRole();
+            
+            // Load duties from API
+            loadDutiesFromAPI();
         });
 
         // ============ USER MANAGEMENT SYSTEM ============
@@ -11325,7 +11319,7 @@
         }
 
         // Create new user
-        function createUser(event) {
+        async function createUser(event) {
             event.preventDefault();
             
             // Get all form values
@@ -11478,18 +11472,25 @@
             // Save to storage
             saveUsers(users);
             
-            // Also save to database API
-            saveUserToAPI(username, users[username]);
+            // Also save to database API and get the user ID
+            const savedUser = await saveUserToAPI(username, users[username]);
+            
+            // Assign selected duties to the new user
+            const selectedDutyIds = getSelectedDutyIds();
+            if (selectedDutyIds.length > 0 && savedUser && savedUser.id) {
+                await assignDutiesToUser(savedUser.id, selectedDutyIds);
+            }
             
             // Show success message
             errorDiv.style.display = 'block';
             errorDiv.style.background = '#d4edda';
             errorDiv.style.borderColor = '#c3e6cb';
             errorDiv.style.color = '#155724';
-            errorDiv.textContent = `Employee "${fullName}" created successfully!`;
+            errorDiv.textContent = `Employee "${fullName}" created successfully!${selectedDutyIds.length > 0 ? ` (${selectedDutyIds.length} duties assigned)` : ''}`;
             
             // Reset form
             document.getElementById('createUserForm').reset();
+            clearAllDuties();
             
             // Clear uploaded files
             uploadedPhoto = null;
@@ -11499,6 +11500,9 @@
             
             // Refresh users list
             displayUsersList();
+            
+            // Refresh duties data
+            loadDutiesFromAPI();
             
             // Hide success message after 3 seconds
             setTimeout(() => {
@@ -26987,6 +26991,324 @@ window.addEventListener('load', function() {
         // Global Tasks Data Store - Loaded from API
         window.tasksData = [];
         
+        // Global Duties Data Store - Loaded from API
+        window.dutiesData = [];
+        
+        // Load Duties from API
+        async function loadDutiesFromAPI() {
+            try {
+                const response = await fetch('/api/duties');
+                if (response.ok) {
+                    window.dutiesData = await response.json();
+                    console.log('Loaded duties from API:', window.dutiesData.length);
+                    renderDutiesCheckboxes();
+                    renderMyDuties();
+                    return window.dutiesData;
+                }
+            } catch (error) {
+                console.error('Error loading duties:', error);
+            }
+            return [];
+        }
+        
+        // Render duties checkboxes in user creation form
+        function renderDutiesCheckboxes() {
+            const container = document.getElementById('dutiesCheckboxContainer');
+            if (!container) return;
+            
+            if (window.dutiesData.length === 0) {
+                container.innerHTML = `
+                    <div style="color: var(--text-tertiary); font-style: italic; padding: 1rem; grid-column: 1 / -1; text-align: center;">
+                        <i class="fas fa-info-circle"></i> No duties available. Create duties in the Duties management section.
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = window.dutiesData.map(duty => `
+                <label style="display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem; background: var(--card-bg); border-radius: 6px; cursor: pointer; border: 1px solid var(--border-color); transition: all 0.2s;" 
+                       onmouseover="this.style.borderColor='var(--accent-primary)'" 
+                       onmouseout="this.style.borderColor='var(--border-color)'">
+                    <input type="checkbox" name="selectedDuties" value="${duty.Id}" style="margin-top: 0.25rem; width: 18px; height: 18px; cursor: pointer;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">${duty.Name}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.25rem;">
+                            <i class="fas fa-clock" style="margin-right: 0.25rem;"></i>${duty.ScheduleTime || duty.Schedule}
+                            ${duty.ScheduleDay ? `<span style="margin-left: 0.5rem;"><i class="fas fa-calendar" style="margin-right: 0.25rem;"></i>${duty.ScheduleDay}</span>` : ''}
+                        </div>
+                        ${duty.Description ? `<div style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.25rem;">${duty.Description.substring(0, 60)}${duty.Description.length > 60 ? '...' : ''}</div>` : ''}
+                    </div>
+                </label>
+            `).join('');
+        }
+        
+        // Select/Clear all duties
+        function selectAllDuties() {
+            document.querySelectorAll('input[name="selectedDuties"]').forEach(cb => cb.checked = true);
+        }
+        
+        function clearAllDuties() {
+            document.querySelectorAll('input[name="selectedDuties"]').forEach(cb => cb.checked = false);
+        }
+        
+        // Get selected duty IDs
+        function getSelectedDutyIds() {
+            const selected = [];
+            document.querySelectorAll('input[name="selectedDuties"]:checked').forEach(cb => {
+                selected.push(parseInt(cb.value));
+            });
+            return selected;
+        }
+        
+        // Assign duties to user
+        async function assignDutiesToUser(userId, dutyIds) {
+            try {
+                for (const dutyId of dutyIds) {
+                    await fetch(`/api/duties/${dutyId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ...window.dutiesData.find(d => d.Id === dutyId),
+                            assignedToUserId: userId
+                        })
+                    });
+                }
+                console.log(`Assigned ${dutyIds.length} duties to user ${userId}`);
+            } catch (error) {
+                console.error('Error assigning duties:', error);
+            }
+        }
+        
+        // Render My Duties in the duties view
+        function renderMyDuties() {
+            const container = document.getElementById('myDutiesContainer');
+            if (!container) return;
+            
+            const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+            
+            // Filter duties for current user if logged in
+            let myDuties = window.dutiesData;
+            if (currentUser && currentUser.id) {
+                myDuties = window.dutiesData.filter(d => d.AssignedToUserId == currentUser.id);
+            }
+            
+            if (myDuties.length === 0) {
+                container.innerHTML = `
+                    <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                        <i class="fas fa-clipboard-check" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p>No duties assigned</p>
+                        <p style="font-size: 0.85rem; margin-top: 0.5rem;">Talk to your supervisor to get duties assigned.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const priorityColors = {
+                'High': '#ef4444',
+                'Medium': '#eab308',
+                'Low': '#10b981'
+            };
+            
+            container.innerHTML = myDuties.map(duty => `
+                <div style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px; border-left: 4px solid ${priorityColors[duty.Priority] || '#3b82f6'};">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">${duty.Name}</div>
+                        <span style="font-size: 0.7rem; padding: 0.2rem 0.5rem; background: ${priorityColors[duty.Priority] || '#3b82f6'}20; color: ${priorityColors[duty.Priority] || '#3b82f6'}; border-radius: 4px;">${duty.Priority}</span>
+                    </div>
+                    ${duty.Description ? `<div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.25rem;">${duty.Description}</div>` : ''}
+                    <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.5rem; display: flex; gap: 1rem; flex-wrap: wrap;">
+                        ${duty.ScheduleTime ? `<span><i class="fas fa-clock"></i> ${duty.ScheduleTime}</span>` : ''}
+                        ${duty.ScheduleDay ? `<span><i class="fas fa-calendar"></i> ${duty.ScheduleDay}</span>` : ''}
+                        ${duty.Schedule && !duty.ScheduleTime && !duty.ScheduleDay ? `<span><i class="fas fa-sync"></i> ${duty.Schedule}</span>` : ''}
+                        ${duty.Location ? `<span><i class="fas fa-map-marker-alt"></i> ${duty.Location}</span>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Duties Management Modal Functions
+        let editingDutyId = null;
+        
+        function openDutiesManagement() {
+            const modal = document.getElementById('dutiesManagementModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                renderDutiesList();
+                populateDutyUserDropdown();
+            }
+        }
+        
+        function closeDutiesManagement() {
+            const modal = document.getElementById('dutiesManagementModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+            editingDutyId = null;
+            resetDutyForm();
+        }
+        
+        // Populate user dropdown in duty form
+        async function populateDutyUserDropdown() {
+            const select = document.getElementById('dutyAssignedTo');
+            if (!select) return;
+            
+            try {
+                const response = await fetch('/api/users');
+                if (response.ok) {
+                    const users = await response.json();
+                    select.innerHTML = '<option value="">-- Unassigned --</option>' + 
+                        users.map(u => `<option value="${u.Id}">${u.FirstName} ${u.LastName} (${u.JobTitle || 'No Title'})</option>`).join('');
+                }
+            } catch (error) {
+                console.error('Error loading users for dropdown:', error);
+            }
+        }
+        
+        function renderDutiesList() {
+            const container = document.getElementById('dutiesListContainer');
+            if (!container) return;
+            
+            // Update count
+            const countEl = document.getElementById('dutiesCount');
+            if (countEl) countEl.textContent = window.dutiesData.length;
+            
+            if (window.dutiesData.length === 0) {
+                container.innerHTML = `
+                    <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                        <i class="fas fa-clipboard-check" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p>No duties created yet</p>
+                        <p style="font-size: 0.85rem; margin-top: 0.5rem;">Create your first duty using the form.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const priorityColors = {
+                'High': '#ef4444',
+                'Medium': '#eab308',
+                'Low': '#10b981'
+            };
+            
+            container.innerHTML = window.dutiesData.map(duty => `
+                <div style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px; border-left: 4px solid ${priorityColors[duty.Priority] || '#3b82f6'}; margin-bottom: 0.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">${duty.Name}</div>
+                            ${duty.Description ? `<div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.25rem;">${duty.Description.substring(0, 80)}${duty.Description.length > 80 ? '...' : ''}</div>` : ''}
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.5rem;">
+                                ${duty.ScheduleTime ? `<span style="margin-right: 0.75rem;"><i class="fas fa-clock"></i> ${duty.ScheduleTime}</span>` : ''}
+                                ${duty.ScheduleDay ? `<span><i class="fas fa-calendar"></i> ${duty.ScheduleDay}</span>` : ''}
+                                ${duty.AssignedToName ? `<span style="margin-left: 0.75rem;"><i class="fas fa-user"></i> ${duty.AssignedToName}</span>` : ''}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="editDuty(${duty.Id})" style="padding: 0.4rem 0.6rem; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="deleteDuty(${duty.Id})" style="padding: 0.4rem 0.6rem; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function resetDutyForm() {
+            document.getElementById('dutyName').value = '';
+            document.getElementById('dutyDescription').value = '';
+            document.getElementById('dutySchedule').value = 'Daily';
+            document.getElementById('dutyScheduleTime').value = '';
+            document.getElementById('dutyScheduleDay').value = '';
+            document.getElementById('dutyLocation').value = '';
+            document.getElementById('dutyPriority').value = 'Medium';
+            document.getElementById('dutyAssignedTo').value = '';
+            document.getElementById('dutyFormTitle').textContent = 'Add New Duty';
+            document.getElementById('saveDutyBtn').innerHTML = '<i class="fas fa-plus"></i> Add Duty';
+            editingDutyId = null;
+        }
+        
+        function editDuty(dutyId) {
+            const duty = window.dutiesData.find(d => d.Id === dutyId);
+            if (!duty) return;
+            
+            editingDutyId = dutyId;
+            document.getElementById('dutyName').value = duty.Name || '';
+            document.getElementById('dutyDescription').value = duty.Description || '';
+            document.getElementById('dutySchedule').value = duty.Schedule || 'Daily';
+            document.getElementById('dutyScheduleTime').value = duty.ScheduleTime || '';
+            document.getElementById('dutyScheduleDay').value = duty.ScheduleDay || '';
+            document.getElementById('dutyLocation').value = duty.Location || '';
+            document.getElementById('dutyPriority').value = duty.Priority || 'Medium';
+            document.getElementById('dutyAssignedTo').value = duty.AssignedToUserId || '';
+            document.getElementById('dutyFormTitle').textContent = 'Edit Duty';
+            document.getElementById('saveDutyBtn').innerHTML = '<i class="fas fa-save"></i> Update Duty';
+        }
+        
+        async function saveDuty(event) {
+            event.preventDefault();
+            
+            const dutyData = {
+                name: document.getElementById('dutyName').value.trim(),
+                description: document.getElementById('dutyDescription').value.trim(),
+                schedule: document.getElementById('dutySchedule').value,
+                scheduleTime: document.getElementById('dutyScheduleTime').value.trim(),
+                scheduleDay: document.getElementById('dutyScheduleDay').value.trim(),
+                location: document.getElementById('dutyLocation').value.trim(),
+                priority: document.getElementById('dutyPriority').value,
+                assignedToUserId: document.getElementById('dutyAssignedTo').value || null
+            };
+            
+            if (!dutyData.name) {
+                showNotification('Please enter a duty name', 'error');
+                return;
+            }
+            
+            try {
+                const url = editingDutyId ? `/api/duties/${editingDutyId}` : '/api/duties';
+                const method = editingDutyId ? 'PUT' : 'POST';
+                
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(dutyData)
+                });
+                
+                if (response.ok) {
+                    showNotification(editingDutyId ? 'Duty updated successfully!' : 'Duty created successfully!', 'success');
+                    resetDutyForm();
+                    await loadDutiesFromAPI();
+                    renderDutiesList();
+                } else {
+                    throw new Error('Failed to save duty');
+                }
+            } catch (error) {
+                console.error('Error saving duty:', error);
+                showNotification('Failed to save duty', 'error');
+            }
+        }
+        
+        async function deleteDuty(dutyId) {
+            if (!confirm('Are you sure you want to delete this duty?')) return;
+            
+            try {
+                const response = await fetch(`/api/duties/${dutyId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    showNotification('Duty deleted successfully!', 'success');
+                    await loadDutiesFromAPI();
+                    renderDutiesList();
+                } else {
+                    throw new Error('Failed to delete duty');
+                }
+            } catch (error) {
+                console.error('Error deleting duty:', error);
+                showNotification('Failed to delete duty', 'error');
+            }
+        }
+        
         // Task Templates - Now customizable!
         window.taskTemplates = [
             {
@@ -32109,6 +32431,27 @@ document.addEventListener('keydown', function(e) {
                         </div>
                     </div>
 
+                    <!-- Assigned Duties Section -->
+                    <div style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+                        <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
+                            <i class="fas fa-clipboard-check" style="margin-right: 0.5rem;"></i>Assigned Duties
+                        </h5>
+                        <p style="font-size: 0.85rem; color: var(--text-tertiary); margin-bottom: 1rem;">Select the duties this employee will be responsible for:</p>
+                        <div id="dutiesCheckboxContainer" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; max-height: 300px; overflow-y: auto; padding: 0.5rem; background: var(--bg-secondary); border-radius: 8px;">
+                            <div style="color: var(--text-tertiary); font-style: italic; padding: 1rem; grid-column: 1 / -1; text-align: center;">
+                                <i class="fas fa-spinner fa-spin"></i> Loading duties...
+                            </div>
+                        </div>
+                        <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
+                            <button type="button" onclick="selectAllDuties()" style="padding: 0.5rem 1rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem;">
+                                <i class="fas fa-check-double"></i> Select All
+                            </button>
+                            <button type="button" onclick="clearAllDuties()" style="padding: 0.5rem 1rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-size: 0.85rem;">
+                                <i class="fas fa-times"></i> Clear All
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Photo & Documents Section -->
                     <div style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
                         <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">Photo & Documents</h5>
@@ -33269,6 +33612,94 @@ document.addEventListener('keydown', function(e) {
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Duties Management Modal -->
+<div id="dutiesManagementModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 10001; align-items: center; justify-content: center;">
+    <div class="login-card" style="width: 90vw; max-width: 1000px; max-height: 90vh; margin: 0; border-radius: 12px; overflow: hidden; background: var(--bg-primary);">
+        <div class="login-header" style="display: flex; justify-content: space-between; align-items: center; background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 1.5rem;">
+            <h3 style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-clipboard-check" style="color: var(--accent-primary);"></i>
+                Duties Management
+            </h3>
+            <button onclick="closeDutiesManagement()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-tertiary);">&times;</button>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; padding: 1.5rem; max-height: calc(90vh - 80px); overflow-y: auto;">
+            <!-- Duty Form -->
+            <div style="background: var(--card-bg); border-radius: 8px; padding: 1.5rem; border: 1px solid var(--border-color);">
+                <h4 id="dutyFormTitle" style="margin: 0 0 1rem 0; color: var(--text-primary);">Add New Duty</h4>
+                <form onsubmit="saveDuty(event)">
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="dutyName">Duty Name *</label>
+                        <input type="text" id="dutyName" required placeholder="e.g., Morning Sterilization" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="dutyDescription">Description</label>
+                        <textarea id="dutyDescription" rows="2" placeholder="Describe the duty..." style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary); resize: vertical;"></textarea>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="dutySchedule">Schedule</label>
+                            <select id="dutySchedule" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+                                <option value="Daily">Daily</option>
+                                <option value="Weekly">Weekly</option>
+                                <option value="Monthly">Monthly</option>
+                                <option value="Custom">Custom</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="dutyPriority">Priority</label>
+                            <select id="dutyPriority" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+                                <option value="High">High</option>
+                                <option value="Medium" selected>Medium</option>
+                                <option value="Low">Low</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="dutyScheduleTime">Time</label>
+                            <input type="text" id="dutyScheduleTime" placeholder="e.g., 7:30 AM" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="dutyScheduleDay">Day/Frequency</label>
+                            <input type="text" id="dutyScheduleDay" placeholder="e.g., Every Friday" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="dutyLocation">Location</label>
+                        <input type="text" id="dutyLocation" placeholder="e.g., Sterilization Room" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="dutyAssignedTo">Assign To</label>
+                        <select id="dutyAssignedTo" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+                            <option value="">-- Unassigned --</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button type="submit" id="saveDutyBtn" style="flex: 1; padding: 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                            <i class="fas fa-plus"></i> Add Duty
+                        </button>
+                        <button type="button" onclick="resetDutyForm()" style="padding: 0.75rem 1rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">
+                            <i class="fas fa-undo"></i>
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <!-- Duties List -->
+            <div style="background: var(--card-bg); border-radius: 8px; padding: 1.5rem; border: 1px solid var(--border-color);">
+                <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">
+                    <i class="fas fa-list" style="margin-right: 0.5rem;"></i>All Duties
+                    <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-tertiary); margin-left: 0.5rem;">(<span id="dutiesCount">0</span> total)</span>
+                </h4>
+                <div id="dutiesListContainer" style="max-height: 400px; overflow-y: auto;">
+                    <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                        <i class="fas fa-spinner fa-spin"></i> Loading...
+                    </div>
+                </div>
             </div>
         </div>
     </div>
