@@ -8959,9 +8959,10 @@
                                     <i class="fas fa-address-book"></i>
                                     <span>Rolodex</span>
                                 </a>
-                                <a href="#" class="nav-item">
+                                <a href="#" class="nav-item" onclick="openChat(); return false;" style="position: relative;">
                                     <i class="fas fa-comments"></i>
                                     <span>Chat</span>
+                                    <span class="chat-unread-badge" style="display: none; position: absolute; top: 4px; right: 8px; background: #ef4444; color: white; font-size: 0.65rem; min-width: 18px; height: 18px; border-radius: 9px; align-items: center; justify-content: center; font-weight: 600;">0</span>
                                 </a>
                             </div>
                         </div>
@@ -9289,9 +9290,10 @@
                                 <i class="fas fa-address-book"></i>
                                 <span>Rolodex</span>
                             </a>
-                            <a href="#" class="nav-item">
+                            <a href="#" class="nav-item" onclick="openChat(); return false;" style="position: relative;">
                                 <i class="fas fa-comments"></i>
                                 <span>Chat</span>
+                                <span class="chat-unread-badge" style="display: none; position: absolute; top: 4px; right: 8px; background: #ef4444; color: white; font-size: 0.65rem; min-width: 18px; height: 18px; border-radius: 9px; align-items: center; justify-content: center; font-weight: 600;">0</span>
                             </a>
                         </div>
                     </div>
@@ -9429,9 +9431,10 @@
                                     <i class="fas fa-address-book"></i>
                                     <span>Rolodex</span>
                                 </a>
-                                <a href="#" class="nav-item">
+                                <a href="#" class="nav-item" onclick="openChat(); return false;" style="position: relative;">
                                     <i class="fas fa-comments"></i>
                                     <span>Chat</span>
+                                    <span class="chat-unread-badge" style="display: none; position: absolute; top: 4px; right: 8px; background: #ef4444; color: white; font-size: 0.65rem; min-width: 18px; height: 18px; border-radius: 9px; align-items: center; justify-content: center; font-weight: 600;">0</span>
                                 </a>
                             </div>
                         </div>
@@ -10548,6 +10551,12 @@
                 
                 // Update UI for role
                 updateUIForRole();
+                
+                // Initialize chat notifications
+                if (typeof initChatNotifications === 'function') {
+                    initChatNotifications();
+                    updateOnlineStatus(true);
+                }
             } else {
                 // User is not logged in, show login screen
                 if (loginScreen) loginScreen.classList.remove('hidden');
@@ -27291,6 +27300,389 @@ window.addEventListener('load', function() {
             }
         }
         
+        // ============================================
+        // TEAM CHAT FUNCTIONS
+        // ============================================
+        let currentChatUserId = null;
+        let chatPollingInterval = null;
+        let lastMessageTimestamp = null;
+        let chatUsersCache = [];
+        
+        function openChat() {
+            const modal = document.getElementById('chatModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                loadConversations();
+                startChatPolling();
+                updateOnlineStatus(true);
+            }
+        }
+        
+        function closeChat() {
+            const modal = document.getElementById('chatModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+            stopChatPolling();
+            currentChatUserId = null;
+            hideNewChatPanel();
+        }
+        
+        async function updateOnlineStatus(isOnline) {
+            try {
+                const userId = getCurrentUserId();
+                if (!userId) return;
+                
+                await fetch('/api/chat?action=status', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, isOnline })
+                });
+            } catch (error) {
+                console.error('Error updating online status:', error);
+            }
+        }
+        
+        function getCurrentUserId() {
+            // Get logged-in user ID from usersData
+            const loggedInUser = window.usersData?.find(u => 
+                u.FirstName === currentUser?.firstName && 
+                u.LastName === currentUser?.lastName
+            );
+            return loggedInUser?.Id || null;
+        }
+        
+        async function loadConversations() {
+            const container = document.getElementById('conversationsList');
+            if (!container) return;
+            
+            const userId = getCurrentUserId();
+            if (!userId) {
+                container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-tertiary);">Please log in to use chat</div>';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/chat?action=conversations&userId=${userId}`);
+                if (!response.ok) throw new Error('Failed to load conversations');
+                
+                const conversations = await response.json();
+                
+                if (conversations.length === 0) {
+                    container.innerHTML = `
+                        <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                            <i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                            <p style="margin: 0;">No conversations yet</p>
+                            <p style="font-size: 0.85rem; margin-top: 0.5rem;">Start a new chat to begin messaging</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                container.innerHTML = conversations.map(conv => `
+                    <div onclick="selectConversation(${conv.OtherUserId})" style="padding: 0.75rem; background: ${currentChatUserId === conv.OtherUserId ? 'var(--bg-tertiary)' : 'transparent'}; border-radius: 8px; cursor: pointer; margin-bottom: 0.25rem; transition: all 0.2s;" onmouseover="if(${currentChatUserId} !== ${conv.OtherUserId}) this.style.background='var(--bg-tertiary)'" onmouseout="if(${currentChatUserId} !== ${conv.OtherUserId}) this.style.background='transparent'">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <div style="position: relative;">
+                                <div style="width: 44px; height: 44px; background: var(--accent-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 1rem;">
+                                    ${conv.FirstName?.[0] || ''}${conv.LastName?.[0] || ''}
+                                </div>
+                                <div style="position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; background: ${conv.IsOnline ? '#10b981' : '#6b7280'}; border-radius: 50%; border: 2px solid var(--bg-secondary);"></div>
+                            </div>
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: 600; color: var(--text-primary);">${conv.FirstName} ${conv.LastName}</span>
+                                    ${conv.UnreadCount > 0 ? `<span style="background: var(--accent-primary); color: white; font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 999px; font-weight: 600;">${conv.UnreadCount}</span>` : ''}
+                                </div>
+                                <div style="font-size: 0.8rem; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    ${conv.LastMessage ? (conv.LastMessageSenderId === userId ? 'You: ' : '') + conv.LastMessage.substring(0, 30) + (conv.LastMessage.length > 30 ? '...' : '') : 'No messages yet'}
+                                </div>
+                                <div style="font-size: 0.7rem; color: var(--text-tertiary);">
+                                    ${conv.LastMessageTime ? formatChatTime(conv.LastMessageTime) : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading conversations:', error);
+                container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-tertiary);">Failed to load conversations</div>';
+            }
+        }
+        
+        async function selectConversation(otherUserId) {
+            currentChatUserId = otherUserId;
+            
+            // Update UI to show chat area
+            document.getElementById('chatPlaceholder').style.display = 'none';
+            document.getElementById('chatAreaHeader').style.display = 'block';
+            document.getElementById('messageInputArea').style.display = 'block';
+            hideNewChatPanel();
+            
+            // Get user info
+            const user = chatUsersCache.find(u => u.Id === otherUserId) || 
+                         window.usersData?.find(u => u.Id === otherUserId);
+            
+            if (user) {
+                document.getElementById('chatUserAvatar').textContent = `${user.FirstName?.[0] || ''}${user.LastName?.[0] || ''}`;
+                document.getElementById('chatUserName').textContent = `${user.FirstName} ${user.LastName}`;
+                document.getElementById('chatUserStatus').textContent = user.IsOnline ? 'Online' : `Last seen ${user.LastSeen ? formatChatTime(user.LastSeen) : 'recently'}`;
+            }
+            
+            // Load messages
+            await loadMessages(otherUserId);
+            
+            // Refresh conversations to update unread counts
+            loadConversations();
+            updateUnreadBadge();
+        }
+        
+        async function loadMessages(otherUserId) {
+            const container = document.getElementById('messagesArea');
+            const userId = getCurrentUserId();
+            
+            try {
+                const response = await fetch(`/api/chat?action=messages&userId=${userId}&otherUserId=${otherUserId}`);
+                if (!response.ok) throw new Error('Failed to load messages');
+                
+                const messages = await response.json();
+                
+                if (messages.length === 0) {
+                    container.innerHTML = `
+                        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary);">
+                            <i class="fas fa-comment-dots" style="font-size: 3rem; margin-bottom: 0.5rem; opacity: 0.3;"></i>
+                            <p style="margin: 0;">No messages yet</p>
+                            <p style="font-size: 0.85rem;">Send a message to start the conversation</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Update last message timestamp for polling
+                if (messages.length > 0) {
+                    lastMessageTimestamp = messages[messages.length - 1].SentAt;
+                }
+                
+                container.innerHTML = messages.map(msg => {
+                    const isMe = msg.SenderId === userId;
+                    return `
+                        <div style="display: flex; justify-content: ${isMe ? 'flex-end' : 'flex-start'}; margin-bottom: 0.5rem;">
+                            <div style="max-width: 70%; padding: 0.75rem 1rem; background: ${isMe ? 'var(--accent-primary)' : 'var(--bg-secondary)'}; color: ${isMe ? 'white' : 'var(--text-primary)'}; border-radius: 18px; border-bottom-${isMe ? 'right' : 'left'}-radius: 4px;">
+                                <div style="word-wrap: break-word;">${escapeHtml(msg.Message)}</div>
+                                <div style="font-size: 0.65rem; opacity: 0.7; margin-top: 0.25rem; text-align: ${isMe ? 'right' : 'left'};">
+                                    ${formatChatTime(msg.SentAt)}
+                                    ${isMe && msg.IsRead ? ' <i class="fas fa-check-double"></i>' : isMe ? ' <i class="fas fa-check"></i>' : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                // Scroll to bottom
+                container.scrollTop = container.scrollHeight;
+                
+            } catch (error) {
+                console.error('Error loading messages:', error);
+            }
+        }
+        
+        async function sendMessage(event) {
+            event.preventDefault();
+            
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            
+            if (!message || !currentChatUserId) return;
+            
+            const userId = getCurrentUserId();
+            if (!userId) return;
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        senderId: userId,
+                        receiverId: currentChatUserId,
+                        message: message
+                    })
+                });
+                
+                if (response.ok) {
+                    input.value = '';
+                    await loadMessages(currentChatUserId);
+                    loadConversations();
+                } else {
+                    throw new Error('Failed to send message');
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+                showNotification('Failed to send message', 'error');
+            }
+        }
+        
+        function showNewChatPanel() {
+            const panel = document.getElementById('newChatPanel');
+            if (panel) {
+                panel.style.display = 'block';
+                loadChatUsers();
+            }
+        }
+        
+        function hideNewChatPanel() {
+            const panel = document.getElementById('newChatPanel');
+            if (panel) {
+                panel.style.display = 'none';
+            }
+        }
+        
+        async function loadChatUsers() {
+            const container = document.getElementById('chatUsersList');
+            if (!container) return;
+            
+            const userId = getCurrentUserId();
+            
+            try {
+                const response = await fetch(`/api/chat?action=users&userId=${userId}`);
+                if (!response.ok) throw new Error('Failed to load users');
+                
+                chatUsersCache = await response.json();
+                renderChatUsersList(chatUsersCache);
+                
+            } catch (error) {
+                console.error('Error loading users:', error);
+                // Fallback to usersData
+                if (window.usersData) {
+                    chatUsersCache = window.usersData.filter(u => u.Id !== userId);
+                    renderChatUsersList(chatUsersCache);
+                }
+            }
+        }
+        
+        function renderChatUsersList(users) {
+            const container = document.getElementById('chatUsersList');
+            if (!container) return;
+            
+            container.innerHTML = users.map(user => `
+                <div onclick="startChatWith(${user.Id})" style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px; cursor: pointer; margin-bottom: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="position: relative;">
+                            <div style="width: 40px; height: 40px; background: var(--accent-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                                ${user.FirstName?.[0] || ''}${user.LastName?.[0] || ''}
+                            </div>
+                            <div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: ${user.IsOnline ? '#10b981' : '#6b7280'}; border-radius: 50%; border: 2px solid var(--bg-secondary);"></div>
+                        </div>
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary);">${user.FirstName} ${user.LastName}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary);">${user.Role || 'Staff'}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function filterChatUsers() {
+            const search = document.getElementById('userSearchInput').value.toLowerCase();
+            const filtered = chatUsersCache.filter(u => 
+                `${u.FirstName} ${u.LastName}`.toLowerCase().includes(search)
+            );
+            renderChatUsersList(filtered);
+        }
+        
+        function startChatWith(userId) {
+            selectConversation(userId);
+        }
+        
+        function startChatPolling() {
+            // Poll for new messages every 5 seconds
+            chatPollingInterval = setInterval(async () => {
+                if (currentChatUserId) {
+                    await loadMessages(currentChatUserId);
+                }
+                await loadConversations();
+                await updateUnreadBadge();
+            }, 5000);
+        }
+        
+        function stopChatPolling() {
+            if (chatPollingInterval) {
+                clearInterval(chatPollingInterval);
+                chatPollingInterval = null;
+            }
+        }
+        
+        async function updateUnreadBadge() {
+            try {
+                const userId = getCurrentUserId();
+                if (!userId) return;
+                
+                const response = await fetch(`/api/chat?action=unreadCount&userId=${userId}`);
+                if (!response.ok) return;
+                
+                const data = await response.json();
+                const count = data.UnreadCount || 0;
+                
+                // Update badge on all chat buttons
+                const chatBadges = document.querySelectorAll('.chat-unread-badge');
+                chatBadges.forEach(badge => {
+                    if (count > 0) {
+                        badge.textContent = count > 99 ? '99+' : count;
+                        badge.style.display = 'flex';
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                });
+            } catch (error) {
+                console.error('Error updating unread badge:', error);
+            }
+        }
+        
+        function formatChatTime(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            const now = new Date();
+            const diff = now - date;
+            
+            // Less than 1 minute
+            if (diff < 60000) return 'Just now';
+            
+            // Less than 1 hour
+            if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+            
+            // Less than 24 hours
+            if (diff < 86400000) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            // Less than 7 days
+            if (diff < 604800000) {
+                const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                return days[date.getDay()];
+            }
+            
+            // Otherwise show date
+            return date.toLocaleDateString();
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Start background badge updates when logged in
+        function initChatNotifications() {
+            setInterval(updateUnreadBadge, 30000); // Update every 30 seconds
+            updateUnreadBadge(); // Initial check
+        }
+        
+        // Update online status when page closes
+        window.addEventListener('beforeunload', () => {
+            updateOnlineStatus(false);
+        });
+        
+        // ============================================
+        // END TEAM CHAT FUNCTIONS
+        // ============================================
+        
         // Task Templates - Now customizable!
         window.taskTemplates = [
             {
@@ -33679,6 +34071,88 @@ document.addEventListener('keydown', function(e) {
                     <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
                         <i class="fas fa-spinner fa-spin"></i> Loading...
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Team Chat Modal -->
+<div id="chatModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 10003; align-items: center; justify-content: center;">
+    <div style="width: 90vw; max-width: 900px; height: 80vh; max-height: 700px; background: var(--bg-primary); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);">
+        <!-- Chat Header -->
+        <div style="display: flex; justify-content: space-between; align-items: center; background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 1rem 1.5rem;">
+            <h3 style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-comments" style="color: var(--accent-primary);"></i>
+                Team Chat
+            </h3>
+            <button onclick="closeChat()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-tertiary);">&times;</button>
+        </div>
+        
+        <!-- Chat Content -->
+        <div style="display: flex; flex: 1; overflow: hidden;">
+            <!-- Conversations Sidebar -->
+            <div style="width: 280px; background: var(--bg-secondary); border-right: 1px solid var(--border-color); display: flex; flex-direction: column;">
+                <!-- New Chat Button -->
+                <div style="padding: 1rem; border-bottom: 1px solid var(--border-color);">
+                    <button onclick="showNewChatPanel()" style="width: 100%; padding: 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                        <i class="fas fa-plus"></i> New Chat
+                    </button>
+                </div>
+                
+                <!-- Conversations List -->
+                <div id="conversationsList" style="flex: 1; overflow-y: auto; padding: 0.5rem;">
+                    <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                        <i class="fas fa-spinner fa-spin"></i> Loading...
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Chat Area -->
+            <div style="flex: 1; display: flex; flex-direction: column; background: var(--bg-primary);">
+                <!-- Chat Header (selected conversation) -->
+                <div id="chatAreaHeader" style="display: none; padding: 1rem 1.5rem; background: var(--card-bg); border-bottom: 1px solid var(--border-color);">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div id="chatUserAvatar" style="width: 40px; height: 40px; background: var(--accent-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;"></div>
+                        <div>
+                            <div id="chatUserName" style="font-weight: 600; color: var(--text-primary);"></div>
+                            <div id="chatUserStatus" style="font-size: 0.75rem; color: var(--text-tertiary);"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Messages Area -->
+                <div id="messagesArea" style="flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
+                    <div id="chatPlaceholder" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary);">
+                        <i class="fas fa-comments" style="font-size: 4rem; margin-bottom: 1rem; opacity: 0.3;"></i>
+                        <p style="margin: 0; font-size: 1.1rem;">Select a conversation or start a new chat</p>
+                    </div>
+                </div>
+                
+                <!-- Message Input -->
+                <div id="messageInputArea" style="display: none; padding: 1rem 1.5rem; background: var(--card-bg); border-top: 1px solid var(--border-color);">
+                    <form onsubmit="sendMessage(event)" style="display: flex; gap: 0.75rem;">
+                        <input type="text" id="messageInput" placeholder="Type a message..." style="flex: 1; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 24px; background: var(--bg-secondary); color: var(--text-primary); font-size: 0.95rem;" autocomplete="off">
+                        <button type="submit" style="width: 44px; height: 44px; background: var(--accent-primary); color: white; border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- New Chat Panel (hidden by default) -->
+            <div id="newChatPanel" style="display: none; position: absolute; left: 280px; top: 60px; bottom: 0; right: 0; background: var(--bg-primary); z-index: 10;">
+                <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 1rem;">
+                    <button onclick="hideNewChatPanel()" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: 1.25rem;">
+                        <i class="fas fa-arrow-left"></i>
+                    </button>
+                    <h4 style="margin: 0; color: var(--text-primary);">Start New Chat</h4>
+                </div>
+                <div style="padding: 1rem;">
+                    <input type="text" id="userSearchInput" placeholder="Search team members..." oninput="filterChatUsers()" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); margin-bottom: 1rem;">
+                </div>
+                <div id="chatUsersList" style="padding: 0 1rem; overflow-y: auto; max-height: calc(100% - 140px);">
+                    <!-- Users will be loaded here -->
                 </div>
             </div>
         </div>
