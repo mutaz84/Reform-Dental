@@ -13484,9 +13484,10 @@
                     return `<button type="button" class="tsb-day ${isSelected ? 'selected' : ''}" onclick="tsbToggleDay(${row.id}, '${dayFull}')" ${isDisabled}>${d}</button>`;
                 }).join('');
                 
-                // Room is required for providers, optional for standalone employees
+                // Room is required for providers, clinic and room optional for standalone employees (IT, Admin, etc.)
                 const needsRoom = row.provider ? row.rooms.length > 0 : true;
-                const isValid = (row.provider || row.employee) && row.clinic && needsRoom && row.days.length > 0 && row.startDate && row.endDate && row.startTime && row.endTime;
+                const needsClinic = row.provider ? !!row.clinic : true; // Clinic optional for standalone employees
+                const isValid = (row.provider || row.employee) && needsClinic && needsRoom && row.days.length > 0 && row.startDate && row.endDate && row.startTime && row.endTime;
                 const rowClass = row.status === 'saved' ? 'saved' : (row.status === 'modified' ? 'modified' : (isValid ? '' : 'invalid'));
                 const statusBadge = row.status === 'saved' ? '<span class="tsb-status-badge saved">Saved</span>' : 
                                    (row.status === 'modified' ? '<span class="tsb-status-badge modified">Modified</span>' : 
@@ -13719,10 +13720,11 @@
             if (!row || row.status !== 'modified') return;
             
             // Validate the row - need either provider or employee
-            // Room is required for providers, optional for standalone employees
+            // Room and Clinic are required for providers, optional for standalone employees (IT, Admin, etc.)
             const needsRoom = row.provider ? row.rooms.length > 0 : true;
-            if ((!row.provider && !row.employee) || !row.clinic || !needsRoom || row.days.length === 0 || !row.startDate || !row.endDate || !row.startTime || !row.endTime) {
-                alert('Please fill in all required fields before saving (Employee or Provider, Clinic, Days, Dates, Time). Room is required for Provider schedules.');
+            const needsClinic = row.provider ? !!row.clinic : true; // Clinic optional for standalone employees
+            if ((!row.provider && !row.employee) || !needsClinic || !needsRoom || row.days.length === 0 || !row.startDate || !row.endDate || !row.startTime || !row.endTime) {
+                alert('Please fill in all required fields before saving (Employee or Provider, Days, Dates, Time). Clinic and Room are required for Provider schedules, optional for standalone employees.');
                 return;
             }
             
@@ -14180,16 +14182,17 @@
         function tsbCreateAllSchedules() {
             // Get valid NEW rows only (not already saved)
             // Valid row needs either provider OR employee
-            // Room is required for providers, optional for standalone employees
+            // Room and Clinic are required for providers, optional for standalone employees (IT, Admin, etc.)
             const validRows = tableBuilderRows.filter(r => {
                 if (r.status === 'saved') return false;
                 const hasPersonAssigned = r.provider || r.employee;
                 const needsRoom = r.provider ? r.rooms.length > 0 : true; // Room optional for employee-only
-                return hasPersonAssigned && r.clinic && needsRoom && r.days.length > 0 && r.startDate && r.endDate && r.startTime && r.endTime;
+                const needsClinic = r.provider ? !!r.clinic : true; // Clinic optional for employee-only
+                return hasPersonAssigned && needsClinic && needsRoom && r.days.length > 0 && r.startDate && r.endDate && r.startTime && r.endTime;
             });
             
             if (validRows.length === 0) {
-                alert('No new complete schedules to create. Please fill in all required fields (Employee or Provider, Clinic, Days, Dates, Time). Room is required for Provider schedules.');
+                alert('No new complete schedules to create. Please fill in all required fields (Employee or Provider, Days, Dates, Time). Clinic and Room are required for Provider schedules, optional for standalone employees.');
                 return;
             }
             
