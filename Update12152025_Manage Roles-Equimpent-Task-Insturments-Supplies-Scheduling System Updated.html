@@ -11269,6 +11269,38 @@
             // Clear form
             document.getElementById('createUserForm').reset();
             document.getElementById('createUserError').style.display = 'none';
+            // Hide separation fields
+            const sepContainer = document.getElementById('newSeparationFieldsContainer');
+            if (sepContainer) sepContainer.style.display = 'none';
+        }
+
+        // Toggle Separation Fields visibility for Add User modal
+        function toggleNewSeparationFields() {
+            const status = document.getElementById('newEmployeeStatus').value;
+            const container = document.getElementById('newSeparationFieldsContainer');
+            if (container) {
+                if (status === 'Active') {
+                    container.style.display = 'none';
+                    // Clear fields when hidden
+                    document.getElementById('newSeparationDate').value = '';
+                    document.getElementById('newSeparationReason').value = '';
+                } else {
+                    container.style.display = 'block';
+                }
+            }
+        }
+
+        // Toggle Separation Fields visibility for Edit User modal
+        function toggleEditSeparationFields() {
+            const status = document.getElementById('editEmployeeStatus').value;
+            const container = document.getElementById('editSeparationFieldsContainer');
+            if (container) {
+                if (status === 'Active') {
+                    container.style.display = 'none';
+                } else {
+                    container.style.display = 'block';
+                }
+            }
         }
 
         // Create new user
@@ -11967,6 +11999,11 @@
             editUploadedDocuments = user.documents ? [...user.documents] : [];
             displayEditDocuments();
             
+            // Populate separation fields and toggle visibility
+            document.getElementById('editSeparationDate').value = user.separationDate || '';
+            document.getElementById('editSeparationReason').value = user.separationReason || '';
+            toggleEditSeparationFields();
+            
             // Clear password fields
             document.getElementById('editPassword').value = '';
             document.getElementById('editConfirmPassword').value = '';
@@ -12064,6 +12101,15 @@
             user.salary = document.getElementById('editSalary').value ? parseFloat(document.getElementById('editSalary').value) : null;
             user.color = document.getElementById('editColor').value;
             user.modifiedDate = new Date().toISOString();
+            
+            // Save separation fields (only if status is not Active)
+            if (user.employeeStatus !== 'Active') {
+                user.separationDate = document.getElementById('editSeparationDate').value;
+                user.separationReason = document.getElementById('editSeparationReason').value.trim();
+            } else {
+                user.separationDate = null;
+                user.separationReason = null;
+            }
             
             // Save photo and documents
             user.photoData = editUploadedPhoto ? editUploadedPhoto.dataURL : null;
@@ -31737,7 +31783,7 @@ document.addEventListener('keydown', function(e) {
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
                                 <label for="newEmployeeStatus">Employee Status *</label>
-                                <select id="newEmployeeStatus" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <select id="newEmployeeStatus" required onchange="toggleNewSeparationFields()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                     <option value="Active">Active</option>
                                     <option value="On Leave">On Leave</option>
                                     <option value="Terminated">Terminated</option>
@@ -31779,14 +31825,18 @@ document.addEventListener('keydown', function(e) {
                                 <input type="text" id="newRoleTitle" placeholder="Role title">
                             </div>
                         </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                            <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newSeparationDate">Separation Date</label>
-                                <input type="date" id="newSeparationDate" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                            </div>
-                            <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newSeparationReason">Separation Reason</label>
-                                <input type="text" id="newSeparationReason" placeholder="Reason for separation">
+                        <!-- Separation Fields - shown only when status is not Active -->
+                        <div id="newSeparationFieldsContainer" style="display: none; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
+                            <h5 style="margin: 0 0 1rem 0; color: #ef4444; font-size: 0.9rem;"><i class="fas fa-user-times" style="margin-right: 0.5rem;"></i>Separation Details</h5>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label for="newSeparationDate">Separation Date</label>
+                                    <input type="date" id="newSeparationDate" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: white; color: var(--text-primary);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label for="newSeparationReason">Separation Reason</label>
+                                    <input type="text" id="newSeparationReason" placeholder="Reason for separation" style="background: white;">
+                                </div>
                             </div>
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
@@ -32189,16 +32239,31 @@ document.addEventListener('keydown', function(e) {
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="editEmployeeStatus">Status</label>
-                            <select id="editEmployeeStatus" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            <select id="editEmployeeStatus" onchange="toggleEditSeparationFields()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                 <option value="Active">Active</option>
                                 <option value="Inactive">Inactive</option>
                                 <option value="On Leave">On Leave</option>
                                 <option value="Terminated">Terminated</option>
+                                <option value="Resigned">Resigned</option>
                             </select>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="editHireDate">Hire Date</label>
                             <input type="date" id="editHireDate" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                        </div>
+                    </div>
+                    <!-- Separation Fields - shown only when status is not Active -->
+                    <div id="editSeparationFieldsContainer" style="display: none; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 1rem; margin: 1rem 0;">
+                        <h5 style="margin: 0 0 1rem 0; color: #ef4444; font-size: 0.9rem;"><i class="fas fa-user-times" style="margin-right: 0.5rem;"></i>Separation Details</h5>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="editSeparationDate">Separation Date</label>
+                                <input type="date" id="editSeparationDate" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: white; color: var(--text-primary);">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="editSeparationReason">Separation Reason</label>
+                                <input type="text" id="editSeparationReason" placeholder="Reason for separation" style="background: white;">
+                            </div>
                         </div>
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
