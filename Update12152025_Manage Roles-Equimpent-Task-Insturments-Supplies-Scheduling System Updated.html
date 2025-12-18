@@ -11016,11 +11016,16 @@
                     username: username,
                     password: userData.password || 'changeme123',
                     firstName: userData.firstName || '',
+                    middleName: userData.middleName || '',
                     lastName: userData.lastName || '',
+                    gender: userData.gender || '',
+                    dateOfBirth: userData.dateOfBirth || null,
                     role: userData.role || 'user',
                     staffType: userData.staffType || 'non-clinical',
                     employeeType: userData.employeeType || 'full-time',
+                    department: userData.department || '',
                     employeeStatus: userData.employeeStatus || 'active',
+                    jobTitle: userData.jobTitle || '',
                     workEmail: userData.workEmail || '',
                     personalEmail: userData.personalEmail || '',
                     cellPhone: userData.cellPhone || '',
@@ -11054,6 +11059,61 @@
             } catch (error) {
                 console.error('❌ Error saving user to API:', error);
                 showSyncStatus('Error saving to database: ' + error.message, false);
+            }
+        }
+
+        // Update existing user in database via API
+        async function updateUserViaAPI(userId, userData) {
+            if (typeof API_BASE_URL === 'undefined') {
+                console.log('⚠️ API_BASE_URL not defined, skipping database sync');
+                return;
+            }
+            try {
+                console.log('📤 Updating user in database, ID:', userId);
+                const payload = {
+                    firstName: userData.firstName || '',
+                    middleName: userData.middleName || '',
+                    lastName: userData.lastName || '',
+                    gender: userData.gender || '',
+                    dateOfBirth: userData.dateOfBirth || null,
+                    role: userData.role || 'user',
+                    staffType: userData.staffType || 'non-clinical',
+                    employeeType: userData.employeeType || 'full-time',
+                    department: userData.department || '',
+                    employeeStatus: userData.employeeStatus || 'active',
+                    jobTitle: userData.jobTitle || '',
+                    workEmail: userData.workEmail || '',
+                    personalEmail: userData.personalEmail || '',
+                    cellPhone: userData.cellPhone || '',
+                    homePhone: userData.homePhone || '',
+                    address: userData.address || '',
+                    city: userData.city || '',
+                    state: userData.state || '',
+                    zipCode: userData.zipCode || '',
+                    hireDate: userData.hireDate || null,
+                    hourlyRate: userData.hourlyRate || null,
+                    salary: userData.salary || null,
+                    color: userData.color || '#3b82f6'
+                };
+                console.log('📦 Update Payload:', JSON.stringify(payload));
+                
+                const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (response.ok) {
+                    console.log('✅ User updated in database');
+                    showSyncStatus('User updated in database', true);
+                } else {
+                    const result = await response.json();
+                    console.error('❌ API error:', response.status, result);
+                    showSyncStatus('Failed to update user: ' + (result.error || 'Unknown error'), false);
+                }
+            } catch (error) {
+                console.error('❌ Error updating user via API:', error);
+                showSyncStatus('Error updating user: ' + error.message, false);
             }
         }
 
@@ -11811,8 +11871,13 @@
             user.color = document.getElementById('editColor').value;
             user.modifiedDate = new Date().toISOString();
             
-            // Save users
+            // Save users to localStorage
             saveUsers(users);
+            
+            // Also update in database if user has an ID
+            if (user.id && typeof updateUserViaAPI === 'function') {
+                updateUserViaAPI(user.id, user);
+            }
             
             // Close modal and refresh list
             closeEditUserModal();
