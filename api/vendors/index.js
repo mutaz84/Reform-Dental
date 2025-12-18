@@ -87,9 +87,10 @@ module.exports = async function (context, req) {
                         Email=@email, Address=@address, City=@city, State=@state, ZipCode=@zipCode, Website=@website, Notes=@notes, IsActive=@isActive, ModifiedDate=GETDATE() WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Vendor updated successfully' } };
         } else if (req.method === 'DELETE' && id) {
+            // Hard delete - actually remove the record
             await pool.request()
                 .input('id', sql.Int, id)
-                .query('UPDATE Vendors SET IsActive = 0 WHERE Id = @id');
+                .query('DELETE FROM Vendors WHERE Id = @id');
             context.res = { status: 200, headers, body: { message: 'Vendor deleted successfully' } };
         }
 
