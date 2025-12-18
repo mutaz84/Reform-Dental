@@ -11465,9 +11465,40 @@
             
             if (confirm(`Are you sure you want to delete user "${username}"?`)) {
                 const users = loadUsers();
+                const userId = users[username]?.id;
                 delete users[username];
                 saveUsers(users);
                 displayUsersList();
+                
+                // Also delete from database
+                if (userId && typeof deleteUserViaAPI === 'function') {
+                    deleteUserViaAPI(userId);
+                }
+            }
+        }
+
+        // Delete user from database via API
+        async function deleteUserViaAPI(userId) {
+            if (typeof API_BASE_URL === 'undefined') {
+                console.log('⚠️ API_BASE_URL not defined, skipping database sync');
+                return;
+            }
+            try {
+                console.log('🗑️ Deleting user from database, ID:', userId);
+                const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    console.log('✅ User deleted from database');
+                    showSyncStatus('User deleted from database', true);
+                } else {
+                    console.error('❌ Failed to delete user from database');
+                    showSyncStatus('Failed to delete user from database', false);
+                }
+            } catch (error) {
+                console.error('❌ Error deleting user via API:', error);
+                showSyncStatus('Error deleting user: ' + error.message, false);
             }
         }
 
