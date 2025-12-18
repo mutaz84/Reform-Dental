@@ -27330,7 +27330,7 @@ window.addEventListener('load', function() {
         
         async function updateOnlineStatus(isOnline) {
             try {
-                const userId = getCurrentUserId();
+                const userId = await getCurrentUserId();
                 if (!userId) return;
                 
                 await fetch('/api/chat?action=status', {
@@ -27343,21 +27343,37 @@ window.addEventListener('load', function() {
             }
         }
         
-        function getCurrentUserId() {
+        // Cache for users loaded from API for chat
+        let chatUserIdCache = null;
+        
+        async function getCurrentUserId() {
             // Get logged-in user from localStorage
             const storedUser = localStorage.getItem('currentUser');
             if (!storedUser) return null;
             
             try {
                 const currentUserData = JSON.parse(storedUser);
-                // Find matching user in usersData by name
-                const loggedInUser = window.usersData?.find(u => 
-                    (u.FirstName === currentUserData.firstName && u.LastName === currentUserData.lastName) ||
-                    (u.Username === currentUserData.username)
-                );
-                return loggedInUser?.Id || null;
+                
+                // Fetch users from API to get the ID
+                if (!chatUserIdCache) {
+                    const response = await fetch('/api/users');
+                    if (response.ok) {
+                        chatUserIdCache = await response.json();
+                    }
+                }
+                
+                if (chatUserIdCache) {
+                    // Find matching user by name or username
+                    const loggedInUser = chatUserIdCache.find(u => 
+                        (u.FirstName === currentUserData.firstName && u.LastName === currentUserData.lastName) ||
+                        (u.Username === currentUserData.username) ||
+                        (`${u.FirstName} ${u.LastName}` === currentUserData.name)
+                    );
+                    return loggedInUser?.Id || null;
+                }
+                return null;
             } catch (e) {
-                console.error('Error parsing currentUser:', e);
+                console.error('Error getting current user ID:', e);
                 return null;
             }
         }
@@ -27366,7 +27382,7 @@ window.addEventListener('load', function() {
             const container = document.getElementById('conversationsList');
             if (!container) return;
             
-            const userId = getCurrentUserId();
+            const userId = await getCurrentUserId();
             if (!userId) {
                 container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-tertiary);">Please log in to use chat</div>';
                 return;
@@ -27449,7 +27465,7 @@ window.addEventListener('load', function() {
         
         async function loadMessages(otherUserId) {
             const container = document.getElementById('messagesArea');
-            const userId = getCurrentUserId();
+            const userId = await getCurrentUserId();
             
             try {
                 const response = await fetch(`/api/chat?action=messages&userId=${userId}&otherUserId=${otherUserId}`);
@@ -27504,7 +27520,7 @@ window.addEventListener('load', function() {
             
             if (!message || !currentChatUserId) return;
             
-            const userId = getCurrentUserId();
+            const userId = await getCurrentUserId();
             if (!userId) return;
             
             try {
@@ -27550,7 +27566,7 @@ window.addEventListener('load', function() {
             const container = document.getElementById('chatUsersList');
             if (!container) return;
             
-            const userId = getCurrentUserId();
+            const userId = await getCurrentUserId();
             
             try {
                 const response = await fetch(`/api/chat?action=users&userId=${userId}`);
@@ -27623,7 +27639,7 @@ window.addEventListener('load', function() {
         
         async function updateUnreadBadge() {
             try {
-                const userId = getCurrentUserId();
+                const userId = await getCurrentUserId();
                 if (!userId) return;
                 
                 const response = await fetch(`/api/chat?action=unreadCount&userId=${userId}`);
