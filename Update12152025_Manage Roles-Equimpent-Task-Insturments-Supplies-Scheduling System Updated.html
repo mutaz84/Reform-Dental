@@ -13331,6 +13331,9 @@
             localStorage.setItem('vendors', JSON.stringify(vendors));
         }
 
+        // Auto-refresh interval for vendors
+        let vendorsAutoRefreshInterval = null;
+
         // Open vendors management modal - NOW SYNCS FROM API
         async function openVendorsManagement() {
             console.log('openVendorsManagement called');
@@ -13341,6 +13344,14 @@
                 // Sync vendors from API first to get latest data
                 await syncVendorsFromAPI();
                 displayVendorsList();
+                
+                // Start auto-refresh every 30 seconds
+                if (vendorsAutoRefreshInterval) clearInterval(vendorsAutoRefreshInterval);
+                vendorsAutoRefreshInterval = setInterval(async () => {
+                    console.log('🔄 Auto-refreshing vendors...');
+                    await syncVendorsFromAPI();
+                    displayVendorsList();
+                }, 30000);
             } else {
                 alert('Vendors modal not found!');
             }
@@ -16929,6 +16940,11 @@
             const modal = document.getElementById('vendorsManagementModal');
             if (modal) {
                 modal.style.display = 'none';
+            }
+            // Stop auto-refresh
+            if (vendorsAutoRefreshInterval) {
+                clearInterval(vendorsAutoRefreshInterval);
+                vendorsAutoRefreshInterval = null;
             }
             // Clear form
             document.getElementById('createVendorForm').reset();
