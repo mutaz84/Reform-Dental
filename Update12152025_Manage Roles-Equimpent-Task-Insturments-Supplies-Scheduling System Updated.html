@@ -10956,10 +10956,12 @@
             }
         }
         
-        // Initialize users storage if not exists
+        // Initialize users storage if not exists (only as fallback if API unavailable)
         function initializeUsers() {
+            // Only create default admin if no users exist in localStorage AND API sync hasn't happened
+            // This is a fallback for offline mode only
             if (!localStorage.getItem('appUsers')) {
-                // Only create admin account - all other users added via User Management
+                // Only create admin account as fallback - database is source of truth
                 const defaultUsers = {
                     'admin': {
                         password: 'admin123',
@@ -10979,11 +10981,16 @@
             migrateUserPermissions();
         }
 
-        // Load users from localStorage
+        // Load users from localStorage (should be synced from API first)
         function loadUsers() {
-            initializeUsers();
+            // Note: Always call syncUsersFromAPI() before this to ensure data is fresh
             const usersJson = localStorage.getItem('appUsers');
-            return usersJson ? JSON.parse(usersJson) : {};
+            if (usersJson) {
+                return JSON.parse(usersJson);
+            }
+            // Fallback if localStorage is empty
+            initializeUsers();
+            return JSON.parse(localStorage.getItem('appUsers') || '{}');
         }
 
         // Save users to localStorage and optionally sync to API
@@ -35082,12 +35089,9 @@ async function syncUsersFromAPI() {
         };
     });
     
-    // Merge with existing localStorage users (keep local-only users)
-    const existingUsers = JSON.parse(localStorage.getItem('appUsers') || '{}');
-    const mergedUsers = { ...existingUsers, ...localUsers };
-    
-    localStorage.setItem('appUsers', JSON.stringify(mergedUsers));
-    console.log('✅ Synced', Object.keys(localUsers).length, 'users from API to localStorage');
+    // REPLACE localStorage with API users only (database is source of truth)
+    localStorage.setItem('appUsers', JSON.stringify(localUsers));
+    console.log('✅ Synced', Object.keys(localUsers).length, 'users from API (database is source of truth)');
     
     // Refresh employee resources
     if (typeof loadEmployeeResourcesFromUsers === 'function') {
