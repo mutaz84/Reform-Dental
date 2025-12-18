@@ -17130,27 +17130,38 @@
         // Delete vendor - NOW SYNCS WITH API
         async function deleteVendor(vendorID) {
             if (confirm('Are you sure you want to delete this vendor?')) {
-                console.log('🗑️ Deleting vendor with ID:', vendorID);
+                console.log('🗑️ Deleting vendor with ID:', vendorID, 'Type:', typeof vendorID);
                 
                 // Always remove from localStorage first
                 const vendors = loadVendors();
-                const updatedVendors = vendors.filter(v => v.vendorID !== vendorID && v.vendorID !== String(vendorID));
+                console.log('📦 Current vendors:', vendors.map(v => ({ id: v.vendorID, name: v.vendorName })));
+                const updatedVendors = vendors.filter(v => {
+                    const match = v.vendorID == vendorID; // Use == for type coercion
+                    if (match) console.log('🎯 Found vendor to delete:', v.vendorName);
+                    return !match;
+                });
                 saveVendors(updatedVendors);
+                console.log('💾 Saved updated vendors, count:', updatedVendors.length);
                 
                 try {
                     // Try to delete via API (for database vendors)
-                    const response = await fetch(`${API_BASE_URL}/vendors/${vendorID}`, {
+                    const apiUrl = `${API_BASE_URL}/vendors/${vendorID}`;
+                    console.log('🌐 Calling DELETE:', apiUrl);
+                    const response = await fetch(apiUrl, {
                         method: 'DELETE',
                         headers: { 'Content-Type': 'application/json' }
                     });
                     
+                    console.log('📡 API Response status:', response.status);
                     if (response.ok) {
-                        console.log('✅ Vendor deleted from API');
+                        const result = await response.json();
+                        console.log('✅ Vendor deleted from API:', result);
                     } else {
-                        console.log('⚠️ Vendor not in database (local only)');
+                        const errorText = await response.text();
+                        console.log('⚠️ API delete failed:', response.status, errorText);
                     }
                 } catch (error) {
-                    console.error('Error deleting vendor from API:', error);
+                    console.error('❌ Error deleting vendor from API:', error);
                 }
                 
                 displayVendorsList();
