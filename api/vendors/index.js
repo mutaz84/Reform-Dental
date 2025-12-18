@@ -50,32 +50,47 @@ module.exports = async function (context, req) {
         } else if (req.method === 'POST') {
             const body = req.body;
             const result = await pool.request()
-                .input('name', sql.NVarChar, body.name)
-                .input('contactPerson', sql.NVarChar, body.contactPerson)
-                .input('phone', sql.NVarChar, body.phone)
-                .input('email', sql.NVarChar, body.email)
-                .input('address', sql.NVarChar, body.address)
-                .input('notes', sql.NVarChar, body.notes)
-                .query(`INSERT INTO Vendors (Name, ContactPerson, Phone, Email, Address, Notes) 
-                        OUTPUT INSERTED.Id VALUES (@name, @contactPerson, @phone, @email, @address, @notes)`);
-            context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
+                .input('name', sql.NVarChar, body.name || '')
+                .input('vendorType', sql.NVarChar, body.vendorType || '')
+                .input('contactPerson', sql.NVarChar, body.contactPerson || '')
+                .input('phone', sql.NVarChar, body.phone || '')
+                .input('alternatePhone', sql.NVarChar, body.alternatePhone || '')
+                .input('email', sql.NVarChar, body.email || '')
+                .input('address', sql.NVarChar, body.address || '')
+                .input('city', sql.NVarChar, body.city || '')
+                .input('state', sql.NVarChar, body.state || '')
+                .input('zipCode', sql.NVarChar, body.zipCode || '')
+                .input('website', sql.NVarChar, body.website || '')
+                .input('notes', sql.NVarChar, body.notes || '')
+                .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0)
+                .query(`INSERT INTO Vendors (Name, VendorType, ContactPerson, Phone, AlternatePhone, Email, Address, City, State, ZipCode, Website, Notes, IsActive, CreatedDate) 
+                        OUTPUT INSERTED.Id VALUES (@name, @vendorType, @contactPerson, @phone, @alternatePhone, @email, @address, @city, @state, @zipCode, @website, @notes, @isActive, GETDATE())`);
+            context.res = { status: 201, headers, body: { id: result.recordset[0].Id, message: 'Vendor created successfully' } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
             await pool.request()
                 .input('id', sql.Int, id)
-                .input('name', sql.NVarChar, body.name)
-                .input('contactPerson', sql.NVarChar, body.contactPerson)
-                .input('phone', sql.NVarChar, body.phone)
-                .input('email', sql.NVarChar, body.email)
-                .input('address', sql.NVarChar, body.address)
-                .input('notes', sql.NVarChar, body.notes)
-                .query(`UPDATE Vendors SET Name=@name, ContactPerson=@contactPerson, Phone=@phone, Email=@email, Address=@address, Notes=@notes WHERE Id=@id`);
-            context.res = { status: 200, headers, body: { message: 'Vendor updated' } };
+                .input('name', sql.NVarChar, body.name || '')
+                .input('vendorType', sql.NVarChar, body.vendorType || '')
+                .input('contactPerson', sql.NVarChar, body.contactPerson || '')
+                .input('phone', sql.NVarChar, body.phone || '')
+                .input('alternatePhone', sql.NVarChar, body.alternatePhone || '')
+                .input('email', sql.NVarChar, body.email || '')
+                .input('address', sql.NVarChar, body.address || '')
+                .input('city', sql.NVarChar, body.city || '')
+                .input('state', sql.NVarChar, body.state || '')
+                .input('zipCode', sql.NVarChar, body.zipCode || '')
+                .input('website', sql.NVarChar, body.website || '')
+                .input('notes', sql.NVarChar, body.notes || '')
+                .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0)
+                .query(`UPDATE Vendors SET Name=@name, VendorType=@vendorType, ContactPerson=@contactPerson, Phone=@phone, AlternatePhone=@alternatePhone, 
+                        Email=@email, Address=@address, City=@city, State=@state, ZipCode=@zipCode, Website=@website, Notes=@notes, IsActive=@isActive, ModifiedDate=GETDATE() WHERE Id=@id`);
+            context.res = { status: 200, headers, body: { message: 'Vendor updated successfully' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()
                 .input('id', sql.Int, id)
                 .query('UPDATE Vendors SET IsActive = 0 WHERE Id = @id');
-            context.res = { status: 200, headers, body: { message: 'Vendor deleted' } };
+            context.res = { status: 200, headers, body: { message: 'Vendor deleted successfully' } };
         }
 
         await pool.close();

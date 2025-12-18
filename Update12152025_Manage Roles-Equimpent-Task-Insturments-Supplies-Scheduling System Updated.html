@@ -13331,13 +13331,15 @@
             localStorage.setItem('vendors', JSON.stringify(vendors));
         }
 
-        // Open vendors management modal
-        function openVendorsManagement() {
+        // Open vendors management modal - NOW SYNCS FROM API
+        async function openVendorsManagement() {
             console.log('openVendorsManagement called');
             const modal = document.getElementById('vendorsManagementModal');
             console.log('Vendors modal element:', modal);
             if (modal) {
                 modal.style.display = 'flex';
+                // Sync vendors from API first to get latest data
+                await syncVendorsFromAPI();
                 displayVendorsList();
             } else {
                 alert('Vendors modal not found!');
@@ -16908,8 +16910,8 @@
             document.getElementById('createVendorError').style.display = 'none';
         }
 
-        // Create new vendor
-        function createVendor(event) {
+        // Create new vendor - NOW SYNCS WITH API
+        async function createVendor(event) {
             event.preventDefault();
             
             const editId = document.getElementById('editVendorId').value;
@@ -16937,74 +16939,86 @@
                 return;
             }
             
-            // Load existing vendors
-            const vendors = loadVendors();
+            // Prepare vendor data for API
+            const vendorData = {
+                name: vendorName,
+                vendorType: vendorType,
+                contactPerson: contactName,
+                email: email,
+                phone: phone,
+                alternatePhone: alternatePhone,
+                address: address,
+                city: city,
+                state: state,
+                zipCode: zipCode,
+                website: website,
+                notes: notes,
+                isActive: isActive
+            };
             
-            if (editId) {
-                // Update existing vendor
-                const index = vendors.findIndex(v => v.vendorID === parseInt(editId));
-                if (index !== -1) {
-                    vendors[index] = {
-                        ...vendors[index],
-                        vendorName: vendorName,
-                        vendorType: vendorType,
-                        contactName: contactName,
-                        email: email,
-                        phone: phone,
-                        alternatePhone: alternatePhone,
-                        address: address,
-                        city: city,
-                        state: state,
-                        zipCode: zipCode,
-                        website: website,
-                        notes: notes,
-                        isActive: isActive,
-                        modifiedDate: new Date().toISOString()
-                    };
-                    saveVendors(vendors);
-                    
+            try {
+                let response;
+                if (editId) {
+                    // Update existing vendor via API
+                    response = await fetch(`${API_BASE_URL}/vendors/${editId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(vendorData)
+                    });
+                } else {
+                    // Create new vendor via API
+                    response = await fetch(`${API_BASE_URL}/vendors`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(vendorData)
+                    });
+                }
+                
+                if (response.ok) {
                     errorDiv.style.display = 'block';
                     errorDiv.style.background = '#d4edda';
                     errorDiv.style.borderColor = '#c3e6cb';
                     errorDiv.style.color = '#155724';
-                    errorDiv.textContent = `Vendor "${vendorName}" updated successfully!`;
+                    errorDiv.textContent = editId ? `Vendor "${vendorName}" updated successfully!` : `Vendor "${vendorName}" created successfully!`;
+                    
+                    // Sync vendors from API to refresh list
+                    await syncVendorsFromAPI();
+                } else {
+                    throw new Error('API request failed');
                 }
-            } else {
-                // Check if vendor name already exists
-                const vendorExists = vendors.some(v => v.vendorName.toLowerCase() === vendorName.toLowerCase());
-                if (vendorExists) {
-                    errorDiv.style.display = 'block';
-                    errorDiv.textContent = 'A vendor with this name already exists.';
-                    return;
+            } catch (error) {
+                console.error('Error saving vendor:', error);
+                // Fallback to localStorage
+                const vendors = loadVendors();
+                
+                if (editId) {
+                    const index = vendors.findIndex(v => v.vendorID === parseInt(editId));
+                    if (index !== -1) {
+                        vendors[index] = {
+                            ...vendors[index],
+                            vendorName, vendorType, contactName, email, phone,
+                            alternatePhone, address, city, state, zipCode,
+                            website, notes, isActive,
+                            modifiedDate: new Date().toISOString()
+                        };
+                    }
+                } else {
+                    const newVendor = {
+                        vendorID: Date.now(),
+                        vendorName, vendorType, contactName, email, phone,
+                        alternatePhone, address, city, state, zipCode,
+                        website, notes, isActive,
+                        createdDate: new Date().toISOString()
+                    };
+                    vendors.push(newVendor);
                 }
-                
-                // Create new vendor object
-                const newVendor = {
-                    vendorID: Date.now(),
-                    vendorName: vendorName,
-                    vendorType: vendorType,
-                    contactName: contactName,
-                    email: email,
-                    phone: phone,
-                    alternatePhone: alternatePhone,
-                    address: address,
-                    city: city,
-                    state: state,
-                    zipCode: zipCode,
-                    website: website,
-                    notes: notes,
-                    isActive: isActive,
-                    createdDate: new Date().toISOString()
-                };
-                
-                vendors.push(newVendor);
                 saveVendors(vendors);
                 
                 errorDiv.style.display = 'block';
-                errorDiv.style.background = '#d4edda';
-                errorDiv.style.borderColor = '#c3e6cb';
-                errorDiv.style.color = '#155724';
-                errorDiv.textContent = `Vendor "${vendorName}" created successfully!`;
+                errorDiv.style.background = '#fff3cd';
+                errorDiv.style.borderColor = '#ffc107';
+                errorDiv.style.color = '#856404';
+                errorDiv.textContent = `Vendor saved locally (offline mode)`;
             }
             
             // Reset form and hide
@@ -17113,12 +17127,30 @@
             document.getElementById('vendorFormSection').scrollIntoView({ behavior: 'smooth' });
         }
 
-        // Delete vendor
-        function deleteVendor(vendorID) {
+        // Delete vendor - NOW SYNCS WITH API
+        async function deleteVendor(vendorID) {
             if (confirm('Are you sure you want to delete this vendor?')) {
-                const vendors = loadVendors();
-                const updatedVendors = vendors.filter(v => v.vendorID !== vendorID);
-                saveVendors(updatedVendors);
+                try {
+                    // Try to delete via API first
+                    const response = await fetch(`${API_BASE_URL}/vendors/${vendorID}`, {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    
+                    if (response.ok) {
+                        console.log('✅ Vendor deleted from API');
+                        // Sync vendors from API to refresh list
+                        await syncVendorsFromAPI();
+                    } else {
+                        throw new Error('API delete failed');
+                    }
+                } catch (error) {
+                    console.error('Error deleting vendor from API:', error);
+                    // Fallback to localStorage
+                    const vendors = loadVendors();
+                    const updatedVendors = vendors.filter(v => v.vendorID !== vendorID);
+                    saveVendors(updatedVendors);
+                }
                 displayVendorsList();
             }
         }
@@ -36571,16 +36603,30 @@ async function syncVendorsFromAPI() {
         const apiVendors = await response.json();
         if (apiVendors && apiVendors.length > 0) {
             const localVendors = apiVendors.map(v => ({
-                id: `vendor-${v.Id || v.id}`,
-                name: v.Name || v.name,
-                contactPerson: v.ContactPerson || v.contactPerson || '',
+                vendorID: v.Id || v.id,
+                vendorName: v.Name || v.name || '',
+                vendorType: v.VendorType || v.vendorType || '',
+                contactName: v.ContactPerson || v.contactPerson || '',
                 phone: v.Phone || v.phone || '',
+                alternatePhone: v.AlternatePhone || v.alternatePhone || '',
                 email: v.Email || v.email || '',
                 address: v.Address || v.address || '',
-                notes: v.Notes || v.notes || ''
+                city: v.City || v.city || '',
+                state: v.State || v.state || '',
+                zipCode: v.ZipCode || v.zipCode || '',
+                website: v.Website || v.website || '',
+                notes: v.Notes || v.notes || '',
+                isActive: v.IsActive !== false && v.isActive !== false,
+                createdDate: v.CreatedDate || v.createdDate || '',
+                modifiedDate: v.ModifiedDate || v.modifiedDate || ''
             }));
             localStorage.setItem('vendors', JSON.stringify(localVendors));
             console.log('✅ Synced', localVendors.length, 'vendors from API');
+            
+            // Refresh vendors list if modal is open
+            if (typeof displayVendorsList === 'function') {
+                displayVendorsList();
+            }
         }
         return true;
     } catch (error) {
