@@ -17130,8 +17130,15 @@
         // Delete vendor - NOW SYNCS WITH API
         async function deleteVendor(vendorID) {
             if (confirm('Are you sure you want to delete this vendor?')) {
+                console.log('🗑️ Deleting vendor with ID:', vendorID);
+                
+                // Always remove from localStorage first
+                const vendors = loadVendors();
+                const updatedVendors = vendors.filter(v => v.vendorID !== vendorID && v.vendorID !== String(vendorID));
+                saveVendors(updatedVendors);
+                
                 try {
-                    // Try to delete via API first
+                    // Try to delete via API (for database vendors)
                     const response = await fetch(`${API_BASE_URL}/vendors/${vendorID}`, {
                         method: 'DELETE',
                         headers: { 'Content-Type': 'application/json' }
@@ -17139,18 +17146,13 @@
                     
                     if (response.ok) {
                         console.log('✅ Vendor deleted from API');
-                        // Sync vendors from API to refresh list
-                        await syncVendorsFromAPI();
                     } else {
-                        throw new Error('API delete failed');
+                        console.log('⚠️ Vendor not in database (local only)');
                     }
                 } catch (error) {
                     console.error('Error deleting vendor from API:', error);
-                    // Fallback to localStorage
-                    const vendors = loadVendors();
-                    const updatedVendors = vendors.filter(v => v.vendorID !== vendorID);
-                    saveVendors(updatedVendors);
                 }
+                
                 displayVendorsList();
             }
         }
@@ -36601,12 +36603,13 @@ async function syncVendorsFromAPI() {
         const response = await fetch(`${API_BASE_URL}/vendors`);
         if (!response.ok) return false;
         const apiVendors = await response.json();
+        console.log('📦 API Vendors:', apiVendors);
         if (apiVendors && apiVendors.length > 0) {
             const localVendors = apiVendors.map(v => ({
                 vendorID: v.Id || v.id,
                 vendorName: v.Name || v.name || '',
-                vendorType: v.VendorType || v.vendorType || '',
-                contactName: v.ContactPerson || v.contactPerson || '',
+                vendorType: v.VendorType || v.vendorType || v.Category || v.category || '',
+                contactName: v.ContactName || v.contactName || '',
                 phone: v.Phone || v.phone || '',
                 alternatePhone: v.AlternatePhone || v.alternatePhone || '',
                 email: v.Email || v.email || '',
@@ -36616,12 +36619,12 @@ async function syncVendorsFromAPI() {
                 zipCode: v.ZipCode || v.zipCode || '',
                 website: v.Website || v.website || '',
                 notes: v.Notes || v.notes || '',
-                isActive: v.IsActive !== false && v.isActive !== false,
+                isActive: v.IsActive === true || v.IsActive === 1 || v.isActive === true || v.isActive === 1,
                 createdDate: v.CreatedDate || v.createdDate || '',
                 modifiedDate: v.ModifiedDate || v.modifiedDate || ''
             }));
             localStorage.setItem('vendors', JSON.stringify(localVendors));
-            console.log('✅ Synced', localVendors.length, 'vendors from API');
+            console.log('✅ Synced', localVendors.length, 'vendors from API:', localVendors);
             
             // Refresh vendors list if modal is open
             if (typeof displayVendorsList === 'function') {
