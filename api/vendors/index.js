@@ -52,7 +52,7 @@ module.exports = async function (context, req) {
             const result = await pool.request()
                 .input('name', sql.NVarChar, body.name || '')
                 .input('vendorType', sql.NVarChar, body.vendorType || '')
-                .input('contactPerson', sql.NVarChar, body.contactPerson || '')
+                .input('contactName', sql.NVarChar, body.contactPerson || '')
                 .input('phone', sql.NVarChar, body.phone || '')
                 .input('alternatePhone', sql.NVarChar, body.alternatePhone || '')
                 .input('email', sql.NVarChar, body.email || '')
@@ -63,8 +63,8 @@ module.exports = async function (context, req) {
                 .input('website', sql.NVarChar, body.website || '')
                 .input('notes', sql.NVarChar, body.notes || '')
                 .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0)
-                .query(`INSERT INTO Vendors (Name, VendorType, ContactPerson, Phone, AlternatePhone, Email, Address, City, State, ZipCode, Website, Notes, IsActive, CreatedDate) 
-                        OUTPUT INSERTED.Id VALUES (@name, @vendorType, @contactPerson, @phone, @alternatePhone, @email, @address, @city, @state, @zipCode, @website, @notes, @isActive, GETDATE())`);
+                .query(`INSERT INTO Vendors (Name, VendorType, ContactName, Phone, AlternatePhone, Email, Address, City, State, ZipCode, Website, Notes, IsActive, CreatedDate) 
+                        OUTPUT INSERTED.Id VALUES (@name, @vendorType, @contactName, @phone, @alternatePhone, @email, @address, @city, @state, @zipCode, @website, @notes, @isActive, GETDATE())`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id, message: 'Vendor created successfully' } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
@@ -72,7 +72,7 @@ module.exports = async function (context, req) {
                 .input('id', sql.Int, id)
                 .input('name', sql.NVarChar, body.name || '')
                 .input('vendorType', sql.NVarChar, body.vendorType || '')
-                .input('contactPerson', sql.NVarChar, body.contactPerson || '')
+                .input('contactName', sql.NVarChar, body.contactPerson || '')
                 .input('phone', sql.NVarChar, body.phone || '')
                 .input('alternatePhone', sql.NVarChar, body.alternatePhone || '')
                 .input('email', sql.NVarChar, body.email || '')
@@ -83,7 +83,7 @@ module.exports = async function (context, req) {
                 .input('website', sql.NVarChar, body.website || '')
                 .input('notes', sql.NVarChar, body.notes || '')
                 .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0)
-                .query(`UPDATE Vendors SET Name=@name, VendorType=@vendorType, ContactPerson=@contactPerson, Phone=@phone, AlternatePhone=@alternatePhone, 
+                .query(`UPDATE Vendors SET Name=@name, VendorType=@vendorType, ContactName=@contactName, Phone=@phone, AlternatePhone=@alternatePhone, 
                         Email=@email, Address=@address, City=@city, State=@state, ZipCode=@zipCode, Website=@website, Notes=@notes, IsActive=@isActive, ModifiedDate=GETDATE() WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Vendor updated successfully' } };
         } else if (req.method === 'DELETE' && id) {
