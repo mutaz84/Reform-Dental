@@ -7646,13 +7646,14 @@
     <!-- Header -->
     <div class="header">
         <div class="logo-section" onclick="switchContentView('calendar', event)" style="cursor: pointer;" title="Go to Calendar">
-            <div class="logo-container">
-                <!-- Replace with actual image: <img src="Content/ChatGPT Image Nov 8, 2025, 09_38_26 PM.png" alt="ReformDental Logo"> -->
-                <i class="fas fa-tooth logo-placeholder"></i>
+            <div class="logo-container" id="appLogoContainer">
+                <!-- Dynamic logo will be inserted here -->
+                <i class="fas fa-tooth logo-placeholder" id="defaultLogoIcon"></i>
+                <img id="customLogoImg" src="" alt="Company Logo" style="display: none; max-height: 45px; max-width: 45px; object-fit: contain;">
             </div>
             <div class="brand-text">
-                <h1>ReformDental</h1>
-                <p>Management System</p>
+                <h1 id="appCompanyName">ReformDental</h1>
+                <p id="appTagline">Management System</p>
             </div>
         </div>
 
@@ -7719,6 +7720,10 @@
                 </button>
                 <div id="settingsDropdown" style="display: none; position: absolute; right: 0; top: 100%; margin-top: 0.5rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); min-width: 200px; z-index: 1000;">
                     <div style="padding: 0.5rem 0;">
+                        <button id="masterSettingsMenuItem" onclick="openMasterSettings(); toggleSettingsMenu();" style="width: 100%; text-align: left; padding: 0.75rem 1rem; background: none; border: none; color: var(--text-primary); cursor: pointer; display: none; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='none'">
+                            <i class="fas fa-sliders-h" style="margin-right: 0.75rem; width: 20px; color: #6366f1;"></i>
+                            <span>Master Settings</span>
+                        </button>
                         <button id="manageOfficesMenuItem" onclick="openOfficesManagement(); toggleSettingsMenu();" style="width: 100%; text-align: left; padding: 0.75rem 1rem; background: none; border: none; color: var(--text-primary); cursor: pointer; display: none; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='none'">
                             <i class="fas fa-building" style="margin-right: 0.75rem; width: 20px; color: var(--accent-primary);"></i>
                             <span>Manage Office</span>
@@ -10703,6 +10708,9 @@
             
             // Load duties from API
             loadDutiesFromAPI();
+            
+            // Initialize master settings (logo, company name, etc.)
+            initMasterSettings();
         });
 
         // ============ USER MANAGEMENT SYSTEM ============
@@ -11133,6 +11141,7 @@
             const root = document.documentElement;
             root.setAttribute('data-role', userRole || 'user');
             
+            const masterSettingsMenuItem = document.getElementById('masterSettingsMenuItem');
             const manageOfficesMenuItem = document.getElementById('manageOfficesMenuItem');
             const manageRoomsMenuItem = document.getElementById('manageRoomsMenuItem');
             const manageUsersMenuItem = document.getElementById('manageUsersMenuItem');
@@ -11170,6 +11179,12 @@
                 }
             }
             
+            // Master Settings - only for admin/owner or users with system settings permission
+            if (masterSettingsMenuItem) {
+                const canAccessSettings = userRole === 'admin' || userRole === 'owner' || hasPermission('system', 'settings');
+                masterSettingsMenuItem.style.display = canAccessSettings ? 'block' : 'none';
+            }
+            
             // Apply permissions to menu items
             setMenuVisibility(manageOfficesMenuItem, 'clinics', 'view');
             setMenuVisibility(manageRoomsMenuItem, 'rooms', 'view');
@@ -11204,6 +11219,153 @@
                 } else {
                     dropdown.style.display = 'none';
                 }
+            }
+        }
+
+        // ============ MASTER SETTINGS ============
+        
+        // Open Master Settings modal
+        function openMasterSettings() {
+            const modal = document.getElementById('masterSettingsModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                loadMasterSettings();
+            }
+        }
+        
+        // Close Master Settings modal
+        function closeMasterSettings() {
+            const modal = document.getElementById('masterSettingsModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+        
+        // Load Master Settings from localStorage/API
+        function loadMasterSettings() {
+            const settings = JSON.parse(localStorage.getItem('masterSettings') || '{}');
+            
+            // Load company name
+            const companyName = settings.companyName || 'ReformDental';
+            document.getElementById('settingsCompanyName').value = companyName;
+            
+            // Load tagline
+            const tagline = settings.tagline || 'Management System';
+            document.getElementById('settingsTagline').value = tagline;
+            
+            // Load logo preview
+            if (settings.logoData) {
+                const previewImg = document.getElementById('logoPreviewImg');
+                const placeholder = document.getElementById('logoPreviewPlaceholder');
+                previewImg.src = settings.logoData;
+                previewImg.style.display = 'block';
+                placeholder.style.display = 'none';
+            } else {
+                document.getElementById('logoPreviewImg').style.display = 'none';
+                document.getElementById('logoPreviewPlaceholder').style.display = 'block';
+            }
+        }
+        
+        // Handle logo file upload
+        function handleLogoUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                if (file.size > 2 * 1024 * 1024) { // 2MB limit
+                    alert('Logo file is too large. Please use an image under 2MB.');
+                    return;
+                }
+                
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const logoData = e.target.result;
+                    
+                    // Show preview
+                    const previewImg = document.getElementById('logoPreviewImg');
+                    const placeholder = document.getElementById('logoPreviewPlaceholder');
+                    previewImg.src = logoData;
+                    previewImg.style.display = 'block';
+                    placeholder.style.display = 'none';
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+        
+        // Remove logo
+        function removeLogo() {
+            document.getElementById('logoPreviewImg').src = '';
+            document.getElementById('logoPreviewImg').style.display = 'none';
+            document.getElementById('logoPreviewPlaceholder').style.display = 'block';
+            document.getElementById('logoFileInput').value = '';
+        }
+        
+        // Save Master Settings
+        async function saveMasterSettings() {
+            const companyName = document.getElementById('settingsCompanyName').value.trim() || 'ReformDental';
+            const tagline = document.getElementById('settingsTagline').value.trim() || 'Management System';
+            const logoPreviewImg = document.getElementById('logoPreviewImg');
+            const logoData = logoPreviewImg.style.display !== 'none' ? logoPreviewImg.src : null;
+            
+            const settings = {
+                companyName,
+                tagline,
+                logoData,
+                updatedAt: new Date().toISOString()
+            };
+            
+            // Save to localStorage
+            localStorage.setItem('masterSettings', JSON.stringify(settings));
+            
+            // Apply settings to header
+            applyMasterSettings(settings);
+            
+            // Try to save to API for sync across devices
+            try {
+                await fetch(`${API_BASE_URL}/settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+                console.log('✅ Master settings saved to API');
+            } catch (error) {
+                console.log('⚠️ Settings saved locally (API sync not available)');
+            }
+            
+            alert('Settings saved successfully!');
+            closeMasterSettings();
+        }
+        
+        // Apply Master Settings to the app header
+        function applyMasterSettings(settings) {
+            // Apply company name
+            const companyNameEl = document.getElementById('appCompanyName');
+            if (companyNameEl && settings.companyName) {
+                companyNameEl.textContent = settings.companyName;
+            }
+            
+            // Apply tagline
+            const taglineEl = document.getElementById('appTagline');
+            if (taglineEl && settings.tagline) {
+                taglineEl.textContent = settings.tagline;
+            }
+            
+            // Apply logo
+            const customLogo = document.getElementById('customLogoImg');
+            const defaultIcon = document.getElementById('defaultLogoIcon');
+            if (settings.logoData) {
+                customLogo.src = settings.logoData;
+                customLogo.style.display = 'block';
+                defaultIcon.style.display = 'none';
+            } else {
+                customLogo.style.display = 'none';
+                defaultIcon.style.display = 'block';
+            }
+        }
+        
+        // Load and apply settings on page load
+        function initMasterSettings() {
+            const settings = JSON.parse(localStorage.getItem('masterSettings') || '{}');
+            if (Object.keys(settings).length > 0) {
+                applyMasterSettings(settings);
             }
         }
 
@@ -33953,6 +34115,74 @@ document.addEventListener('keydown', function(e) {
                         <div style="font-size: 0.85rem; color: var(--text-secondary);" id="officePlanDescDisplay">Click image to view full screen</div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Master Settings Modal -->
+<div id="masterSettingsModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 10001; align-items: center; justify-content: center;">
+    <div class="login-card" style="width: 95vw; max-width: 800px; height: auto; max-height: 90vh; margin: auto; border-radius: 16px; overflow-y: auto; background: var(--bg-primary);">
+        <div class="login-header" style="display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 1.5rem;">
+            <h3 style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-sliders-h" style="color: #6366f1;"></i>
+                Master Settings
+            </h3>
+            <button onclick="closeMasterSettings()" style="background: #ef4444; color: white; border: none; width: 40px; height: 40px; border-radius: 8px; font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Close">&times;</button>
+        </div>
+        
+        <div class="modal-body" style="padding: 2rem;">
+            <!-- Company Branding Section -->
+            <div style="margin-bottom: 2rem; background: var(--card-bg); border-radius: 12px; padding: 1.5rem; border: 1px solid var(--border-color);">
+                <h4 style="margin: 0 0 1.5rem 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; font-size: 1.1rem;">
+                    <i class="fas fa-palette" style="color: #6366f1;"></i>
+                    Company Branding
+                </h4>
+                
+                <!-- Logo Upload -->
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--text-primary);">Company Logo</label>
+                    <div style="display: flex; gap: 1.5rem; align-items: flex-start;">
+                        <div id="logoPreviewBox" style="width: 120px; height: 120px; border: 2px dashed var(--border-color); border-radius: 12px; display: flex; align-items: center; justify-content: center; background: var(--bg-secondary); overflow: hidden;">
+                            <i class="fas fa-image" id="logoPreviewPlaceholder" style="font-size: 2.5rem; color: var(--text-tertiary);"></i>
+                            <img id="logoPreviewImg" src="" alt="Logo Preview" style="display: none; max-width: 100%; max-height: 100%; object-fit: contain;">
+                        </div>
+                        <div style="flex: 1;">
+                            <input type="file" id="logoFileInput" accept="image/*" style="display: none;" onchange="handleLogoUpload(event)">
+                            <button onclick="document.getElementById('logoFileInput').click()" style="padding: 0.75rem 1.5rem; background: #6366f1; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+                                <i class="fas fa-upload"></i>
+                                Upload Logo
+                            </button>
+                            <button onclick="removeLogo()" style="padding: 0.5rem 1rem; background: transparent; color: #ef4444; border: 1px solid #ef4444; border-radius: 8px; cursor: pointer; font-size: 0.85rem;">
+                                <i class="fas fa-trash"></i> Remove Logo
+                            </button>
+                            <p style="margin: 0.75rem 0 0 0; font-size: 0.8rem; color: var(--text-tertiary);">Recommended: Square image, 200x200px or larger. PNG or JPG format.</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Company Name -->
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--text-primary);">Company Name</label>
+                    <input type="text" id="settingsCompanyName" placeholder="Enter company name" value="ReformDental" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; font-size: 1rem; background: var(--bg-secondary); color: var(--text-primary);">
+                </div>
+                
+                <!-- Tagline -->
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--text-primary);">Tagline / Subtitle</label>
+                    <input type="text" id="settingsTagline" placeholder="Enter tagline" value="Management System" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; font-size: 1rem; background: var(--bg-secondary); color: var(--text-primary);">
+                </div>
+            </div>
+            
+            <!-- Save Button -->
+            <div style="display: flex; justify-content: flex-end; gap: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                <button onclick="closeMasterSettings()" style="padding: 0.75rem 1.5rem; background: transparent; color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; font-weight: 600;">
+                    Cancel
+                </button>
+                <button onclick="saveMasterSettings()" style="padding: 0.75rem 2rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fas fa-save"></i>
+                    Save Settings
+                </button>
             </div>
         </div>
     </div>
