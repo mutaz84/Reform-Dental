@@ -27344,12 +27344,22 @@ window.addEventListener('load', function() {
         }
         
         function getCurrentUserId() {
-            // Get logged-in user ID from usersData
-            const loggedInUser = window.usersData?.find(u => 
-                u.FirstName === currentUser?.firstName && 
-                u.LastName === currentUser?.lastName
-            );
-            return loggedInUser?.Id || null;
+            // Get logged-in user from localStorage
+            const storedUser = localStorage.getItem('currentUser');
+            if (!storedUser) return null;
+            
+            try {
+                const currentUserData = JSON.parse(storedUser);
+                // Find matching user in usersData by name
+                const loggedInUser = window.usersData?.find(u => 
+                    (u.FirstName === currentUserData.firstName && u.LastName === currentUserData.lastName) ||
+                    (u.Username === currentUserData.username)
+                );
+                return loggedInUser?.Id || null;
+            } catch (e) {
+                console.error('Error parsing currentUser:', e);
+                return null;
+            }
         }
         
         async function loadConversations() {

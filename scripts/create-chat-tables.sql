@@ -19,18 +19,4 @@ CREATE INDEX IX_ChatMessages_ReceiverId ON ChatMessages(ReceiverId);
 CREATE INDEX IX_ChatMessages_SentAt ON ChatMessages(SentAt DESC);
 CREATE INDEX IX_ChatMessages_Unread ON ChatMessages(ReceiverId, IsRead) WHERE IsRead = 0;
 
--- Add IsOnline and LastSeen columns to Users table if they don't exist
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'IsOnline')
-BEGIN
-    ALTER TABLE Users ADD IsOnline BIT DEFAULT 0;
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'LastSeen')
-BEGIN
-    ALTER TABLE Users ADD LastSeen DATETIME NULL;
-END
-
--- Update existing users to have online status
-UPDATE Users SET IsOnline = 0, LastSeen = GETDATE() WHERE IsOnline IS NULL;
-
-PRINT 'Chat tables and columns created successfully!';
+PRINT 'ChatMessages table created successfully!';
