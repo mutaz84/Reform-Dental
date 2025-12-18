@@ -43,8 +43,19 @@ module.exports = async function (context, req) {
                     .query('SELECT * FROM Tasks WHERE Id = @id');
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                const result = await pool.request()
-                    .query('SELECT * FROM Tasks ORDER BY DueDate, Priority');
+                // Support filtering by TaskType
+                const taskType = req.query.taskType;
+                let query = 'SELECT * FROM Tasks';
+                if (taskType) {
+                    query += ' WHERE TaskType = @taskType';
+                }
+                query += ' ORDER BY DueDate, Priority';
+                
+                const request = pool.request();
+                if (taskType) {
+                    request.input('taskType', sql.NVarChar, taskType);
+                }
+                const result = await request.query(query);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {
@@ -58,8 +69,14 @@ module.exports = async function (context, req) {
                 .input('dueDate', sql.Date, body.dueDate || null)
                 .input('assignedToId', sql.Int, body.assignedToId || null)
                 .input('clinicId', sql.Int, body.clinicId || null)
-                .query(`INSERT INTO Tasks (Title, Description, Category, Priority, Status, DueDate, AssignedToId, ClinicId) 
-                        OUTPUT INSERTED.Id VALUES (@title, @description, @category, @priority, @status, @dueDate, @assignedToId, @clinicId)`);
+                .input('taskType', sql.NVarChar, body.taskType || 'Regular')
+                .input('isPaid', sql.Bit, body.isPaid || false)
+                .input('payAmount', sql.Decimal(10,2), body.payAmount || null)
+                .input('location', sql.NVarChar, body.location || null)
+                .input('timeEstimate', sql.NVarChar, body.timeEstimate || null)
+                .input('assignee', sql.NVarChar, body.assignee || null)
+                .query(`INSERT INTO Tasks (Title, Description, Category, Priority, Status, DueDate, AssignedToId, ClinicId, TaskType, IsPaid, PayAmount, Location, TimeEstimate, Assignee) 
+                        OUTPUT INSERTED.Id VALUES (@title, @description, @category, @priority, @status, @dueDate, @assignedToId, @clinicId, @taskType, @isPaid, @payAmount, @location, @timeEstimate, @assignee)`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
@@ -71,7 +88,15 @@ module.exports = async function (context, req) {
                 .input('priority', sql.NVarChar, body.priority)
                 .input('status', sql.NVarChar, body.status)
                 .input('dueDate', sql.Date, body.dueDate || null)
-                .query(`UPDATE Tasks SET Title=@title, Description=@description, Category=@category, Priority=@priority, Status=@status, DueDate=@dueDate, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+                .input('taskType', sql.NVarChar, body.taskType || 'Regular')
+                .input('isPaid', sql.Bit, body.isPaid || false)
+                .input('payAmount', sql.Decimal(10,2), body.payAmount || null)
+                .input('location', sql.NVarChar, body.location || null)
+                .input('timeEstimate', sql.NVarChar, body.timeEstimate || null)
+                .input('assignee', sql.NVarChar, body.assignee || null)
+                .input('claimedBy', sql.NVarChar, body.claimedBy || null)
+                .input('claimedAt', sql.DateTime, body.claimedAt || null)
+                .query(`UPDATE Tasks SET Title=@title, Description=@description, Category=@category, Priority=@priority, Status=@status, DueDate=@dueDate, TaskType=@taskType, IsPaid=@isPaid, PayAmount=@payAmount, Location=@location, TimeEstimate=@timeEstimate, Assignee=@assignee, ClaimedBy=@claimedBy, ClaimedAt=@claimedAt, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Task updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()
