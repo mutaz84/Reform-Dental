@@ -11229,6 +11229,32 @@
             }
         }
 
+        // Close all management modals
+        function closeAllManagementModals() {
+            // List of all modal IDs
+            const modalIds = [
+                'userManagementModal',
+                'officesManagementModal',
+                'vendorsManagementModal',
+                'equipmentManagementModal',
+                'instrumentsManagementModal',
+                'suppliesManagementModal',
+                'addUserModal',
+                'editUserModal',
+                'equipmentListModal',
+                'instrumentsListModal',
+                'suppliesListModal',
+                'officePlanModal'
+            ];
+            
+            modalIds.forEach(id => {
+                const modal = document.getElementById(id);
+                if (modal) {
+                    modal.style.display = 'none';
+                }
+            });
+        }
+
         // Close user management modal
         function closeUserManagement() {
             const modal = document.getElementById('userManagementModal');
@@ -12831,6 +12857,9 @@
         function createOffice(event) {
             event.preventDefault();
             
+            const editId = document.getElementById('editOfficeId').value;
+            const isEdit = !!editId;
+            
             const officeName = document.getElementById('newOfficeName').value.trim();
             const phone = document.getElementById('newOfficePhone').value.trim();
             const address = document.getElementById('newOfficeAddress').value.trim();
@@ -12900,62 +12929,99 @@
             // Load existing offices
             const offices = loadOffices();
             
-            // Check if office name already exists
-            const officeExists = offices.some(o => o.officeName.toLowerCase() === officeName.toLowerCase());
-            if (officeExists) {
+            if (isEdit) {
+                // Update existing office
+                const index = offices.findIndex(o => o.officeID === parseInt(editId));
+                if (index > -1) {
+                    offices[index] = {
+                        ...offices[index],
+                        officeName,
+                        logo: uploadedOfficeLogo,
+                        phone,
+                        address,
+                        city,
+                        state,
+                        zipCode,
+                        email,
+                        website,
+                        defaultDentist,
+                        color,
+                        taxonomyNumber,
+                        clinicNPI,
+                        clinicTIN,
+                        legalName,
+                        legalAddress,
+                        status,
+                        operatingHours,
+                        description,
+                        isActive,
+                        modifiedDate: new Date().toISOString()
+                    };
+                    saveOffices(offices);
+                    
+                    errorDiv.style.display = 'block';
+                    errorDiv.style.background = '#d4edda';
+                    errorDiv.style.borderColor = '#c3e6cb';
+                    errorDiv.style.color = '#155724';
+                    errorDiv.textContent = `Office "${officeName}" updated successfully!`;
+                }
+            } else {
+                // Check if office name already exists
+                const officeExists = offices.some(o => o.officeName.toLowerCase() === officeName.toLowerCase());
+                if (officeExists) {
+                    errorDiv.style.display = 'block';
+                    errorDiv.textContent = 'An office with this name already exists.';
+                    return;
+                }
+                
+                // Create new office object
+                const newOffice = {
+                    officeID: Date.now(),
+                    officeName,
+                    logo: uploadedOfficeLogo,
+                    phone,
+                    address,
+                    city,
+                    state,
+                    zipCode,
+                    email,
+                    website,
+                    defaultDentist,
+                    color,
+                    taxonomyNumber,
+                    clinicNPI,
+                    clinicTIN,
+                    legalName,
+                    legalAddress,
+                    status,
+                    operatingHours,
+                    description,
+                    isActive,
+                    createdDate: new Date().toISOString(),
+                    modifiedDate: new Date().toISOString()
+                };
+                
+                offices.push(newOffice);
+                saveOffices(offices, {
+                    name: officeName,
+                    address,
+                    city,
+                    state,
+                    phone,
+                    email
+                });
+                
                 errorDiv.style.display = 'block';
-                errorDiv.textContent = 'An office with this name already exists.';
-                return;
+                errorDiv.style.background = '#d4edda';
+                errorDiv.style.borderColor = '#c3e6cb';
+                errorDiv.style.color = '#155724';
+                errorDiv.textContent = `Office "${officeName}" created successfully!`;
             }
             
-            // Create new office object
-            const newOffice = {
-                officeID: Date.now(), // Generate unique ID
-                officeName: officeName,
-                logo: uploadedOfficeLogo,
-                phone: phone,
-                address: address,
-                city: city,
-                state: state,
-                zipCode: zipCode,
-                email: email,
-                website: website,
-                defaultDentist: defaultDentist,
-                color: color,
-                taxonomyNumber: taxonomyNumber,
-                clinicNPI: clinicNPI,
-                clinicTIN: clinicTIN,
-                legalName: legalName,
-                legalAddress: legalAddress,
-                status: status,
-                operatingHours: operatingHours,
-                description: description,
-                isActive: isActive,
-                createdDate: new Date().toISOString(),
-                modifiedDate: new Date().toISOString()
-            };
-            
-            // Add to offices array
-            offices.push(newOffice);
-            // Save to localStorage and sync to API
-            saveOffices(offices, {
-                name: officeName,
-                address: address,
-                city: city,
-                state: state,
-                phone: phone,
-                email: email
-            });
-            
-            // Show success message
-            errorDiv.style.display = 'block';
-            errorDiv.style.background = '#d4edda';
-            errorDiv.style.borderColor = '#c3e6cb';
-            errorDiv.style.color = '#155724';
-            errorDiv.textContent = `Office "${officeName}" created successfully!`;
-            
-            // Reset form
+            // Reset form and hide form section
             document.getElementById('createOfficeForm').reset();
+            document.getElementById('editOfficeId').value = '';
+            document.getElementById('officeFormSection').style.display = 'none';
             
             // Reset logo
             uploadedOfficeLogo = null;
@@ -12984,53 +13050,128 @@
             if (!officesList) return;
             
             if (offices.length === 0) {
-                officesList.innerHTML = '<p style="color: var(--text-tertiary); text-align: center; padding: 2rem;">No offices added yet.</p>';
+                officesList.innerHTML = '<tr><td colspan="5" style="padding: 2rem; text-align: center; color: var(--text-tertiary);">No offices added yet. Click "Add New Office" to get started.</td></tr>';
                 return;
             }
             
             officesList.innerHTML = offices.map(office => {
-                // Format operating hours for display
-                let hoursDisplay = '';
-                if (office.operatingHours && typeof office.operatingHours === 'object') {
-                    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-                    const openDays = days.filter(day => office.operatingHours[day]?.isOpen);
-                    if (openDays.length > 0) {
-                        hoursDisplay = openDays.map(day => {
-                            const dayData = office.operatingHours[day];
-                            const dayName = day.charAt(0).toUpperCase() + day.slice(1, 3);
-                            return `${dayName}: ${dayData.open}-${dayData.close}`;
-                        }).join(', ');
-                    }
-                }
+                const address = [office.address, office.city, office.state, office.zipCode].filter(Boolean).join(', ');
                 
                 return `
-                <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 1.5rem; display: flex; justify-content: space-between; align-items: start;">
-                    <div style="flex: 1;">
-                        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem;">
-                            ${office.logo ? `<div style="width: 60px; height: 60px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-color); background: white;"><img src="${office.logo.dataUrl}" style="width: 100%; height: 100%; object-fit: contain;"></div>` : `<div style="width: 30px; height: 30px; border-radius: 6px; background: ${office.color};"></div>`}
+                <tr style="border-bottom: 1px solid var(--border-color); transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='transparent'">
+                    <td style="padding: 1rem; color: var(--text-primary);">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            ${office.logo ? `<div style="width: 40px; height: 40px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-color); background: white;"><img src="${office.logo.dataUrl}" style="width: 100%; height: 100%; object-fit: contain;"></div>` : `<div style="width: 40px; height: 40px; border-radius: 6px; background: ${office.color || 'var(--accent-primary)'}; display: flex; align-items: center; justify-content: center;"><i class="fas fa-building" style="color: white;"></i></div>`}
                             <div>
-                                <div style="font-weight: 600; color: var(--text-primary); font-size: 1.1rem;">${office.officeName}</div>
-                                ${office.legalName ? `<div style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.2rem;">Legal: ${office.legalName}</div>` : ''}
+                                <div style="font-weight: 600;">${office.officeName}</div>
+                                ${office.email ? `<div style="font-size: 0.8rem; color: var(--text-tertiary);">${office.email}</div>` : ''}
                             </div>
                         </div>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.75rem; margin-top: 1rem;">
-                            ${office.address ? `<div style="color: var(--text-tertiary); font-size: 0.85rem;"><i class="fas fa-map-marker-alt" style="margin-right: 0.5rem; width: 16px;"></i>${office.address}${office.city ? `, ${office.city}` : ''}${office.state ? `, ${office.state}` : ''} ${office.zipCode || ''}</div>` : ''}
-                            ${office.phone ? `<div style="color: var(--text-tertiary); font-size: 0.85rem;"><i class="fas fa-phone" style="margin-right: 0.5rem; width: 16px;"></i>${office.phone}</div>` : ''}
-                            ${office.email ? `<div style="color: var(--text-tertiary); font-size: 0.85rem;"><i class="fas fa-envelope" style="margin-right: 0.5rem; width: 16px;"></i>${office.email}</div>` : ''}
-                            ${office.website ? `<div style="color: var(--text-tertiary); font-size: 0.85rem;"><i class="fas fa-globe" style="margin-right: 0.5rem; width: 16px;"></i>${office.website}</div>` : ''}
-                            ${office.defaultDentist ? `<div style="color: var(--text-tertiary); font-size: 0.85rem;"><i class="fas fa-user-md" style="margin-right: 0.5rem; width: 16px;"></i>${office.defaultDentist}</div>` : ''}
-                            ${office.clinicNPI ? `<div style="color: var(--text-tertiary); font-size: 0.85rem;"><i class="fas fa-id-card" style="margin-right: 0.5rem; width: 16px;"></i>NPI: ${office.clinicNPI}</div>` : ''}
-                            ${office.clinicTIN ? `<div style="color: var(--text-tertiary); font-size: 0.85rem;"><i class="fas fa-file-invoice" style="margin-right: 0.5rem; width: 16px;"></i>TIN: ${office.clinicTIN}</div>` : ''}
-                            ${hoursDisplay ? `<div style="color: var(--text-tertiary); font-size: 0.85rem; grid-column: 1 / -1;"><i class="fas fa-clock" style="margin-right: 0.5rem; width: 16px;"></i>${hoursDisplay}</div>` : ''}
-                            <div style="color: var(--text-tertiary); font-size: 0.85rem;"><i class="fas fa-circle" style="margin-right: 0.5rem; color: ${office.isActive ? '#10b981' : '#ef4444'};"></i>${office.status}</div>
+                    </td>
+                    <td style="padding: 1rem; color: var(--text-secondary);">${office.phone || '-'}</td>
+                    <td style="padding: 1rem; color: var(--text-secondary); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${address || '-'}</td>
+                    <td style="padding: 1rem;">
+                        <span style="background: ${office.isActive !== false ? '#10b98120' : '#ef444420'}; color: ${office.isActive !== false ? '#10b981' : '#ef4444'}; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">${office.status || (office.isActive !== false ? 'Active' : 'Inactive')}</span>
+                    </td>
+                    <td style="padding: 1rem; text-align: center;">
+                        <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                            <button onclick="editOffice(${office.officeID})" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit Office">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="deleteOffice(${office.officeID})" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete Office">
+                                <i class="fas fa-trash"></i>
+                            </button>
                         </div>
-                    </div>
-                    <button onclick="deleteOffice(${office.officeID})" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: background 0.2s; margin-left: 1rem;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
+                    </td>
+                </tr>
             `;
             }).join('');
+        }
+
+        // Open Add Office Form
+        function openAddOfficeForm() {
+            document.getElementById('officeFormSection').style.display = 'block';
+            document.getElementById('officeFormTitle').textContent = 'Add New Office';
+            document.getElementById('officeSubmitBtn').innerHTML = '<i class="fas fa-plus-circle" style="margin-right: 0.5rem;"></i>Add Office';
+            document.getElementById('editOfficeId').value = '';
+            document.getElementById('createOfficeForm').reset();
+            document.getElementById('newOfficeIsActive').checked = true;
+            // Reset logo preview
+            const logoPreview = document.getElementById('officeLogoPreview');
+            if (logoPreview) {
+                logoPreview.innerHTML = '<i class="fas fa-building" style="font-size: 3rem; color: var(--text-tertiary);"></i>';
+            }
+            uploadedOfficeLogo = null;
+            document.getElementById('officeFormSection').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Close Office Form
+        function closeOfficeForm() {
+            document.getElementById('officeFormSection').style.display = 'none';
+            document.getElementById('createOfficeForm').reset();
+            document.getElementById('editOfficeId').value = '';
+        }
+
+        // Edit Office
+        function editOffice(officeID) {
+            const offices = loadOffices();
+            const office = offices.find(o => o.officeID === officeID);
+            
+            if (!office) return;
+            
+            // Show the form section
+            document.getElementById('officeFormSection').style.display = 'block';
+            document.getElementById('officeFormTitle').textContent = 'Edit Office';
+            document.getElementById('officeSubmitBtn').innerHTML = '<i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save Changes';
+            document.getElementById('editOfficeId').value = office.officeID;
+            
+            // Populate form fields
+            document.getElementById('newOfficeName').value = office.officeName || '';
+            document.getElementById('newOfficePhone').value = office.phone || '';
+            document.getElementById('newOfficeAddress').value = office.address || '';
+            document.getElementById('newOfficeCity').value = office.city || '';
+            document.getElementById('newOfficeState').value = office.state || '';
+            document.getElementById('newOfficeZipCode').value = office.zipCode || '';
+            document.getElementById('newOfficeEmail').value = office.email || '';
+            document.getElementById('newOfficeWebsite').value = office.website || '';
+            document.getElementById('newDefaultDentist').value = office.defaultDentist || '';
+            document.getElementById('newOfficeColor').value = office.color || '#06b6d4';
+            document.getElementById('newTaxonomyNumber').value = office.taxonomyNumber || '';
+            document.getElementById('newClinicNPI').value = office.clinicNPI || '';
+            document.getElementById('newClinicTIN').value = office.clinicTIN || '';
+            document.getElementById('newLegalName').value = office.legalName || '';
+            document.getElementById('newLegalAddress').value = office.legalAddress || '';
+            document.getElementById('newOfficeStatus').value = office.status || 'Active';
+            document.getElementById('newOfficeDescription').value = office.description || '';
+            document.getElementById('newOfficeIsActive').checked = office.isActive !== false;
+            
+            // Load logo if exists
+            const logoPreview = document.getElementById('officeLogoPreview');
+            if (office.logo && office.logo.dataUrl) {
+                logoPreview.innerHTML = `<img src="${office.logo.dataUrl}" style="width: 100%; height: 100%; object-fit: contain;">`;
+                uploadedOfficeLogo = office.logo;
+            } else {
+                logoPreview.innerHTML = '<i class="fas fa-building" style="font-size: 3rem; color: var(--text-tertiary);"></i>';
+                uploadedOfficeLogo = null;
+            }
+            
+            // Load operating hours if exists
+            if (office.operatingHours) {
+                const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+                days.forEach(day => {
+                    const dayData = office.operatingHours[day];
+                    const checkbox = document.getElementById('day' + day.charAt(0).toUpperCase() + day.slice(1));
+                    const openInput = document.getElementById(day + 'Open');
+                    const closeInput = document.getElementById(day + 'Close');
+                    if (checkbox && dayData) {
+                        checkbox.checked = dayData.isOpen;
+                        if (openInput) openInput.value = dayData.open || '';
+                        if (closeInput) closeInput.value = dayData.close || '';
+                    }
+                });
+            }
+            
+            document.getElementById('officeFormSection').scrollIntoView({ behavior: 'smooth' });
         }
 
         // Delete office
@@ -22789,6 +22930,9 @@
             }
             
             try {
+                // Close all management modals first
+                closeAllManagementModals();
+                
                 // Hide task management sidebar and new task button when switching views
                 // (they only appear when using "Manage Tasks" from settings menu)
                 const managementSidebar = document.getElementById('taskManagementSidebar');
@@ -32505,9 +32649,37 @@ document.addEventListener('keydown', function(e) {
         </div>
         
         <div class="modal-body" style="padding: 2rem;">
-            <!-- Add New Office Form -->
-            <div style="background: var(--bg-secondary); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
-                <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Add New Office</h4>
+            <!-- Offices List First -->
+            <div style="margin-bottom: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h4 style="margin: 0; color: var(--text-primary);">Offices</h4>
+                    <button onclick="openAddOfficeForm()" style="padding: 0.75rem 1.5rem; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; transition: all 0.3s ease; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.3);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(6, 182, 212, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(6, 182, 212, 0.3)'">
+                        <i class="fas fa-plus-circle"></i>
+                        Add New Office
+                    </button>
+                </div>
+                <div style="background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border-color); overflow: hidden;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: var(--bg-secondary);">
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Office Name</th>
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Phone</th>
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Address</th>
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Status</th>
+                                <th style="padding: 1rem; text-align: center; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="officesList">
+                            <!-- Offices will be dynamically added here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Add/Edit Office Form (Hidden by default) -->
+            <div id="officeFormSection" style="display: none; background: var(--bg-secondary); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                <h4 id="officeFormTitle" style="margin: 0 0 1rem 0; color: var(--text-primary);">Add New Office</h4>
+                <input type="hidden" id="editOfficeId" value="">
                 <form id="createOfficeForm" onsubmit="createOffice(event)">
                     <!-- Office Logo Upload -->
                     <div class="form-group" style="margin-bottom: 1rem;">
@@ -32697,24 +32869,16 @@ document.addEventListener('keydown', function(e) {
 
                     <div id="createOfficeError" class="login-error" style="display: none;"></div>
                     <div style="display: flex; gap: 1rem;">
-                        <button type="submit" class="login-btn" style="width: auto; padding: 0.75rem 2rem;">
+                        <button type="submit" id="officeSubmitBtn" class="login-btn" style="width: auto; padding: 0.75rem 2rem;">
                             <i class="fas fa-plus-circle" style="margin-right: 0.5rem;"></i>
                             Add Office
                         </button>
-                        <button type="button" onclick="closeOfficesManagement()" style="padding: 0.75rem 2rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-weight: 600; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                        <button type="button" onclick="closeOfficeForm()" style="padding: 0.75rem 2rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-weight: 600; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
                             <i class="fas fa-times" style="margin-right: 0.5rem;"></i>
-                            Close
+                            Cancel
                         </button>
                     </div>
                 </form>
-            </div>
-
-            <!-- Offices List -->
-            <div>
-                <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Existing Offices</h4>
-                <div id="officesList" style="display: grid; gap: 1rem;">
-                    <!-- Offices will be dynamically added here -->
-                </div>
             </div>
         </div>
     </div>
