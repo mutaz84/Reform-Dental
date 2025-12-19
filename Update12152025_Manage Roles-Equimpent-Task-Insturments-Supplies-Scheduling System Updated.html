@@ -11364,10 +11364,27 @@
         }
         
         // Load and apply settings on page load
-        function initMasterSettings() {
-            const settings = JSON.parse(localStorage.getItem('masterSettings') || '{}');
+        async function initMasterSettings() {
+            // First try to load from localStorage for immediate display
+            let settings = JSON.parse(localStorage.getItem('masterSettings') || '{}');
             if (Object.keys(settings).length > 0) {
                 applyMasterSettings(settings);
+            }
+            
+            // Then try to sync from API (database) for latest settings
+            try {
+                const response = await fetch(`${API_BASE_URL}/settings`);
+                if (response.ok) {
+                    const apiSettings = await response.json();
+                    if (apiSettings && Object.keys(apiSettings).length > 0) {
+                        // Update localStorage with API data
+                        localStorage.setItem('masterSettings', JSON.stringify(apiSettings));
+                        applyMasterSettings(apiSettings);
+                        console.log('✅ Master settings synced from database');
+                    }
+                }
+            } catch (error) {
+                console.log('⚠️ Using local settings (API not available)');
             }
         }
 
