@@ -1,15 +1,23 @@
 const sql = require('mssql');
 
-const config = {
-    server: process.env.SQL_SERVER,
-    database: process.env.SQL_DATABASE,
-    user: process.env.SQL_USER,
-    password: process.env.SQL_PASSWORD,
-    options: {
-        encrypt: true,
-        trustServerCertificate: false
+function getConfig() {
+    const connStr = process.env.SQL_CONNECTION_STRING;
+    if (connStr) {
+        const serverMatch = connStr.match(/Server=tcp:([^,]+)/i);
+        const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
+        const userMatch = connStr.match(/User ID=([^;]+)/i);
+        const passMatch = connStr.match(/Password=([^;]+)/i);
+        
+        return {
+            server: serverMatch ? serverMatch[1] : '',
+            database: dbMatch ? dbMatch[1] : '',
+            user: userMatch ? userMatch[1] : '',
+            password: passMatch ? passMatch[1] : '',
+            options: { encrypt: true, trustServerCertificate: false }
+        };
     }
-};
+    return {};
+}
 
 module.exports = async function (context, req) {
     context.log('Chat API triggered');
@@ -28,7 +36,7 @@ module.exports = async function (context, req) {
     }
 
     try {
-        await sql.connect(config);
+        const pool = await sql.connect(getConfig());
         const method = req.method;
         const action = req.query.action || '';
         const messageId = req.params.id;
@@ -237,13 +245,11 @@ module.exports = async function (context, req) {
         context.res = { status: 400, headers, body: { error: 'Invalid request' } };
         
     } catch (error) {
-        context.log('Error:', error);
+        context.log.error('Chat API Error:', error);
         context.res = {
             status: 500,
             headers,
             body: { error: 'Database error', details: error.message }
         };
-    } finally {
-        await sql.close();
     }
 };
