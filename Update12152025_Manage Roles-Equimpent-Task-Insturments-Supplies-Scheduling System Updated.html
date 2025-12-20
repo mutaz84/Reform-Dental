@@ -33022,6 +33022,12 @@ function initChatHighlight() {
         }
     });
     
+    // Fetch unread count immediately
+    fetchUnreadChatCount();
+    
+    // Check for new messages every 15 seconds
+    setInterval(fetchUnreadChatCount, 15000);
+    
     // Add periodic attention animation to floating button
     setInterval(() => {
         const floatingBtn = document.getElementById('floatingChatBtn');
@@ -33034,6 +33040,23 @@ function initChatHighlight() {
             }, 600);
         }
     }, 30000); // Every 30 seconds
+}
+
+// Fetch unread message count from API
+async function fetchUnreadChatCount() {
+    try {
+        const currentUserId = getCurrentUserId();
+        if (!currentUserId) return;
+        
+        const response = await fetch(`${API_BASE_URL}/chat?action=unreadCount&userId=${currentUserId}`);
+        if (response.ok) {
+            const data = await response.json();
+            updateChatBadges(data.unreadCount || 0);
+            console.log('📬 Unread messages:', data.unreadCount || 0);
+        }
+    } catch (error) {
+        console.log('⚠️ Could not fetch unread count');
+    }
 }
 
 // Update chat badge counts

@@ -43,6 +43,23 @@ module.exports = async function (context, req) {
 
         // GET - Fetch conversations or messages
         if (method === 'GET') {
+            // Get total unread count for a user
+            if (action === 'unreadCount') {
+                const userId = req.query.userId;
+                if (!userId) {
+                    context.res = { status: 400, headers, body: { error: 'userId required' } };
+                    return;
+                }
+                
+                const result = await sql.query`
+                    SELECT COUNT(*) AS UnreadCount
+                    FROM ChatMessages
+                    WHERE ReceiverId = ${userId} AND IsRead = 0`;
+                
+                context.res = { status: 200, headers, body: { unreadCount: result.recordset[0].UnreadCount } };
+                return;
+            }
+            
             // Get conversations list for a user
             if (action === 'conversations') {
                 const userId = req.query.userId;
