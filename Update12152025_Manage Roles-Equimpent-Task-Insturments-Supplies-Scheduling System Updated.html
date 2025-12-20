@@ -5520,6 +5520,121 @@
             }
         }
 
+        /* ============ FLOATING CHAT BUTTON STYLES ============ */
+        .floating-chat-btn {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #06b6d4, #0891b2);
+            color: white;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            box-shadow: 0 4px 20px rgba(6, 182, 212, 0.4), 0 0 0 0 rgba(6, 182, 212, 0.4);
+            z-index: 9999;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            animation: chat-pulse 2s infinite;
+        }
+        
+        .floating-chat-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 30px rgba(6, 182, 212, 0.5);
+            animation: none;
+        }
+        
+        .floating-chat-btn:active {
+            transform: scale(0.95);
+        }
+        
+        /* Pulse animation */
+        @keyframes chat-pulse {
+            0% {
+                box-shadow: 0 4px 20px rgba(6, 182, 212, 0.4), 0 0 0 0 rgba(6, 182, 212, 0.4);
+            }
+            70% {
+                box-shadow: 0 4px 20px rgba(6, 182, 212, 0.4), 0 0 0 15px rgba(6, 182, 212, 0);
+            }
+            100% {
+                box-shadow: 0 4px 20px rgba(6, 182, 212, 0.4), 0 0 0 0 rgba(6, 182, 212, 0);
+            }
+        }
+        
+        /* Bounce animation for new messages */
+        @keyframes chat-bounce {
+            0%, 100% { transform: translateY(0); }
+            25% { transform: translateY(-8px); }
+            50% { transform: translateY(0); }
+            75% { transform: translateY(-4px); }
+        }
+        
+        .floating-chat-btn.has-messages {
+            animation: chat-bounce 1s ease infinite, chat-pulse 2s infinite;
+        }
+        
+        /* Unread badge on floating button */
+        .floating-chat-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #ef4444;
+            color: white;
+            font-size: 0.75rem;
+            font-weight: 700;
+            min-width: 22px;
+            height: 22px;
+            border-radius: 11px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid white;
+            animation: badge-pop 0.3s ease;
+        }
+        
+        @keyframes badge-pop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+        
+        /* Chat icon wiggle on sidebar */
+        .chat-nav-item {
+            position: relative;
+        }
+        
+        .chat-nav-item.has-unread i {
+            animation: icon-wiggle 0.5s ease infinite;
+        }
+        
+        @keyframes icon-wiggle {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(-10deg); }
+            75% { transform: rotate(10deg); }
+        }
+        
+        .chat-nav-item.has-unread::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: -8px;
+            transform: translateY(-50%);
+            width: 8px;
+            height: 8px;
+            background: #ef4444;
+            border-radius: 50%;
+            animation: glow-dot 1.5s ease infinite;
+        }
+        
+        @keyframes glow-dot {
+            0%, 100% { box-shadow: 0 0 5px #ef4444; }
+            50% { box-shadow: 0 0 15px #ef4444, 0 0 25px #ef4444; }
+        }
+
         /* ============ MOBILE RESPONSIVE STYLES ============ */
         @media (max-width: 768px) {
             /* Hide sidebars on mobile by default */
@@ -9575,9 +9690,9 @@
                                 <i class="fas fa-address-book"></i>
                                 <span>Rolodex</span>
                             </a>
-                            <a href="#" class="nav-item" onclick="openChat(); return false;" style="position: relative;">
-                                <i class="fas fa-comments"></i>
-                                <span>Chat</span>
+                            <a href="#" class="nav-item chat-nav-item" onclick="openChat(); return false;" style="position: relative; background: linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(8, 145, 178, 0.1)); border: 1px solid rgba(6, 182, 212, 0.4); border-radius: 8px; margin-top: 0.5rem;">
+                                <i class="fas fa-comments" style="color: #06b6d4;"></i>
+                                <span style="color: #06b6d4; font-weight: 600;">💬 Team Chat</span>
                                 <span class="chat-unread-badge" style="display: none; position: absolute; top: 4px; right: 8px; background: #ef4444; color: white; font-size: 0.65rem; min-width: 18px; height: 18px; border-radius: 9px; align-items: center; justify-content: center; font-weight: 600;">0</span>
                             </a>
                         </div>
@@ -32881,7 +32996,77 @@ document.addEventListener('DOMContentLoaded', function() {
     initSidebarToggle();
     updateToggleButtons();
     initMobileMenu();
+    initChatHighlight();
 });
+
+// ============ CHAT HIGHLIGHT FUNCTIONS ============
+function initChatHighlight() {
+    // Style all chat nav items
+    document.querySelectorAll('.nav-item').forEach(item => {
+        if (item.onclick && item.onclick.toString().includes('openChat')) {
+            item.classList.add('chat-nav-item');
+            item.style.background = 'linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(8, 145, 178, 0.1))';
+            item.style.border = '1px solid rgba(6, 182, 212, 0.4)';
+            item.style.borderRadius = '8px';
+            item.style.marginTop = '0.5rem';
+            
+            const icon = item.querySelector('i');
+            if (icon) icon.style.color = '#06b6d4';
+            
+            const span = item.querySelector('span:not(.chat-unread-badge)');
+            if (span) {
+                span.style.color = '#06b6d4';
+                span.style.fontWeight = '600';
+                span.innerHTML = '💬 Team Chat';
+            }
+        }
+    });
+    
+    // Add periodic attention animation to floating button
+    setInterval(() => {
+        const floatingBtn = document.getElementById('floatingChatBtn');
+        if (floatingBtn && !floatingBtn.classList.contains('has-messages')) {
+            floatingBtn.style.animation = 'none';
+            floatingBtn.offsetHeight; // Trigger reflow
+            floatingBtn.style.animation = 'chat-bounce 0.6s ease';
+            setTimeout(() => {
+                floatingBtn.style.animation = 'chat-pulse 2s infinite';
+            }, 600);
+        }
+    }, 30000); // Every 30 seconds
+}
+
+// Update chat badge counts
+function updateChatBadges(unreadCount) {
+    const floatingBadge = document.getElementById('floatingChatBadge');
+    const floatingBtn = document.getElementById('floatingChatBtn');
+    
+    if (unreadCount > 0) {
+        if (floatingBadge) {
+            floatingBadge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+            floatingBadge.style.display = 'flex';
+        }
+        if (floatingBtn) floatingBtn.classList.add('has-messages');
+        
+        // Update sidebar badges
+        document.querySelectorAll('.chat-unread-badge').forEach(badge => {
+            badge.textContent = unreadCount;
+            badge.style.display = 'flex';
+        });
+        document.querySelectorAll('.chat-nav-item').forEach(item => {
+            item.classList.add('has-unread');
+        });
+    } else {
+        if (floatingBadge) floatingBadge.style.display = 'none';
+        if (floatingBtn) floatingBtn.classList.remove('has-messages');
+        document.querySelectorAll('.chat-unread-badge').forEach(badge => {
+            badge.style.display = 'none';
+        });
+        document.querySelectorAll('.chat-nav-item').forEach(item => {
+            item.classList.remove('has-unread');
+        });
+    }
+}
 
 // ============ MOBILE MENU FUNCTIONS ============
 function initMobileMenu() {
@@ -34779,6 +34964,12 @@ document.addEventListener('keydown', function(e) {
         </div>
     </div>
 </div>
+
+<!-- Floating Chat Button -->
+<button class="floating-chat-btn" id="floatingChatBtn" onclick="openChat()" title="Team Chat">
+    <i class="fas fa-comments"></i>
+    <span class="floating-chat-badge" id="floatingChatBadge" style="display: none;">0</span>
+</button>
 
 <!-- Team Chat Modal -->
 <div id="chatModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 10003; align-items: center; justify-content: center;">
