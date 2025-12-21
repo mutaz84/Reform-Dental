@@ -8055,9 +8055,7 @@
                 <label for="clinicFilterSelect" style="font-size:.85rem;opacity:.8">Clinic</label>
                 <select id="clinicFilterSelect" onchange="applyClinicFilter(this.value)">
                     <option value="">All Clinics</option>
-                    <option value="clinic1">Main Clinic</option>
-                    <option value="clinic2">Downtown Clinic</option>
-                    <option value="clinic3">Uptown Clinic</option>
+                    <!-- Options will be loaded dynamically from offices -->
                 </select>
             </div>
             
@@ -12147,6 +12145,9 @@
                             <button onclick="openEditUserModal('${username}')" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit User">
                                 <i class="fas fa-edit"></i>
                             </button>
+                            <button onclick="openHRInfoModal('${username}')" style="padding: 0.5rem 1rem; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" title="HR Info">
+                                <i class="fas fa-file-invoice-dollar"></i>
+                            </button>
                             ${username !== 'admin' ? `<button onclick="deleteUser('${username}')" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete User">
                                 <i class="fas fa-trash"></i>
                             </button>` : ''}
@@ -12638,6 +12639,143 @@
             editingUsername = null;
         }
         
+        // ========== HR INFO MODAL FUNCTIONS ==========
+        
+        // Open HR Info Modal
+        function openHRInfoModal(username) {
+            const users = loadUsers();
+            const user = users[username];
+            
+            if (!user) {
+                showNotification('User not found', 'error');
+                return;
+            }
+            
+            // Set employee ID
+            document.getElementById('hrEmployeeId').value = username;
+            
+            // Set header info
+            const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || username;
+            document.getElementById('hrEmployeeName').textContent = fullName;
+            document.getElementById('hrEmployeeJobTitle').textContent = `${user.jobTitle || 'No Title'} • ${user.officeLocation || 'No Office'}`;
+            
+            // Set photo/initials
+            const photoDiv = document.getElementById('hrEmployeePhoto');
+            if (user.photo) {
+                photoDiv.innerHTML = `<img src="${user.photo}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">`;
+            } else {
+                const initials = `${(user.firstName || 'U')[0]}${(user.lastName || '')[0] || ''}`.toUpperCase();
+                photoDiv.innerHTML = initials;
+            }
+            
+            // Load HR data from user object or localStorage
+            const hrData = user.hrInfo || {};
+            
+            // Set form values
+            document.getElementById('hrEmploymentType').value = hrData.employmentType || '';
+            document.getElementById('hrActiveStatus').value = hrData.activeStatus || 'Active';
+            document.getElementById('hrPayType').value = hrData.payType || '';
+            document.getElementById('hrSalary').value = hrData.salary || '';
+            document.getElementById('hrHourlyRate').value = hrData.hourlyRate || '';
+            document.getElementById('hrExpectedHours').value = hrData.expectedHours || '';
+            document.getElementById('hrBenefitStartDate').value = hrData.benefitStartDate || '';
+            document.getElementById('hrBenefitEndDate').value = hrData.benefitEndDate || '';
+            document.getElementById('hrNotes').value = hrData.notes || '';
+            
+            // Set benefit checkboxes
+            document.getElementById('hrBenefitHealth').checked = hrData.benefits?.health || false;
+            document.getElementById('hrBenefitDental').checked = hrData.benefits?.dental || false;
+            document.getElementById('hrBenefitVision').checked = hrData.benefits?.vision || false;
+            document.getElementById('hrBenefit401k').checked = hrData.benefits?.retirement || false;
+            document.getElementById('hrBenefitPTO').checked = hrData.benefits?.pto || false;
+            document.getElementById('hrBenefitLife').checked = hrData.benefits?.life || false;
+            
+            // Toggle pay fields based on pay type
+            toggleHRPayFields();
+            
+            // Show modal
+            document.getElementById('hrInfoModal').style.display = 'flex';
+        }
+        
+        // Close HR Info Modal
+        function closeHRInfoModal() {
+            document.getElementById('hrInfoModal').style.display = 'none';
+        }
+        
+        // Toggle HR Pay Fields based on pay type
+        function toggleHRPayFields() {
+            const payType = document.getElementById('hrPayType').value;
+            const salaryField = document.getElementById('hrSalaryField');
+            const hourlyFields = document.getElementById('hrHourlyFields');
+            
+            if (payType === 'Salary') {
+                if (salaryField) salaryField.style.display = 'block';
+                if (hourlyFields) hourlyFields.style.display = 'none';
+            } else if (payType === 'Hourly') {
+                if (salaryField) salaryField.style.display = 'none';
+                if (hourlyFields) hourlyFields.style.display = 'grid';
+            } else {
+                if (salaryField) salaryField.style.display = 'block';
+                if (hourlyFields) hourlyFields.style.display = 'grid';
+            }
+        }
+        
+        // Save HR Info
+        async function saveHRInfo(event) {
+            event.preventDefault();
+            
+            const username = document.getElementById('hrEmployeeId').value;
+            if (!username) {
+                showNotification('No employee selected', 'error');
+                return;
+            }
+            
+            const users = loadUsers();
+            const user = users[username];
+            
+            if (!user) {
+                showNotification('User not found', 'error');
+                return;
+            }
+            
+            // Gather HR data
+            const hrData = {
+                employmentType: document.getElementById('hrEmploymentType').value,
+                activeStatus: document.getElementById('hrActiveStatus').value,
+                payType: document.getElementById('hrPayType').value,
+                salary: document.getElementById('hrSalary').value,
+                hourlyRate: document.getElementById('hrHourlyRate').value,
+                expectedHours: document.getElementById('hrExpectedHours').value,
+                benefitStartDate: document.getElementById('hrBenefitStartDate').value,
+                benefitEndDate: document.getElementById('hrBenefitEndDate').value,
+                notes: document.getElementById('hrNotes').value,
+                benefits: {
+                    health: document.getElementById('hrBenefitHealth').checked,
+                    dental: document.getElementById('hrBenefitDental').checked,
+                    vision: document.getElementById('hrBenefitVision').checked,
+                    retirement: document.getElementById('hrBenefit401k').checked,
+                    pto: document.getElementById('hrBenefitPTO').checked,
+                    life: document.getElementById('hrBenefitLife').checked
+                },
+                lastUpdated: new Date().toISOString()
+            };
+            
+            // Save HR data to user object
+            user.hrInfo = hrData;
+            users[username] = user;
+            saveUsers(users);
+            
+            showNotification('HR information saved successfully!', 'success');
+            closeHRInfoModal();
+            
+            // Refresh user list if on users page
+            if (typeof loadUsersData === 'function') {
+                loadUsersData();
+            }
+        }
+        
+        // ========== END HR INFO MODAL FUNCTIONS ==========
+
         // Save edited user
         function saveEditedUser(event) {
             event.preventDefault();
@@ -19169,11 +19307,119 @@
                         dataUrl: e.target.result
                     };
                     
-                    const preview = document.getElementById('photoPreview');
-                    preview.innerHTML = `<img src="${e.target.result}" style="width: 100%; height: 100%; object-fit: cover;">`;
+                    // Show image preview
+                    const previewImg = document.getElementById('photoPreviewImg');
+                    const placeholderIcon = document.getElementById('photoPlaceholderIcon');
+                    const removeBtn = document.getElementById('removePhotoBtn');
+                    
+                    if (previewImg) {
+                        previewImg.src = e.target.result;
+                        previewImg.style.display = 'block';
+                    }
+                    if (placeholderIcon) placeholderIcon.style.display = 'none';
+                    if (removeBtn) removeBtn.style.display = 'inline-flex';
                 };
                 reader.readAsDataURL(file);
             }
+        }
+
+        // Remove employee photo
+        function removeEmployeePhoto() {
+            uploadedPhoto = null;
+            const fileInput = document.getElementById('employeePhoto');
+            const previewImg = document.getElementById('photoPreviewImg');
+            const placeholderIcon = document.getElementById('photoPlaceholderIcon');
+            const removeBtn = document.getElementById('removePhotoBtn');
+            
+            if (fileInput) fileInput.value = '';
+            if (previewImg) {
+                previewImg.src = '';
+                previewImg.style.display = 'none';
+            }
+            if (placeholderIcon) placeholderIcon.style.display = 'block';
+            if (removeBtn) removeBtn.style.display = 'none';
+        }
+
+        // Phone number auto-format
+        function formatPhoneNumber(input) {
+            let value = input.value.replace(/\D/g, '');
+            if (value.length > 10) value = value.substring(0, 10);
+            
+            if (value.length >= 6) {
+                input.value = `(${value.substring(0, 3)}) ${value.substring(3, 6)}-${value.substring(6)}`;
+            } else if (value.length >= 3) {
+                input.value = `(${value.substring(0, 3)}) ${value.substring(3)}`;
+            } else if (value.length > 0) {
+                input.value = `(${value}`;
+            }
+        }
+
+        // Initialize phone number formatting on all phone inputs
+        function initPhoneFormatting() {
+            const phoneInputs = document.querySelectorAll('input[type="tel"], input[id*="Phone"], input[id*="phone"]');
+            phoneInputs.forEach(input => {
+                input.addEventListener('input', function() {
+                    formatPhoneNumber(this);
+                });
+                input.setAttribute('placeholder', '(555) 555-5555');
+            });
+        }
+
+        // Load offices into dropdown
+        async function loadOfficesForUserForm() {
+            const officeSelect = document.getElementById('newOfficeLocation');
+            if (!officeSelect) return;
+            
+            // Get offices from localStorage or API
+            let offices = JSON.parse(localStorage.getItem('clinics') || '[]');
+            
+            // Try to get from API
+            try {
+                const response = await fetch('/api/clinics');
+                if (response.ok) {
+                    offices = await response.json();
+                }
+            } catch (e) {
+                console.log('Using local offices data');
+            }
+            
+            officeSelect.innerHTML = '<option value="">--Select Office--</option>';
+            offices.forEach(office => {
+                const name = office.Name || office.name || office.clinicName;
+                officeSelect.innerHTML += `<option value="${name}">${name}</option>`;
+            });
+        }
+
+        // Load supervisors into dropdown (users who are managers or admins)
+        async function loadSupervisorsForUserForm() {
+            const supervisorSelect = document.getElementById('newDirectSupervisor');
+            if (!supervisorSelect) return;
+            
+            // Get users from localStorage or API
+            let users = JSON.parse(localStorage.getItem('users') || '[]');
+            
+            // Try to get from API
+            try {
+                const response = await fetch('/api/users');
+                if (response.ok) {
+                    users = await response.json();
+                }
+            } catch (e) {
+                console.log('Using local users data');
+            }
+            
+            supervisorSelect.innerHTML = '<option value="">--Select Supervisor--</option>';
+            users.forEach(user => {
+                const name = user.FirstName && user.LastName 
+                    ? `${user.FirstName} ${user.LastName}` 
+                    : user.firstName && user.lastName 
+                        ? `${user.firstName} ${user.lastName}` 
+                        : user.name || user.username;
+                const role = user.Role || user.role;
+                if (name) {
+                    supervisorSelect.innerHTML += `<option value="${name}">${name}${role ? ` (${role})` : ''}</option>`;
+                }
+            });
         }
 
         // Handle documents upload
@@ -27989,6 +28235,456 @@ window.addEventListener('load', function() {
             hideNewChatPanel();
         }
         
+        // Current chat tab
+        let currentChatTab = 'direct';
+        
+        // Switch between chat tabs (direct, group, announcements)
+        function switchChatTab(tab) {
+            currentChatTab = tab;
+            
+            // Update tab button styles
+            const tabs = ['direct', 'group', 'announcements'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`chatTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
+                if (btn) {
+                    if (t === tab) {
+                        btn.style.background = 'var(--accent-primary)';
+                        btn.style.color = 'white';
+                    } else {
+                        btn.style.background = 'var(--bg-tertiary)';
+                        btn.style.color = 'var(--text-secondary)';
+                    }
+                }
+            });
+            
+            // Update button text and visibility
+            const newChatBtn = document.getElementById('newChatBtn');
+            const newChatBtnText = document.getElementById('newChatBtnText');
+            
+            if (tab === 'direct') {
+                newChatBtn.style.display = 'flex';
+                newChatBtnText.textContent = 'New Chat';
+            } else if (tab === 'group') {
+                newChatBtn.style.display = 'flex';
+                newChatBtnText.textContent = 'New Group';
+            } else if (tab === 'announcements') {
+                // Only admins/managers can create announcements
+                const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+                if (currentUser.role === 'admin' || currentUser.role === 'manager') {
+                    newChatBtn.style.display = 'flex';
+                    newChatBtnText.textContent = 'New Announcement';
+                } else {
+                    newChatBtn.style.display = 'none';
+                }
+            }
+            
+            // Clear current selection
+            currentChatUserId = null;
+            resetChatArea();
+            
+            // Load appropriate content
+            if (tab === 'direct') {
+                loadConversations();
+            } else if (tab === 'group') {
+                loadGroupChats();
+            } else if (tab === 'announcements') {
+                loadAnnouncements();
+            }
+        }
+        
+        // Reset chat area to placeholder
+        function resetChatArea() {
+            document.getElementById('chatPlaceholder').style.display = 'flex';
+            document.getElementById('chatAreaHeader').style.display = 'none';
+            document.getElementById('messageInputArea').style.display = 'none';
+            document.getElementById('messagesArea').innerHTML = `
+                <div id="chatPlaceholder" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary);">
+                    <i class="fas fa-comments" style="font-size: 4rem; margin-bottom: 1rem; opacity: 0.3;"></i>
+                    <p style="margin: 0; font-size: 1.1rem;">Select a conversation or start a new chat</p>
+                </div>
+            `;
+        }
+        
+        // Load group chats
+        async function loadGroupChats() {
+            const container = document.getElementById('conversationsList');
+            if (!container) return;
+            
+            // Load group chats from localStorage (will integrate with API later)
+            const groupChats = JSON.parse(localStorage.getItem('groupChats') || '[]');
+            
+            if (groupChats.length === 0) {
+                container.innerHTML = `
+                    <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                        <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p style="margin: 0;">No group chats yet</p>
+                        <p style="font-size: 0.85rem; margin-top: 0.5rem;">Create a group to start chatting with multiple team members</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = groupChats.map(group => `
+                <div onclick="selectGroupChat('${group.id}')" style="padding: 0.75rem; background: transparent; border-radius: 8px; cursor: pointer; margin-bottom: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-weight: 600; color: var(--text-primary);">${group.name}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary);">
+                                ${group.members?.length || 0} members
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Load announcements
+        async function loadAnnouncements() {
+            const container = document.getElementById('conversationsList');
+            if (!container) return;
+            
+            // Load announcements from localStorage (will integrate with API later)
+            const announcements = JSON.parse(localStorage.getItem('announcements') || '[]');
+            
+            if (announcements.length === 0) {
+                container.innerHTML = `
+                    <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                        <i class="fas fa-bullhorn" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p style="margin: 0;">No announcements yet</p>
+                        <p style="font-size: 0.85rem; margin-top: 0.5rem;">Announcements from management will appear here</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = announcements.map(ann => `
+                <div onclick="selectAnnouncement('${ann.id}')" style="padding: 0.75rem; background: transparent; border-radius: 8px; cursor: pointer; margin-bottom: 0.25rem; transition: all 0.2s; border-left: 3px solid ${ann.priority === 'high' ? '#ef4444' : ann.priority === 'medium' ? '#f59e0b' : '#10b981'};" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">
+                    <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+                        <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                            <i class="fas fa-bullhorn"></i>
+                        </div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-weight: 600; color: var(--text-primary);">${ann.title}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                ${ann.content?.substring(0, 50)}${ann.content?.length > 50 ? '...' : ''}
+                            </div>
+                            <div style="font-size: 0.7rem; color: var(--text-tertiary); margin-top: 0.25rem;">
+                                ${ann.author} • ${formatChatTime(ann.createdAt)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Select group chat
+        function selectGroupChat(groupId) {
+            const groupChats = JSON.parse(localStorage.getItem('groupChats') || '[]');
+            const group = groupChats.find(g => g.id === groupId);
+            if (!group) return;
+            
+            // Show chat area
+            document.getElementById('chatPlaceholder').style.display = 'none';
+            document.getElementById('chatAreaHeader').style.display = 'block';
+            document.getElementById('messageInputArea').style.display = 'block';
+            
+            // Update header
+            document.getElementById('chatUserAvatar').innerHTML = '<i class="fas fa-users"></i>';
+            document.getElementById('chatUserAvatar').style.background = 'linear-gradient(135deg, #8b5cf6, #7c3aed)';
+            document.getElementById('chatUserName').textContent = group.name;
+            document.getElementById('chatUserStatus').textContent = `${group.members?.length || 0} members`;
+            
+            // Load group messages
+            const messages = group.messages || [];
+            displayMessages(messages, true);
+            
+            currentChatUserId = groupId;
+        }
+        
+        // Select announcement
+        function selectAnnouncement(annId) {
+            const announcements = JSON.parse(localStorage.getItem('announcements') || '[]');
+            const ann = announcements.find(a => a.id === annId);
+            if (!ann) return;
+            
+            // Show chat area (read-only for announcements unless admin)
+            document.getElementById('chatPlaceholder').style.display = 'none';
+            document.getElementById('chatAreaHeader').style.display = 'block';
+            
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            if (currentUser.role === 'admin' || currentUser.role === 'manager') {
+                document.getElementById('messageInputArea').style.display = 'block';
+            } else {
+                document.getElementById('messageInputArea').style.display = 'none';
+            }
+            
+            // Update header
+            document.getElementById('chatUserAvatar').innerHTML = '<i class="fas fa-bullhorn"></i>';
+            document.getElementById('chatUserAvatar').style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+            document.getElementById('chatUserName').textContent = ann.title;
+            document.getElementById('chatUserStatus').textContent = `By ${ann.author} • ${formatChatTime(ann.createdAt)}`;
+            
+            // Display announcement content
+            const messagesArea = document.getElementById('messagesArea');
+            messagesArea.innerHTML = `
+                <div style="max-width: 90%; padding: 1rem; background: linear-gradient(135deg, #fef3c7, #fde68a); border-radius: 12px; border-left: 4px solid #f59e0b; margin-bottom: 1rem;">
+                    <div style="font-weight: 600; color: #92400e; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fas fa-bullhorn"></i> ${ann.title}
+                    </div>
+                    <div style="color: #78350f; white-space: pre-wrap;">${ann.content}</div>
+                    <div style="font-size: 0.75rem; color: #92400e; margin-top: 0.75rem; opacity: 0.8;">
+                        Posted by ${ann.author} on ${new Date(ann.createdAt).toLocaleDateString()}
+                    </div>
+                </div>
+                ${ann.replies && ann.replies.length > 0 ? ann.replies.map(reply => `
+                    <div style="max-width: 80%; margin-left: auto; padding: 0.75rem 1rem; background: var(--bg-secondary); border-radius: 12px; margin-bottom: 0.5rem;">
+                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">${reply.author}</div>
+                        <div style="color: var(--text-primary);">${reply.content}</div>
+                    </div>
+                `).join('') : ''}
+            `;
+            
+            currentChatUserId = annId;
+        }
+        
+        // Display messages helper
+        function displayMessages(messages, isGroup = false) {
+            const messagesArea = document.getElementById('messagesArea');
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            
+            if (!messages || messages.length === 0) {
+                messagesArea.innerHTML = `
+                    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary);">
+                        <i class="fas fa-comment-slash" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.3;"></i>
+                        <p style="margin: 0;">No messages yet. Start the conversation!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            messagesArea.innerHTML = messages.map(msg => {
+                const isOwn = msg.senderId === currentUser.username || msg.sender === currentUser.name;
+                return `
+                    <div style="display: flex; ${isOwn ? 'justify-content: flex-end' : 'justify-content: flex-start'};">
+                        <div style="max-width: 70%; padding: 0.75rem 1rem; background: ${isOwn ? 'var(--accent-primary)' : 'var(--bg-secondary)'}; color: ${isOwn ? 'white' : 'var(--text-primary)'}; border-radius: ${isOwn ? '12px 12px 0 12px' : '12px 12px 12px 0'};">
+                            ${isGroup && !isOwn ? `<div style="font-size: 0.7rem; font-weight: 600; margin-bottom: 0.25rem; opacity: 0.8;">${msg.sender || 'Unknown'}</div>` : ''}
+                            <div>${msg.content || msg.message}</div>
+                            <div style="font-size: 0.65rem; opacity: 0.7; margin-top: 0.25rem; text-align: right;">
+                                ${formatChatTime(msg.timestamp || msg.createdAt)}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            messagesArea.scrollTop = messagesArea.scrollHeight;
+        }
+        
+        // Show new chat/group/announcement panel
+        function showNewChatPanel() {
+            if (currentChatTab === 'direct') {
+                showDirectChatPanel();
+            } else if (currentChatTab === 'group') {
+                showCreateGroupPanel();
+            } else if (currentChatTab === 'announcements') {
+                showCreateAnnouncementPanel();
+            }
+        }
+        
+        // Show direct chat user selection panel
+        function showDirectChatPanel() {
+            const panel = document.getElementById('newChatPanel');
+            if (panel) {
+                panel.style.display = 'block';
+                panel.innerHTML = `
+                    <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 1rem;">
+                        <button onclick="hideNewChatPanel()" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: 1.25rem;">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h4 style="margin: 0; color: var(--text-primary);">Start New Chat</h4>
+                    </div>
+                    <div style="padding: 1rem;">
+                        <input type="text" id="userSearchInput" placeholder="Search team members..." oninput="filterChatUsers()" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); margin-bottom: 1rem;">
+                    </div>
+                    <div id="chatUsersList" style="padding: 0 1rem; overflow-y: auto; max-height: calc(100% - 140px);">
+                        <!-- Users will be loaded here -->
+                    </div>
+                `;
+                loadChatUsers();
+            }
+        }
+        
+        // Show create group panel
+        function showCreateGroupPanel() {
+            const panel = document.getElementById('newChatPanel');
+            if (panel) {
+                panel.style.display = 'block';
+                panel.innerHTML = `
+                    <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 1rem;">
+                        <button onclick="hideNewChatPanel()" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: 1.25rem;">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h4 style="margin: 0; color: var(--text-primary);">Create New Group</h4>
+                    </div>
+                    <div style="padding: 1rem;">
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Group Name *</label>
+                            <input type="text" id="newGroupName" placeholder="Enter group name..." style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary);">
+                        </div>
+                        <div class="form-group">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Select Members</label>
+                            <div id="groupMembersList" style="max-height: 250px; overflow-y: auto; background: var(--bg-secondary); border-radius: 8px; padding: 0.5rem;">
+                                Loading members...
+                            </div>
+                        </div>
+                        <button onclick="createGroup()" style="width: 100%; padding: 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; margin-top: 1rem;">
+                            <i class="fas fa-plus"></i> Create Group
+                        </button>
+                    </div>
+                `;
+                loadGroupMembers();
+            }
+        }
+        
+        // Show create announcement panel
+        function showCreateAnnouncementPanel() {
+            const panel = document.getElementById('newChatPanel');
+            if (panel) {
+                panel.style.display = 'block';
+                const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+                panel.innerHTML = `
+                    <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 1rem;">
+                        <button onclick="hideNewChatPanel()" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: 1.25rem;">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h4 style="margin: 0; color: var(--text-primary);">Create Announcement</h4>
+                    </div>
+                    <div style="padding: 1rem;">
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Title *</label>
+                            <input type="text" id="announcementTitle" placeholder="Announcement title..." style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary);">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Content *</label>
+                            <textarea id="announcementContent" placeholder="Write your announcement..." rows="5" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); resize: vertical;"></textarea>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Priority</label>
+                            <select id="announcementPriority" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary);">
+                                <option value="low">🟢 Low - General Information</option>
+                                <option value="medium" selected>🟡 Medium - Important Update</option>
+                                <option value="high">🔴 High - Urgent/Critical</option>
+                            </select>
+                        </div>
+                        <button onclick="createAnnouncement()" style="width: 100%; padding: 0.75rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                            <i class="fas fa-bullhorn"></i> Post Announcement
+                        </button>
+                    </div>
+                `;
+            }
+        }
+        
+        // Load members for group creation
+        function loadGroupMembers() {
+            const container = document.getElementById('groupMembersList');
+            if (!container) return;
+            
+            const storedUsers = localStorage.getItem('users');
+            const usersData = storedUsers ? JSON.parse(storedUsers) : {};
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            
+            const members = Object.entries(usersData).filter(([username]) => username !== currentUser.username).map(([username, user]) => ({
+                id: username,
+                name: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : username,
+                role: user.role || 'User'
+            }));
+            
+            if (members.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;">No other team members found</p>';
+                return;
+            }
+            
+            container.innerHTML = members.map(member => `
+                <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem; cursor: pointer; border-radius: 6px;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">
+                    <input type="checkbox" name="groupMembers" value="${member.id}" style="accent-color: var(--accent-primary);">
+                    <span style="font-weight: 500; color: var(--text-primary);">${member.name}</span>
+                    <span style="font-size: 0.75rem; color: var(--text-tertiary); margin-left: auto;">${member.role}</span>
+                </label>
+            `).join('');
+        }
+        
+        // Create new group
+        function createGroup() {
+            const name = document.getElementById('newGroupName')?.value?.trim();
+            if (!name) {
+                alert('Please enter a group name');
+                return;
+            }
+            
+            const checkboxes = document.querySelectorAll('input[name="groupMembers"]:checked');
+            const members = Array.from(checkboxes).map(cb => cb.value);
+            
+            if (members.length === 0) {
+                alert('Please select at least one member');
+                return;
+            }
+            
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            members.push(currentUser.username); // Add creator to group
+            
+            const newGroup = {
+                id: 'group-' + Date.now(),
+                name: name,
+                members: members,
+                createdAt: new Date().toISOString(),
+                createdBy: currentUser.username,
+                messages: []
+            };
+            
+            const groupChats = JSON.parse(localStorage.getItem('groupChats') || '[]');
+            groupChats.push(newGroup);
+            localStorage.setItem('groupChats', JSON.stringify(groupChats));
+            
+            hideNewChatPanel();
+            loadGroupChats();
+            showNotification('Group created successfully!', 'success');
+        }
+        
+        // Create new announcement
+        function createAnnouncement() {
+            const title = document.getElementById('announcementTitle')?.value?.trim();
+            const content = document.getElementById('announcementContent')?.value?.trim();
+            const priority = document.getElementById('announcementPriority')?.value || 'medium';
+            
+            if (!title || !content) {
+                alert('Please enter a title and content');
+                return;
+            }
+            
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            
+            const newAnnouncement = {
+                id: 'ann-' + Date.now(),
+                title: title,
+                content: content,
+                priority: priority,
+                author: currentUser.name || currentUser.username || 'Admin',
+                createdAt: new Date().toISOString(),
+                replies: []
+            };
+            
+            const announcements = JSON.parse(localStorage.getItem('announcements') || '[]');
+            announcements.unshift(newAnnouncement); // Add to beginning
+            localStorage.setItem('announcements', JSON.stringify(announcements));
+            
+            hideNewChatPanel();
+            loadAnnouncements();
+            showNotification('Announcement posted successfully!', 'success');
+        }
+        
         async function updateOnlineStatus(isOnline) {
             try {
                 const userId = await getCurrentUserId();
@@ -30022,6 +30718,42 @@ window.addEventListener('load', function() {
                                 </div>
                             </div>
                             
+                            <!-- Task Visibility (Public/Private) -->
+                            <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                                <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.75rem;">
+                                    <i class="fas fa-eye" style="color: var(--accent-primary);"></i> Task Visibility
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem; font-size: 0.75rem;" title="Public tasks are visible to all employees. Private tasks are only visible to selected employees."></i>
+                                </label>
+                                <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem;">
+                                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.5rem 1rem; background: var(--card-bg); border-radius: 6px; border: 2px solid ${!data.visibility || data.visibility === 'public' ? 'var(--accent-primary)' : 'var(--border-color)'};" onclick="toggleTaskVisibility('public')">
+                                        <input type="radio" name="taskVisibility" value="public" ${!data.visibility || data.visibility === 'public' ? 'checked' : ''} onchange="toggleTaskVisibility('public')" style="accent-color: var(--accent-primary);">
+                                        <i class="fas fa-globe" style="color: #10b981;"></i>
+                                        <span style="font-size: 0.9rem;">Public</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.5rem 1rem; background: var(--card-bg); border-radius: 6px; border: 2px solid ${data.visibility === 'private' ? 'var(--accent-primary)' : 'var(--border-color)'};" onclick="toggleTaskVisibility('private')">
+                                        <input type="radio" name="taskVisibility" value="private" ${data.visibility === 'private' ? 'checked' : ''} onchange="toggleTaskVisibility('private')" style="accent-color: var(--accent-primary);">
+                                        <i class="fas fa-lock" style="color: #f59e0b;"></i>
+                                        <span style="font-size: 0.9rem;">Private</span>
+                                    </label>
+                                </div>
+                                <div id="taskPrivateEmployeesContainer" style="display: ${data.visibility === 'private' ? 'block' : 'none'};">
+                                    <label style="font-size: 0.8rem; color: var(--text-secondary); display: block; margin-bottom: 0.5rem;">
+                                        <i class="fas fa-users"></i> Select employees who can view this task:
+                                    </label>
+                                    <div id="taskPrivateEmployeesList" style="max-height: 150px; overflow-y: auto; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.5rem;">
+                                        ${buildPrivateEmployeeCheckboxes(data.visibleTo || [])}
+                                    </div>
+                                    <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                                        <button type="button" onclick="selectAllPrivateEmployees()" style="padding: 0.4rem 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">
+                                            <i class="fas fa-check-double"></i> Select All
+                                        </button>
+                                        <button type="button" onclick="clearAllPrivateEmployees()" style="padding: 0.4rem 0.75rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; font-size: 0.75rem; cursor: pointer;">
+                                            <i class="fas fa-times"></i> Clear All
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
                             <!-- Manager & Estimated Time -->
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                                 <div>
@@ -30071,7 +30803,7 @@ window.addEventListener('load', function() {
                                 <textarea id="taskFormTraining" placeholder="Explain the steps to complete this task, or paste a link to pre-recorded training video/document..." style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; min-height: 60px; resize: vertical;">${data.trainingInstructions || ''}</textarea>
                                 <div style="margin-top: 0.5rem;">
                                     <label style="font-size: 0.75rem; color: var(--text-secondary);">Training Link (Optional)</label>
-                                    <input type="url" id="taskFormTrainingLink" value="${data.trainingLink || ''}" placeholder="https://example.com/training-video" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.85rem; margin-top: 0.25rem;">
+                                    <input type="text" id="taskFormTrainingLink" value="${data.trainingLink || ''}" placeholder="Link or file path to training resource" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.85rem; margin-top: 0.25rem;">
                                 </div>
                             </div>
                             
@@ -30157,6 +30889,90 @@ window.addEventListener('load', function() {
             }
         };
         
+        // Build private employee checkboxes for task visibility
+        window.buildPrivateEmployeeCheckboxes = function(selectedEmployees = []) {
+            const storedUsers = localStorage.getItem('users');
+            const usersData = storedUsers ? JSON.parse(storedUsers) : {};
+            const employees = Object.entries(usersData).map(([username, user]) => ({
+                id: username,
+                name: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : username,
+                role: user.role || 'User',
+                jobTitle: user.jobTitle || ''
+            }));
+            
+            if (employees.length === 0) {
+                return '<p style="text-align: center; color: var(--text-secondary); padding: 0.5rem; font-size: 0.85rem;">No employees found</p>';
+            }
+            
+            let html = '';
+            employees.forEach(emp => {
+                const isChecked = selectedEmployees.includes(emp.id) || selectedEmployees.includes(emp.name);
+                html += `
+                    <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.5rem; cursor: pointer; border-bottom: 1px solid var(--border-color);" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='transparent'">
+                        <input type="checkbox" name="taskPrivateEmployees" value="${emp.id}" ${isChecked ? 'checked' : ''} style="accent-color: var(--accent-primary);">
+                        <span style="font-size: 0.85rem; color: var(--text-primary);">${emp.name}</span>
+                        <span style="font-size: 0.75rem; color: var(--text-tertiary); margin-left: auto;">${emp.jobTitle || emp.role}</span>
+                    </label>
+                `;
+            });
+            return html;
+        };
+        
+        // Toggle task visibility (public/private)
+        window.toggleTaskVisibility = function(visibility) {
+            const privateContainer = document.getElementById('taskPrivateEmployeesContainer');
+            const publicRadio = document.querySelector('input[name="taskVisibility"][value="public"]');
+            const privateRadio = document.querySelector('input[name="taskVisibility"][value="private"]');
+            
+            // Update radio button states
+            if (visibility === 'public') {
+                publicRadio.checked = true;
+                privateRadio.checked = false;
+            } else {
+                publicRadio.checked = false;
+                privateRadio.checked = true;
+            }
+            
+            // Update container styles
+            const publicLabel = publicRadio.closest('label');
+            const privateLabel = privateRadio.closest('label');
+            
+            if (visibility === 'public') {
+                publicLabel.style.borderColor = 'var(--accent-primary)';
+                privateLabel.style.borderColor = 'var(--border-color)';
+                if (privateContainer) privateContainer.style.display = 'none';
+            } else {
+                publicLabel.style.borderColor = 'var(--border-color)';
+                privateLabel.style.borderColor = 'var(--accent-primary)';
+                if (privateContainer) {
+                    privateContainer.style.display = 'block';
+                    // Refresh employee list
+                    const listContainer = document.getElementById('taskPrivateEmployeesList');
+                    if (listContainer) {
+                        listContainer.innerHTML = buildPrivateEmployeeCheckboxes([]);
+                    }
+                }
+            }
+        };
+        
+        // Select all private employees
+        window.selectAllPrivateEmployees = function() {
+            const checkboxes = document.querySelectorAll('input[name="taskPrivateEmployees"]');
+            checkboxes.forEach(cb => cb.checked = true);
+        };
+        
+        // Clear all private employees
+        window.clearAllPrivateEmployees = function() {
+            const checkboxes = document.querySelectorAll('input[name="taskPrivateEmployees"]');
+            checkboxes.forEach(cb => cb.checked = false);
+        };
+        
+        // Get selected private employees
+        window.getSelectedPrivateEmployees = function() {
+            const checkboxes = document.querySelectorAll('input[name="taskPrivateEmployees"]:checked');
+            return Array.from(checkboxes).map(cb => cb.value);
+        };
+        
         // Update equipment items based on category selection
         window.updateEquipmentItems = function() {
             const category = document.getElementById('taskFormEquipmentCategory').value;
@@ -30204,6 +31020,11 @@ window.addEventListener('load', function() {
             const payAmount = document.getElementById('taskFormPayAmount')?.value ? parseFloat(document.getElementById('taskFormPayAmount').value) : null;
             const timeEstimate = document.getElementById('taskFormTimeEstimate')?.value || null;
             
+            // Get task visibility
+            const visibilityRadio = document.querySelector('input[name="taskVisibility"]:checked');
+            const visibility = visibilityRadio ? visibilityRadio.value : 'public';
+            const visibleTo = visibility === 'private' ? getSelectedPrivateEmployees() : [];
+            
             const taskData = {
                 id: taskId || 'task-' + Date.now(),
                 title: document.getElementById('taskFormTitle').value,
@@ -30232,6 +31053,9 @@ window.addEventListener('load', function() {
                 timeEstimate: timeEstimate,
                 claimedBy: null,
                 claimedAt: null,
+                // Task visibility
+                visibility: visibility,
+                visibleTo: visibleTo,
                 // Timestamps
                 createdAt: new Date().toISOString(),
                 createdBy: 'Admin',
@@ -33391,7 +34215,10 @@ document.addEventListener('keydown', function(e) {
                         <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">Personal Information</h5>
                         <div style="display: grid; grid-template-columns: 0.5fr 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newTitle">Title</label>
+                                <label for="newTitle">
+                                    Title
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Professional title or salutation (Dr., Mr., Mrs., etc.)"></i>
+                                </label>
                                 <select id="newTitle" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);" onchange="toggleCustomTitle('new')">
                                     <option value="">--</option>
                                     <option value="Dr.">Dr.</option>
@@ -33410,21 +34237,33 @@ document.addEventListener('keydown', function(e) {
                                 </div>
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newFirstName">First Name *</label>
+                                <label for="newFirstName">
+                                    First Name *
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Employee's legal first name as it appears on official documents"></i>
+                                </label>
                                 <input type="text" id="newFirstName" required placeholder="First name">
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newMiddleName">Middle Name</label>
+                                <label for="newMiddleName">
+                                    Middle Name
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Employee's middle name (optional)"></i>
+                                </label>
                                 <input type="text" id="newMiddleName" placeholder="Middle name">
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newLastName">Last Name *</label>
+                                <label for="newLastName">
+                                    Last Name *
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Employee's legal last name as it appears on official documents"></i>
+                                </label>
                                 <input type="text" id="newLastName" required placeholder="Last name">
                             </div>
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newGender">Gender</label>
+                                <label for="newGender">
+                                    Gender
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Employee's gender identity (optional)"></i>
+                                </label>
                                 <select id="newGender" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                     <option value="">--Select--</option>
                                     <option value="Male">Male</option>
@@ -33434,11 +34273,17 @@ document.addEventListener('keydown', function(e) {
                                 </select>
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newDateOfBirth">Date of Birth</label>
+                                <label for="newDateOfBirth">
+                                    Date of Birth
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Employee's date of birth for records and benefits eligibility"></i>
+                                </label>
                                 <input type="date" id="newDateOfBirth" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newSSN">SSN/EIN</label>
+                                <label for="newSSN">
+                                    SSN/EIN
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Social Security Number or Employer Identification Number for tax purposes. This information is encrypted."></i>
+                                </label>
                                 <input type="text" id="newSSN" placeholder="XXX-XX-XXXX">
                             </div>
                         </div>
@@ -33449,26 +34294,41 @@ document.addEventListener('keydown', function(e) {
                         <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">Contact Information</h5>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newPersonalEmail">Personal Email</label>
+                                <label for="newPersonalEmail">
+                                    Personal Email
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Employee's personal email address for backup contact"></i>
+                                </label>
                                 <input type="email" id="newPersonalEmail" placeholder="personal@email.com">
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newWorkEmail">Work Email *</label>
+                                <label for="newWorkEmail">
+                                    Work Email *
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Primary work email for official communications and system notifications"></i>
+                                </label>
                                 <input type="email" id="newWorkEmail" required placeholder="work@company.com">
                             </div>
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newHomePhone">Home Phone</label>
+                                <label for="newHomePhone">
+                                    Home Phone
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Employee's home telephone number (optional)"></i>
+                                </label>
                                 <input type="tel" id="newHomePhone" placeholder="(555) 555-5555">
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newCellPhone">Cell Phone</label>
+                                <label for="newCellPhone">
+                                    Cell Phone
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Employee's mobile phone number for urgent contact"></i>
+                                </label>
                                 <input type="tel" id="newCellPhone" placeholder="(555) 555-5555">
                             </div>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newAddress">Address</label>
+                            <label for="newAddress">
+                                Address
+                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Employee's home address. You can type or use the location button to auto-detect."></i>
+                            </label>
                             <div style="display: flex; gap: 0.5rem; position: relative;">
                                 <div style="flex: 1; position: relative;">
                                     <input type="text" id="newAddress" placeholder="Start typing address..." style="width: 100%;" oninput="handleAddressInput('new', this.value)" autocomplete="off">
@@ -33497,7 +34357,10 @@ document.addEventListener('keydown', function(e) {
 
                     <!-- Emergency Contact Section -->
                     <div style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
-                        <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">Emergency Contact</h5>
+                        <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
+                            Emergency Contact
+                            <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem; font-size: 0.85rem;" title="Person to contact in case of emergency during work hours"></i>
+                        </h5>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div class="form-group" style="margin-bottom: 0;">
                                 <label for="emergencyContactName">Contact Name</label>
@@ -33525,21 +34388,33 @@ document.addEventListener('keydown', function(e) {
                         <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">Employment Information</h5>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newUsername">Username *</label>
+                                <label for="newUsername">
+                                    Username *
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Unique login username for the employee to access the system"></i>
+                                </label>
                                 <input type="text" id="newUsername" required placeholder="username">
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newPassword">Password *</label>
+                                <label for="newPassword">
+                                    Password *
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Initial password for the employee account. Should be changed on first login."></i>
+                                </label>
                                 <input type="password" id="newPassword" required placeholder="Enter password">
                             </div>
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newJobTitle">Job Title *</label>
+                                <label for="newJobTitle">
+                                    Job Title *
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Official job title for this employee (e.g., Dental Hygienist, Receptionist)"></i>
+                                </label>
                                 <input type="text" id="newJobTitle" required placeholder="Job title">
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newRole">Role *</label>
+                                <label for="newRole">
+                                    Role *
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="System access level: User (basic), Manager (team oversight), Admin (full access)"></i>
+                                </label>
                                 <select id="newRole" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                     <option value="user">User</option>
                                     <option value="manager">Manager</option>
@@ -33549,14 +34424,20 @@ document.addEventListener('keydown', function(e) {
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newStaffType">Staff Type *</label>
+                                <label for="newStaffType">
+                                    Staff Type *
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Clinical: works directly with patients. Non-Clinical: administrative or support roles"></i>
+                                </label>
                                 <select id="newStaffType" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                     <option value="clinical">Clinical</option>
                                     <option value="non-clinical">Non-Clinical</option>
                                 </select>
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newEmployeeType">Employee Type *</label>
+                                <label for="newEmployeeType">
+                                    Employee Type *
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Provider: dentist, hygienist. Assistant/Staff: dental assistant, front desk, etc."></i>
+                                </label>
                                 <select id="newEmployeeType" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                     <option value="provider">Provider</option>
                                     <option value="assistant">Assistant/Staff</option>
@@ -33565,11 +34446,17 @@ document.addEventListener('keydown', function(e) {
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newHireDate">Hire Date *</label>
+                                <label for="newHireDate">
+                                    Hire Date *
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="The employee's official start date with the company"></i>
+                                </label>
                                 <input type="date" id="newHireDate" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newEmployeeStatus">Employee Status *</label>
+                                <label for="newEmployeeStatus">
+                                    Employee Status *
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Current employment status. Changing to Terminated or Resigned will show separation details"></i>
+                                </label>
                                 <select id="newEmployeeStatus" required onchange="toggleNewSeparationFields()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                     <option value="Active">Active</option>
                                     <option value="On Leave">On Leave</option>
@@ -33580,36 +34467,38 @@ document.addEventListener('keydown', function(e) {
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newNextReviewDate">Next Review Date</label>
+                                <label for="newNextReviewDate">
+                                    Next Review Date
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Date for the employee's next performance review"></i>
+                                </label>
                                 <input type="date" id="newNextReviewDate" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newExemptStatus">Exempt Status</label>
-                                <select id="newExemptStatus" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                                    <option value="">--Select--</option>
-                                    <option value="Exempt">Exempt</option>
-                                    <option value="Non-Exempt">Non-Exempt</option>
+                                <label for="newColor">
+                                    Calendar Color
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Color used to display this employee on the scheduling calendar"></i>
+                                </label>
+                                <input type="color" id="newColor" value="#06b6d4" style="width: 100%; height: 45px; border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer;">
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="newOfficeLocation">
+                                    Office Location
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Select the primary office where this employee works"></i>
+                                </label>
+                                <select id="newOfficeLocation" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                    <option value="">--Select Office--</option>
                                 </select>
                             </div>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newOfficeLocation">Office Location</label>
-                                <input type="text" id="newOfficeLocation" placeholder="e.g., Main Office, Downtown Branch">
-                            </div>
-                            <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newDepartment">Department</label>
-                                <input type="text" id="newDepartment" placeholder="e.g., Clinical, Administration">
-                            </div>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                            <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newDirectSupervisor">Direct Supervisor</label>
-                                <input type="text" id="newDirectSupervisor" placeholder="Supervisor name">
-                            </div>
-                            <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newRoleTitle">Role Title</label>
-                                <input type="text" id="newRoleTitle" placeholder="Role title">
+                                <label for="newDirectSupervisor">
+                                    Direct Supervisor
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Select the manager or supervisor who this employee reports to"></i>
+                                </label>
+                                <select id="newDirectSupervisor" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                    <option value="">--Select Supervisor--</option>
+                                </select>
                             </div>
                         </div>
                         <!-- Separation Fields - shown only when status is not Active -->
@@ -33624,26 +34513,6 @@ document.addEventListener('keydown', function(e) {
                                     <label for="newSeparationReason">Separation Reason</label>
                                     <input type="text" id="newSeparationReason" placeholder="Reason for separation" style="background: white;">
                                 </div>
-                            </div>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                            <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newHourlyRate">Hourly Rate</label>
-                                <input type="number" id="newHourlyRate" placeholder="0.00" step="0.01" min="0">
-                            </div>
-                            <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newSalary">Salary</label>
-                                <input type="number" id="newSalary" placeholder="0.00" step="0.01" min="0">
-                            </div>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                            <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newBenefitStartDate">Benefit Start Date</label>
-                                <input type="date" id="newBenefitStartDate" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                            </div>
-                            <div class="form-group" style="margin-bottom: 0;">
-                                <label for="newColor">Calendar Color</label>
-                                <input type="color" id="newColor" value="#06b6d4" style="width: 100%; height: 45px; border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer;">
                             </div>
                         </div>
                     </div>
@@ -33677,15 +34546,21 @@ document.addEventListener('keydown', function(e) {
                         <div class="form-group" style="margin-bottom: 1.5rem;">
                             <label for="employeePhoto">Employee Photo</label>
                             <div style="display: flex; align-items: center; gap: 1rem;">
-                                <div id="photoPreview" style="width: 100px; height: 100px; border: 2px dashed var(--border-color); border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--bg-secondary);">
-                                    <i class="fas fa-user" style="font-size: 2.5rem; color: var(--text-tertiary);"></i>
+                                <div id="photoPreview" style="width: 100px; height: 100px; border: 2px dashed var(--border-color); border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--bg-secondary); position: relative;">
+                                    <i class="fas fa-user" style="font-size: 2.5rem; color: var(--text-tertiary);" id="photoPlaceholderIcon"></i>
+                                    <img id="photoPreviewImg" src="" style="display: none; width: 100%; height: 100%; object-fit: cover;">
                                 </div>
                                 <div style="flex: 1;">
                                     <input type="file" id="employeePhoto" accept="image/*" style="display: none;" onchange="previewPhoto(event)">
-                                    <button type="button" onclick="document.getElementById('employeePhoto').click()" style="padding: 0.75rem 1.5rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='var(--accent-secondary)'" onmouseout="this.style.background='var(--accent-primary)'">
-                                        <i class="fas fa-upload" style="margin-right: 0.5rem;"></i>
-                                        Upload Photo
-                                    </button>
+                                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                        <button type="button" onclick="document.getElementById('employeePhoto').click()" style="padding: 0.75rem 1.5rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='var(--accent-secondary)'" onmouseout="this.style.background='var(--accent-primary)'">
+                                            <i class="fas fa-upload" style="margin-right: 0.5rem;"></i>
+                                            Upload Photo
+                                        </button>
+                                        <button type="button" id="removePhotoBtn" onclick="removeEmployeePhoto()" style="display: none; padding: 0.75rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
                                     <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: var(--text-tertiary);">JPG, PNG or GIF (max. 5MB)</p>
                                 </div>
                             </div>
@@ -34147,6 +35022,198 @@ document.addEventListener('keydown', function(e) {
     </div>
 </div>
 
+<!-- HR Information Modal -->
+<div id="hrInfoModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.6); z-index: 10003; align-items: center; justify-content: center;">
+    <div style="width: 100%; max-width: 700px; max-height: 90vh; overflow-y: auto; background: var(--bg-primary); border-radius: 12px; margin: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
+        <div style="position: sticky; top: 0; z-index: 10; display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, #8b5cf6, #7c3aed); padding: 1.25rem 1.5rem; border-radius: 12px 12px 0 0;">
+            <h3 style="margin: 0; color: white; display: flex; align-items: center; gap: 0.75rem; font-size: 1.1rem;">
+                <i class="fas fa-file-invoice-dollar"></i>
+                HR Information
+            </h3>
+            <button class="close-btn" onclick="closeHRInfoModal()" style="color: white; font-size: 1.5rem; background: none; border: none; cursor: pointer; line-height: 1;">&times;</button>
+        </div>
+        
+        <div style="padding: 1.5rem;">
+            <!-- Employee Header -->
+            <div id="hrEmployeeHeader" style="display: flex; align-items: center; gap: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px; margin-bottom: 1.5rem;">
+                <div id="hrEmployeePhoto" style="width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, #8b5cf6, #7c3aed); display: flex; align-items: center; justify-content: center; color: white; font-size: 1.5rem; font-weight: 600;">
+                    JD
+                </div>
+                <div>
+                    <h4 id="hrEmployeeName" style="margin: 0 0 0.25rem 0; color: var(--text-primary);">John Doe</h4>
+                    <p id="hrEmployeeJobTitle" style="margin: 0; color: var(--text-secondary); font-size: 0.9rem;">Job Title • Office Location</p>
+                </div>
+            </div>
+            
+            <form id="hrInfoForm" onsubmit="saveHRInfo(event)">
+                <input type="hidden" id="hrEmployeeId">
+                
+                <!-- Employment Type Section -->
+                <div style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+                    <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
+                        <i class="fas fa-briefcase" style="margin-right: 0.5rem;"></i>Employment Type
+                    </h5>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="hrEmploymentType">
+                                Employment Type *
+                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Full-time, Part-time, Contract, or Temporary employment status"></i>
+                            </label>
+                            <select id="hrEmploymentType" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="">--Select--</option>
+                                <option value="Full-Time">Full-Time</option>
+                                <option value="Part-Time">Part-Time</option>
+                                <option value="Contract">Contract</option>
+                                <option value="Temporary">Temporary</option>
+                                <option value="Intern">Intern</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="hrActiveStatus">
+                                Active Status *
+                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Whether the employee is currently active in the system"></i>
+                            </label>
+                            <select id="hrActiveStatus" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="Active">Active</option>
+                                <option value="Inactive">Inactive</option>
+                                <option value="Suspended">Suspended</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Compensation Section -->
+                <div style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+                    <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
+                        <i class="fas fa-dollar-sign" style="margin-right: 0.5rem;"></i>Compensation
+                    </h5>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="hrPayType">
+                                Pay Type
+                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Whether the employee is paid salary or hourly"></i>
+                            </label>
+                            <select id="hrPayType" onchange="toggleHRPayFields()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="">--Select--</option>
+                                <option value="Salary">Salary</option>
+                                <option value="Hourly">Hourly</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;" id="hrSalaryField">
+                            <label for="hrSalary">
+                                Annual Salary
+                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Annual salary amount before taxes"></i>
+                            </label>
+                            <div style="position: relative;">
+                                <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-secondary);">$</span>
+                                <input type="number" id="hrSalary" placeholder="0.00" step="0.01" min="0" style="padding-left: 28px; width: 100%; padding-right: 0.75rem; padding-top: 0.75rem; padding-bottom: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;" id="hrHourlyFields" style="display: none;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="hrHourlyRate">
+                                Hourly Rate
+                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Pay rate per hour worked"></i>
+                            </label>
+                            <div style="position: relative;">
+                                <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-secondary);">$</span>
+                                <input type="number" id="hrHourlyRate" placeholder="0.00" step="0.01" min="0" style="padding-left: 28px; width: 100%; padding-right: 0.75rem; padding-top: 0.75rem; padding-bottom: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="hrExpectedHours">
+                                Expected Hours/Week
+                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Expected number of hours worked per week"></i>
+                            </label>
+                            <input type="number" id="hrExpectedHours" placeholder="40" min="0" max="168" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Benefits Section -->
+                <div style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+                    <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
+                        <i class="fas fa-heart" style="margin-right: 0.5rem;"></i>Benefits
+                    </h5>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="hrBenefitStartDate">
+                                Benefits Start Date
+                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Date when employee becomes eligible for benefits"></i>
+                            </label>
+                            <input type="date" id="hrBenefitStartDate" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="hrBenefitEndDate">
+                                Benefits End Date
+                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Date when benefits coverage ends (leave blank if ongoing)"></i>
+                            </label>
+                            <input type="date" id="hrBenefitEndDate" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label style="margin-bottom: 0.75rem; display: block;">
+                            Benefits Enrolled
+                            <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Select all benefits this employee is enrolled in"></i>
+                        </label>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" id="hrBenefitHealth" style="width: 18px; height: 18px; accent-color: var(--accent-primary);">
+                                <span style="color: var(--text-primary);">Health Insurance</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" id="hrBenefitDental" style="width: 18px; height: 18px; accent-color: var(--accent-primary);">
+                                <span style="color: var(--text-primary);">Dental Insurance</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" id="hrBenefitVision" style="width: 18px; height: 18px; accent-color: var(--accent-primary);">
+                                <span style="color: var(--text-primary);">Vision Insurance</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" id="hrBenefit401k" style="width: 18px; height: 18px; accent-color: var(--accent-primary);">
+                                <span style="color: var(--text-primary);">401(k) Retirement</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" id="hrBenefitPTO" style="width: 18px; height: 18px; accent-color: var(--accent-primary);">
+                                <span style="color: var(--text-primary);">Paid Time Off</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" id="hrBenefitLife" style="width: 18px; height: 18px; accent-color: var(--accent-primary);">
+                                <span style="color: var(--text-primary);">Life Insurance</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Notes Section -->
+                <div style="margin-bottom: 1.5rem;">
+                    <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
+                        <i class="fas fa-sticky-note" style="margin-right: 0.5rem;"></i>HR Notes
+                    </h5>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="hrNotes">
+                            Internal Notes
+                            <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Private HR notes about this employee (not visible to employee)"></i>
+                        </label>
+                        <textarea id="hrNotes" rows="3" placeholder="Any additional HR notes or comments..." style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); resize: vertical; font-family: inherit;"></textarea>
+                    </div>
+                </div>
+                
+                <!-- Form Actions -->
+                <div style="display: flex; gap: 1rem; justify-content: flex-end; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                    <button type="button" onclick="closeHRInfoModal()" style="padding: 0.75rem 1.5rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; font-weight: 500;">
+                        Cancel
+                    </button>
+                    <button type="submit" style="padding: 0.75rem 1.5rem; background: #8b5cf6; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">
+                        <i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save HR Info
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Rooms Management Modal -->
 <div id="roomsManagementModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 10001; align-items: center; justify-content: center;">
     <div class="login-card" style="width: 100vw; height: 100vh; max-width: 100vw; max-height: 100vh; margin: 0; border-radius: 0; overflow-y: auto; background: var(--bg-primary);">
@@ -34390,7 +35457,7 @@ document.addEventListener('keydown', function(e) {
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="newOfficeWebsite">Website</label>
-                            <input type="url" id="newOfficeWebsite" placeholder="https://www.example.com" maxlength="200">
+                            <input type="text" id="newOfficeWebsite" placeholder="Website or link" maxlength="200">
                         </div>
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
@@ -34650,7 +35717,7 @@ document.addEventListener('keydown', function(e) {
                         </div>
                         
                         <div id="urlUploadSection" style="display: none;">
-                            <input type="url" id="officePlanUrl" placeholder="https://example.com/office-plan.jpg" onchange="previewOfficePlanUrl()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            <input type="text" id="officePlanUrl" placeholder="Enter image URL or file path" onchange="previewOfficePlanUrl()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                         </div>
                     </div>
                     
@@ -34677,10 +35744,45 @@ document.addEventListener('keydown', function(e) {
             <div>
                 <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Current Office Plan</h4>
                 <div id="officePlanPreview" style="background: var(--card-bg); padding: 2rem; border-radius: 8px; text-align: center; border: 2px solid var(--border-color);">
-                    <img id="officePlanImage" src="https://i.pinimg.com/originals/05/e7/f5/05e7f5f354bc334cf1eb8d1dd28129c3.jpg" alt="Office Plan" style="max-width: 100%; max-height: 60vh; object-fit: contain; border-radius: 8px; cursor: pointer;" onclick="viewFullScreen()">
-                    <div id="officePlanInfo" style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px;">
-                        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;" id="officePlanTitleDisplay">Default Office Plan</div>
+                    <img id="officePlanImage" src="" alt="Office Plan" style="max-width: 100%; max-height: 60vh; object-fit: contain; border-radius: 8px; cursor: pointer; display: none;" onclick="viewFullScreen()">
+                    <div id="noOfficePlanPlaceholder" style="padding: 3rem; color: var(--text-tertiary);">
+                        <i class="fas fa-map-marked-alt" style="font-size: 4rem; margin-bottom: 1rem; opacity: 0.3;"></i>
+                        <p style="margin: 0; font-size: 1.1rem;">No office plan uploaded yet</p>
+                        <p style="font-size: 0.9rem; margin-top: 0.5rem;">Upload a floor plan or office layout image above</p>
+                    </div>
+                    <div id="officePlanInfo" style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px; display: none;">
+                        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;" id="officePlanTitleDisplay">Office Plan</div>
                         <div style="font-size: 0.85rem; color: var(--text-secondary);" id="officePlanDescDisplay">Click image to view full screen</div>
+                    </div>
+                </div>
+                
+                <!-- Sample Layout Templates -->
+                <div style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
+                    <h5 style="margin: 0 0 1rem 0; color: var(--text-primary); font-size: 0.95rem;">
+                        <i class="fas fa-th-large" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+                        Quick Templates (Click to use)
+                    </h5>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem;">
+                        <div onclick="useOfficePlanTemplate('dental')" style="cursor: pointer; padding: 1rem; background: var(--card-bg); border-radius: 8px; text-align: center; border: 2px solid transparent; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-primary)'" onmouseout="this.style.borderColor='transparent'">
+                            <i class="fas fa-tooth" style="font-size: 2rem; color: #06b6d4; margin-bottom: 0.5rem;"></i>
+                            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Dental Office</div>
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">4 Operatories</div>
+                        </div>
+                        <div onclick="useOfficePlanTemplate('small')" style="cursor: pointer; padding: 1rem; background: var(--card-bg); border-radius: 8px; text-align: center; border: 2px solid transparent; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-primary)'" onmouseout="this.style.borderColor='transparent'">
+                            <i class="fas fa-clinic-medical" style="font-size: 2rem; color: #10b981; margin-bottom: 0.5rem;"></i>
+                            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Small Clinic</div>
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">2 Rooms</div>
+                        </div>
+                        <div onclick="useOfficePlanTemplate('large')" style="cursor: pointer; padding: 1rem; background: var(--card-bg); border-radius: 8px; text-align: center; border: 2px solid transparent; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-primary)'" onmouseout="this.style.borderColor='transparent'">
+                            <i class="fas fa-hospital" style="font-size: 2rem; color: #3b82f6; margin-bottom: 0.5rem;"></i>
+                            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Large Practice</div>
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">8+ Rooms</div>
+                        </div>
+                        <div onclick="useOfficePlanTemplate('custom')" style="cursor: pointer; padding: 1rem; background: var(--card-bg); border-radius: 8px; text-align: center; border: 2px solid transparent; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-primary)'" onmouseout="this.style.borderColor='transparent'">
+                            <i class="fas fa-edit" style="font-size: 2rem; color: #8b5cf6; margin-bottom: 0.5rem;"></i>
+                            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Custom</div>
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">Draw Your Own</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -34877,7 +35979,7 @@ document.addEventListener('keydown', function(e) {
                     </div>
                     <div class="form-group" style="margin-bottom: 1rem;">
                         <label for="newVendorWebsite">Website</label>
-                        <input type="url" id="newVendorWebsite" placeholder="https://www.vendor.com" maxlength="200">
+                        <input type="text" id="newVendorWebsite" placeholder="Website or link" maxlength="200">
                     </div>
                     <div class="form-group" style="margin-bottom: 1rem;">
                         <label for="newVendorNotes">Notes</label>
@@ -35016,10 +36118,23 @@ document.addEventListener('keydown', function(e) {
         <div style="display: flex; flex: 1; overflow: hidden;">
             <!-- Conversations Sidebar -->
             <div style="width: 280px; background: var(--bg-secondary); border-right: 1px solid var(--border-color); display: flex; flex-direction: column;">
-                <!-- New Chat Button -->
+                <!-- Chat Type Tabs -->
+                <div style="display: flex; border-bottom: 1px solid var(--border-color);">
+                    <button id="chatTabDirect" onclick="switchChatTab('direct')" style="flex: 1; padding: 0.75rem; background: var(--accent-primary); color: white; border: none; cursor: pointer; font-weight: 600; font-size: 0.85rem; transition: all 0.2s;">
+                        <i class="fas fa-user"></i> Direct
+                    </button>
+                    <button id="chatTabGroup" onclick="switchChatTab('group')" style="flex: 1; padding: 0.75rem; background: var(--bg-tertiary); color: var(--text-secondary); border: none; cursor: pointer; font-weight: 600; font-size: 0.85rem; transition: all 0.2s;">
+                        <i class="fas fa-users"></i> Groups
+                    </button>
+                    <button id="chatTabAnnouncements" onclick="switchChatTab('announcements')" style="flex: 1; padding: 0.75rem; background: var(--bg-tertiary); color: var(--text-secondary); border: none; cursor: pointer; font-weight: 600; font-size: 0.85rem; transition: all 0.2s;">
+                        <i class="fas fa-bullhorn"></i> News
+                    </button>
+                </div>
+                
+                <!-- New Chat/Group Button -->
                 <div style="padding: 1rem; border-bottom: 1px solid var(--border-color);">
-                    <button onclick="showNewChatPanel()" style="width: 100%; padding: 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
-                        <i class="fas fa-plus"></i> New Chat
+                    <button id="newChatBtn" onclick="showNewChatPanel()" style="width: 100%; padding: 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                        <i class="fas fa-plus"></i> <span id="newChatBtnText">New Chat</span>
                     </button>
                 </div>
                 
@@ -36614,10 +37729,10 @@ document.addEventListener('keydown', function(e) {
 <script>
 // Office Plan Management Functions
 let currentOfficePlan = {
-    title: 'Default Office Plan',
-    description: 'Click image to view full screen',
-    imageUrl: 'https://i.pinimg.com/originals/05/e7/f5/05e7f5f354bc334cf1eb8d1dd28129c3.jpg',
-    uploadDate: new Date().toISOString()
+    title: '',
+    description: '',
+    imageUrl: '',
+    uploadDate: null
 };
 
 function showOfficePlan() {
@@ -36656,6 +37771,9 @@ function previewOfficePlan(event) {
         reader.onload = function(e) {
             const img = document.getElementById('officePlanImage');
             img.src = e.target.result;
+            img.style.display = 'block';
+            document.getElementById('noOfficePlanPlaceholder').style.display = 'none';
+            document.getElementById('officePlanInfo').style.display = 'block';
         };
         reader.readAsDataURL(file);
     }
@@ -36666,7 +37784,269 @@ function previewOfficePlanUrl() {
     if (url) {
         const img = document.getElementById('officePlanImage');
         img.src = url;
+        img.style.display = 'block';
+        document.getElementById('noOfficePlanPlaceholder').style.display = 'none';
+        document.getElementById('officePlanInfo').style.display = 'block';
     }
+}
+
+// Use office plan template
+function useOfficePlanTemplate(templateType) {
+    const templates = {
+        dental: {
+            title: 'Dental Office Layout - 4 Operatories',
+            description: 'Standard dental office with reception, 4 operatories, sterilization area, and staff room',
+            // Generate a simple dental office layout as SVG data URL
+            imageUrl: generateDentalLayoutSVG()
+        },
+        small: {
+            title: 'Small Clinic Layout - 2 Rooms',
+            description: 'Compact clinic with reception, 2 treatment rooms, and utility area',
+            imageUrl: generateSmallClinicSVG()
+        },
+        large: {
+            title: 'Large Practice Layout - 8 Rooms',
+            description: 'Full-service practice with reception, waiting area, 8 treatment rooms, lab, and offices',
+            imageUrl: generateLargePracticeSVG()
+        },
+        custom: {
+            title: 'Custom Layout',
+            description: 'Upload your own custom office layout or draw one',
+            imageUrl: ''
+        }
+    };
+    
+    const template = templates[templateType];
+    if (!template) return;
+    
+    if (templateType === 'custom') {
+        // Clear and let user upload
+        document.getElementById('officePlanTitle').value = template.title;
+        document.getElementById('officePlanDescription').value = template.description;
+        showNotification('Please upload your custom floor plan image', 'info');
+        return;
+    }
+    
+    // Set template values
+    document.getElementById('officePlanTitle').value = template.title;
+    document.getElementById('officePlanDescription').value = template.description;
+    
+    // Update preview
+    const img = document.getElementById('officePlanImage');
+    img.src = template.imageUrl;
+    img.style.display = 'block';
+    document.getElementById('noOfficePlanPlaceholder').style.display = 'none';
+    document.getElementById('officePlanInfo').style.display = 'block';
+    document.getElementById('officePlanTitleDisplay').textContent = template.title;
+    document.getElementById('officePlanDescDisplay').textContent = template.description;
+    
+    // Switch to URL mode
+    document.querySelector('input[name="uploadMethod"][value="url"]').checked = true;
+    toggleUploadMethod();
+    
+    showNotification('Template loaded! Click "Save Office Plan" to apply.', 'success');
+}
+
+// Generate dental layout SVG
+function generateDentalLayoutSVG() {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" style="background:#f8fafc">
+        <rect x="10" y="10" width="780" height="480" fill="none" stroke="#374151" stroke-width="3"/>
+        
+        <!-- Reception Area -->
+        <rect x="20" y="20" width="200" height="150" fill="#dbeafe" stroke="#3b82f6" stroke-width="2"/>
+        <text x="120" y="100" text-anchor="middle" fill="#1e40af" font-size="14" font-weight="bold">Reception</text>
+        
+        <!-- Waiting Room -->
+        <rect x="20" y="180" width="200" height="130" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+        <text x="120" y="250" text-anchor="middle" fill="#166534" font-size="14" font-weight="bold">Waiting Room</text>
+        
+        <!-- Operatory 1 -->
+        <rect x="240" y="20" width="160" height="140" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="320" y="70" text-anchor="middle" fill="#92400e" font-size="12" font-weight="bold">Operatory 1</text>
+        <circle cx="320" cy="110" r="25" fill="#fed7aa" stroke="#f59e0b"/>
+        
+        <!-- Operatory 2 -->
+        <rect x="420" y="20" width="160" height="140" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="500" y="70" text-anchor="middle" fill="#92400e" font-size="12" font-weight="bold">Operatory 2</text>
+        <circle cx="500" cy="110" r="25" fill="#fed7aa" stroke="#f59e0b"/>
+        
+        <!-- Operatory 3 -->
+        <rect x="240" y="180" width="160" height="140" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="320" y="230" text-anchor="middle" fill="#92400e" font-size="12" font-weight="bold">Operatory 3</text>
+        <circle cx="320" cy="270" r="25" fill="#fed7aa" stroke="#f59e0b"/>
+        
+        <!-- Operatory 4 -->
+        <rect x="420" y="180" width="160" height="140" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="500" y="230" text-anchor="middle" fill="#92400e" font-size="12" font-weight="bold">Operatory 4</text>
+        <circle cx="500" cy="270" r="25" fill="#fed7aa" stroke="#f59e0b"/>
+        
+        <!-- Sterilization -->
+        <rect x="600" y="20" width="170" height="140" fill="#fce7f3" stroke="#ec4899" stroke-width="2"/>
+        <text x="685" y="95" text-anchor="middle" fill="#be185d" font-size="12" font-weight="bold">Sterilization</text>
+        
+        <!-- Staff Room -->
+        <rect x="600" y="180" width="170" height="140" fill="#e0e7ff" stroke="#6366f1" stroke-width="2"/>
+        <text x="685" y="255" text-anchor="middle" fill="#4338ca" font-size="12" font-weight="bold">Staff Room</text>
+        
+        <!-- Restrooms -->
+        <rect x="20" y="320" width="90" height="80" fill="#f3e8ff" stroke="#a855f7" stroke-width="2"/>
+        <text x="65" y="365" text-anchor="middle" fill="#7e22ce" font-size="10" font-weight="bold">Restroom</text>
+        
+        <!-- Storage -->
+        <rect x="120" y="320" width="100" height="80" fill="#e2e8f0" stroke="#64748b" stroke-width="2"/>
+        <text x="170" y="365" text-anchor="middle" fill="#475569" font-size="10" font-weight="bold">Storage</text>
+        
+        <!-- Hallway -->
+        <rect x="240" y="340" width="340" height="60" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1"/>
+        <text x="410" y="375" text-anchor="middle" fill="#64748b" font-size="11">Hallway</text>
+        
+        <!-- Lab -->
+        <rect x="600" y="340" width="170" height="140" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+        <text x="685" y="415" text-anchor="middle" fill="#047857" font-size="12" font-weight="bold">Lab</text>
+        
+        <!-- Legend -->
+        <text x="25" y="465" fill="#374151" font-size="10">Reform Dental - Office Floor Plan</text>
+    </svg>`;
+    return 'data:image/svg+xml;base64,' + btoa(svg);
+}
+
+// Generate small clinic SVG
+function generateSmallClinicSVG() {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" style="background:#f8fafc">
+        <rect x="10" y="10" width="580" height="380" fill="none" stroke="#374151" stroke-width="3"/>
+        
+        <!-- Reception -->
+        <rect x="20" y="20" width="180" height="120" fill="#dbeafe" stroke="#3b82f6" stroke-width="2"/>
+        <text x="110" y="85" text-anchor="middle" fill="#1e40af" font-size="14" font-weight="bold">Reception</text>
+        
+        <!-- Waiting -->
+        <rect x="20" y="150" width="180" height="120" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+        <text x="110" y="215" text-anchor="middle" fill="#166534" font-size="14" font-weight="bold">Waiting</text>
+        
+        <!-- Treatment Room 1 -->
+        <rect x="220" y="20" width="170" height="150" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="305" y="80" text-anchor="middle" fill="#92400e" font-size="12" font-weight="bold">Treatment 1</text>
+        <circle cx="305" cy="120" r="30" fill="#fed7aa" stroke="#f59e0b"/>
+        
+        <!-- Treatment Room 2 -->
+        <rect x="400" y="20" width="170" height="150" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="485" y="80" text-anchor="middle" fill="#92400e" font-size="12" font-weight="bold">Treatment 2</text>
+        <circle cx="485" cy="120" r="30" fill="#fed7aa" stroke="#f59e0b"/>
+        
+        <!-- Utility -->
+        <rect x="220" y="190" width="170" height="100" fill="#fce7f3" stroke="#ec4899" stroke-width="2"/>
+        <text x="305" y="245" text-anchor="middle" fill="#be185d" font-size="12" font-weight="bold">Utility</text>
+        
+        <!-- Office -->
+        <rect x="400" y="190" width="170" height="100" fill="#e0e7ff" stroke="#6366f1" stroke-width="2"/>
+        <text x="485" y="245" text-anchor="middle" fill="#4338ca" font-size="12" font-weight="bold">Office</text>
+        
+        <!-- Restroom -->
+        <rect x="20" y="290" width="100" height="80" fill="#f3e8ff" stroke="#a855f7" stroke-width="2"/>
+        <text x="70" y="335" text-anchor="middle" fill="#7e22ce" font-size="10" font-weight="bold">Restroom</text>
+        
+        <!-- Storage -->
+        <rect x="130" y="290" width="100" height="80" fill="#e2e8f0" stroke="#64748b" stroke-width="2"/>
+        <text x="180" y="335" text-anchor="middle" fill="#475569" font-size="10" font-weight="bold">Storage</text>
+        
+        <text x="25" y="380" fill="#374151" font-size="10">Small Clinic - 2 Treatment Rooms</text>
+    </svg>`;
+    return 'data:image/svg+xml;base64,' + btoa(svg);
+}
+
+// Generate large practice SVG
+function generateLargePracticeSVG() {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" style="background:#f8fafc">
+        <rect x="10" y="10" width="980" height="580" fill="none" stroke="#374151" stroke-width="3"/>
+        
+        <!-- Reception -->
+        <rect x="20" y="20" width="200" height="120" fill="#dbeafe" stroke="#3b82f6" stroke-width="2"/>
+        <text x="120" y="85" text-anchor="middle" fill="#1e40af" font-size="14" font-weight="bold">Reception</text>
+        
+        <!-- Large Waiting -->
+        <rect x="20" y="150" width="200" height="180" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+        <text x="120" y="245" text-anchor="middle" fill="#166534" font-size="14" font-weight="bold">Waiting Area</text>
+        
+        <!-- Row 1: Rooms 1-4 -->
+        <rect x="240" y="20" width="110" height="100" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="295" y="75" text-anchor="middle" fill="#92400e" font-size="11" font-weight="bold">Room 1</text>
+        
+        <rect x="360" y="20" width="110" height="100" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="415" y="75" text-anchor="middle" fill="#92400e" font-size="11" font-weight="bold">Room 2</text>
+        
+        <rect x="480" y="20" width="110" height="100" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="535" y="75" text-anchor="middle" fill="#92400e" font-size="11" font-weight="bold">Room 3</text>
+        
+        <rect x="600" y="20" width="110" height="100" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="655" y="75" text-anchor="middle" fill="#92400e" font-size="11" font-weight="bold">Room 4</text>
+        
+        <!-- Row 2: Rooms 5-8 -->
+        <rect x="240" y="130" width="110" height="100" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="295" y="185" text-anchor="middle" fill="#92400e" font-size="11" font-weight="bold">Room 5</text>
+        
+        <rect x="360" y="130" width="110" height="100" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="415" y="185" text-anchor="middle" fill="#92400e" font-size="11" font-weight="bold">Room 6</text>
+        
+        <rect x="480" y="130" width="110" height="100" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="535" y="185" text-anchor="middle" fill="#92400e" font-size="11" font-weight="bold">Room 7</text>
+        
+        <rect x="600" y="130" width="110" height="100" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <text x="655" y="185" text-anchor="middle" fill="#92400e" font-size="11" font-weight="bold">Room 8</text>
+        
+        <!-- Sterilization -->
+        <rect x="720" y="20" width="260" height="100" fill="#fce7f3" stroke="#ec4899" stroke-width="2"/>
+        <text x="850" y="75" text-anchor="middle" fill="#be185d" font-size="12" font-weight="bold">Sterilization Central</text>
+        
+        <!-- Lab -->
+        <rect x="720" y="130" width="130" height="100" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+        <text x="785" y="185" text-anchor="middle" fill="#047857" font-size="12" font-weight="bold">Lab</text>
+        
+        <!-- X-Ray -->
+        <rect x="860" y="130" width="120" height="100" fill="#ede9fe" stroke="#8b5cf6" stroke-width="2"/>
+        <text x="920" y="185" text-anchor="middle" fill="#6d28d9" font-size="12" font-weight="bold">X-Ray</text>
+        
+        <!-- Hallway -->
+        <rect x="240" y="240" width="470" height="50" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1"/>
+        <text x="475" y="270" text-anchor="middle" fill="#64748b" font-size="11">Main Hallway</text>
+        
+        <!-- Office 1 -->
+        <rect x="240" y="300" width="150" height="120" fill="#e0e7ff" stroke="#6366f1" stroke-width="2"/>
+        <text x="315" y="365" text-anchor="middle" fill="#4338ca" font-size="12" font-weight="bold">Dr. Office 1</text>
+        
+        <!-- Office 2 -->
+        <rect x="400" y="300" width="150" height="120" fill="#e0e7ff" stroke="#6366f1" stroke-width="2"/>
+        <text x="475" y="365" text-anchor="middle" fill="#4338ca" font-size="12" font-weight="bold">Dr. Office 2</text>
+        
+        <!-- Staff Room -->
+        <rect x="560" y="300" width="150" height="120" fill="#fef2f2" stroke="#ef4444" stroke-width="2"/>
+        <text x="635" y="365" text-anchor="middle" fill="#b91c1c" font-size="12" font-weight="bold">Staff Room</text>
+        
+        <!-- Conference -->
+        <rect x="720" y="240" width="130" height="100" fill="#f0f9ff" stroke="#0ea5e9" stroke-width="2"/>
+        <text x="785" y="295" text-anchor="middle" fill="#0369a1" font-size="11" font-weight="bold">Conference</text>
+        
+        <!-- Storage -->
+        <rect x="860" y="240" width="120" height="100" fill="#e2e8f0" stroke="#64748b" stroke-width="2"/>
+        <text x="920" y="295" text-anchor="middle" fill="#475569" font-size="11" font-weight="bold">Storage</text>
+        
+        <!-- Restrooms -->
+        <rect x="20" y="340" width="100" height="80" fill="#f3e8ff" stroke="#a855f7" stroke-width="2"/>
+        <text x="70" y="385" text-anchor="middle" fill="#7e22ce" font-size="10" font-weight="bold">Restroom 1</text>
+        
+        <rect x="130" y="340" width="100" height="80" fill="#f3e8ff" stroke="#a855f7" stroke-width="2"/>
+        <text x="180" y="385" text-anchor="middle" fill="#7e22ce" font-size="10" font-weight="bold">Restroom 2</text>
+        
+        <!-- IT Room -->
+        <rect x="720" y="350" width="130" height="70" fill="#fafafa" stroke="#525252" stroke-width="2"/>
+        <text x="785" y="390" text-anchor="middle" fill="#404040" font-size="10" font-weight="bold">IT/Server</text>
+        
+        <!-- Supply -->
+        <rect x="860" y="350" width="120" height="70" fill="#e2e8f0" stroke="#64748b" stroke-width="2"/>
+        <text x="920" y="390" text-anchor="middle" fill="#475569" font-size="10" font-weight="bold">Supply</text>
+        
+        <text x="25" y="575" fill="#374151" font-size="10">Large Practice - 8+ Treatment Rooms - Full Service Dental Facility</text>
+    </svg>`;
+    return 'data:image/svg+xml;base64,' + btoa(svg);
 }
 
 function saveOfficePlan(event) {
@@ -36679,13 +38059,13 @@ function saveOfficePlan(event) {
     
     if (uploadMethod === 'url') {
         const url = document.getElementById('officePlanUrl').value;
-        if (!url) {
+        if (!url && !img.src) {
             showError('Please enter an image URL');
             return;
         }
     } else {
         const file = document.getElementById('officePlanFile').files[0];
-        if (!file && img.src === '') {
+        if (!file && (!img.src || img.style.display === 'none')) {
             showError('Please select an image file');
             return;
         }
@@ -36705,9 +38085,12 @@ function saveOfficePlan(event) {
     // Update display
     document.getElementById('officePlanTitleDisplay').textContent = title;
     document.getElementById('officePlanDescDisplay').textContent = description;
+    img.style.display = 'block';
+    document.getElementById('noOfficePlanPlaceholder').style.display = 'none';
+    document.getElementById('officePlanInfo').style.display = 'block';
     
     // Show success message
-    showSuccessMessage('Office plan saved successfully!');
+    showNotification('Office plan saved successfully!', 'success');
     
     // Clear form
     document.getElementById('officePlanForm').reset();
@@ -36724,9 +38107,25 @@ function loadCurrentOfficePlan() {
     const savedPlan = localStorage.getItem('officePlan');
     if (savedPlan) {
         currentOfficePlan = JSON.parse(savedPlan);
-        document.getElementById('officePlanImage').src = currentOfficePlan.imageUrl;
-        document.getElementById('officePlanTitleDisplay').textContent = currentOfficePlan.title;
-        document.getElementById('officePlanDescDisplay').textContent = currentOfficePlan.description;
+        const img = document.getElementById('officePlanImage');
+        
+        if (currentOfficePlan.imageUrl) {
+            img.src = currentOfficePlan.imageUrl;
+            img.style.display = 'block';
+            document.getElementById('noOfficePlanPlaceholder').style.display = 'none';
+            document.getElementById('officePlanInfo').style.display = 'block';
+            document.getElementById('officePlanTitleDisplay').textContent = currentOfficePlan.title;
+            document.getElementById('officePlanDescDisplay').textContent = currentOfficePlan.description;
+        } else {
+            img.style.display = 'none';
+            document.getElementById('noOfficePlanPlaceholder').style.display = 'block';
+            document.getElementById('officePlanInfo').style.display = 'none';
+        }
+    } else {
+        // No saved plan - show placeholder
+        document.getElementById('officePlanImage').style.display = 'none';
+        document.getElementById('noOfficePlanPlaceholder').style.display = 'block';
+        document.getElementById('officePlanInfo').style.display = 'none';
     }
 }
 
@@ -37527,10 +38926,37 @@ async function loadAllDataFromAPI() {
         if (typeof displayInstrumentsList === 'function') displayInstrumentsList();
         if (typeof displaySuppliesList === 'function') displaySuppliesList();
         
+        // Load dynamic dropdowns
+        loadClinicFilterDropdown();
+        loadOfficesForUserForm();
+        loadSupervisorsForUserForm();
+        initPhoneFormatting();
+        
     } catch (error) {
         console.error('❌ Error loading data from API:', error);
         showSyncStatus('Error syncing data', false);
     }
+}
+
+// Load clinic filter dropdown from offices
+async function loadClinicFilterDropdown() {
+    const clinicSelect = document.getElementById('clinicFilterSelect');
+    if (!clinicSelect) return;
+    
+    // Get offices from localStorage or API
+    let offices = JSON.parse(localStorage.getItem('clinics') || '[]');
+    
+    // Keep "All Clinics" option and add offices
+    clinicSelect.innerHTML = '<option value="">All Clinics</option>';
+    offices.forEach(office => {
+        const id = office.Id || office.id;
+        const name = office.Name || office.name || office.clinicName;
+        if (name) {
+            clinicSelect.innerHTML += `<option value="${id || name}">${name}</option>`;
+        }
+    });
+    
+    console.log('✅ Clinic filter loaded with', offices.length, 'offices');
 }
 
 // Override loadDataFromAPI to use enhanced version
