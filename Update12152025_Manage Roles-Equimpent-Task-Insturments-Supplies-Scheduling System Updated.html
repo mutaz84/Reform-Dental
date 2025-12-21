@@ -1741,6 +1741,55 @@
             --resource-area-width: 90px;
         }
         
+        /* Custom checkbox styling for better visibility */
+        input[type="checkbox"] {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            width: 20px !important;
+            height: 20px !important;
+            min-width: 20px;
+            min-height: 20px;
+            border: 2px solid var(--border-color, #d1d5db);
+            border-radius: 4px;
+            background-color: var(--bg-secondary, #f9fafb);
+            cursor: pointer;
+            position: relative;
+            transition: all 0.2s ease;
+        }
+        
+        input[type="checkbox"]:checked {
+            background-color: #06b6d4;
+            border-color: #06b6d4;
+        }
+        
+        input[type="checkbox"]:checked::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        input[type="checkbox"]:hover {
+            border-color: var(--accent-primary, #3b82f6);
+        }
+        
+        /* Group chat member checkboxes - cyan */
+        input[name="groupMembers"]:checked {
+            background-color: #8b5cf6;
+            border-color: #8b5cf6;
+        }
+        
+        /* Announcement recipient checkboxes - amber */
+        input[name="announcementRecipients"]:checked {
+            background-color: #f59e0b;
+            border-color: #f59e0b;
+        }
+        
             /* Compact styles for Room Week view to improve fitting/alignment */
             .view-mode-room .fc .event-badge-container { gap: 4px; }
             .view-mode-room .fc .fc-event-title { font-size: 0.72rem; font-weight:600; }
@@ -28662,8 +28711,8 @@ window.addEventListener('load', function() {
             }
             
             container.innerHTML = employees.map(emp => `
-                <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem; cursor: pointer; border-radius: 6px; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">
-                    <input type="checkbox" name="announcementRecipients" value="${emp.id}" onchange="updateAnnouncementRecipientsCount()" style="width: 18px; height: 18px; accent-color: var(--accent-primary); cursor: pointer;">
+                <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; cursor: pointer; border-radius: 6px; transition: background 0.2s; border: 1px solid transparent;" onmouseover="this.style.background='var(--bg-tertiary)'; this.style.borderColor='var(--border-color)'" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent'">
+                    <input type="checkbox" name="announcementRecipients" value="${emp.id}" onchange="updateAnnouncementRecipientsCount()" style="width: 20px; height: 20px; accent-color: #f59e0b; cursor: pointer; flex-shrink: 0;">
                     <div style="flex: 1;">
                         <div style="font-weight: 500; color: var(--text-primary); font-size: 0.9rem;">${emp.name}</div>
                         <div style="font-size: 0.75rem; color: var(--text-tertiary);">${emp.role}${emp.department ? ' • ' + emp.department : ''}</div>
@@ -28718,12 +28767,13 @@ window.addEventListener('load', function() {
             }
             
             container.innerHTML = members.map(member => `
-                <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem; cursor: pointer; border-radius: 6px; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">
-                    <input type="checkbox" name="groupMembers" value="${member.id}" onchange="updateGroupMembersCount()" style="width: 18px; height: 18px; accent-color: var(--accent-primary); cursor: pointer;">
+                <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; cursor: pointer; border-radius: 6px; transition: background 0.2s; border: 1px solid transparent;" onmouseover="this.style.background='var(--bg-tertiary)'; this.style.borderColor='var(--border-color)'" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent'">
+                    <input type="checkbox" name="groupMembers" value="${member.id}" onchange="updateGroupMembersCount()" style="width: 20px; height: 20px; accent-color: #06b6d4; cursor: pointer; flex-shrink: 0; border: 2px solid var(--border-color); border-radius: 4px;">
                     <div style="flex: 1;">
                         <div style="font-weight: 500; color: var(--text-primary); font-size: 0.9rem;">${member.name}</div>
                         <div style="font-size: 0.75rem; color: var(--text-tertiary);">${member.role}${member.department ? ' • ' + member.department : ''}</div>
                     </div>
+                    <span class="checkmark-indicator" style="width: 24px; height: 24px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0.75rem; transition: all 0.2s;">✓</span>
                 </label>
             `).join('');
         }
@@ -29113,14 +29163,6 @@ window.addEventListener('load', function() {
             }
         }
         
-        function showNewChatPanel() {
-            const panel = document.getElementById('newChatPanel');
-            if (panel) {
-                panel.style.display = 'block';
-                loadChatUsers();
-            }
-        }
-        
         function hideNewChatPanel() {
             const panel = document.getElementById('newChatPanel');
             if (panel) {
@@ -29132,6 +29174,8 @@ window.addEventListener('load', function() {
             const container = document.getElementById('chatUsersList');
             if (!container) return;
             
+            container.innerHTML = '<div style="text-align: center; padding: 1rem; color: var(--text-tertiary);"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+            
             const userId = await getCurrentUserId();
             
             try {
@@ -29139,15 +29183,100 @@ window.addEventListener('load', function() {
                 if (!response.ok) throw new Error('Failed to load users');
                 
                 chatUsersCache = await response.json();
-                renderChatUsersList(chatUsersCache);
                 
-            } catch (error) {
-                console.error('Error loading users:', error);
-                // Fallback to usersData
-                if (window.usersData) {
-                    chatUsersCache = window.usersData.filter(u => u.Id !== userId);
+                if (chatUsersCache.length === 0) {
+                    // Try localStorage fallback
+                    loadChatUsersFromLocalStorage();
+                } else {
                     renderChatUsersList(chatUsersCache);
                 }
+                
+            } catch (error) {
+                console.error('Error loading users from API:', error);
+                // Fallback to localStorage users
+                loadChatUsersFromLocalStorage();
+            }
+        }
+        
+        // Fallback: Load users from localStorage
+        function loadChatUsersFromLocalStorage() {
+            const container = document.getElementById('chatUsersList');
+            if (!container) return;
+            
+            const storedUsers = localStorage.getItem('users');
+            const usersData = storedUsers ? JSON.parse(storedUsers) : {};
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            
+            // Convert localStorage users to the same format as API users
+            const users = Object.entries(usersData)
+                .filter(([username]) => username !== currentUser.username && username !== 'admin')
+                .map(([username, user]) => ({
+                    Id: user.id || username,
+                    Username: username,
+                    FirstName: user.firstName || username,
+                    LastName: user.lastName || '',
+                    Role: user.role || 'User',
+                    IsOnline: false
+                }));
+            
+            if (users.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 1.5rem; color: var(--text-tertiary);">
+                        <i class="fas fa-users-slash" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p style="margin: 0;">No team members found</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.5rem;">Add users in User Management first</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            chatUsersCache = users;
+            renderChatUsersListLocal(users);
+        }
+        
+        // Render users from localStorage format
+        function renderChatUsersListLocal(users) {
+            const container = document.getElementById('chatUsersList');
+            if (!container) return;
+            
+            container.innerHTML = users.map(user => `
+                <div onclick="startChatWithLocal('${user.Username}', '${user.FirstName}', '${user.LastName}')" style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px; cursor: pointer; margin-bottom: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="position: relative;">
+                            <div style="width: 40px; height: 40px; background: var(--accent-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                                ${user.FirstName?.[0] || ''}${user.LastName?.[0] || ''}
+                            </div>
+                            <div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #6b7280; border-radius: 50%; border: 2px solid var(--bg-secondary);"></div>
+                        </div>
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary);">${user.FirstName} ${user.LastName || ''}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary);">${user.Role || 'Staff'}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Start chat with local user (create if needed in DB)
+        async function startChatWithLocal(username, firstName, lastName) {
+            console.log('📧 Starting chat with local user:', username, firstName, lastName);
+            hideNewChatPanel();
+            
+            // Try to find user in API cache first
+            let userId = null;
+            if (chatUserIdCache) {
+                const apiUser = chatUserIdCache.find(u => 
+                    u.Username === username || 
+                    (u.FirstName === firstName && u.LastName === lastName)
+                );
+                userId = apiUser?.Id;
+            }
+            
+            if (userId) {
+                selectConversation(userId, firstName, lastName, false);
+            } else {
+                // Show message that user needs to be synced to database
+                showNotification('This user needs to be synced to the database first. Try logging in as this user or sync users.', 'warning');
             }
         }
         
