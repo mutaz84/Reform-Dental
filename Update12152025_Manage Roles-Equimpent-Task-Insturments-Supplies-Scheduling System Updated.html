@@ -28313,7 +28313,20 @@ window.addEventListener('load', function() {
         
         // Switch between chat tabs (direct, group, announcements)
         function switchChatTab(tab) {
+            console.log('📑 Switching to tab:', tab);
             currentChatTab = tab;
+            
+            // Update the current chat type to match tab
+            if (tab === 'direct') {
+                currentChatType = 'direct';
+            } else if (tab === 'group') {
+                currentChatType = 'group';
+            } else if (tab === 'announcements') {
+                currentChatType = 'announcement';
+            }
+            
+            // Clear current selection when switching tabs
+            currentChatUserId = null;
             
             // Update tab button styles
             const tabs = ['direct', 'group', 'announcements'];
@@ -28351,11 +28364,10 @@ window.addEventListener('load', function() {
                 }
             }
             
-            // Clear current selection
-            currentChatUserId = null;
+            // Reset chat area to placeholder
             resetChatArea();
             
-            // Load appropriate content
+            // Load appropriate content based on tab
             if (tab === 'direct') {
                 loadConversations();
             } else if (tab === 'group') {
@@ -28989,6 +29001,12 @@ window.addEventListener('load', function() {
             const container = document.getElementById('conversationsList');
             if (!container) return;
             
+            // Only load if we're on the direct messages tab
+            if (currentChatTab !== 'direct') {
+                console.log('📋 Skipping loadConversations - not on direct tab');
+                return;
+            }
+            
             const userId = await getCurrentUserId();
             console.log('📋 Loading conversations for user ID:', userId);
             
@@ -29399,12 +29417,12 @@ window.addEventListener('load', function() {
         function startChatPolling() {
             // Poll for new messages every 5 seconds
             chatPollingInterval = setInterval(async () => {
-                // Only poll for direct messages when in direct chat mode
-                if (currentChatType === 'direct' && currentChatUserId) {
+                // Only poll when on direct messages tab AND viewing a specific conversation
+                if (currentChatTab === 'direct' && currentChatType === 'direct' && currentChatUserId) {
                     await loadMessages(currentChatUserId);
-                    await loadConversations(); // Only reload conversations in direct chat mode
+                    await loadConversations();
                 }
-                // Don't reload conversations when viewing groups or announcements
+                // Always update unread badge
                 await updateUnreadBadge();
             }, 5000);
         }
