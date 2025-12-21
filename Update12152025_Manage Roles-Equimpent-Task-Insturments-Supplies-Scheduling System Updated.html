@@ -11129,6 +11129,13 @@
                 localStorage.removeItem('userName');
                 localStorage.removeItem('userRole');
                 localStorage.removeItem('currentUser');
+                
+                // Clear chat caches
+                chatUserIdCache = null;
+                currentDbUserId = null;
+                chatUsersCache = [];
+                currentChatUserId = null;
+                
                 checkAuth();
                 
                 // Clear form
@@ -28898,33 +28905,69 @@ window.addEventListener('load', function() {
         
         // Cache for users loaded from API for chat
         let chatUserIdCache = null;
+        let currentDbUserId = null; // Store the database user ID
         
         async function getCurrentUserId() {
+            // Return cached ID if we have it
+            if (currentDbUserId) {
+                return currentDbUserId;
+            }
+            
             // Get logged-in user from localStorage
             const storedUser = localStorage.getItem('currentUser');
-            if (!storedUser) return null;
+            if (!storedUser) {
+                console.log('❌ No current user in localStorage');
+                return null;
+            }
             
             try {
                 const currentUserData = JSON.parse(storedUser);
+                console.log('👤 Current user data:', currentUserData);
+                
+                // Check if user has a stored database ID
+                if (currentUserData.dbId) {
+                    currentDbUserId = currentUserData.dbId;
+                    console.log('✅ Using stored database ID:', currentDbUserId);
+                    return currentDbUserId;
+                }
                 
                 // Fetch users from API to get the ID
                 if (!chatUserIdCache) {
                     const response = await fetch('/api/users');
                     if (response.ok) {
                         chatUserIdCache = await response.json();
+                        console.log('📥 Loaded users from API:', chatUserIdCache.length, 'users');
                     }
                 }
                 
-                if (chatUserIdCache) {
-                    // Find matching user by name or username
-                    const loggedInUser = chatUserIdCache.find(u => 
-                        (u.FirstName === currentUserData.firstName && u.LastName === currentUserData.lastName) ||
-                        (u.Username === currentUserData.username) ||
-                        (`${u.FirstName} ${u.LastName}` === currentUserData.name)
-                    );
-                    return loggedInUser?.Id || null;
+                if (chatUserIdCache && chatUserIdCache.length > 0) {
+                    // Find matching user by name or username (case-insensitive)
+                    const loggedInUser = chatUserIdCache.find(u => {
+                        const fnMatch = u.FirstName?.toLowerCase() === currentUserData.firstName?.toLowerCase();
+                        const lnMatch = u.LastName?.toLowerCase() === currentUserData.lastName?.toLowerCase();
+                        const unMatch = u.Username?.toLowerCase() === currentUserData.username?.toLowerCase();
+                        const nameMatch = `${u.FirstName} ${u.LastName}`.toLowerCase() === currentUserData.name?.toLowerCase();
+                        return (fnMatch && lnMatch) || unMatch || nameMatch;
+                    });
+                    
+                    if (loggedInUser) {
+                        currentDbUserId = loggedInUser.Id;
+                        console.log('✅ Found user in database with ID:', currentDbUserId);
+                        
+                        // Store the database ID for future use
+                        currentUserData.dbId = currentDbUserId;
+                        localStorage.setItem('currentUser', JSON.stringify(currentUserData));
+                        
+                        return currentDbUserId;
+                    } else {
+                        console.warn('⚠️ User not found in database. Available users:', chatUserIdCache.map(u => `${u.FirstName} ${u.LastName} (${u.Username})`));
+                        return null;
+                    }
                 }
+                
+                console.warn('⚠️ No users loaded from database');
                 return null;
+                
             } catch (e) {
                 console.error('Error getting current user ID:', e);
                 return null;
@@ -28936,16 +28979,25 @@ window.addEventListener('load', function() {
             if (!container) return;
             
             const userId = await getCurrentUserId();
+            console.log('📋 Loading conversations for user ID:', userId);
+            
             if (!userId) {
-                container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-tertiary);">Please log in to use chat</div>';
+                container.innerHTML = `
+                    <div style="padding: 1.5rem; text-align: center; color: var(--text-tertiary);">
+                        <i class="fas fa-user-slash" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p style="margin: 0;">User not found in database</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.5rem;">Your account needs to be synced with the database to use chat.</p>
+                    </div>`;
                 return;
             }
             
             try {
                 const response = await fetch(`/api/chat?action=conversations&userId=${userId}`);
+                console.log('📋 Conversations API response status:', response.status);
                 if (!response.ok) throw new Error('Failed to load conversations');
                 
                 const conversations = await response.json();
+                console.log('📋 Loaded conversations:', conversations.length);
                 
                 if (conversations.length === 0) {
                     container.innerHTML = `
@@ -29177,24 +29229,37 @@ window.addEventListener('load', function() {
             container.innerHTML = '<div style="text-align: center; padding: 1rem; color: var(--text-tertiary);"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
             
             const userId = await getCurrentUserId();
+            console.log('👥 Loading chat users, current user ID:', userId);
             
             try {
                 const response = await fetch(`/api/chat?action=users&userId=${userId}`);
+                console.log('👥 Chat users API response status:', response.status);
                 if (!response.ok) throw new Error('Failed to load users');
                 
                 chatUsersCache = await response.json();
+                console.log('👥 Loaded', chatUsersCache.length, 'users from database');
                 
                 if (chatUsersCache.length === 0) {
-                    // Try localStorage fallback
-                    loadChatUsersFromLocalStorage();
+                    container.innerHTML = `
+                        <div style="text-align: center; padding: 1.5rem; color: var(--text-tertiary);">
+                            <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                            <p style="margin: 0;">No other users found</p>
+                            <p style="font-size: 0.8rem; margin-top: 0.5rem;">Add team members to start chatting</p>
+                        </div>
+                    `;
                 } else {
                     renderChatUsersList(chatUsersCache);
                 }
                 
             } catch (error) {
                 console.error('Error loading users from API:', error);
-                // Fallback to localStorage users
-                loadChatUsersFromLocalStorage();
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 1.5rem; color: var(--text-tertiary);">
+                        <i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ef4444;"></i>
+                        <p style="margin: 0;">Failed to load users</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.5rem;">${error.message}</p>
+                    </div>
+                `;
             }
         }
         
