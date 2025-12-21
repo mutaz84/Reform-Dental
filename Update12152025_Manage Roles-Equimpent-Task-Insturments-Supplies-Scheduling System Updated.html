@@ -28909,7 +28909,7 @@ window.addEventListener('load', function() {
                 }
                 
                 container.innerHTML = conversations.map(conv => `
-                    <div onclick="selectConversation(${conv.OtherUserId})" style="padding: 0.75rem; background: ${currentChatUserId === conv.OtherUserId ? 'var(--bg-tertiary)' : 'transparent'}; border-radius: 8px; cursor: pointer; margin-bottom: 0.25rem; transition: all 0.2s;" onmouseover="if(${currentChatUserId} !== ${conv.OtherUserId}) this.style.background='var(--bg-tertiary)'" onmouseout="if(${currentChatUserId} !== ${conv.OtherUserId}) this.style.background='transparent'">
+                    <div onclick="selectConversation(${conv.OtherUserId}, '${(conv.FirstName || '').replace(/'/g, "\\'")}', '${(conv.LastName || '').replace(/'/g, "\\'")}', ${conv.IsOnline ? 'true' : 'false'})" style="padding: 0.75rem; background: transparent; border-radius: 8px; cursor: pointer; margin-bottom: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'" data-userid="${conv.OtherUserId}">
                         <div style="display: flex; align-items: center; gap: 0.75rem;">
                             <div style="position: relative;">
                                 <div style="width: 44px; height: 44px; background: var(--accent-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 1rem;">
@@ -28939,9 +28939,18 @@ window.addEventListener('load', function() {
             }
         }
         
-        async function selectConversation(otherUserId) {
+        async function selectConversation(otherUserId, firstName, lastName, isOnline) {
+            console.log('📨 Selecting conversation with user ID:', otherUserId, firstName, lastName);
+            
+            // Reset chat type and set new user
             currentChatType = 'direct';
             currentChatUserId = otherUserId;
+            
+            // Clear messages immediately to prevent showing old messages
+            const messagesArea = document.getElementById('messagesArea');
+            if (messagesArea) {
+                messagesArea.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-tertiary);"><i class="fas fa-spinner fa-spin"></i> Loading messages...</div>';
+            }
             
             // Update UI to show chat area
             document.getElementById('chatPlaceholder').style.display = 'none';
@@ -28949,18 +28958,49 @@ window.addEventListener('load', function() {
             document.getElementById('messageInputArea').style.display = 'block';
             hideNewChatPanel();
             
-            // Get user info
-            const user = chatUsersCache.find(u => u.Id === otherUserId) || 
-                         window.usersData?.find(u => u.Id === otherUserId);
-            
-            if (user) {
-                document.getElementById('chatUserAvatar').textContent = `${user.FirstName?.[0] || ''}${user.LastName?.[0] || ''}`;
-                document.getElementById('chatUserName').textContent = `${user.FirstName} ${user.LastName}`;
-                document.getElementById('chatUserStatus').textContent = user.IsOnline ? 'Online' : `Last seen ${user.LastSeen ? formatChatTime(user.LastSeen) : 'recently'}`;
+            // Update header with passed user info (more reliable than cache lookup)
+            if (firstName || lastName) {
+                document.getElementById('chatUserAvatar').textContent = `${firstName?.[0] || ''}${lastName?.[0] || ''}`;
+                document.getElementById('chatUserAvatar').style.background = 'var(--accent-primary)';
+                document.getElementById('chatUserAvatar').innerHTML = `${firstName?.[0] || ''}${lastName?.[0] || ''}`;
+                document.getElementById('chatUserName').textContent = `${firstName || ''} ${lastName || ''}`.trim();
+                document.getElementById('chatUserStatus').textContent = isOnline ? 'Online' : 'Offline';
+            } else {
+                // Fallback to cache lookup
+                const user = chatUsersCache.find(u => u.Id === otherUserId) || 
+                             window.usersData?.find(u => u.Id === otherUserId);
+                
+                if (user) {
+                    document.getElementById('chatUserAvatar').textContent = `${user.FirstName?.[0] || ''}${user.LastName?.[0] || ''}`;
+                    document.getElementById('chatUserAvatar').style.background = 'var(--accent-primary)';
+                    document.getElementById('chatUserName').textContent = `${user.FirstName} ${user.LastName}`;
+                    document.getElementById('chatUserStatus').textContent = user.IsOnline ? 'Online' : 'Offline';
+                }
             }
             
-            // Load messages
+            // Highlight selected conversation in the list
+            document.querySelectorAll('#conversationsList > div[data-userid]').forEach(el => {
+                if (parseInt(el.dataset.userid) === otherUserId) {
+                    el.style.background = 'var(--bg-tertiary)';
+                } else {
+                    el.style.background = 'transparent';
+                }
+            });
+            
+            // Load messages for this specific user
             await loadMessages(otherUserId);
+            
+            // Mark messages as read
+            try {
+                const userId = await getCurrentUserId();
+                await fetch('/api/chat?action=markRead', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, otherUserId })
+                });
+            } catch (e) {
+                console.error('Error marking messages as read:', e);
+            }
             
             // Refresh conversations to update unread counts
             loadConversations();
@@ -28969,13 +29009,34 @@ window.addEventListener('load', function() {
         
         async function loadMessages(otherUserId) {
             const container = document.getElementById('messagesArea');
+            if (!container) return;
+            
+            // Verify we're loading for the correct user
+            if (currentChatType !== 'direct' || currentChatUserId !== otherUserId) {
+                console.log('⚠️ Chat context changed, skipping message load');
+                return;
+            }
+            
             const userId = await getCurrentUserId();
+            if (!userId) {
+                container.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-tertiary);">Please log in to view messages</div>';
+                return;
+            }
+            
+            console.log('📬 Loading messages between user', userId, 'and', otherUserId);
             
             try {
                 const response = await fetch(`/api/chat?action=messages&userId=${userId}&otherUserId=${otherUserId}`);
                 if (!response.ok) throw new Error('Failed to load messages');
                 
+                // Double-check the context hasn't changed while we were fetching
+                if (currentChatType !== 'direct' || currentChatUserId !== otherUserId) {
+                    console.log('⚠️ Chat context changed during fetch, discarding messages');
+                    return;
+                }
+                
                 const messages = await response.json();
+                console.log('📬 Loaded', messages.length, 'messages for user', otherUserId);
                 
                 if (messages.length === 0) {
                     container.innerHTML = `
@@ -29013,6 +29074,7 @@ window.addEventListener('load', function() {
                 
             } catch (error) {
                 console.error('Error loading messages:', error);
+                container.innerHTML = '<div style="text-align: center; padding: 2rem; color: #ef4444;"><i class="fas fa-exclamation-circle"></i> Failed to load messages</div>';
             }
         }
         
@@ -29120,13 +29182,20 @@ window.addEventListener('load', function() {
         }
         
         function startChatWith(userId) {
-            selectConversation(userId);
+            // Find user info from cache
+            const user = chatUsersCache.find(u => u.Id === userId);
+            if (user) {
+                selectConversation(userId, user.FirstName, user.LastName, user.IsOnline);
+            } else {
+                selectConversation(userId, null, null, false);
+            }
         }
         
         function startChatPolling() {
             // Poll for new messages every 5 seconds
             chatPollingInterval = setInterval(async () => {
-                if (currentChatUserId) {
+                // Only poll for direct messages when in direct chat mode
+                if (currentChatType === 'direct' && currentChatUserId) {
                     await loadMessages(currentChatUserId);
                 }
                 await loadConversations();
