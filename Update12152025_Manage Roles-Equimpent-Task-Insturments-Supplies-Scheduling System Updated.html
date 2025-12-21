@@ -28698,34 +28698,39 @@ window.addEventListener('load', function() {
         }
         
         // Load employees for announcement recipients
-        function loadAnnouncementRecipients() {
+        async function loadAnnouncementRecipients() {
             const container = document.getElementById('announcementRecipientsList');
             if (!container) return;
             
-            const storedUsers = localStorage.getItem('users');
-            const usersData = storedUsers ? JSON.parse(storedUsers) : {};
+            container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;"><i class="fas fa-spinner fa-spin"></i> Loading employees...</p>';
             
-            const employees = Object.entries(usersData).map(([username, user]) => ({
-                id: username,
-                name: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : username,
-                role: user.role || 'User',
-                department: user.department || ''
-            }));
-            
-            if (employees.length === 0) {
-                container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;">No employees found</p>';
-                return;
+            try {
+                // Load all users from database
+                const response = await fetch('/api/users');
+                if (!response.ok) throw new Error('Failed to load users');
+                
+                const dbUsers = await response.json();
+                console.log('👥 Loaded announcement recipients from database:', dbUsers.length);
+                
+                if (dbUsers.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;">No employees found</p>';
+                    return;
+                }
+                
+                container.innerHTML = dbUsers.map(emp => `
+                    <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; cursor: pointer; border-radius: 6px; transition: background 0.2s; border: 1px solid transparent;" onmouseover="this.style.background='var(--bg-tertiary)'; this.style.borderColor='var(--border-color)'" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent'">
+                        <input type="checkbox" name="announcementRecipients" value="${emp.Id}" onchange="updateAnnouncementRecipientsCount()" style="width: 20px; height: 20px; accent-color: #f59e0b; cursor: pointer; flex-shrink: 0;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 500; color: var(--text-primary); font-size: 0.9rem;">${emp.FirstName} ${emp.LastName}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">${emp.Role || 'Staff'}</div>
+                        </div>
+                    </label>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading announcement recipients:', error);
+                container.innerHTML = '<p style="text-align: center; color: #ef4444; padding: 1rem;"><i class="fas fa-exclamation-circle"></i> Failed to load employees</p>';
             }
-            
-            container.innerHTML = employees.map(emp => `
-                <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; cursor: pointer; border-radius: 6px; transition: background 0.2s; border: 1px solid transparent;" onmouseover="this.style.background='var(--bg-tertiary)'; this.style.borderColor='var(--border-color)'" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent'">
-                    <input type="checkbox" name="announcementRecipients" value="${emp.id}" onchange="updateAnnouncementRecipientsCount()" style="width: 20px; height: 20px; accent-color: #f59e0b; cursor: pointer; flex-shrink: 0;">
-                    <div style="flex: 1;">
-                        <div style="font-weight: 500; color: var(--text-primary); font-size: 0.9rem;">${emp.name}</div>
-                        <div style="font-size: 0.75rem; color: var(--text-tertiary);">${emp.role}${emp.department ? ' • ' + emp.department : ''}</div>
-                    </div>
-                </label>
-            `).join('');
         }
         
         // Select all announcement recipients
@@ -28753,36 +28758,42 @@ window.addEventListener('load', function() {
         }
         
         // Load members for group creation
-        function loadGroupMembers() {
+        async function loadGroupMembers() {
             const container = document.getElementById('groupMembersList');
             if (!container) return;
             
-            const storedUsers = localStorage.getItem('users');
-            const usersData = storedUsers ? JSON.parse(storedUsers) : {};
-            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;"><i class="fas fa-spinner fa-spin"></i> Loading members...</p>';
             
-            const members = Object.entries(usersData).filter(([username]) => username !== currentUser.username).map(([username, user]) => ({
-                id: username,
-                name: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : username,
-                role: user.role || 'User',
-                department: user.department || ''
-            }));
+            const userId = await getCurrentUserId();
             
-            if (members.length === 0) {
-                container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;">No other team members found</p>';
-                return;
+            try {
+                // Load users from database
+                const response = await fetch(`/api/chat?action=users&userId=${userId}`);
+                if (!response.ok) throw new Error('Failed to load users');
+                
+                const dbUsers = await response.json();
+                console.log('👥 Loaded group members from database:', dbUsers.length);
+                
+                if (dbUsers.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;">No other team members found</p>';
+                    return;
+                }
+                
+                container.innerHTML = dbUsers.map(member => `
+                    <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; cursor: pointer; border-radius: 6px; transition: background 0.2s; border: 1px solid transparent;" onmouseover="this.style.background='var(--bg-tertiary)'; this.style.borderColor='var(--border-color)'" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent'">
+                        <input type="checkbox" name="groupMembers" value="${member.Id}" onchange="updateGroupMembersCount()" style="width: 20px; height: 20px; accent-color: #06b6d4; cursor: pointer; flex-shrink: 0; border: 2px solid var(--border-color); border-radius: 4px;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 500; color: var(--text-primary); font-size: 0.9rem;">${member.FirstName} ${member.LastName}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">${member.Role || 'Staff'}</div>
+                        </div>
+                        <span class="checkmark-indicator" style="width: 24px; height: 24px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0.75rem; transition: all 0.2s;">✓</span>
+                    </label>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading group members:', error);
+                container.innerHTML = '<p style="text-align: center; color: #ef4444; padding: 1rem;"><i class="fas fa-exclamation-circle"></i> Failed to load members</p>';
             }
-            
-            container.innerHTML = members.map(member => `
-                <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; cursor: pointer; border-radius: 6px; transition: background 0.2s; border: 1px solid transparent;" onmouseover="this.style.background='var(--bg-tertiary)'; this.style.borderColor='var(--border-color)'" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent'">
-                    <input type="checkbox" name="groupMembers" value="${member.id}" onchange="updateGroupMembersCount()" style="width: 20px; height: 20px; accent-color: #06b6d4; cursor: pointer; flex-shrink: 0; border: 2px solid var(--border-color); border-radius: 4px;">
-                    <div style="flex: 1;">
-                        <div style="font-weight: 500; color: var(--text-primary); font-size: 0.9rem;">${member.name}</div>
-                        <div style="font-size: 0.75rem; color: var(--text-tertiary);">${member.role}${member.department ? ' • ' + member.department : ''}</div>
-                    </div>
-                    <span class="checkmark-indicator" style="width: 24px; height: 24px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0.75rem; transition: all 0.2s;">✓</span>
-                </label>
-            `).join('');
         }
         
         // Select all group members
