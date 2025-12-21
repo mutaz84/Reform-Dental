@@ -28284,6 +28284,7 @@ window.addEventListener('load', function() {
         // ============================================
         let currentChatUserId = null;
         let currentChatType = 'direct'; // 'direct', 'group', 'announcement'
+        let currentChatTab = 'direct';
         let chatPollingInterval = null;
         let lastMessageTimestamp = null;
         let chatUsersCache = [];
@@ -28292,6 +28293,8 @@ window.addEventListener('load', function() {
             const modal = document.getElementById('chatModal');
             if (modal) {
                 modal.style.display = 'flex';
+                currentChatTab = 'direct';
+                currentChatType = 'direct';
                 loadConversations();
                 startChatPolling();
                 updateOnlineStatus(true);
@@ -28308,36 +28311,21 @@ window.addEventListener('load', function() {
             hideNewChatPanel();
         }
         
-        // Current chat tab
-        let currentChatTab = 'direct';
-        
         // Switch between chat tabs (direct, group, announcements)
         function switchChatTab(tab) {
             console.log('📑 Switching to tab:', tab);
-            
-            // Prevent any event bubbling issues
-            event && event.stopPropagation && event.stopPropagation();
-            
             currentChatTab = tab;
-            
-            // Update the current chat type to match tab
-            if (tab === 'direct') {
-                currentChatType = 'direct';
-            } else if (tab === 'group') {
-                currentChatType = 'group';
-            } else if (tab === 'announcements') {
-                currentChatType = 'announcement';
-            }
-            
-            // Clear current selection when switching tabs
+            currentChatType = tab === 'announcements' ? 'announcement' : tab;
             currentChatUserId = null;
             
-            // Update tab button styles - use specific IDs
+            // Hide new chat panel if open
+            hideNewChatPanel();
+            
+            // Update tab button styles
             const directBtn = document.getElementById('chatTabDirect');
             const groupBtn = document.getElementById('chatTabGroup');
             const annBtn = document.getElementById('chatTabAnnouncements');
             
-            // Reset all tabs
             [directBtn, groupBtn, annBtn].forEach(btn => {
                 if (btn) {
                     btn.style.background = 'var(--bg-tertiary)';
@@ -28345,7 +28333,6 @@ window.addEventListener('load', function() {
                 }
             });
             
-            // Highlight active tab
             if (tab === 'direct' && directBtn) {
                 directBtn.style.background = 'var(--accent-primary)';
                 directBtn.style.color = 'white';
@@ -28361,24 +28348,25 @@ window.addEventListener('load', function() {
             const newChatBtn = document.getElementById('newChatBtn');
             const newChatBtnText = document.getElementById('newChatBtnText');
             
-            if (tab === 'direct') {
-                newChatBtn.style.display = 'flex';
-                newChatBtnText.textContent = 'New Chat';
-            } else if (tab === 'group') {
-                newChatBtn.style.display = 'flex';
-                newChatBtnText.textContent = 'New Group';
-            } else if (tab === 'announcements') {
-                // Only admins/managers can create announcements
-                const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-                if (currentUser.role === 'admin' || currentUser.role === 'manager') {
+            if (newChatBtn && newChatBtnText) {
+                if (tab === 'direct') {
                     newChatBtn.style.display = 'flex';
-                    newChatBtnText.textContent = 'New Announcement';
-                } else {
-                    newChatBtn.style.display = 'none';
+                    newChatBtnText.textContent = 'New Chat';
+                } else if (tab === 'group') {
+                    newChatBtn.style.display = 'flex';
+                    newChatBtnText.textContent = 'New Group';
+                } else if (tab === 'announcements') {
+                    const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+                    if (currentUser.role === 'admin' || currentUser.role === 'manager') {
+                        newChatBtn.style.display = 'flex';
+                        newChatBtnText.textContent = 'New Announcement';
+                    } else {
+                        newChatBtn.style.display = 'none';
+                    }
                 }
             }
             
-            // Reset chat area to placeholder
+            // Reset chat area
             resetChatArea();
             
             // Load appropriate content based on tab
@@ -28393,18 +28381,15 @@ window.addEventListener('load', function() {
         
         // Reset chat area to placeholder
         function resetChatArea() {
-            // Hide header and input
             const chatHeader = document.getElementById('chatAreaHeader');
             const messageInput = document.getElementById('messageInputArea');
+            const messagesArea = document.getElementById('messagesArea');
             
             if (chatHeader) chatHeader.style.display = 'none';
             if (messageInput) messageInput.style.display = 'none';
-            
-            // Reset messages area with placeholder
-            const messagesArea = document.getElementById('messagesArea');
             if (messagesArea) {
                 messagesArea.innerHTML = `
-                    <div id="chatPlaceholder" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary);">
+                    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary);">
                         <i class="fas fa-comments" style="font-size: 4rem; margin-bottom: 1rem; opacity: 0.3;"></i>
                         <p style="margin: 0; font-size: 1.1rem;">Select a conversation or start a new chat</p>
                     </div>
@@ -28414,18 +28399,9 @@ window.addEventListener('load', function() {
         
         // Close current conversation and go back to list
         function closeChatConversation() {
-            console.log('🔙 Closing conversation, returning to tab:', currentChatTab);
+            console.log('🔙 Closing conversation');
             currentChatUserId = null;
             resetChatArea();
-            
-            // Reload the appropriate list based on current tab
-            if (currentChatTab === 'direct') {
-                loadConversations();
-            } else if (currentChatTab === 'group') {
-                loadGroupChats();
-            } else if (currentChatTab === 'announcements') {
-                loadAnnouncements();
-            }
         }
         
         // Load group chats
@@ -29038,12 +29014,6 @@ window.addEventListener('load', function() {
         async function loadConversations() {
             const container = document.getElementById('conversationsList');
             if (!container) return;
-            
-            // Only load if we're on the direct messages tab
-            if (currentChatTab !== 'direct') {
-                console.log('📋 Skipping loadConversations - not on direct tab');
-                return;
-            }
             
             const userId = await getCurrentUserId();
             console.log('📋 Loading conversations for user ID:', userId);
