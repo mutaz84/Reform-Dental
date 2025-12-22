@@ -20394,10 +20394,15 @@
         
         // Initialize resources map when page loads
         function initializeResourcesMap() {
-            resourcesMap.employee = employeeResources;
-            resourcesMap.provider = providerResources;
-            resourcesMap.room = roomResources;
-            resourcesMap.event = eventTypeResources;
+            try {
+                resourcesMap.employee = typeof employeeResources !== 'undefined' ? employeeResources : [];
+                resourcesMap.provider = typeof providerResources !== 'undefined' ? providerResources : [];
+                resourcesMap.room = typeof roomResources !== 'undefined' ? roomResources : [];
+                resourcesMap.event = typeof eventTypeResources !== 'undefined' ? eventTypeResources : [];
+            } catch (e) {
+                console.warn('Could not initialize resources:', e.message);
+            }
+        }
         }
         
         // Show/hide filter based on view mode and populate dropdown
@@ -20988,22 +20993,28 @@
         
         // Sync tasks to ensure employee IDs match
         function syncTasksWithMasterData() {
-            if (typeof employeeTasksDatabase !== 'undefined') {
-                employeeTasksDatabase.forEach(task => {
-                    const employee = masterData.getEmployeeById(task.employeeId);
-                    if (!employee) {
-                        // Try to find by name pattern
-                        const namePart = task.employeeId.replace(/-/g, ' ');
-                        const found = employeeResources.find(e => 
-                            e.id.includes(task.employeeId.split('-')[1]) ||
-                            e.title.toLowerCase().includes(namePart.split(' ').pop())
-                        );
-                        if (found) {
-                            console.log(`Task ${task.id}: Mapped ${task.employeeId} to ${found.id}`);
+            try {
+                // Check if employeeTasksDatabase exists and is an array
+                const tasks = typeof loadEmployeeTasks === 'function' ? loadEmployeeTasks() : [];
+                if (tasks && Array.isArray(tasks)) {
+                    tasks.forEach(task => {
+                        const employee = masterData.getEmployeeById(task.employeeId);
+                        if (!employee && typeof employeeResources !== 'undefined') {
+                            // Try to find by name pattern
+                            const namePart = task.employeeId.replace(/-/g, ' ');
+                            const found = employeeResources.find(e => 
+                                e.id.includes(task.employeeId.split('-')[1]) ||
+                                e.title.toLowerCase().includes(namePart.split(' ').pop())
+                            );
+                            if (found) {
+                                console.log(`Task ${task.id}: Mapped ${task.employeeId} to ${found.id}`);
+                            }
                         }
-                    }
-                });
-                console.log('✅ Tasks synced with master data');
+                    });
+                    console.log('✅ Tasks synced with master data');
+                }
+            } catch (e) {
+                console.warn('Could not sync tasks with master data:', e.message);
             }
         }
         
