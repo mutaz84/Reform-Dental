@@ -13388,19 +13388,36 @@
 
         // ============ ROOMS MANAGEMENT ============
 
-        // Populate office dropdown for rooms form
+        // Populate clinic dropdown for rooms form
         function populateRoomOfficeDropdown() {
-            const offices = loadOffices();
             const dropdown = document.getElementById('newOfficeID');
-            if (dropdown) {
-                dropdown.innerHTML = '<option value="">--Select Office--</option>';
-                offices.forEach(office => {
-                    const option = document.createElement('option');
-                    option.value = office.officeID;
-                    option.textContent = office.officeName;
-                    dropdown.appendChild(option);
-                });
+            if (!dropdown) return;
+            
+            dropdown.innerHTML = '<option value="">--Select Clinic--</option>';
+            
+            // Try to get clinics from masterData first
+            let clinics = [];
+            if (window.masterData && window.masterData.clinics && window.masterData.clinics.length > 0) {
+                clinics = window.masterData.clinics;
+                console.log('📋 Loading clinics from masterData:', clinics);
+            } else {
+                // Fallback to localStorage
+                const stored = localStorage.getItem('clinics');
+                if (stored) {
+                    clinics = JSON.parse(stored);
+                    console.log('📋 Loading clinics from localStorage:', clinics);
+                }
             }
+            
+            clinics.forEach(clinic => {
+                const option = document.createElement('option');
+                // Handle both formats (from masterData or localStorage)
+                option.value = clinic.id || clinic.officeID || `clinic-${clinic.Id}`;
+                option.textContent = clinic.name || clinic.officeName || clinic.Name;
+                dropdown.appendChild(option);
+            });
+            
+            console.log('✅ Populated clinic dropdown with', clinics.length, 'clinics');
         }
 
         // Open rooms management modal
@@ -35863,7 +35880,7 @@ document.addEventListener('keydown', function(e) {
                         <thead>
                             <tr style="background: var(--bg-secondary);">
                                 <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Room</th>
-                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Office</th>
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Clinic</th>
                                 <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Type</th>
                                 <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Category</th>
                                 <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Status</th>
@@ -35884,9 +35901,9 @@ document.addEventListener('keydown', function(e) {
                 <form id="createRoomForm" onsubmit="createRoom(event)">
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newOfficeID">Office</label>
-                            <select id="newOfficeID" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                                <option value="">--Select Office--</option>
+                            <label for="newOfficeID">Clinic</label>
+                            <select id="newOfficeID" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="">--Select Clinic--</option>
                             </select>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
