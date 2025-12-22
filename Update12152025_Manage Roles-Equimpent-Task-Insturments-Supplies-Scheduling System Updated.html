@@ -13483,8 +13483,6 @@
             const isEdit = !!editId;
             
             const officeID = document.getElementById('newOfficeID').value;
-            const roomNumber = document.getElementById('newRoomNumber').value.trim();
-            const roomName = document.getElementById('newRoomName').value.trim();
             let roomType = document.getElementById('newRoomType').value;
             const customRoomType = document.getElementById('newCustomRoomType').value.trim();
             const roomCategory = document.getElementById('newRoomCategory').value;
@@ -13505,8 +13503,12 @@
                 roomType = customRoomType;
             }
             
+            // Use roomType as the room name
+            const roomName = roomType;
+            const roomNumber = '';
+            
             // Validate required fields
-            if (!officeID || !roomNumber || !roomName || !roomType || !roomCategory || !status) {
+            if (!officeID || !roomType || !roomCategory || !status) {
                 errorDiv.style.display = 'block';
                 errorDiv.textContent = 'Please fill in all required fields.';
                 return;
@@ -13542,14 +13544,6 @@
                     errorDiv.textContent = `Room "${roomName}" updated successfully!`;
                 }
             } else {
-                // Check if room number already exists for this office
-                const roomExists = rooms.some(r => r.officeID === officeID && r.roomNumber === roomNumber);
-                if (roomExists) {
-                    errorDiv.style.display = 'block';
-                    errorDiv.textContent = 'A room with this number already exists in the selected office.';
-                    return;
-                }
-                
                 // Create new room object
                 const newRoom = {
                     roomID: Date.now(),
@@ -13608,7 +13602,7 @@
             if (!roomsList) return;
             
             if (rooms.length === 0) {
-                roomsList.innerHTML = '<tr><td colspan="6" style="padding: 2rem; text-align: center; color: var(--text-tertiary);">No rooms added yet. Click "Add New Room" to get started.</td></tr>';
+                roomsList.innerHTML = '<tr><td colspan="5" style="padding: 2rem; text-align: center; color: var(--text-tertiary);">No rooms added yet. Click "Add New Room" to get started.</td></tr>';
                 return;
             }
             
@@ -13622,15 +13616,11 @@
                         <div style="display: flex; align-items: center; gap: 0.75rem;">
                             <div style="width: 24px; height: 24px; border-radius: 4px; background: ${room.color || '#06b6d4'};"></div>
                             <div>
-                                <div style="font-weight: 600;">${room.roomName}</div>
-                                <div style="font-size: 0.8rem; color: var(--text-tertiary);">#${room.roomNumber}</div>
+                                <div style="font-weight: 600;">${room.roomType}</div>
                             </div>
                         </div>
                     </td>
                     <td style="padding: 1rem; color: var(--text-secondary);">${officeName}</td>
-                    <td style="padding: 1rem;">
-                        <span style="background: #06b6d420; color: #06b6d4; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">${room.roomType}</span>
-                    </td>
                     <td style="padding: 1rem; color: var(--text-secondary);">${room.roomCategory || '-'}</td>
                     <td style="padding: 1rem;">
                         <span style="color: ${room.status === 'Active' ? '#10b981' : room.status === 'Maintenance' ? '#f59e0b' : '#ef4444'};">
@@ -13686,8 +13676,6 @@
             
             document.getElementById('editRoomId').value = room.roomID;
             document.getElementById('newOfficeID').value = room.officeID || '';
-            document.getElementById('newRoomNumber').value = room.roomNumber || '';
-            document.getElementById('newRoomName').value = room.roomName || '';
             document.getElementById('newRoomType').value = room.roomType || '';
             document.getElementById('newRoomCategory').value = room.roomCategory || '';
             document.getElementById('newDimensions').value = room.dimensions || '';
@@ -35885,9 +35873,8 @@ document.addEventListener('keydown', function(e) {
                     <table style="width: 100%; border-collapse: collapse;">
                         <thead>
                             <tr style="background: var(--bg-secondary);">
-                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Room</th>
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Room Type</th>
                                 <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Clinic</th>
-                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Type</th>
                                 <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Category</th>
                                 <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Status</th>
                                 <th style="padding: 1rem; text-align: center; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Actions</th>
@@ -35913,19 +35900,11 @@ document.addEventListener('keydown', function(e) {
                             </select>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newRoomNumber">Room Number *</label>
-                            <input type="text" id="newRoomNumber" required placeholder="e.g., 101, A-1" maxlength="20">
-                        </div>
-                    </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newRoomName">Room Name *</label>
-                            <input type="text" id="newRoomName" required placeholder="e.g., Exam Room 1" maxlength="100">
-                        </div>
-                        <div class="form-group" style="margin-bottom: 0;">
                             <label for="newRoomType">Room Type *</label>
                             <select id="newRoomType" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);" onchange="toggleCustomRoomType()">
                                 <option value="">--Select Type--</option>
+                                <option value="Operatory">Operatory</option>
+                                <option value="Hygiene">Hygiene</option>
                                 <option value="Exam Room">Exam Room</option>
                                 <option value="Surgery Room">Surgery Room</option>
                                 <option value="Consultation Room">Consultation Room</option>
