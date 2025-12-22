@@ -14857,7 +14857,15 @@
                 if (row.clinic) {
                     const selectedClinic = clinics.find(c => c.name === row.clinic);
                     if (selectedClinic) {
-                        filteredRooms = rooms.filter(r => r.clinicId === selectedClinic.id);
+                        // Use dbId (numeric database ID) for comparison, fallback to extracting from string ID
+                        let clinicDbId = selectedClinic.dbId;
+                        if (!clinicDbId && selectedClinic.id && typeof selectedClinic.id === 'string' && selectedClinic.id.startsWith('clinic-')) {
+                            clinicDbId = parseInt(selectedClinic.id.replace('clinic-', ''));
+                        }
+                        filteredRooms = rooms.filter(r => {
+                            const roomClinicId = r.clinicId || r.officeID;
+                            return roomClinicId == clinicDbId;
+                        });
                     }
                 }
                 
@@ -14962,12 +14970,14 @@
                                     ${isReadOnly ? '' : '<i class="fas fa-chevron-down" style="font-size: 0.7rem; color: #94a3b8;"></i>'}
                                 </button>
                                 ${isReadOnly ? '' : `<div class="tsb-multi-dropdown" id="tsbRooms_${row.id}">
-                                    ${filteredRooms.map(r => `
+                                    ${filteredRooms.map(r => {
+                                        const roomName = r.name || r.roomName || r.roomType || 'Room';
+                                        return `
                                         <label class="tsb-multi-option">
-                                            <input type="checkbox" ${row.rooms.includes(r.name) ? 'checked' : ''} onchange="tsbToggleMulti(${row.id}, 'rooms', '${r.name}')">
-                                            ${r.name}
+                                            <input type="checkbox" ${row.rooms.includes(roomName) ? 'checked' : ''} onchange="tsbToggleMulti(${row.id}, 'rooms', '${roomName}')">
+                                            ${roomName}
                                         </label>
-                                    `).join('')}
+                                    `}).join('')}
                                     ${filteredRooms.length === 0 ? '<div style="padding: 0.5rem; color: #94a3b8; font-size: 0.75rem;">Select a clinic first</div>' : ''}
                                 </div>`}
                             </div>
