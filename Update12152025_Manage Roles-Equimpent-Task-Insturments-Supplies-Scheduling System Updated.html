@@ -24821,47 +24821,70 @@
             }
         }
 
+        // Save queue to prevent race conditions
+        let saveInProgress = false;
+        let saveQueued = false;
+        
         async function saveStickyNotes() {
-            // Save to localStorage as backup
-            const notesData = stickyNotes.map(note => ({
-                id: note.id,
-                dbId: note.dbId, // Database ID
-                text: note.element.querySelector('.sticky-note-content-item').value,
-                x: parseInt(note.element.style.left),
-                y: parseInt(note.element.style.top),
-                color: note.color
-            }));
-            localStorage.setItem('reformdentalStickyNotes', JSON.stringify(notesData));
+            // If save is already in progress, queue another save
+            if (saveInProgress) {
+                saveQueued = true;
+                return;
+            }
             
-            // Sync to database
-            for (const note of stickyNotes) {
-                const text = note.element.querySelector('.sticky-note-content-item').value;
-                const positionX = parseInt(note.element.style.left) || 100;
-                const positionY = parseInt(note.element.style.top) || 100;
-                const color = note.color || 'yellow';
+            saveInProgress = true;
+            
+            try {
+                // Save to localStorage as backup
+                const notesData = stickyNotes.map(note => ({
+                    id: note.id,
+                    dbId: note.dbId,
+                    text: note.element.querySelector('.sticky-note-content-item').value,
+                    x: parseInt(note.element.style.left),
+                    y: parseInt(note.element.style.top),
+                    color: note.color
+                }));
+                localStorage.setItem('reformdentalStickyNotes', JSON.stringify(notesData));
                 
-                try {
-                    if (note.dbId) {
-                        // Update existing note
-                        await fetch(`/api/stickynotes?id=${note.dbId}`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ text, positionX, positionY, color })
-                        });
-                    } else {
-                        // Create new note
-                        const response = await fetch('/api/stickynotes', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ text, positionX, positionY, color })
-                        });
-                        if (response.ok) {
-                            const newNote = await response.json();
-                            note.dbId = newNote.Id;
+                // Sync to database - save all notes that don't have dbId
+                for (const note of stickyNotes) {
+                    const text = note.element.querySelector('.sticky-note-content-item').value;
+                    const positionX = parseInt(note.element.style.left) || 100;
+                    const positionY = parseInt(note.element.style.top) || 100;
+                    const color = note.color || 'yellow';
+                    
+                    try {
+                        if (note.dbId) {
+                            // Update existing note
+                            await fetch(`/api/stickynotes?id=${note.dbId}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ text, positionX, positionY, color })
+                            });
+                        } else {
+                            // Create new note
+                            const response = await fetch('/api/stickynotes', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ text, positionX, positionY, color })
+                            });
+                            if (response.ok) {
+                                const newNote = await response.json();
+                                note.dbId = newNote.Id;
+                                console.log('Saved new sticky note with ID:', newNote.Id);
+                            }
                         }
+                    } catch (error) {
+                        console.error('Error saving sticky note to database:', error);
                     }
-                } catch (error) {
-                    console.error('Error saving sticky note to database:', error);
+                }
+            } finally {
+                saveInProgress = false;
+                
+                // If another save was queued, run it now
+                if (saveQueued) {
+                    saveQueued = false;
+                    saveStickyNotes();
                 }
             }
         }
@@ -24874,18 +24897,16 @@
                     const notesData = await response.json();
                     if (notesData && notesData.length > 0) {
                         notesData.forEach(noteData => {
-                            const note = createStickyNote(
+                            const noteObj = createStickyNote(
                                 noteData.Text || '', 
                                 noteData.PositionX || 100, 
                                 noteData.PositionY || 100, 
                                 noteData.Color || 'yellow'
                             );
-                            // Store database ID
-                            if (note && noteData.Id) {
-                                const stickyNote = stickyNotes.find(n => n.element === note);
-                                if (stickyNote) {
-                                    stickyNote.dbId = noteData.Id;
-                                }
+                            // Store database ID directly on the returned object
+                            if (noteObj && noteData.Id) {
+                                noteObj.dbId = noteData.Id;
+                                console.log('Loaded sticky note with dbId:', noteData.Id);
                             }
                         });
                         return;
