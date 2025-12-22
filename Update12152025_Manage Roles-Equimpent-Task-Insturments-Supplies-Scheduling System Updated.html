@@ -28481,24 +28481,35 @@ window.addEventListener('load', function() {
         
         // Select group chat
         function selectGroupChat(groupId) {
+            console.log('👥 selectGroupChat called with groupId:', groupId);
             const groupChats = JSON.parse(localStorage.getItem('groupChats') || '[]');
             const group = groupChats.find(g => g.id === groupId);
-            if (!group) return;
+            if (!group) {
+                console.log('❌ Group not found');
+                return;
+            }
             
             // Set chat type
             currentChatType = 'group';
             currentChatUserId = groupId;
             
-            // Show chat area
-            document.getElementById('chatPlaceholder').style.display = 'none';
-            document.getElementById('chatAreaHeader').style.display = 'block';
-            document.getElementById('messageInputArea').style.display = 'block';
+            // Show chat area with null checks
+            const chatHeader = document.getElementById('chatAreaHeader');
+            const messageInput = document.getElementById('messageInputArea');
+            const avatarEl = document.getElementById('chatUserAvatar');
+            const nameEl = document.getElementById('chatUserName');
+            const statusEl = document.getElementById('chatUserStatus');
+            
+            if (chatHeader) chatHeader.style.display = 'block';
+            if (messageInput) messageInput.style.display = 'block';
             
             // Update header
-            document.getElementById('chatUserAvatar').innerHTML = '<i class="fas fa-users"></i>';
-            document.getElementById('chatUserAvatar').style.background = 'linear-gradient(135deg, #8b5cf6, #7c3aed)';
-            document.getElementById('chatUserName').textContent = group.name;
-            document.getElementById('chatUserStatus').textContent = `${group.members?.length || 0} members`;
+            if (avatarEl) {
+                avatarEl.innerHTML = '<i class="fas fa-users"></i>';
+                avatarEl.style.background = 'linear-gradient(135deg, #8b5cf6, #7c3aed)';
+            }
+            if (nameEl) nameEl.textContent = group.name;
+            if (statusEl) statusEl.textContent = `${group.members?.length || 0} members`;
             
             // Load group messages
             const messages = group.messages || [];
@@ -28507,50 +28518,66 @@ window.addEventListener('load', function() {
         
         // Select announcement
         function selectAnnouncement(annId) {
+            console.log('📢 selectAnnouncement called with annId:', annId);
             const announcements = JSON.parse(localStorage.getItem('announcements') || '[]');
             const ann = announcements.find(a => a.id === annId);
-            if (!ann) return;
+            if (!ann) {
+                console.log('❌ Announcement not found');
+                return;
+            }
             
             // Set chat type
             currentChatType = 'announcement';
             currentChatUserId = annId;
             
-            // Show chat area (read-only for announcements unless admin)
-            document.getElementById('chatPlaceholder').style.display = 'none';
-            document.getElementById('chatAreaHeader').style.display = 'block';
+            // Show chat area with null checks
+            const chatHeader = document.getElementById('chatAreaHeader');
+            const messageInput = document.getElementById('messageInputArea');
+            const avatarEl = document.getElementById('chatUserAvatar');
+            const nameEl = document.getElementById('chatUserName');
+            const statusEl = document.getElementById('chatUserStatus');
+            const messagesArea = document.getElementById('messagesArea');
             
+            if (chatHeader) chatHeader.style.display = 'block';
+            
+            // Only admins/managers can reply to announcements
             const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-            if (currentUser.role === 'admin' || currentUser.role === 'manager') {
-                document.getElementById('messageInputArea').style.display = 'block';
-            } else {
-                document.getElementById('messageInputArea').style.display = 'none';
+            if (messageInput) {
+                if (currentUser.role === 'admin' || currentUser.role === 'manager') {
+                    messageInput.style.display = 'block';
+                } else {
+                    messageInput.style.display = 'none';
+                }
             }
             
             // Update header
-            document.getElementById('chatUserAvatar').innerHTML = '<i class="fas fa-bullhorn"></i>';
-            document.getElementById('chatUserAvatar').style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
-            document.getElementById('chatUserName').textContent = ann.title;
-            document.getElementById('chatUserStatus').textContent = `By ${ann.author} • ${formatChatTime(ann.createdAt)}${ann.recipients ? ` • Sent to ${ann.recipients.length} employees` : ''}`;
+            if (avatarEl) {
+                avatarEl.innerHTML = '<i class="fas fa-bullhorn"></i>';
+                avatarEl.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+            }
+            if (nameEl) nameEl.textContent = ann.title;
+            if (statusEl) statusEl.textContent = `By ${ann.author} • ${formatChatTime(ann.createdAt)}${ann.recipients ? ` • Sent to ${ann.recipients.length} employees` : ''}`;
             
             // Display announcement content
-            const messagesArea = document.getElementById('messagesArea');
-            messagesArea.innerHTML = `
-                <div style="max-width: 90%; padding: 1rem; background: linear-gradient(135deg, #fef3c7, #fde68a); border-radius: 12px; border-left: 4px solid #f59e0b; margin-bottom: 1rem;">
-                    <div style="font-weight: 600; color: #92400e; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
-                        <i class="fas fa-bullhorn"></i> ${ann.title}
+            if (messagesArea) {
+                messagesArea.innerHTML = `
+                    <div style="max-width: 90%; padding: 1rem; background: linear-gradient(135deg, #fef3c7, #fde68a); border-radius: 12px; border-left: 4px solid #f59e0b; margin-bottom: 1rem;">
+                        <div style="font-weight: 600; color: #92400e; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-bullhorn"></i> ${ann.title}
+                        </div>
+                        <div style="color: #78350f; white-space: pre-wrap;">${ann.content}</div>
+                        <div style="font-size: 0.75rem; color: #92400e; margin-top: 0.75rem; opacity: 0.8;">
+                            Posted by ${ann.author} on ${new Date(ann.createdAt).toLocaleDateString()}
+                        </div>
                     </div>
-                    <div style="color: #78350f; white-space: pre-wrap;">${ann.content}</div>
-                    <div style="font-size: 0.75rem; color: #92400e; margin-top: 0.75rem; opacity: 0.8;">
-                        Posted by ${ann.author} on ${new Date(ann.createdAt).toLocaleDateString()}
-                    </div>
-                </div>
-                ${ann.replies && ann.replies.length > 0 ? ann.replies.map(reply => `
-                    <div style="max-width: 80%; margin-left: auto; padding: 0.75rem 1rem; background: var(--bg-secondary); border-radius: 12px; margin-bottom: 0.5rem;">
-                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">${reply.author}</div>
-                        <div style="color: var(--text-primary);">${reply.content}</div>
-                    </div>
-                `).join('') : ''}
-            `;
+                    ${ann.replies && ann.replies.length > 0 ? ann.replies.map(reply => `
+                        <div style="max-width: 80%; margin-left: auto; padding: 0.75rem 1rem; background: var(--bg-secondary); border-radius: 12px; margin-bottom: 0.5rem;">
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">${reply.author}</div>
+                            <div style="color: var(--text-primary);">${reply.content}</div>
+                        </div>
+                    `).join('') : ''}
+                `;
+            }
         }
         
         // Display messages helper
