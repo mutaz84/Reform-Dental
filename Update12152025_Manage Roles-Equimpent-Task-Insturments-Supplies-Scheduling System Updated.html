@@ -13411,8 +13411,12 @@
             
             clinics.forEach(clinic => {
                 const option = document.createElement('option');
-                // Handle both formats (from masterData or localStorage)
-                option.value = clinic.id || clinic.officeID || `clinic-${clinic.Id}`;
+                // Use the database ID (dbId) for API calls, fallback to extracting from string ID
+                let clinicDbId = clinic.dbId || clinic.Id;
+                if (!clinicDbId && clinic.id && typeof clinic.id === 'string' && clinic.id.startsWith('clinic-')) {
+                    clinicDbId = parseInt(clinic.id.replace('clinic-', ''));
+                }
+                option.value = clinicDbId || clinic.officeID || '';
                 option.textContent = clinic.name || clinic.officeName || clinic.Name;
                 dropdown.appendChild(option);
             });
@@ -38939,6 +38943,7 @@ async function syncClinicsFromAPI() {
     // Convert API format to localStorage format
     const localClinics = apiClinics.map(clinic => ({
         id: `clinic-${clinic.Id || clinic.id}`,
+        dbId: clinic.Id || clinic.id,  // Store the actual database ID for API calls
         name: clinic.Name || clinic.name,
         address: clinic.Address || clinic.address || '',
         city: clinic.City || clinic.city || '',
