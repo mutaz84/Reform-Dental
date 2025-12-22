@@ -17195,7 +17195,8 @@
             // Load rooms by clinic
             sbGameData.rooms = {};
             masterData.clinics.forEach(c => {
-                sbGameData.rooms[c.name] = masterData.getRoomsByClinic(c.id).map(r => r.name);
+                const clinicRooms = masterData.getRoomsByClinic(c.dbId || c.id);
+                sbGameData.rooms[c.name] = clinicRooms.map(r => r.name || r.roomName || r.roomType || 'Room');
             });
             
             // Load assistants
@@ -20878,13 +20879,21 @@
                 return employeeResources || [];
             },
             getClinicById: function(id) {
-                return this.clinics.find(c => c.id === id);
+                return this.clinics.find(c => c.id === id || c.dbId === id || c.id === `clinic-${id}`);
             },
             getClinicByName: function(name) {
                 return this.clinics.find(c => c.name === name);
             },
             getRoomsByClinic: function(clinicId) {
-                return this.rooms.filter(r => r.clinicId === clinicId);
+                // Handle both string format "clinic-1" and numeric format 1
+                let dbId = clinicId;
+                if (typeof clinicId === 'string' && clinicId.startsWith('clinic-')) {
+                    dbId = parseInt(clinicId.replace('clinic-', ''));
+                }
+                return this.rooms.filter(r => {
+                    const roomClinicId = r.clinicId || r.officeID;
+                    return roomClinicId == dbId || roomClinicId == clinicId;
+                });
             },
             getEmployeeById: function(id) {
                 return employeeResources.find(e => e.id === id);
@@ -20945,7 +20954,8 @@
                 }));
                 sbGameData.rooms = {};
                 masterData.clinics.forEach(c => {
-                    sbGameData.rooms[c.name] = masterData.getRoomsByClinic(c.id).map(r => r.name);
+                    const clinicRooms = masterData.getRoomsByClinic(c.dbId || c.id);
+                    sbGameData.rooms[c.name] = clinicRooms.map(r => r.name || r.roomName || r.roomType || 'Room');
                 });
                 sbGameData.assistants = masterData.getAssistants().map(a => ({
                     name: a.title.split(' ')[0], // First name only for display
