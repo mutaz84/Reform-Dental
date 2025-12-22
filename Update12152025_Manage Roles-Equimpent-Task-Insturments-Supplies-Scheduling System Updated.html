@@ -28588,6 +28588,7 @@ window.addEventListener('load', function() {
         
         // Show new chat/group/announcement panel
         function showNewChatPanel() {
+            console.log('🆕 showNewChatPanel called, currentChatTab:', currentChatTab);
             if (currentChatTab === 'direct') {
                 showDirectChatPanel();
             } else if (currentChatTab === 'group') {
@@ -28599,7 +28600,9 @@ window.addEventListener('load', function() {
         
         // Show direct chat user selection panel
         function showDirectChatPanel() {
+            console.log('🆕 showDirectChatPanel called');
             const panel = document.getElementById('newChatPanel');
+            console.log('🆕 newChatPanel element:', panel);
             if (panel) {
                 panel.style.display = 'block';
                 panel.innerHTML = `
@@ -28613,10 +28616,12 @@ window.addEventListener('load', function() {
                         <input type="text" id="userSearchInput" placeholder="Search team members..." oninput="filterChatUsers()" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); margin-bottom: 1rem;">
                     </div>
                     <div id="chatUsersList" style="padding: 0 1rem; overflow-y: auto; max-height: calc(100% - 140px);">
-                        <!-- Users will be loaded here -->
+                        <div style="text-align: center; padding: 1rem; color: var(--text-tertiary);"><i class="fas fa-spinner fa-spin"></i> Loading users...</div>
                     </div>
                 `;
                 loadChatUsers();
+            } else {
+                console.error('❌ newChatPanel not found!');
             }
         }
         
@@ -29091,29 +29096,38 @@ window.addEventListener('load', function() {
                 messagesArea.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-tertiary);"><i class="fas fa-spinner fa-spin"></i> Loading messages...</div>';
             }
             
-            // Update UI to show chat area
-            document.getElementById('chatPlaceholder').style.display = 'none';
-            document.getElementById('chatAreaHeader').style.display = 'block';
-            document.getElementById('messageInputArea').style.display = 'block';
+            // Update UI to show chat area - use null checks
+            const chatHeader = document.getElementById('chatAreaHeader');
+            const messageInput = document.getElementById('messageInputArea');
+            
+            if (chatHeader) chatHeader.style.display = 'block';
+            if (messageInput) messageInput.style.display = 'block';
             hideNewChatPanel();
             
             // Update header with passed user info (more reliable than cache lookup)
+            const avatarEl = document.getElementById('chatUserAvatar');
+            const nameEl = document.getElementById('chatUserName');
+            const statusEl = document.getElementById('chatUserStatus');
+            
             if (firstName || lastName) {
-                document.getElementById('chatUserAvatar').textContent = `${firstName?.[0] || ''}${lastName?.[0] || ''}`;
-                document.getElementById('chatUserAvatar').style.background = 'var(--accent-primary)';
-                document.getElementById('chatUserAvatar').innerHTML = `${firstName?.[0] || ''}${lastName?.[0] || ''}`;
-                document.getElementById('chatUserName').textContent = `${firstName || ''} ${lastName || ''}`.trim();
-                document.getElementById('chatUserStatus').textContent = isOnline ? 'Online' : 'Offline';
+                if (avatarEl) {
+                    avatarEl.textContent = `${firstName?.[0] || ''}${lastName?.[0] || ''}`;
+                    avatarEl.style.background = 'var(--accent-primary)';
+                }
+                if (nameEl) nameEl.textContent = `${firstName || ''} ${lastName || ''}`.trim();
+                if (statusEl) statusEl.textContent = isOnline ? 'Online' : 'Offline';
             } else {
                 // Fallback to cache lookup
                 const user = chatUsersCache.find(u => u.Id === otherUserId) || 
                              window.usersData?.find(u => u.Id === otherUserId);
                 
                 if (user) {
-                    document.getElementById('chatUserAvatar').textContent = `${user.FirstName?.[0] || ''}${user.LastName?.[0] || ''}`;
-                    document.getElementById('chatUserAvatar').style.background = 'var(--accent-primary)';
-                    document.getElementById('chatUserName').textContent = `${user.FirstName} ${user.LastName}`;
-                    document.getElementById('chatUserStatus').textContent = user.IsOnline ? 'Online' : 'Offline';
+                    if (avatarEl) {
+                        avatarEl.textContent = `${user.FirstName?.[0] || ''}${user.LastName?.[0] || ''}`;
+                        avatarEl.style.background = 'var(--accent-primary)';
+                    }
+                    if (nameEl) nameEl.textContent = `${user.FirstName} ${user.LastName}`;
+                    if (statusEl) statusEl.textContent = user.IsOnline ? 'Online' : 'Offline';
                 }
             }
             
@@ -36585,7 +36599,7 @@ document.addEventListener('keydown', function(e) {
         </div>
         
         <!-- Chat Content -->
-        <div style="display: flex; flex: 1; overflow: hidden;">
+        <div style="display: flex; flex: 1; overflow: hidden; position: relative;">
             <!-- Conversations Sidebar -->
             <div style="width: 280px; background: var(--bg-secondary); border-right: 1px solid var(--border-color); display: flex; flex-direction: column;">
                 <!-- Chat Type Tabs -->
