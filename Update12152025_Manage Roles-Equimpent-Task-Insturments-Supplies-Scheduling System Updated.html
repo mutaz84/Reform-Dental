@@ -21026,21 +21026,25 @@
         
         // Sync duties with master data
         function syncDutiesWithMasterData() {
-            if (typeof employeeDutiesDatabase !== 'undefined') {
-                employeeDutiesDatabase.forEach(duty => {
-                    const employee = masterData.getEmployeeById(duty.employeeId);
-                    if (!employee) {
-                        const namePart = duty.employeeId.replace(/-/g, ' ');
-                        const found = employeeResources.find(e => 
-                            e.id.includes(duty.employeeId.split('-')[1]) ||
-                            e.title.toLowerCase().includes(namePart.split(' ').pop())
-                        );
-                        if (found) {
-                            console.log(`Duty ${duty.id}: Mapped ${duty.employeeId} to ${found.id}`);
+            try {
+                if (employeeDutiesDatabase && Array.isArray(employeeDutiesDatabase)) {
+                    employeeDutiesDatabase.forEach(duty => {
+                        const employee = masterData.getEmployeeById(duty.employeeId);
+                        if (!employee && typeof employeeResources !== 'undefined') {
+                            const namePart = duty.employeeId.replace(/-/g, ' ');
+                            const found = employeeResources.find(e => 
+                                e.id.includes(duty.employeeId.split('-')[1]) ||
+                                e.title.toLowerCase().includes(namePart.split(' ').pop())
+                            );
+                            if (found) {
+                                console.log(`Duty ${duty.id}: Mapped ${duty.employeeId} to ${found.id}`);
+                            }
                         }
-                    }
-                });
-                console.log('✅ Duties synced with master data');
+                    });
+                    console.log('✅ Duties synced with master data');
+                }
+            } catch (e) {
+                console.warn('Could not sync duties with master data:', e.message);
             }
         }
         
