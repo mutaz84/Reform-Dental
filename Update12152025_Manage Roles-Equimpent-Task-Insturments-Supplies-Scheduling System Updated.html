@@ -39385,25 +39385,37 @@ async function syncTasksFromAPI() {
 
 // ============ ROOMS API FUNCTIONS ============
 async function saveRoomToAPI(roomData) {
-    if (typeof API_BASE_URL === 'undefined') return;
+    if (typeof API_BASE_URL === 'undefined') {
+        console.log('⚠️ API_BASE_URL not defined, skipping room API save');
+        return;
+    }
     try {
+        console.log('📤 Saving room to API:', roomData);
         const response = await fetch(`${API_BASE_URL}/rooms`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name: roomData.name,
                 clinicId: roomData.clinicId || null,
-                type: roomData.type || 'operatory',
-                color: roomData.color || '#3b82f6',
-                status: roomData.status || 'available'
+                roomType: roomData.type || 'operatory',
+                description: roomData.notes || '',
+                color: roomData.color || '#3b82f6'
             })
         });
         if (response.ok) {
-            console.log('✅ Room saved to database');
-            showSyncStatus('Room saved to database', true);
+            const result = await response.json();
+            console.log('✅ Room saved to database:', result);
+            showNotification('Room saved to database', 'success');
+            // Sync rooms from API to update local list
+            await syncRoomsFromAPI();
+        } else {
+            const error = await response.text();
+            console.error('❌ Error saving room:', error);
+            showNotification('Failed to save room to database', 'error');
         }
     } catch (error) {
         console.error('❌ Error saving room to API:', error);
+        showNotification('Failed to save room to database', 'error');
     }
 }
 
@@ -39412,16 +39424,30 @@ async function syncRoomsFromAPI() {
         const response = await fetch(`${API_BASE_URL}/rooms`);
         if (!response.ok) return false;
         const apiRooms = await response.json();
+        console.log('📥 Rooms from API:', apiRooms);
         if (apiRooms && apiRooms.length > 0) {
             const localRooms = apiRooms.map(r => ({
+                roomID: r.Id || r.id,
                 id: `room-${r.Id || r.id}`,
+                roomName: r.Name || r.name,
                 name: r.Name || r.name,
-                clinic: r.ClinicId || r.clinicId || '',
-                type: r.Type || r.type || 'operatory',
+                officeID: r.ClinicId || r.clinicId || '',
+                clinicId: r.ClinicId || r.clinicId || '',
+                clinicName: r.ClinicName || '',
+                roomType: r.RoomType || r.roomType || 'operatory',
+                type: r.RoomType || r.roomType || 'operatory',
                 color: r.Color || r.color || '#3b82f6',
-                status: r.Status || r.status || 'available'
+                description: r.Description || r.description || '',
+                status: 'Active',
+                isActive: true
             }));
             localStorage.setItem('rooms', JSON.stringify(localRooms));
+            
+            // Also update masterData if available
+            if (window.masterData) {
+                window.masterData.rooms = localRooms;
+            }
+            
             console.log('✅ Synced', localRooms.length, 'rooms from API');
         }
         return true;
