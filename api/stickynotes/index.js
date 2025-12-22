@@ -38,7 +38,7 @@ module.exports = async function (context, req) {
             if (userId) {
                 query += ' WHERE UserId = @userId';
             }
-            query += ' ORDER BY CreatedDate DESC';
+            query += ' ORDER BY Id DESC';
 
             const request = new sql.Request();
             if (userId) {
@@ -47,10 +47,22 @@ module.exports = async function (context, req) {
             
             const result = await request.query(query);
             
+            // Map Content to Text for frontend compatibility
+            const notes = result.recordset.map(note => ({
+                Id: note.Id,
+                Text: note.Content,
+                PositionX: note.PositionX || 100,
+                PositionY: note.PositionY || 100,
+                Color: note.Color || 'yellow',
+                UserId: note.UserId,
+                CreatedDate: note.CreatedDate,
+                ModifiedDate: note.ModifiedDate
+            }));
+            
             context.res = {
                 status: 200,
                 headers,
-                body: result.recordset
+                body: notes
             };
 
         } else if (req.method === 'POST') {
@@ -58,27 +70,33 @@ module.exports = async function (context, req) {
             const { text, positionX, positionY, color, userId } = req.body;
 
             const result = await new sql.Request()
-                .input('text', sql.NVarChar(sql.MAX), text || '')
-                .input('positionX', sql.Int, positionX || 100)
-                .input('positionY', sql.Int, positionY || 100)
+                .input('content', sql.NVarChar(sql.MAX), text || '')
                 .input('color', sql.NVarChar(50), color || 'yellow')
                 .input('userId', sql.Int, userId || null)
                 .query(`
-                    INSERT INTO StickyNotes (Text, PositionX, PositionY, Color, UserId, CreatedDate)
+                    INSERT INTO StickyNotes (Content, Color, UserId)
                     OUTPUT INSERTED.*
-                    VALUES (@text, @positionX, @positionY, @color, @userId, GETUTCDATE())
+                    VALUES (@content, @color, @userId)
                 `);
 
+            const note = result.recordset[0];
             context.res = {
                 status: 201,
                 headers,
-                body: result.recordset[0]
+                body: {
+                    Id: note.Id,
+                    Text: note.Content,
+                    PositionX: positionX || 100,
+                    PositionY: positionY || 100,
+                    Color: note.Color,
+                    UserId: note.UserId
+                }
             };
 
         } else if (req.method === 'PUT') {
             // Update an existing sticky note
             const id = req.query.id || req.body.id;
-            const { text, positionX, positionY, color } = req.body;
+            const { text, color } = req.body;
 
             if (!id) {
                 context.res = {
@@ -91,17 +109,12 @@ module.exports = async function (context, req) {
 
             const result = await new sql.Request()
                 .input('id', sql.Int, id)
-                .input('text', sql.NVarChar(sql.MAX), text)
-                .input('positionX', sql.Int, positionX)
-                .input('positionY', sql.Int, positionY)
+                .input('content', sql.NVarChar(sql.MAX), text)
                 .input('color', sql.NVarChar(50), color)
                 .query(`
                     UPDATE StickyNotes 
-                    SET Text = COALESCE(@text, Text),
-                        PositionX = COALESCE(@positionX, PositionX),
-                        PositionY = COALESCE(@positionY, PositionY),
-                        Color = COALESCE(@color, Color),
-                        ModifiedDate = GETUTCDATE()
+                    SET Content = COALESCE(@content, Content),
+                        Color = COALESCE(@color, Color)
                     OUTPUT INSERTED.*
                     WHERE Id = @id
                 `);
@@ -115,10 +128,16 @@ module.exports = async function (context, req) {
                 return;
             }
 
+            const note = result.recordset[0];
             context.res = {
                 status: 200,
                 headers,
-                body: result.recordset[0]
+                body: {
+                    Id: note.Id,
+                    Text: note.Content,
+                    Color: note.Color,
+                    UserId: note.UserId
+                }
             };
 
         } else if (req.method === 'DELETE') {
