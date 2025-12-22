@@ -29266,6 +29266,63 @@ window.addEventListener('load', function() {
             
             if (!message || !currentChatUserId) return;
             
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            
+            // Handle group messages (localStorage)
+            if (currentChatType === 'group') {
+                const groupChats = JSON.parse(localStorage.getItem('groupChats') || '[]');
+                const groupIndex = groupChats.findIndex(g => g.id === currentChatUserId);
+                
+                if (groupIndex !== -1) {
+                    if (!groupChats[groupIndex].messages) {
+                        groupChats[groupIndex].messages = [];
+                    }
+                    
+                    groupChats[groupIndex].messages.push({
+                        id: Date.now(),
+                        sender: currentUser.name || currentUser.username || 'You',
+                        senderId: currentUser.username,
+                        content: message,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    localStorage.setItem('groupChats', JSON.stringify(groupChats));
+                    input.value = '';
+                    
+                    // Reload messages
+                    displayMessages(groupChats[groupIndex].messages, true);
+                    showNotification('Message sent!', 'success');
+                }
+                return;
+            }
+            
+            // Handle announcement replies (localStorage)
+            if (currentChatType === 'announcement') {
+                const announcements = JSON.parse(localStorage.getItem('announcements') || '[]');
+                const annIndex = announcements.findIndex(a => a.id === currentChatUserId);
+                
+                if (annIndex !== -1) {
+                    if (!announcements[annIndex].replies) {
+                        announcements[annIndex].replies = [];
+                    }
+                    
+                    announcements[annIndex].replies.push({
+                        author: currentUser.name || currentUser.username || 'You',
+                        content: message,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    localStorage.setItem('announcements', JSON.stringify(announcements));
+                    input.value = '';
+                    
+                    // Reload announcement
+                    selectAnnouncement(currentChatUserId);
+                    showNotification('Reply sent!', 'success');
+                }
+                return;
+            }
+            
+            // Handle direct messages (API)
             const userId = await getCurrentUserId();
             if (!userId) return;
             
