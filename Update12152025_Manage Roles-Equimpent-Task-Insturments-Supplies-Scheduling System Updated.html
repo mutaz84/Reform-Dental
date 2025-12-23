@@ -13609,14 +13609,15 @@
                 return;
             }
             
-            roomsList.innerHTML = rooms.map(room => {
+            roomsList.innerHTML = rooms.map((room, index) => {
                 const office = offices.find(o => o.officeID == room.officeID || o.officeID == room.clinicId);
                 const officeName = room.clinicName || (office ? office.officeName : 'Unknown');
                 
                 return `
-                <tr style="border-bottom: 1px solid var(--border-color); transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='transparent'">
+                <tr draggable="true" data-room-id="${room.roomID}" data-index="${index}" style="border-bottom: 1px solid var(--border-color); transition: background 0.2s; cursor: grab;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='transparent'" ondragstart="handleRoomDragStart(event)" ondragover="handleRoomDragOver(event)" ondrop="handleRoomDrop(event)" ondragend="handleRoomDragEnd(event)">
                     <td style="padding: 1rem; color: var(--text-primary);">
                         <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <i class="fas fa-grip-vertical" style="color: var(--text-tertiary); cursor: grab;"></i>
                             <div style="width: 24px; height: 24px; border-radius: 4px; background: ${room.color || '#06b6d4'};"></div>
                             <div>
                                 <div style="font-weight: 600;">${room.roomName || room.roomType}</div>
@@ -13643,6 +13644,57 @@
                 </tr>
             `;
             }).join('');
+        }
+
+        // Room drag and drop handlers
+        let draggedRoomRow = null;
+        
+        function handleRoomDragStart(e) {
+            draggedRoomRow = e.target.closest('tr');
+            draggedRoomRow.style.opacity = '0.5';
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', draggedRoomRow.dataset.index);
+        }
+        
+        function handleRoomDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const targetRow = e.target.closest('tr');
+            if (targetRow && targetRow !== draggedRoomRow) {
+                targetRow.style.borderTop = '2px solid var(--accent-primary)';
+            }
+        }
+        
+        function handleRoomDrop(e) {
+            e.preventDefault();
+            const targetRow = e.target.closest('tr');
+            if (!targetRow || targetRow === draggedRoomRow) return;
+            
+            const fromIndex = parseInt(draggedRoomRow.dataset.index);
+            const toIndex = parseInt(targetRow.dataset.index);
+            
+            // Reorder rooms array
+            const rooms = loadRooms();
+            const [movedRoom] = rooms.splice(fromIndex, 1);
+            rooms.splice(toIndex, 0, movedRoom);
+            
+            // Save new order
+            saveRooms(rooms);
+            
+            // Refresh display
+            displayRoomsList();
+            showNotification('Room order updated', 'success');
+        }
+        
+        function handleRoomDragEnd(e) {
+            if (draggedRoomRow) {
+                draggedRoomRow.style.opacity = '1';
+            }
+            // Clear all border highlights
+            document.querySelectorAll('#roomsList tr').forEach(row => {
+                row.style.borderTop = '';
+            });
+            draggedRoomRow = null;
         }
 
         // Open Add Room Form
