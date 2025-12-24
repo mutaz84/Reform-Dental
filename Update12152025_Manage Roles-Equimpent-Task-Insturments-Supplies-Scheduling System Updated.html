@@ -18224,7 +18224,6 @@
             const isEdit = !!editId;
             
             const equipmentName = document.getElementById('newEquipmentName').value.trim();
-            const categorySelect = document.getElementById('newEquipmentCategory').value;
             const typeSelect = document.getElementById('newEquipmentType').value;
             const customType = document.getElementById('customEquipmentType').value.trim();
             const equipmentType = typeSelect === 'Other' && customType ? customType : typeSelect;
@@ -18236,21 +18235,26 @@
             const lastServiceDate = document.getElementById('newEquipmentLastService').value;
             const nextServiceDate = document.getElementById('newEquipmentNextService').value;
             const officeId = document.getElementById('newEquipmentOffice').value;
-            const location = document.getElementById('newEquipmentLocation').value.trim();
+            const roomId = document.getElementById('newEquipmentRoom').value;
             const vendorId = document.getElementById('newEquipmentVendor').value;
+            const price = parseFloat(document.getElementById('newEquipmentPrice').value) || 0;
             const status = document.getElementById('newEquipmentStatus').value;
             const condition = document.getElementById('newEquipmentCondition').value;
             const notes = document.getElementById('newEquipmentNotes').value.trim();
             const isActive = document.getElementById('newEquipmentIsActive').checked;
             const errorDiv = document.getElementById('createEquipmentError');
             
+            // Get image and document data
+            const imageData = window.equipmentImageData || null;
+            const documentData = window.equipmentDocumentData || null;
+            
             // Validate required fields
-            if (!equipmentName || !categorySelect) {
+            if (!equipmentName) {
                 errorDiv.style.display = 'block';
                 errorDiv.style.background = '#fee';
                 errorDiv.style.borderColor = '#fcc';
                 errorDiv.style.color = '#c33';
-                errorDiv.textContent = 'Please fill in Equipment Name and Category.';
+                errorDiv.textContent = 'Please fill in Equipment Name.';
                 return;
             }
             
@@ -18276,6 +18280,11 @@
             const selectedOffice = offices.find(o => o.officeID == officeId);
             const officeName = selectedOffice ? selectedOffice.officeName : '';
             
+            // Get room name
+            const rooms = loadRooms();
+            const selectedRoom = rooms.find(r => r.roomID == roomId);
+            const roomName = selectedRoom ? (selectedRoom.roomName || selectedRoom.name) : '';
+            
             // Get vendor name
             const vendors = loadVendors();
             const selectedVendor = vendors.find(v => v.vendorID == vendorId);
@@ -18288,7 +18297,6 @@
                     equipment[index] = {
                         ...equipment[index],
                         equipmentName,
-                        category: categorySelect,
                         equipmentType,
                         manufacturer,
                         model,
@@ -18299,13 +18307,17 @@
                         nextServiceDate,
                         officeId,
                         officeName,
-                        location,
+                        roomId,
+                        roomName,
                         vendorId,
                         vendorName,
+                        price,
                         status,
                         condition,
                         notes,
                         isActive,
+                        imageData: imageData || equipment[index].imageData,
+                        documentData: documentData || equipment[index].documentData,
                         modifiedDate: new Date().toISOString()
                     };
                     saveEquipment(equipment);
@@ -18321,7 +18333,6 @@
                 const newEquipment = {
                     equipmentID: Date.now(),
                     equipmentName,
-                    category: categorySelect,
                     equipmentType,
                     manufacturer,
                     model,
@@ -18332,13 +18343,17 @@
                     nextServiceDate,
                     officeId,
                     officeName,
-                    location,
+                    roomId,
+                    roomName,
                     vendorId,
                     vendorName,
+                    price,
                     status,
                     condition,
                     notes,
                     isActive,
+                    imageData,
+                    documentData,
                     createdDate: new Date().toISOString(),
                     modifiedDate: new Date().toISOString()
                 };
@@ -18349,9 +18364,11 @@
                     name: equipmentName,
                     serialNumber: serialNumber,
                     clinicId: officeId ? parseInt(officeId) : null,
+                    roomId: roomId ? parseInt(roomId) : null,
                     status: status,
                     purchaseDate: purchaseDate || null,
                     warranty: warrantyExpiry || '',
+                    price: price,
                     notes: notes
                 });
                 
@@ -18362,12 +18379,14 @@
                 errorDiv.textContent = `Equipment "${equipmentName}" created successfully!`;
             }
             
-            // Reset form
+            // Reset form and clear image/document data
             document.getElementById('createEquipmentForm').reset();
             document.getElementById('editEquipmentId').value = '';
             document.getElementById('equipmentFormTitle').textContent = 'Add New Equipment';
             document.getElementById('equipmentSubmitBtn').innerHTML = '<i class="fas fa-plus-circle" style="margin-right: 0.5rem;"></i>Add Equipment';
             document.getElementById('customEquipmentTypeBox').style.display = 'none';
+            clearEquipmentImage();
+            clearEquipmentDocument();
             
             // Refresh list
             displayEquipmentList();
@@ -18449,6 +18468,8 @@
             document.getElementById('editEquipmentId').value = '';
             document.getElementById('createEquipmentForm').reset();
             document.getElementById('newEquipmentIsActive').checked = true;
+            clearEquipmentImage();
+            clearEquipmentDocument();
             document.getElementById('equipmentFormSection').scrollIntoView({ behavior: 'smooth' });
         }
 
@@ -18457,6 +18478,8 @@
             document.getElementById('equipmentFormSection').style.display = 'none';
             document.getElementById('createEquipmentForm').reset();
             document.getElementById('editEquipmentId').value = '';
+            clearEquipmentImage();
+            clearEquipmentDocument();
         }
 
         // Edit equipment
@@ -18472,7 +18495,6 @@
             // Fill form with equipment data
             document.getElementById('editEquipmentId').value = item.equipmentID;
             document.getElementById('newEquipmentName').value = item.equipmentName || '';
-            document.getElementById('newEquipmentCategory').value = item.category || '';
             document.getElementById('newEquipmentType').value = item.equipmentType || '';
             document.getElementById('newEquipmentManufacturer').value = item.manufacturer || '';
             document.getElementById('newEquipmentModel').value = item.model || '';
@@ -18482,12 +18504,27 @@
             document.getElementById('newEquipmentLastService').value = item.lastServiceDate || '';
             document.getElementById('newEquipmentNextService').value = item.nextServiceDate || '';
             document.getElementById('newEquipmentOffice').value = item.officeId || '';
-            document.getElementById('newEquipmentLocation').value = item.location || '';
+            populateEquipmentRoomDropdown();
+            document.getElementById('newEquipmentRoom').value = item.roomId || '';
             document.getElementById('newEquipmentVendor').value = item.vendorId || '';
+            document.getElementById('newEquipmentPrice').value = item.price || '';
             document.getElementById('newEquipmentStatus').value = item.status || 'Operational';
             document.getElementById('newEquipmentCondition').value = item.condition || '';
             document.getElementById('newEquipmentNotes').value = item.notes || '';
             document.getElementById('newEquipmentIsActive').checked = item.isActive !== false;
+            
+            // Load image if exists
+            if (item.imageData) {
+                window.equipmentImageData = item.imageData;
+                const preview = document.getElementById('equipmentImagePreview');
+                preview.innerHTML = `<img src="${item.imageData}" style="width: 100%; height: 100%; object-fit: cover;">`;
+            }
+            
+            // Load document if exists
+            if (item.documentData) {
+                window.equipmentDocumentData = item.documentData;
+                document.getElementById('equipmentDocumentList').innerHTML = `<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 0.5rem;"><i class="fas fa-file-pdf" style="color: #ef4444;"></i><span style="flex: 1;">Document attached</span><button type="button" onclick="clearEquipmentDocument()" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer;"><i class="fas fa-times"></i></button></div>`;
+            }
             
             // Update form title and button
             document.getElementById('equipmentFormTitle').textContent = 'Edit Equipment';
@@ -18495,6 +18532,71 @@
             
             // Scroll to form
             document.getElementById('equipmentFormSection').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        // Equipment image preview and handling
+        function previewEquipmentImage(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (file.size > 5 * 1024 * 1024) {
+                alert('Image must be less than 5MB');
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                window.equipmentImageData = e.target.result;
+                const preview = document.getElementById('equipmentImagePreview');
+                preview.innerHTML = `<img src="${e.target.result}" style="width: 100%; height: 100%; object-fit: cover;">`;
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        function clearEquipmentImage() {
+            window.equipmentImageData = null;
+            const preview = document.getElementById('equipmentImagePreview');
+            if (preview) preview.innerHTML = '<i class="fas fa-image" style="font-size: 2rem; color: var(--text-tertiary);"></i>';
+            const input = document.getElementById('newEquipmentImage');
+            if (input) input.value = '';
+        }
+        
+        function previewEquipmentDocument(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                window.equipmentDocumentData = e.target.result;
+                document.getElementById('equipmentDocumentList').innerHTML = `<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 0.5rem;"><i class="fas fa-file-pdf" style="color: #ef4444;"></i><span style="flex: 1;">${file.name}</span><button type="button" onclick="clearEquipmentDocument()" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer;"><i class="fas fa-times"></i></button></div>`;
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        function clearEquipmentDocument() {
+            window.equipmentDocumentData = null;
+            const list = document.getElementById('equipmentDocumentList');
+            if (list) list.innerHTML = '';
+            const input = document.getElementById('newEquipmentDocument');
+            if (input) input.value = '';
+        }
+        
+        // Populate equipment room dropdown based on selected office
+        function populateEquipmentRoomDropdown() {
+            const officeId = document.getElementById('newEquipmentOffice').value;
+            const roomSelect = document.getElementById('newEquipmentRoom');
+            if (!roomSelect) return;
+            
+            roomSelect.innerHTML = '<option value="">Select Room</option>';
+            
+            if (!officeId) return;
+            
+            const rooms = loadRooms();
+            const filteredRooms = rooms.filter(r => (r.officeID == officeId || r.clinicId == officeId));
+            
+            filteredRooms.forEach(room => {
+                const option = document.createElement('option');
+                option.value = room.roomID;
+                option.textContent = room.roomName || room.name || room.roomType;
+                roomSelect.appendChild(option);
+            });
         }
 
         // Delete equipment
@@ -18632,15 +18734,14 @@
             }
             const instrumentType = document.getElementById('newInstrumentType').value.trim();
             const manufacturer = document.getElementById('newInstrumentManufacturer').value.trim();
-            const quantity = parseInt(document.getElementById('newInstrumentQuantity').value) || 1;
             const officeId = document.getElementById('newInstrumentOffice').value;
-            const location = document.getElementById('newInstrumentLocation').value.trim();
+            const roomId = document.getElementById('newInstrumentRoom').value;
             const vendorId = document.getElementById('newInstrumentVendor').value;
-            const sterilizationRequired = document.getElementById('newInstrumentSterilization').checked;
-            const lastSterilized = document.getElementById('newInstrumentLastSterilized').value;
-            const condition = document.getElementById('newInstrumentCondition').value;
             const notes = document.getElementById('newInstrumentNotes').value.trim();
-            const isActive = document.getElementById('newInstrumentIsActive').checked;
+            
+            // Get image and document data
+            const imageData = window.instrumentImageData || null;
+            const documentData = window.instrumentDocumentData || null;
             
             if (!instrumentName || !category) {
                 errorDiv.style.display = 'block';
@@ -18653,10 +18754,14 @@
             
             const instruments = loadInstruments();
             
-            // Get office and vendor names
+            // Get office, room and vendor names
             const offices = loadOffices();
             const selectedOffice = offices.find(o => o.officeID == officeId);
             const officeName = selectedOffice ? selectedOffice.officeName : '';
+            
+            const rooms = loadRooms();
+            const selectedRoom = rooms.find(r => r.roomID == roomId);
+            const roomName = selectedRoom ? (selectedRoom.roomName || selectedRoom.name) : '';
             
             const vendors = loadVendors();
             const selectedVendor = vendors.find(v => v.vendorID == vendorId);
@@ -18671,17 +18776,15 @@
                         category,
                         instrumentType,
                         manufacturer,
-                        quantity,
                         officeId,
                         officeName,
-                        location,
+                        roomId,
+                        roomName,
                         vendorId,
                         vendorName,
-                        sterilizationRequired,
-                        lastSterilized,
-                        condition,
                         notes,
-                        isActive,
+                        imageData: imageData || instruments[index].imageData,
+                        documentData: documentData || instruments[index].documentData,
                         modifiedDate: new Date().toISOString()
                     };
                     saveInstruments(instruments);
@@ -18699,17 +18802,15 @@
                     category,
                     instrumentType,
                     manufacturer,
-                    quantity,
                     officeId,
                     officeName,
-                    location,
+                    roomId,
+                    roomName,
                     vendorId,
                     vendorName,
-                    sterilizationRequired,
-                    lastSterilized,
-                    condition,
                     notes,
-                    isActive,
+                    imageData,
+                    documentData,
                     createdDate: new Date().toISOString(),
                     modifiedDate: new Date().toISOString()
                 };
@@ -18720,9 +18821,7 @@
                     name: instrumentName,
                     category: category,
                     clinicId: officeId ? parseInt(officeId) : null,
-                    quantity: quantity || 1,
-                    status: condition || 'available',
-                    sterilizationDate: lastSterilized || null,
+                    roomId: roomId ? parseInt(roomId) : null,
                     notes: notes
                 });
                 
@@ -18733,7 +18832,7 @@
                 errorDiv.textContent = `Instrument "${instrumentName}" added successfully!`;
             }
             
-            // Reset form
+            // Reset form and clear image/document data
             document.getElementById('createInstrumentForm').reset();
             document.getElementById('editInstrumentId').value = '';
             document.getElementById('instrumentFormTitle').textContent = 'Add New Instrument';
@@ -18741,6 +18840,8 @@
             // Reset custom category input
             document.getElementById('customInstrumentCategoryWrapper').style.display = 'none';
             document.getElementById('customInstrumentCategory').value = '';
+            clearInstrumentImage();
+            clearInstrumentDocument();
             
             displayInstrumentsList();
             updateInventoryBadges();
@@ -18812,7 +18913,8 @@
             document.getElementById('instrumentSubmitBtn').innerHTML = '<i class="fas fa-plus-circle" style="margin-right: 0.5rem;"></i>Add Instrument';
             document.getElementById('editInstrumentId').value = '';
             document.getElementById('createInstrumentForm').reset();
-            document.getElementById('newInstrumentIsActive').checked = true;
+            clearInstrumentImage();
+            clearInstrumentDocument();
             document.getElementById('instrumentFormSection').scrollIntoView({ behavior: 'smooth' });
         }
 
@@ -18821,6 +18923,8 @@
             document.getElementById('instrumentFormSection').style.display = 'none';
             document.getElementById('createInstrumentForm').reset();
             document.getElementById('editInstrumentId').value = '';
+            clearInstrumentImage();
+            clearInstrumentDocument();
         }
 
         // Edit instrument
@@ -18853,20 +18957,94 @@
             
             document.getElementById('newInstrumentType').value = item.instrumentType || '';
             document.getElementById('newInstrumentManufacturer').value = item.manufacturer || '';
-            document.getElementById('newInstrumentQuantity').value = item.quantity || 1;
             document.getElementById('newInstrumentOffice').value = item.officeId || '';
-            document.getElementById('newInstrumentLocation').value = item.location || '';
+            populateInstrumentRoomDropdown();
+            document.getElementById('newInstrumentRoom').value = item.roomId || '';
             document.getElementById('newInstrumentVendor').value = item.vendorId || '';
-            document.getElementById('newInstrumentSterilization').checked = item.sterilizationRequired || false;
-            document.getElementById('newInstrumentLastSterilized').value = item.lastSterilized || '';
-            document.getElementById('newInstrumentCondition').value = item.condition || '';
             document.getElementById('newInstrumentNotes').value = item.notes || '';
-            document.getElementById('newInstrumentIsActive').checked = item.isActive !== false;
+            
+            // Load image if exists
+            if (item.imageData) {
+                window.instrumentImageData = item.imageData;
+                const preview = document.getElementById('instrumentImagePreview');
+                preview.innerHTML = `<img src="${item.imageData}" style="width: 100%; height: 100%; object-fit: cover;">`;
+            }
+            
+            // Load document if exists
+            if (item.documentData) {
+                window.instrumentDocumentData = item.documentData;
+                document.getElementById('instrumentDocumentList').innerHTML = `<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 0.5rem;"><i class="fas fa-file-pdf" style="color: #ef4444;"></i><span style="flex: 1;">Document attached</span><button type="button" onclick="clearInstrumentDocument()" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer;"><i class="fas fa-times"></i></button></div>`;
+            }
             
             document.getElementById('instrumentFormTitle').textContent = 'Edit Instrument';
             document.getElementById('instrumentSubmitBtn').innerHTML = '<i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save Changes';
             
             document.getElementById('instrumentFormSection').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        // Instrument image preview and handling
+        function previewInstrumentImage(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (file.size > 5 * 1024 * 1024) {
+                alert('Image must be less than 5MB');
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                window.instrumentImageData = e.target.result;
+                const preview = document.getElementById('instrumentImagePreview');
+                preview.innerHTML = `<img src="${e.target.result}" style="width: 100%; height: 100%; object-fit: cover;">`;
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        function clearInstrumentImage() {
+            window.instrumentImageData = null;
+            const preview = document.getElementById('instrumentImagePreview');
+            if (preview) preview.innerHTML = '<i class="fas fa-image" style="font-size: 2rem; color: var(--text-tertiary);"></i>';
+            const input = document.getElementById('newInstrumentImage');
+            if (input) input.value = '';
+        }
+        
+        function previewInstrumentDocument(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                window.instrumentDocumentData = e.target.result;
+                document.getElementById('instrumentDocumentList').innerHTML = `<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 0.5rem;"><i class="fas fa-file-pdf" style="color: #ef4444;"></i><span style="flex: 1;">${file.name}</span><button type="button" onclick="clearInstrumentDocument()" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer;"><i class="fas fa-times"></i></button></div>`;
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        function clearInstrumentDocument() {
+            window.instrumentDocumentData = null;
+            const list = document.getElementById('instrumentDocumentList');
+            if (list) list.innerHTML = '';
+            const input = document.getElementById('newInstrumentDocument');
+            if (input) input.value = '';
+        }
+        
+        // Populate instrument room dropdown based on selected office
+        function populateInstrumentRoomDropdown() {
+            const officeId = document.getElementById('newInstrumentOffice').value;
+            const roomSelect = document.getElementById('newInstrumentRoom');
+            if (!roomSelect) return;
+            
+            roomSelect.innerHTML = '<option value="">Select Room</option>';
+            
+            if (!officeId) return;
+            
+            const rooms = loadRooms();
+            const filteredRooms = rooms.filter(r => (r.officeID == officeId || r.clinicId == officeId));
+            
+            filteredRooms.forEach(room => {
+                const option = document.createElement('option');
+                option.value = room.roomID;
+                option.textContent = room.roomName || room.name || room.roomType;
+                roomSelect.appendChild(option);
+            });
         }
 
         // Delete instrument
@@ -37076,59 +37254,39 @@ document.addEventListener('keydown', function(e) {
                 <form id="createEquipmentForm" onsubmit="createEquipment(event)">
                     <input type="hidden" id="editEquipmentId" value="">
                     
-                    <!-- Row 1: Name & Category -->
+                    <!-- Row 1: Name & Type -->
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="newEquipmentName">Equipment Name *</label>
                             <input type="text" id="newEquipmentName" required placeholder="e.g., Autoclave #1, X-Ray Unit" maxlength="200">
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newEquipmentCategory">Category *</label>
-                            <select id="newEquipmentCategory" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                                <option value="">Select Category</option>
-                                <option value="Sterilization">Sterilization</option>
-                                <option value="Imaging">Imaging</option>
-                                <option value="Dental Chairs">Dental Chairs</option>
-                                <option value="Handpieces">Handpieces</option>
-                                <option value="Lasers">Lasers</option>
-                                <option value="Lab Equipment">Lab Equipment</option>
-                                <option value="Computers">Computers</option>
-                                <option value="HVAC/Facility">HVAC/Facility</option>
+                            <label for="newEquipmentType">Equipment Type</label>
+                            <select id="newEquipmentType" onchange="toggleCustomEquipmentType()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="">Select Type</option>
+                                <option value="Autoclave">Autoclave</option>
+                                <option value="Ultrasonic Cleaner">Ultrasonic Cleaner</option>
+                                <option value="X-Ray Unit">X-Ray Unit</option>
+                                <option value="Panoramic X-Ray">Panoramic X-Ray</option>
+                                <option value="Intraoral Camera">Intraoral Camera</option>
+                                <option value="Dental Chair">Dental Chair</option>
+                                <option value="High-Speed Handpiece">High-Speed Handpiece</option>
+                                <option value="Low-Speed Handpiece">Low-Speed Handpiece</option>
+                                <option value="Curing Light">Curing Light</option>
+                                <option value="Computer/Workstation">Computer/Workstation</option>
+                                <option value="Server">Server</option>
+                                <option value="Compressor">Compressor</option>
+                                <option value="Vacuum Pump">Vacuum Pump</option>
+                                <option value="HVAC System">HVAC System</option>
                                 <option value="Other">Other</option>
                             </select>
-                        </div>
-                    </div>
-                    
-                    <!-- Row 2: Type -->
-                    <div class="form-group" style="margin-bottom: 1rem;">
-                        <label for="newEquipmentType">Equipment Type</label>
-                        <select id="newEquipmentType" onchange="toggleCustomEquipmentType()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                            <option value="">Select Type</option>
-                            <option value="Autoclave">Autoclave</option>
-                            <option value="Ultrasonic Cleaner">Ultrasonic Cleaner</option>
-                            <option value="X-Ray Unit">X-Ray Unit</option>
-                            <option value="Panoramic X-Ray">Panoramic X-Ray</option>
-                            <option value="CBCT Scanner">CBCT Scanner</option>
-                            <option value="Intraoral Camera">Intraoral Camera</option>
-                            <option value="Dental Chair">Dental Chair</option>
-                            <option value="High-Speed Handpiece">High-Speed Handpiece</option>
-                            <option value="Low-Speed Handpiece">Low-Speed Handpiece</option>
-                            <option value="Electric Handpiece">Electric Handpiece</option>
-                            <option value="Diode Laser">Diode Laser</option>
-                            <option value="Curing Light">Curing Light</option>
-                            <option value="Computer/Workstation">Computer/Workstation</option>
-                            <option value="Server">Server</option>
-                            <option value="Compressor">Compressor</option>
-                            <option value="Vacuum Pump">Vacuum Pump</option>
-                            <option value="HVAC System">HVAC System</option>
-                            <option value="Other">Other</option>
-                        </select>
-                        <div id="customEquipmentTypeBox" style="display: none; margin-top: 0.5rem;">
-                            <div style="display: flex; gap: 0.5rem;">
-                                <input type="text" id="customEquipmentType" placeholder="Enter custom type" maxlength="100" style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                                <button type="button" onclick="cancelCustomEquipmentType()" style="padding: 0.75rem 1rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">
-                                    <i class="fas fa-times"></i>
-                                </button>
+                            <div id="customEquipmentTypeBox" style="display: none; margin-top: 0.5rem;">
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <input type="text" id="customEquipmentType" placeholder="Enter custom type" maxlength="100" style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                    <button type="button" onclick="cancelCustomEquipmentType()" style="padding: 0.75rem 1rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -37175,26 +37333,34 @@ document.addEventListener('keydown', function(e) {
                         </div>
                     </div>
                     
-                    <!-- Row 7: Office & Location -->
+                    <!-- Row 7: Office & Room -->
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="newEquipmentOffice">Office</label>
-                            <select id="newEquipmentOffice" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            <select id="newEquipmentOffice" onchange="populateEquipmentRoomDropdown()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                 <option value="">Select Office</option>
                             </select>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newEquipmentLocation">Location/Room</label>
-                            <input type="text" id="newEquipmentLocation" placeholder="e.g., Operatory 1, Lab, Front Desk" maxlength="100">
+                            <label for="newEquipmentRoom">Room</label>
+                            <select id="newEquipmentRoom" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="">Select Room</option>
+                            </select>
                         </div>
                     </div>
                     
-                    <!-- Row 7.5: Vendor -->
-                    <div class="form-group" style="margin-bottom: 1rem;">
-                        <label for="newEquipmentVendor">Vendor (Supplier/Service Provider)</label>
-                        <select id="newEquipmentVendor" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                            <option value="">Select Vendor</option>
-                        </select>
+                    <!-- Row 7.5: Vendor & Price -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="newEquipmentVendor">Vendor (Supplier/Service Provider)</label>
+                            <select id="newEquipmentVendor" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="">Select Vendor</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="newEquipmentPrice">Price ($)</label>
+                            <input type="number" id="newEquipmentPrice" min="0" step="0.01" placeholder="0.00" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                        </div>
                     </div>
                     
                     <!-- Row 8: Status & Condition -->
@@ -37218,6 +37384,39 @@ document.addEventListener('keydown', function(e) {
                                 <option value="Fair">Fair</option>
                                 <option value="Poor">Poor</option>
                             </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Image Upload -->
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="newEquipmentImage">Equipment Image</label>
+                        <div style="display: flex; gap: 1rem; align-items: flex-start;">
+                            <div id="equipmentImagePreview" style="width: 100px; height: 100px; border: 2px dashed var(--border-color); border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--card-bg);">
+                                <i class="fas fa-image" style="font-size: 2rem; color: var(--text-tertiary);"></i>
+                            </div>
+                            <div style="flex: 1;">
+                                <input type="file" id="newEquipmentImage" accept="image/*" onchange="previewEquipmentImage(event)" style="display: none;">
+                                <button type="button" onclick="document.getElementById('newEquipmentImage').click()" style="padding: 0.5rem 1rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; margin-bottom: 0.5rem;">
+                                    <i class="fas fa-upload" style="margin-right: 0.5rem;"></i>Upload Image
+                                </button>
+                                <button type="button" onclick="clearEquipmentImage()" style="padding: 0.5rem 1rem; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; margin-left: 0.5rem;">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                                <p style="margin: 0.5rem 0 0 0; font-size: 0.75rem; color: var(--text-tertiary);">Max 5MB. JPG, PNG, GIF supported.</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Document Upload -->
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="newEquipmentDocument">Documents (PDF)</label>
+                        <div style="border: 2px dashed var(--border-color); border-radius: 8px; padding: 1rem; background: var(--card-bg);">
+                            <input type="file" id="newEquipmentDocument" accept=".pdf" onchange="previewEquipmentDocument(event)" style="display: none;">
+                            <div id="equipmentDocumentList" style="margin-bottom: 0.5rem;"></div>
+                            <button type="button" onclick="document.getElementById('newEquipmentDocument').click()" style="padding: 0.5rem 1rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer;">
+                                <i class="fas fa-file-pdf" style="margin-right: 0.5rem;"></i>Add PDF Document
+                            </button>
+                            <p style="margin: 0.5rem 0 0 0; font-size: 0.75rem; color: var(--text-tertiary);">Upload manuals, warranties, or service records.</p>
                         </div>
                     </div>
                     
@@ -37341,20 +37540,18 @@ document.addEventListener('keydown', function(e) {
                         </div>
                     </div>
                     
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newInstrumentQuantity">Quantity</label>
-                            <input type="number" id="newInstrumentQuantity" min="1" value="1" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                        </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="newInstrumentOffice">Office</label>
-                            <select id="newInstrumentOffice" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            <select id="newInstrumentOffice" onchange="populateInstrumentRoomDropdown()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                 <option value="">Select Office</option>
                             </select>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newInstrumentLocation">Location/Room</label>
-                            <input type="text" id="newInstrumentLocation" placeholder="e.g., Operatory 1, Sterilization" maxlength="100">
+                            <label for="newInstrumentRoom">Room</label>
+                            <select id="newInstrumentRoom" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="">Select Room</option>
+                            </select>
                         </div>
                     </div>
                     
@@ -37365,40 +37562,42 @@ document.addEventListener('keydown', function(e) {
                         </select>
                     </div>
                     
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                <input type="checkbox" id="newInstrumentSterilization" style="width: 18px; height: 18px; cursor: pointer;">
-                                <span>Sterilization Required</span>
-                            </label>
+                    <!-- Image Upload -->
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="newInstrumentImage">Instrument Image</label>
+                        <div style="display: flex; gap: 1rem; align-items: flex-start;">
+                            <div id="instrumentImagePreview" style="width: 100px; height: 100px; border: 2px dashed var(--border-color); border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--card-bg);">
+                                <i class="fas fa-image" style="font-size: 2rem; color: var(--text-tertiary);"></i>
+                            </div>
+                            <div style="flex: 1;">
+                                <input type="file" id="newInstrumentImage" accept="image/*" onchange="previewInstrumentImage(event)" style="display: none;">
+                                <button type="button" onclick="document.getElementById('newInstrumentImage').click()" style="padding: 0.5rem 1rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; margin-bottom: 0.5rem;">
+                                    <i class="fas fa-upload" style="margin-right: 0.5rem;"></i>Upload Image
+                                </button>
+                                <button type="button" onclick="clearInstrumentImage()" style="padding: 0.5rem 1rem; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; margin-left: 0.5rem;">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                                <p style="margin: 0.5rem 0 0 0; font-size: 0.75rem; color: var(--text-tertiary);">Max 5MB. JPG, PNG, GIF supported.</p>
+                            </div>
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newInstrumentLastSterilized">Last Sterilized</label>
-                            <input type="date" id="newInstrumentLastSterilized" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                        </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newInstrumentCondition">Condition</label>
-                            <select id="newInstrumentCondition" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                                <option value="">Select Condition</option>
-                                <option value="Excellent">Excellent</option>
-                                <option value="Good">Good</option>
-                                <option value="Fair">Fair</option>
-                                <option value="Poor">Poor</option>
-                                <option value="Needs Replacement">Needs Replacement</option>
-                            </select>
+                    </div>
+                    
+                    <!-- Document Upload -->
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="newInstrumentDocument">Documents (PDF)</label>
+                        <div style="border: 2px dashed var(--border-color); border-radius: 8px; padding: 1rem; background: var(--card-bg);">
+                            <input type="file" id="newInstrumentDocument" accept=".pdf" onchange="previewInstrumentDocument(event)" style="display: none;">
+                            <div id="instrumentDocumentList" style="margin-bottom: 0.5rem;"></div>
+                            <button type="button" onclick="document.getElementById('newInstrumentDocument').click()" style="padding: 0.5rem 1rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer;">
+                                <i class="fas fa-file-pdf" style="margin-right: 0.5rem;"></i>Add PDF Document
+                            </button>
+                            <p style="margin: 0.5rem 0 0 0; font-size: 0.75rem; color: var(--text-tertiary);">Upload manuals, care instructions, or specifications.</p>
                         </div>
                     </div>
                     
                     <div class="form-group" style="margin-bottom: 1rem;">
                         <label for="newInstrumentNotes">Notes</label>
-                        <textarea id="newInstrumentNotes" placeholder="Additional information..." style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); min-height: 60px; resize: vertical;" maxlength="500"></textarea>
-                    </div>
-                    
-                    <div class="form-group" style="margin-bottom: 1rem;">
-                        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                            <input type="checkbox" id="newInstrumentIsActive" checked style="width: 18px; height: 18px; cursor: pointer;">
-                            <span>Instrument is Active</span>
-                        </label>
+                        <textarea id="newInstrumentNotes" placeholder="e.g., Ster Note..." style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); min-height: 60px; resize: vertical;" maxlength="500"></textarea>
                     </div>
 
                     <div id="createInstrumentError" class="login-error" style="display: none;"></div>
