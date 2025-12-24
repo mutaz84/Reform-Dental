@@ -28648,8 +28648,60 @@ window.addEventListener('load', function() {
             const modal = document.getElementById('dutiesManagementModal');
             if (modal) {
                 modal.style.display = 'flex';
+                populateDutyOfficeDropdown();
                 renderDutiesList();
             }
+        }
+        
+        // Populate office dropdown for duties
+        function populateDutyOfficeDropdown() {
+            const offices = loadOffices();
+            const dropdown = document.getElementById('dutyOffice');
+            if (dropdown) {
+                dropdown.innerHTML = '<option value="">Select Office</option>';
+                offices.forEach(office => {
+                    const option = document.createElement('option');
+                    option.value = office.officeID;
+                    option.textContent = office.officeName;
+                    dropdown.appendChild(option);
+                });
+            }
+        }
+        
+        // Populate room dropdown for duties based on selected office
+        function populateDutyRoomDropdown() {
+            const officeId = document.getElementById('dutyOffice').value;
+            const roomSelect = document.getElementById('dutyRoom');
+            if (!roomSelect) return;
+            
+            roomSelect.innerHTML = '<option value="">Select Room</option>';
+            
+            if (!officeId) return;
+            
+            const rooms = loadRooms();
+            
+            // Filter rooms by office ID
+            const filteredRooms = rooms.filter(r => {
+                const roomOfficeId = String(r.officeID || r.clinicId || '');
+                const selectedOfficeId = String(officeId);
+                return roomOfficeId === selectedOfficeId;
+            });
+            
+            if (filteredRooms.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No rooms found for this office';
+                option.disabled = true;
+                roomSelect.appendChild(option);
+                return;
+            }
+            
+            filteredRooms.forEach(room => {
+                const option = document.createElement('option');
+                option.value = room.roomID || room.id;
+                option.textContent = room.roomName || room.name || room.roomType;
+                roomSelect.appendChild(option);
+            });
         }
         
         function closeDutiesManagement() {
@@ -28717,7 +28769,8 @@ window.addEventListener('load', function() {
             document.getElementById('dutySchedule').value = 'Daily';
             document.getElementById('dutyScheduleTime').value = '';
             document.getElementById('dutyScheduleDay').value = '';
-            document.getElementById('dutyLocation').value = '';
+            document.getElementById('dutyOffice').value = '';
+            document.getElementById('dutyRoom').innerHTML = '<option value="">Select Room</option>';
             document.getElementById('dutyPriority').value = 'Medium';
             document.getElementById('dutyFormTitle').textContent = 'Add New Duty';
             document.getElementById('saveDutyBtn').innerHTML = '<i class="fas fa-plus"></i> Add Duty';
@@ -28734,7 +28787,21 @@ window.addEventListener('load', function() {
             document.getElementById('dutySchedule').value = duty.Schedule || 'Daily';
             document.getElementById('dutyScheduleTime').value = duty.ScheduleTime || '';
             document.getElementById('dutyScheduleDay').value = duty.ScheduleDay || '';
-            document.getElementById('dutyLocation').value = duty.Location || '';
+            
+            // Set office and room
+            if (duty.RoomId) {
+                const rooms = loadRooms();
+                const room = rooms.find(r => String(r.roomID) === String(duty.RoomId));
+                if (room) {
+                    document.getElementById('dutyOffice').value = room.officeID || room.clinicId || '';
+                    populateDutyRoomDropdown();
+                    document.getElementById('dutyRoom').value = duty.RoomId;
+                }
+            } else {
+                document.getElementById('dutyOffice').value = '';
+                document.getElementById('dutyRoom').innerHTML = '<option value="">Select Room</option>';
+            }
+            
             document.getElementById('dutyPriority').value = duty.Priority || 'Medium';
             document.getElementById('dutyFormTitle').textContent = 'Edit Duty';
             document.getElementById('saveDutyBtn').innerHTML = '<i class="fas fa-save"></i> Update Duty';
@@ -28743,13 +28810,18 @@ window.addEventListener('load', function() {
         async function saveDuty(event) {
             event.preventDefault();
             
+            const roomId = document.getElementById('dutyRoom').value;
+            const roomSelect = document.getElementById('dutyRoom');
+            const roomName = roomSelect.options[roomSelect.selectedIndex]?.text || '';
+            
             const dutyData = {
                 name: document.getElementById('dutyName').value.trim(),
                 description: document.getElementById('dutyDescription').value.trim(),
                 schedule: document.getElementById('dutySchedule').value,
                 scheduleTime: document.getElementById('dutyScheduleTime').value.trim(),
                 scheduleDay: document.getElementById('dutyScheduleDay').value.trim(),
-                location: document.getElementById('dutyLocation').value.trim(),
+                roomId: roomId || null,
+                location: roomName !== 'Select Room' ? roomName : '',
                 priority: document.getElementById('dutyPriority').value
             };
             
@@ -37155,9 +37227,19 @@ document.addEventListener('keydown', function(e) {
                             <input type="text" id="dutyScheduleDay" placeholder="e.g., Every Friday" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
                         </div>
                     </div>
-                    <div class="form-group" style="margin-bottom: 1rem;">
-                        <label for="dutyLocation">Location</label>
-                        <input type="text" id="dutyLocation" placeholder="e.g., Sterilization Room" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="dutyOffice">Office</label>
+                            <select id="dutyOffice" onchange="populateDutyRoomDropdown()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+                                <option value="">Select Office</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="dutyRoom">Room</label>
+                            <select id="dutyRoom" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);">
+                                <option value="">Select Room</option>
+                            </select>
+                        </div>
                     </div>
                     <p style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 1rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: 6px;">
                         <i class="fas fa-info-circle" style="margin-right: 0.5rem;"></i>
