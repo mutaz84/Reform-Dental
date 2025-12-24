@@ -18103,6 +18103,9 @@
                     </td>
                     <td style="padding: 1rem; text-align: center;">
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                            <button onclick="viewVendor(${vendor.vendorID})" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="View Vendor">
+                                <i class="fas fa-eye"></i>
+                            </button>
                             <button onclick="editVendor(${vendor.vendorID})" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit Vendor">
                                 <i class="fas fa-edit"></i>
                             </button>
@@ -18194,6 +18197,178 @@
                 passwordInput.type = 'password';
                 toggleIcon.classList.remove('fa-eye-slash');
                 toggleIcon.classList.add('fa-eye');
+            }
+        }
+        
+        // View Vendor Details
+        function viewVendor(vendorID) {
+            const vendors = loadVendors();
+            const vendor = vendors.find(v => v.vendorID == vendorID);
+            
+            if (!vendor) {
+                showNotification('Vendor not found', 'error');
+                return;
+            }
+            
+            const statusColor = vendor.isActive !== false ? '#10b981' : '#ef4444';
+            const statusText = vendor.isActive !== false ? 'Active' : 'Inactive';
+            
+            // Build full address
+            let fullAddress = '-';
+            if (vendor.address || vendor.city || vendor.state || vendor.zipCode) {
+                const addressParts = [];
+                if (vendor.address) addressParts.push(vendor.address);
+                if (vendor.city) addressParts.push(vendor.city);
+                if (vendor.state) addressParts.push(vendor.state);
+                if (vendor.zipCode) addressParts.push(vendor.zipCode);
+                fullAddress = addressParts.join(', ');
+            }
+            
+            const modalContent = `
+                <div id="viewVendorModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+                    <div style="background: var(--bg-primary); border-radius: 12px; width: 90%; max-width: 700px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                        <!-- Header -->
+                        <div style="padding: 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); border-radius: 12px 12px 0 0;">
+                            <div style="display: flex; align-items: center; gap: 1rem;">
+                                <div style="width: 50px; height: 50px; background: white; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                    <i class="fas fa-truck" style="font-size: 1.5rem; color: var(--accent-primary);"></i>
+                                </div>
+                                <div>
+                                    <h2 style="margin: 0; color: white; font-size: 1.4rem;">${vendor.vendorName || 'Unknown Vendor'}</h2>
+                                    <span style="background: ${statusColor}; color: white; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">${statusText}</span>
+                                </div>
+                            </div>
+                            <button onclick="closeViewVendorModal()" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 1.2rem;">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        
+                        <!-- Content -->
+                        <div style="padding: 1.5rem;">
+                            <!-- Type Badge -->
+                            ${vendor.vendorType ? `
+                            <div style="margin-bottom: 1.5rem;">
+                                <span style="background: var(--accent-primary)15; color: var(--accent-primary); padding: 0.4rem 1rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600;">
+                                    <i class="fas fa-tag" style="margin-right: 0.5rem;"></i>${vendor.vendorType}
+                                </span>
+                            </div>
+                            ` : ''}
+                            
+                            <!-- Contact Information -->
+                            <div style="background: var(--bg-secondary); border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem;">
+                                <h3 style="margin: 0 0 1rem 0; color: var(--text-primary); font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="fas fa-user" style="color: var(--accent-primary);"></i> Contact Information
+                                </h3>
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Contact Name</div>
+                                        <div style="color: var(--text-primary); font-weight: 500;">${vendor.contactName || '-'}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Email</div>
+                                        <div style="color: var(--text-primary);">${vendor.email ? `<a href="mailto:${vendor.email}" style="color: var(--accent-primary); text-decoration: none;">${vendor.email}</a>` : '-'}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Phone</div>
+                                        <div style="color: var(--text-primary);">${vendor.phone ? `<a href="tel:${vendor.phone}" style="color: var(--accent-primary); text-decoration: none;">${vendor.phone}</a>` : '-'}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Alternate Phone</div>
+                                        <div style="color: var(--text-primary);">${vendor.alternatePhone ? `<a href="tel:${vendor.alternatePhone}" style="color: var(--accent-primary); text-decoration: none;">${vendor.alternatePhone}</a>` : '-'}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Address -->
+                            <div style="background: var(--bg-secondary); border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem;">
+                                <h3 style="margin: 0 0 1rem 0; color: var(--text-primary); font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="fas fa-map-marker-alt" style="color: var(--accent-primary);"></i> Address
+                                </h3>
+                                <div style="color: var(--text-primary);">${fullAddress}</div>
+                            </div>
+                            
+                            <!-- Website & Portal -->
+                            <div style="background: var(--bg-secondary); border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem;">
+                                <h3 style="margin: 0 0 1rem 0; color: var(--text-primary); font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="fas fa-globe" style="color: var(--accent-primary);"></i> Website & Portal Access
+                                </h3>
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
+                                    <div style="grid-column: span 2;">
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Website</div>
+                                        <div style="color: var(--text-primary);">${vendor.website ? `<a href="${vendor.website.startsWith('http') ? vendor.website : 'https://' + vendor.website}" target="_blank" style="color: var(--accent-primary); text-decoration: none;">${vendor.website} <i class="fas fa-external-link-alt" style="font-size: 0.7rem;"></i></a>` : '-'}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Portal Username</div>
+                                        <div style="color: var(--text-primary); font-family: monospace;">${vendor.portalUsername || '-'}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Portal Password</div>
+                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <span id="viewVendorPassword" style="color: var(--text-primary); font-family: monospace;">${vendor.portalPassword ? '••••••••' : '-'}</span>
+                                            ${vendor.portalPassword ? `
+                                                <button onclick="toggleViewVendorPassword('${vendor.portalPassword.replace(/'/g, "\\'")}')" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); padding: 0.25rem;" title="Show/Hide">
+                                                    <i class="fas fa-eye" id="viewVendorPasswordIcon"></i>
+                                                </button>
+                                                <button onclick="copyToClipboard('${vendor.portalPassword.replace(/'/g, "\\'")}')" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); padding: 0.25rem;" title="Copy">
+                                                    <i class="fas fa-copy"></i>
+                                                </button>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Notes -->
+                            ${vendor.notes ? `
+                            <div style="background: var(--bg-secondary); border-radius: 10px; padding: 1.25rem;">
+                                <h3 style="margin: 0 0 1rem 0; color: var(--text-primary); font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="fas fa-sticky-note" style="color: var(--accent-primary);"></i> Notes
+                                </h3>
+                                <div style="color: var(--text-secondary); white-space: pre-wrap;">${vendor.notes}</div>
+                            </div>
+                            ` : ''}
+                        </div>
+                        
+                        <!-- Footer -->
+                        <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
+                            <button onclick="closeViewVendorModal(); editVendor(${vendor.vendorID});" style="padding: 0.6rem 1.25rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                                <i class="fas fa-edit" style="margin-right: 0.5rem;"></i>Edit Vendor
+                            </button>
+                            <button onclick="closeViewVendorModal()" style="padding: 0.6rem 1.25rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-weight: 500;">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Remove existing modal if any
+            const existingModal = document.getElementById('viewVendorModal');
+            if (existingModal) existingModal.remove();
+            
+            // Add modal to body
+            document.body.insertAdjacentHTML('beforeend', modalContent);
+        }
+        
+        // Close View Vendor Modal
+        function closeViewVendorModal() {
+            const modal = document.getElementById('viewVendorModal');
+            if (modal) modal.remove();
+        }
+        
+        // Toggle password visibility in view modal
+        function toggleViewVendorPassword(password) {
+            const passwordSpan = document.getElementById('viewVendorPassword');
+            const icon = document.getElementById('viewVendorPasswordIcon');
+            
+            if (passwordSpan.textContent === '••••••••') {
+                passwordSpan.textContent = password;
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                passwordSpan.textContent = '••••••••';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
             }
         }
 
