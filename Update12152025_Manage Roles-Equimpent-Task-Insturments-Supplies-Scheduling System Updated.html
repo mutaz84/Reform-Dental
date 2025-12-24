@@ -14238,32 +14238,45 @@
 
         // ============ VENDORS MANAGEMENT ============
         
-        // Toggle custom vendor type input
-        function toggleCustomVendorType() {
-            const vendorTypeSelect = document.getElementById('newVendorType');
-            const customBox = document.getElementById('customVendorTypeBox');
+        // Add custom vendor type as a checkbox
+        function addCustomVendorType() {
             const customInput = document.getElementById('customVendorType');
+            const customType = customInput.value.trim();
             
-            if (vendorTypeSelect.value === 'Other') {
-                customBox.style.display = 'block';
-                customInput.focus();
-            } else {
-                customBox.style.display = 'none';
-                customInput.value = '';
+            if (!customType) {
+                showNotification('Please enter a custom type', 'warning');
+                return;
             }
-        }
-        
-        // Cancel custom vendor type
-        function cancelCustomVendorType() {
-            const vendorTypeSelect = document.getElementById('newVendorType');
-            const customBox = document.getElementById('customVendorTypeBox');
-            const customInput = document.getElementById('customVendorType');
             
-            vendorTypeSelect.value = '';
-            customBox.style.display = 'none';
+            // Check if type already exists
+            const existingCheckbox = document.querySelector(`input[name="vendorTypes"][value="${customType}"]`);
+            if (existingCheckbox) {
+                existingCheckbox.checked = true;
+                customInput.value = '';
+                showNotification('Type already exists - selected', 'info');
+                return;
+            }
+            
+            // Add new checkbox for custom type
+            const checkboxContainer = document.getElementById('vendorTypeCheckboxes');
+            const newLabel = document.createElement('label');
+            newLabel.style.cssText = 'display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;';
+            newLabel.innerHTML = `
+                <input type="checkbox" name="vendorTypes" value="${customType}" checked style="width: 16px; height: 16px; cursor: pointer;">
+                <span>${customType}</span>
+            `;
+            checkboxContainer.appendChild(newLabel);
             customInput.value = '';
+            showNotification('Custom type added', 'success');
         }
         
+        // Clear all vendor type checkboxes
+        function clearVendorTypeCheckboxes() {
+            const checkboxes = document.querySelectorAll('input[name="vendorTypes"]');
+            checkboxes.forEach(cb => cb.checked = false);
+            document.getElementById('customVendorType').value = '';
+        }
+
         // Load vendors from localStorage
         function loadVendors() {
             const vendors = localStorage.getItem('vendors');
@@ -17912,9 +17925,13 @@
             
             const editId = document.getElementById('editVendorId').value;
             const vendorName = document.getElementById('newVendorName').value.trim();
-            const vendorTypeSelect = document.getElementById('newVendorType').value.trim();
-            const customVendorType = document.getElementById('customVendorType').value.trim();
-            const vendorType = vendorTypeSelect === 'Other' && customVendorType ? customVendorType : vendorTypeSelect;
+            
+            // Get all selected vendor types
+            const vendorTypeCheckboxes = document.querySelectorAll('input[name="vendorTypes"]:checked');
+            const selectedTypes = Array.from(vendorTypeCheckboxes).map(cb => cb.value);
+            const vendorType = selectedTypes.join(', ');  // Store as comma-separated string for API compatibility
+            const vendorTypes = selectedTypes;  // Also store as array for local use
+            
             const contactName = document.getElementById('newVendorContactName').value.trim();
             const email = document.getElementById('newVendorEmail').value.trim();
             const phone = document.getElementById('newVendorPhone').value.trim();
@@ -18084,6 +18101,7 @@
             document.getElementById('vendorSubmitBtn').innerHTML = '<i class="fas fa-plus-circle" style="margin-right: 0.5rem;"></i>Add Vendor';
             document.getElementById('editVendorId').value = '';
             document.getElementById('createVendorForm').reset();
+            clearVendorTypeCheckboxes();
             document.getElementById('vendorFormSection').scrollIntoView({ behavior: 'smooth' });
         }
 
@@ -18091,6 +18109,7 @@
         function closeVendorForm() {
             document.getElementById('vendorFormSection').style.display = 'none';
             document.getElementById('createVendorForm').reset();
+            clearVendorTypeCheckboxes();
             document.getElementById('editVendorId').value = '';
         }
 
@@ -18107,7 +18126,22 @@
             document.getElementById('editVendorId').value = vendor.vendorID;
             
             document.getElementById('newVendorName').value = vendor.vendorName || '';
-            document.getElementById('newVendorType').value = vendor.vendorType || '';
+            
+            // Handle multiple vendor types
+            const allCheckboxes = document.querySelectorAll('input[name="vendorTypes"]');
+            allCheckboxes.forEach(cb => cb.checked = false);  // Uncheck all first
+            
+            if (vendor.vendorType) {
+                // Split by comma if stored as comma-separated string
+                const types = vendor.vendorType.split(',').map(t => t.trim());
+                types.forEach(type => {
+                    const checkbox = document.querySelector(`input[name="vendorTypes"][value="${type}"]`);
+                    if (checkbox) {
+                        checkbox.checked = true;
+                    }
+                });
+            }
+            
             document.getElementById('newVendorContactName').value = vendor.contactName || '';
             document.getElementById('newVendorEmail').value = vendor.email || '';
             document.getElementById('newVendorPhone').value = vendor.phone || '';
@@ -37081,26 +37115,46 @@ document.addEventListener('keydown', function(e) {
                             <input type="text" id="newVendorName" required placeholder="Vendor company name" maxlength="200">
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newVendorType">Vendor Type</label>
-                            <select id="newVendorType" onchange="toggleCustomVendorType()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                                <option value="">Select Type</option>
-                                <option value="Dental Supplies">Dental Supplies</option>
-                                <option value="Lab">Lab</option>
-                                <option value="Equipment">Equipment</option>
-                                <option value="Software">Software</option>
-                                <option value="Services">Services</option>
-                                <option value="Office Supplies">Office Supplies</option>
-                                <option value="Insurance">Insurance</option>
-                                <option value="Utilities">Utilities</option>
-                                <option value="Other">Other</option>
-                            </select>
-                            <div id="customVendorTypeBox" style="display: none; margin-top: 0.5rem;">
-                                <div style="display: flex; gap: 0.5rem;">
-                                    <input type="text" id="customVendorType" placeholder="Enter custom vendor type" maxlength="100" style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                                    <button type="button" onclick="cancelCustomVendorType()" style="padding: 0.75rem 1rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
-                                        <i class="fas fa-times"></i>
-                                    </button>
-                                </div>
+                            <label>Vendor Type(s)</label>
+                            <div id="vendorTypeCheckboxes" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); max-height: 180px; overflow-y: auto;">
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
+                                    <input type="checkbox" name="vendorTypes" value="Dental Supplies" style="width: 16px; height: 16px; cursor: pointer;">
+                                    <span>Dental Supplies</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
+                                    <input type="checkbox" name="vendorTypes" value="Lab" style="width: 16px; height: 16px; cursor: pointer;">
+                                    <span>Lab</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
+                                    <input type="checkbox" name="vendorTypes" value="Equipment" style="width: 16px; height: 16px; cursor: pointer;">
+                                    <span>Equipment</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
+                                    <input type="checkbox" name="vendorTypes" value="Software" style="width: 16px; height: 16px; cursor: pointer;">
+                                    <span>Software</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
+                                    <input type="checkbox" name="vendorTypes" value="Services" style="width: 16px; height: 16px; cursor: pointer;">
+                                    <span>Services</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
+                                    <input type="checkbox" name="vendorTypes" value="Office Supplies" style="width: 16px; height: 16px; cursor: pointer;">
+                                    <span>Office Supplies</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
+                                    <input type="checkbox" name="vendorTypes" value="Insurance" style="width: 16px; height: 16px; cursor: pointer;">
+                                    <span>Insurance</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
+                                    <input type="checkbox" name="vendorTypes" value="Utilities" style="width: 16px; height: 16px; cursor: pointer;">
+                                    <span>Utilities</span>
+                                </label>
+                            </div>
+                            <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;">
+                                <input type="text" id="customVendorType" placeholder="Add custom type..." maxlength="100" style="flex: 1; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-primary); font-size: 0.85rem;">
+                                <button type="button" onclick="addCustomVendorType()" style="padding: 0.5rem 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem;">
+                                    <i class="fas fa-plus"></i> Add
+                                </button>
                             </div>
                         </div>
                     </div>
