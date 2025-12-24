@@ -9700,6 +9700,10 @@
                                 <i class="fas fa-truck"></i>
                                 <span>Vendors</span>
                             </a>
+                            <a href="#" class="nav-item" onclick="openPasswordManager(); return false;">
+                                <i class="fas fa-key"></i>
+                                <span>Password Manager</span>
+                            </a>
                             <a href="#" class="nav-item" onclick="openEquipmentManagement(); return false;">
                                 <i class="fas fa-tools"></i>
                                 <span>Equipment</span>
@@ -9862,6 +9866,10 @@
                                 <a href="#" class="nav-item" onclick="openVendorsManagement(); return false;">
                                     <i class="fas fa-truck"></i>
                                     <span>Vendors</span>
+                                </a>
+                                <a href="#" class="nav-item" onclick="openPasswordManager(); return false;">
+                                    <i class="fas fa-key"></i>
+                                    <span>Password Manager</span>
                                 </a>
                                 <a href="#" class="nav-item" onclick="openEquipmentManagement(); return false;">
                                     <i class="fas fa-tools"></i>
@@ -11293,6 +11301,16 @@
                     create: { label: 'Create Vendors', description: 'Add new vendors' },
                     edit: { label: 'Edit Vendors', description: 'Modify vendor information' },
                     delete: { label: 'Delete Vendors', description: 'Remove vendors' }
+                }
+            },
+            password_manager: {
+                label: 'Password Manager',
+                icon: 'fa-key',
+                color: '#f59e0b',
+                permissions: {
+                    view: { label: 'View Passwords', description: 'See vendor login credentials' },
+                    edit: { label: 'Edit Passwords', description: 'Modify vendor login credentials' },
+                    export: { label: 'Export Passwords', description: 'Export credentials list' }
                 }
             },
             equipment: {
@@ -17941,6 +17959,8 @@
             const state = document.getElementById('newVendorState').value.trim();
             const zipCode = document.getElementById('newVendorZipCode').value.trim();
             const website = document.getElementById('newVendorWebsite').value.trim();
+            const vendorUsername = document.getElementById('newVendorUsername').value.trim();
+            const vendorPassword = document.getElementById('newVendorPassword').value;
             const notes = document.getElementById('newVendorNotes').value.trim();
             const isActive = document.getElementById('newVendorIsActive').checked;
             const errorDiv = document.getElementById('createVendorError');
@@ -17965,6 +17985,8 @@
                 state: state,
                 zipCode: zipCode,
                 website: website,
+                portalUsername: vendorUsername,
+                portalPassword: vendorPassword,
                 notes: notes,
                 isActive: isActive
             };
@@ -18151,10 +18173,28 @@
             document.getElementById('newVendorState').value = vendor.state || '';
             document.getElementById('newVendorZipCode').value = vendor.zipCode || '';
             document.getElementById('newVendorWebsite').value = vendor.website || '';
+            document.getElementById('newVendorUsername').value = vendor.portalUsername || '';
+            document.getElementById('newVendorPassword').value = vendor.portalPassword || '';
             document.getElementById('newVendorNotes').value = vendor.notes || '';
             document.getElementById('newVendorIsActive').checked = vendor.isActive !== false;
             
             document.getElementById('vendorFormSection').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        // Toggle vendor password visibility
+        function toggleVendorPasswordVisibility() {
+            const passwordInput = document.getElementById('newVendorPassword');
+            const toggleIcon = document.getElementById('vendorPasswordToggleIcon');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleIcon.classList.remove('fa-eye');
+                toggleIcon.classList.add('fa-eye-slash');
+            } else {
+                passwordInput.type = 'password';
+                toggleIcon.classList.remove('fa-eye-slash');
+                toggleIcon.classList.add('fa-eye');
+            }
         }
 
         // Delete vendor - NOW SYNCS WITH API
@@ -28747,6 +28787,174 @@ window.addEventListener('load', function() {
             resetDutyForm();
         }
         
+        // ============ PASSWORD MANAGER ============
+        
+        function openPasswordManager() {
+            // Check permission
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            const hasPermission = currentUser.role === 'admin' || 
+                (currentUser.permissions && currentUser.permissions.password_manager && 
+                 currentUser.permissions.password_manager.view === 'full');
+            
+            if (!hasPermission) {
+                showNotification('You do not have permission to access the Password Manager', 'error');
+                return;
+            }
+            
+            const modal = document.getElementById('passwordManagerModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                renderPasswordManagerList();
+            }
+        }
+        
+        function closePasswordManager() {
+            const modal = document.getElementById('passwordManagerModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+        
+        function renderPasswordManagerList() {
+            const tbody = document.getElementById('passwordManagerTableBody');
+            if (!tbody) return;
+            
+            const vendors = loadVendors();
+            const vendorsWithCredentials = vendors.filter(v => v.portalUsername || v.portalPassword);
+            
+            if (vendorsWithCredentials.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                            <i class="fas fa-key" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                            <p>No vendor credentials stored yet</p>
+                            <p style="font-size: 0.85rem;">Add credentials when creating or editing vendors</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            tbody.innerHTML = vendorsWithCredentials.map(vendor => `
+                <tr style="border-bottom: 1px solid var(--border-color);" class="password-manager-row" data-vendor-name="${(vendor.vendorName || '').toLowerCase()}" data-vendor-type="${(vendor.vendorType || '').toLowerCase()}">
+                    <td style="padding: 0.75rem 1rem;">
+                        <div style="font-weight: 600; color: var(--text-primary);">${vendor.vendorName || 'Unknown'}</div>
+                        ${vendor.contactName ? `<div style="font-size: 0.8rem; color: var(--text-tertiary);">${vendor.contactName}</div>` : ''}
+                    </td>
+                    <td style="padding: 0.75rem 1rem;">
+                        <span style="font-size: 0.85rem; color: var(--text-secondary);">${vendor.vendorType || '-'}</span>
+                    </td>
+                    <td style="padding: 0.75rem 1rem;">
+                        ${vendor.website ? `<a href="${vendor.website.startsWith('http') ? vendor.website : 'https://' + vendor.website}" target="_blank" style="color: var(--accent-primary); text-decoration: none; font-size: 0.85rem;">${vendor.website}</a>` : '-'}
+                    </td>
+                    <td style="padding: 0.75rem 1rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="font-family: monospace; font-size: 0.9rem; color: var(--text-primary);">${vendor.portalUsername || '-'}</span>
+                            ${vendor.portalUsername ? `<button onclick="copyToClipboard('${vendor.portalUsername}')" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); padding: 0.25rem;" title="Copy username"><i class="fas fa-copy"></i></button>` : ''}
+                        </div>
+                    </td>
+                    <td style="padding: 0.75rem 1rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span class="password-field" id="pw-${vendor.vendorID}" style="font-family: monospace; font-size: 0.9rem; color: var(--text-primary);">••••••••</span>
+                            <span class="password-value" id="pw-val-${vendor.vendorID}" style="display: none;">${vendor.portalPassword || ''}</span>
+                            ${vendor.portalPassword ? `
+                                <button onclick="togglePasswordVisibility('${vendor.vendorID}')" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); padding: 0.25rem;" title="Show/Hide password">
+                                    <i class="fas fa-eye" id="pw-icon-${vendor.vendorID}"></i>
+                                </button>
+                                <button onclick="copyToClipboard(document.getElementById('pw-val-${vendor.vendorID}').textContent)" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); padding: 0.25rem;" title="Copy password">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            ` : '-'}
+                        </div>
+                    </td>
+                    <td style="padding: 0.75rem 1rem; text-align: center;">
+                        <button onclick="closePasswordManager(); editVendor('${vendor.vendorID}'); openVendorsManagement();" style="padding: 0.4rem 0.6rem; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;" title="Edit Vendor">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        function togglePasswordVisibility(vendorId) {
+            const field = document.getElementById(`pw-${vendorId}`);
+            const value = document.getElementById(`pw-val-${vendorId}`);
+            const icon = document.getElementById(`pw-icon-${vendorId}`);
+            
+            if (field.textContent === '••••••••') {
+                field.textContent = value.textContent;
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                field.textContent = '••••••••';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+        
+        function filterPasswordManagerList() {
+            const searchTerm = document.getElementById('passwordManagerSearch').value.toLowerCase();
+            const rows = document.querySelectorAll('.password-manager-row');
+            
+            rows.forEach(row => {
+                const vendorName = row.getAttribute('data-vendor-name') || '';
+                const vendorType = row.getAttribute('data-vendor-type') || '';
+                
+                if (vendorName.includes(searchTerm) || vendorType.includes(searchTerm)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+        
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showNotification('Copied to clipboard', 'success');
+            }).catch(() => {
+                showNotification('Failed to copy', 'error');
+            });
+        }
+        
+        function exportPasswordList() {
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            const hasPermission = currentUser.role === 'admin' || 
+                (currentUser.permissions && currentUser.permissions.password_manager && 
+                 currentUser.permissions.password_manager.export === 'full');
+            
+            if (!hasPermission) {
+                showNotification('You do not have permission to export passwords', 'error');
+                return;
+            }
+            
+            const vendors = loadVendors();
+            const vendorsWithCredentials = vendors.filter(v => v.portalUsername || v.portalPassword);
+            
+            if (vendorsWithCredentials.length === 0) {
+                showNotification('No credentials to export', 'warning');
+                return;
+            }
+            
+            // Create CSV content
+            let csv = 'Vendor Name,Type,Website,Username,Password,Contact,Email,Phone\\n';
+            vendorsWithCredentials.forEach(v => {
+                csv += `"${v.vendorName || ''}","${v.vendorType || ''}","${v.website || ''}","${v.portalUsername || ''}","${v.portalPassword || ''}","${v.contactName || ''}","${v.email || ''}","${v.phone || ''}"\\n`;
+            });
+            
+            // Download file
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `vendor-credentials-${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            
+            showNotification('Credentials exported successfully', 'success');
+        }
+        
         function renderDutiesList() {
             const container = document.getElementById('dutiesListContainer');
             if (!container) return;
@@ -37200,6 +37408,31 @@ document.addEventListener('keydown', function(e) {
                         <label for="newVendorWebsite">Website</label>
                         <input type="text" id="newVendorWebsite" placeholder="Website or link" maxlength="200">
                     </div>
+                    
+                    <!-- Vendor Login Credentials Section -->
+                    <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
+                            <i class="fas fa-key" style="color: var(--accent-primary);"></i>
+                            <span style="font-weight: 600; color: var(--text-primary);">Login Credentials</span>
+                            <span style="font-size: 0.75rem; color: var(--text-tertiary);">(Optional - for vendor portal access)</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="newVendorUsername">Username</label>
+                                <input type="text" id="newVendorUsername" placeholder="Portal username" maxlength="100" autocomplete="off">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="newVendorPassword">Password</label>
+                                <div style="position: relative;">
+                                    <input type="password" id="newVendorPassword" placeholder="Portal password" maxlength="200" autocomplete="new-password" style="width: 100%; padding-right: 40px;">
+                                    <button type="button" onclick="toggleVendorPasswordVisibility()" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-tertiary); padding: 0.25rem;" title="Show/Hide Password">
+                                        <i class="fas fa-eye" id="vendorPasswordToggleIcon"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="form-group" style="margin-bottom: 1rem;">
                         <label for="newVendorNotes">Notes</label>
                         <textarea id="newVendorNotes" placeholder="Additional information about this vendor..." style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); min-height: 80px; resize: vertical;" maxlength="500"></textarea>
@@ -37321,6 +37554,54 @@ document.addEventListener('keydown', function(e) {
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Password Manager Modal -->
+<div id="passwordManagerModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 10001; align-items: center; justify-content: center;">
+    <div class="login-card" style="width: 90vw; max-width: 900px; max-height: 90vh; margin: 0; border-radius: 12px; overflow: hidden; background: var(--bg-primary);">
+        <div class="login-header" style="display: flex; justify-content: space-between; align-items: center; background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 1.5rem;">
+            <h3 style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-key" style="color: #f59e0b;"></i>
+                Password Manager - Vendor Credentials
+            </h3>
+            <button onclick="closePasswordManager()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-tertiary);">&times;</button>
+        </div>
+        <div style="padding: 1.5rem; max-height: calc(90vh - 80px); overflow-y: auto;">
+            <!-- Search and Filter -->
+            <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 200px;">
+                    <input type="text" id="passwordManagerSearch" oninput="filterPasswordManagerList()" placeholder="Search vendors..." style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                </div>
+                <button onclick="exportPasswordList()" style="padding: 0.75rem 1.25rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fas fa-download"></i> Export
+                </button>
+            </div>
+            
+            <!-- Password List -->
+            <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: var(--bg-secondary);">
+                            <th style="padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); color: var(--text-secondary); font-weight: 600; font-size: 0.85rem;">Vendor</th>
+                            <th style="padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); color: var(--text-secondary); font-weight: 600; font-size: 0.85rem;">Type</th>
+                            <th style="padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); color: var(--text-secondary); font-weight: 600; font-size: 0.85rem;">Website</th>
+                            <th style="padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); color: var(--text-secondary); font-weight: 600; font-size: 0.85rem;">Username</th>
+                            <th style="padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); color: var(--text-secondary); font-weight: 600; font-size: 0.85rem;">Password</th>
+                            <th style="padding: 0.75rem 1rem; text-align: center; border-bottom: 1px solid var(--border-color); color: var(--text-secondary); font-weight: 600; font-size: 0.85rem;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="passwordManagerTableBody">
+                        <!-- Rows populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <p style="margin-top: 1rem; font-size: 0.8rem; color: var(--text-tertiary); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-shield-alt"></i>
+                Credentials are stored securely. Only users with Password Manager permission can view this data.
+            </p>
         </div>
     </div>
 </div>
