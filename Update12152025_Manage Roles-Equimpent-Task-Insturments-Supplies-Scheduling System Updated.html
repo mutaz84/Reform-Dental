@@ -8175,6 +8175,10 @@
                             <i class="fas fa-users-cog" style="margin-right: 0.75rem; width: 20px; color: var(--accent-primary);"></i>
                             <span>Manage Users</span>
                         </button>
+                        <button id="manageRolesMenuItem" onclick="openRolesManagement(); toggleSettingsMenu();" style="width: 100%; text-align: left; padding: 0.75rem 1rem; background: none; border: none; color: var(--text-primary); cursor: pointer; display: none; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='none'">
+                            <i class="fas fa-user-tag" style="margin-right: 0.75rem; width: 20px; color: #10b981;"></i>
+                            <span>Manage Roles</span>
+                        </button>
                         <button id="managePermissionsMenuItem" onclick="openPermissionsManagement(); toggleSettingsMenu();" style="width: 100%; text-align: left; padding: 0.75rem 1rem; background: none; border: none; color: var(--text-primary); cursor: pointer; display: none; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='none'">
                             <i class="fas fa-shield-alt" style="margin-right: 0.75rem; width: 20px; color: #8b5cf6;"></i>
                             <span>Manage Permissions</span>
@@ -11669,6 +11673,7 @@
             const scheduleManagerMenuItem = document.getElementById('scheduleManagerMenuItem');
             const manageTasksMenuItem = document.getElementById('manageTasksMenuItem');
             const manageDutiesMenuItem = document.getElementById('manageDutiesMenuItem');
+            const manageRolesMenuItem = document.getElementById('manageRolesMenuItem');
             const resetDataMenuItem = document.getElementById('resetDataMenuItem');
             const managePermissionsMenuItem = document.getElementById('managePermissionsMenuItem');
             
@@ -11713,6 +11718,7 @@
             setMenuVisibility(scheduleManagerMenuItem, 'schedules', 'create');
             setMenuVisibility(manageTasksMenuItem, 'tasks', 'view_all');
             setMenuVisibility(manageDutiesMenuItem, 'tasks', 'view_all'); // Duties uses same permission as tasks
+            setMenuVisibility(manageRolesMenuItem, 'users', 'manage_permissions'); // Roles uses manage_permissions
             setMenuVisibility(resetDataMenuItem, 'system', 'reset_data');
             
             // Manage Permissions - only for those who can manage_permissions
@@ -28965,6 +28971,358 @@ window.addEventListener('load', function() {
             resetDutyForm();
         }
         
+        // ============ ROLES MANAGEMENT ============
+        
+        let editingRoleId = null;
+        
+        async function openRolesManagement() {
+            const modal = document.getElementById('rolesManagementModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                await syncRolesFromAPI();
+                displayRolesList();
+            }
+        }
+        
+        function closeRolesManagement() {
+            const modal = document.getElementById('rolesManagementModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+            editingRoleId = null;
+            closeRoleForm();
+        }
+        
+        function openAddRoleForm() {
+            document.getElementById('roleFormSection').style.display = 'block';
+            document.getElementById('roleFormTitle').innerHTML = '<i class="fas fa-plus-circle" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>Add New Role';
+            document.getElementById('roleSubmitBtn').innerHTML = '<i class="fas fa-plus-circle" style="margin-right: 0.5rem;"></i>Add Role';
+            document.getElementById('editRoleId').value = '';
+            document.getElementById('createRoleForm').reset();
+            document.getElementById('roleFileName').textContent = 'No file selected';
+            document.getElementById('roleFileUrl').value = '';
+            editingRoleId = null;
+            document.getElementById('roleFormSection').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function closeRoleForm() {
+            document.getElementById('roleFormSection').style.display = 'none';
+            document.getElementById('createRoleForm').reset();
+            document.getElementById('roleFileName').textContent = 'No file selected';
+            document.getElementById('roleFileUrl').value = '';
+            editingRoleId = null;
+        }
+        
+        function loadRoles() {
+            return JSON.parse(localStorage.getItem('roles') || '[]');
+        }
+        
+        function saveRoles(roles) {
+            localStorage.setItem('roles', JSON.stringify(roles));
+        }
+        
+        async function createRole(event) {
+            event.preventDefault();
+            
+            const editId = document.getElementById('editRoleId').value;
+            const roleName = document.getElementById('newRoleName').value.trim();
+            const description = document.getElementById('newRoleDescription').value.trim();
+            const duties = document.getElementById('newRoleDuties').value.trim();
+            const responsibilities = document.getElementById('newRoleResponsibilities').value.trim();
+            const fileUrl = document.getElementById('roleFileUrl').value;
+            const fileName = document.getElementById('roleFileName').textContent !== 'No file selected' ? document.getElementById('roleFileName').textContent : '';
+            const errorDiv = document.getElementById('createRoleError');
+            
+            if (!roleName) {
+                errorDiv.style.display = 'block';
+                errorDiv.textContent = 'Role name is required.';
+                return;
+            }
+            
+            const roleData = {
+                roleName,
+                description,
+                duties,
+                responsibilities,
+                fileUrl,
+                fileName
+            };
+            
+            try {
+                let response;
+                if (editId) {
+                    response = await fetch(`${API_BASE_URL}/roles/${editId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(roleData)
+                    });
+                } else {
+                    response = await fetch(`${API_BASE_URL}/roles`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(roleData)
+                    });
+                }
+                
+                if (response.ok) {
+                    showNotification(editId ? 'Role updated successfully!' : 'Role created successfully!', 'success');
+                    await syncRolesFromAPI();
+                    displayRolesList();
+                    closeRoleForm();
+                    populateRoleDropdowns();
+                } else {
+                    throw new Error('API request failed');
+                }
+            } catch (error) {
+                console.error('Error saving role:', error);
+                // Fallback to localStorage
+                const roles = loadRoles();
+                
+                if (editId) {
+                    const index = roles.findIndex(r => r.id == editId);
+                    if (index !== -1) {
+                        roles[index] = { ...roles[index], ...roleData, modifiedDate: new Date().toISOString() };
+                    }
+                } else {
+                    roleData.id = Date.now();
+                    roleData.createdDate = new Date().toISOString();
+                    roles.push(roleData);
+                }
+                
+                saveRoles(roles);
+                showNotification(editId ? 'Role updated locally!' : 'Role created locally!', 'success');
+                displayRolesList();
+                closeRoleForm();
+                populateRoleDropdowns();
+            }
+        }
+        
+        function editRole(roleId) {
+            const roles = loadRoles();
+            const role = roles.find(r => r.id == roleId);
+            
+            if (!role) {
+                showNotification('Role not found', 'error');
+                return;
+            }
+            
+            editingRoleId = roleId;
+            document.getElementById('editRoleId').value = roleId;
+            document.getElementById('roleFormSection').style.display = 'block';
+            document.getElementById('roleFormTitle').innerHTML = '<i class="fas fa-edit" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>Edit Role';
+            document.getElementById('roleSubmitBtn').innerHTML = '<i class="fas fa-save" style="margin-right: 0.5rem;"></i>Update Role';
+            
+            document.getElementById('newRoleName').value = role.roleName || '';
+            document.getElementById('newRoleDescription').value = role.description || '';
+            document.getElementById('newRoleDuties').value = role.duties || '';
+            document.getElementById('newRoleResponsibilities').value = role.responsibilities || '';
+            document.getElementById('roleFileUrl').value = role.fileUrl || '';
+            document.getElementById('roleFileName').textContent = role.fileName || 'No file selected';
+            
+            document.getElementById('roleFormSection').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        async function deleteRole(roleId) {
+            if (!confirm('Are you sure you want to delete this role?')) return;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/roles/${roleId}`, { method: 'DELETE' });
+                if (response.ok) {
+                    showNotification('Role deleted successfully!', 'success');
+                    await syncRolesFromAPI();
+                } else {
+                    throw new Error('API delete failed');
+                }
+            } catch (error) {
+                console.error('Error deleting role:', error);
+                const roles = loadRoles();
+                const updatedRoles = roles.filter(r => r.id != roleId);
+                saveRoles(updatedRoles);
+                showNotification('Role deleted locally!', 'success');
+            }
+            
+            displayRolesList();
+            populateRoleDropdowns();
+        }
+        
+        function viewRole(roleId) {
+            const roles = loadRoles();
+            const role = roles.find(r => r.id == roleId);
+            
+            if (!role) {
+                showNotification('Role not found', 'error');
+                return;
+            }
+            
+            const modalContent = `
+                <div id="viewRoleModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10100;">
+                    <div style="background: var(--bg-primary); border-radius: 12px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                        <div style="padding: 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, #10b981, #059669); border-radius: 12px 12px 0 0;">
+                            <h2 style="margin: 0; color: white; font-size: 1.4rem;">
+                                <i class="fas fa-user-tag" style="margin-right: 0.5rem;"></i>${role.roleName}
+                            </h2>
+                            <button onclick="closeViewRoleModal()" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 1.2rem;">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div style="padding: 1.5rem;">
+                            ${role.description ? `
+                            <div style="background: var(--bg-secondary); border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem;">
+                                <h4 style="margin: 0 0 0.5rem 0; color: var(--text-primary); font-size: 0.9rem;">
+                                    <i class="fas fa-info-circle" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>Description
+                                </h4>
+                                <p style="margin: 0; color: var(--text-secondary);">${role.description}</p>
+                            </div>
+                            ` : ''}
+                            ${role.duties ? `
+                            <div style="background: var(--bg-secondary); border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem;">
+                                <h4 style="margin: 0 0 0.5rem 0; color: var(--text-primary); font-size: 0.9rem;">
+                                    <i class="fas fa-tasks" style="color: #3b82f6; margin-right: 0.5rem;"></i>Duties
+                                </h4>
+                                <p style="margin: 0; color: var(--text-secondary); white-space: pre-wrap;">${role.duties}</p>
+                            </div>
+                            ` : ''}
+                            ${role.responsibilities ? `
+                            <div style="background: var(--bg-secondary); border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem;">
+                                <h4 style="margin: 0 0 0.5rem 0; color: var(--text-primary); font-size: 0.9rem;">
+                                    <i class="fas fa-clipboard-check" style="color: #10b981; margin-right: 0.5rem;"></i>Responsibilities
+                                </h4>
+                                <p style="margin: 0; color: var(--text-secondary); white-space: pre-wrap;">${role.responsibilities}</p>
+                            </div>
+                            ` : ''}
+                            ${role.fileUrl || role.fileName ? `
+                            <div style="background: var(--bg-secondary); border-radius: 10px; padding: 1.25rem;">
+                                <h4 style="margin: 0 0 0.5rem 0; color: var(--text-primary); font-size: 0.9rem;">
+                                    <i class="fas fa-file-alt" style="color: #f59e0b; margin-right: 0.5rem;"></i>Attached Document
+                                </h4>
+                                <a href="${role.fileUrl || '#'}" target="_blank" style="color: var(--accent-primary); text-decoration: none;">
+                                    <i class="fas fa-download" style="margin-right: 0.5rem;"></i>${role.fileName || 'Download File'}
+                                </a>
+                            </div>
+                            ` : ''}
+                        </div>
+                        <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
+                            <button onclick="closeViewRoleModal(); editRole(${role.id});" style="padding: 0.6rem 1.25rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                                <i class="fas fa-edit" style="margin-right: 0.5rem;"></i>Edit
+                            </button>
+                            <button onclick="closeViewRoleModal()" style="padding: 0.6rem 1.25rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-weight: 500;">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            const existingModal = document.getElementById('viewRoleModal');
+            if (existingModal) existingModal.remove();
+            document.body.insertAdjacentHTML('beforeend', modalContent);
+        }
+        
+        function closeViewRoleModal() {
+            const modal = document.getElementById('viewRoleModal');
+            if (modal) modal.remove();
+        }
+        
+        function displayRolesList() {
+            const roles = loadRoles();
+            const tbody = document.getElementById('rolesTableBody');
+            
+            if (!tbody) return;
+            
+            if (roles.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                            <i class="fas fa-user-tag" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                            <p>No roles defined yet</p>
+                            <p style="font-size: 0.85rem;">Click "Add New Role" to create your first role</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            tbody.innerHTML = roles.map(role => `
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 1rem;">
+                        <div style="font-weight: 600; color: var(--text-primary);">${role.roleName || 'Unknown'}</div>
+                    </td>
+                    <td style="padding: 1rem; color: var(--text-secondary);">${role.description || '-'}</td>
+                    <td style="padding: 1rem; color: var(--text-secondary);">${(role.duties || '-').substring(0, 50)}${(role.duties || '').length > 50 ? '...' : ''}</td>
+                    <td style="padding: 1rem;">
+                        ${role.fileName ? `<a href="${role.fileUrl || '#'}" target="_blank" style="color: var(--accent-primary); text-decoration: none;"><i class="fas fa-file-pdf"></i> ${role.fileName}</a>` : '-'}
+                    </td>
+                    <td style="padding: 1rem; text-align: center;">
+                        <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                            <button onclick="viewRole(${role.id})" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer;" title="View">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button onclick="editRole(${role.id})" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="deleteRole(${role.id})" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        function handleRoleFileUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                document.getElementById('roleFileName').textContent = file.name;
+                // For now, store as base64 or you can implement Azure Blob storage
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('roleFileUrl').value = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+        
+        async function syncRolesFromAPI() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/roles`);
+                if (!response.ok) return false;
+                const apiRoles = await response.json();
+                
+                if (apiRoles && apiRoles.length > 0) {
+                    const localRoles = apiRoles.map(r => ({
+                        id: r.Id || r.id,
+                        roleName: r.RoleName || r.roleName || '',
+                        description: r.Description || r.description || '',
+                        duties: r.Duties || r.duties || '',
+                        responsibilities: r.Responsibilities || r.responsibilities || '',
+                        fileUrl: r.FileUrl || r.fileUrl || '',
+                        fileName: r.FileName || r.fileName || '',
+                        createdDate: r.CreatedDate || r.createdDate || '',
+                        modifiedDate: r.ModifiedDate || r.modifiedDate || ''
+                    }));
+                    localStorage.setItem('roles', JSON.stringify(localRoles));
+                    console.log('✅ Synced', localRoles.length, 'roles from API');
+                    populateRoleDropdowns();
+                }
+                return true;
+            } catch (error) {
+                console.error('❌ Error syncing roles:', error);
+                return false;
+            }
+        }
+        
+        function populateRoleDropdowns() {
+            const roles = loadRoles();
+            const newJobRoleSelect = document.getElementById('newJobRole');
+            const editJobRoleSelect = document.getElementById('editJobRole');
+            
+            const options = '<option value="">--Select Role--</option>' + 
+                roles.map(r => `<option value="${r.id}">${r.roleName}</option>`).join('');
+            
+            if (newJobRoleSelect) newJobRoleSelect.innerHTML = options;
+            if (editJobRoleSelect) editJobRoleSelect.innerHTML = options;
+        }
+        
         // ============ PASSWORD MANAGER ============
         
         function openPasswordManager() {
@@ -35986,7 +36344,7 @@ document.addEventListener('keydown', function(e) {
                                 <input type="password" id="newPassword" required placeholder="Enter password">
                             </div>
                         </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div class="form-group" style="margin-bottom: 0;">
                                 <label for="newJobTitle">
                                     Job Title *
@@ -35995,8 +36353,17 @@ document.addEventListener('keydown', function(e) {
                                 <input type="text" id="newJobTitle" required placeholder="Job title">
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
+                                <label for="newJobRole">
+                                    Job Role
+                                    <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Select a predefined job role with associated duties and responsibilities"></i>
+                                </label>
+                                <select id="newJobRole" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                    <option value="">--Select Role--</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
                                 <label for="newRole">
-                                    Role *
+                                    Access Level *
                                     <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="System access level: User (basic), Manager (team oversight), Admin (full access)"></i>
                                 </label>
                                 <select id="newRole" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
@@ -36475,10 +36842,16 @@ document.addEventListener('keydown', function(e) {
                 <!-- Employment Information -->
                 <div style="margin-bottom: 1.5rem;">
                     <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;"><i class="fas fa-briefcase" style="margin-right: 0.5rem;"></i>Employment Information</h5>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="editJobTitle">Job Title</label>
                             <input type="text" id="editJobTitle">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="editJobRole">Job Role</label>
+                            <select id="editJobRole" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="">--Select Role--</option>
+                            </select>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="editDepartment">Department</label>
@@ -37731,6 +38104,122 @@ document.addEventListener('keydown', function(e) {
                         <i class="fas fa-spinner fa-spin"></i> Loading...
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Roles Management Modal -->
+<div id="rolesManagementModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 10001; align-items: center; justify-content: center;">
+    <div class="login-card" style="width: 100vw; height: 100vh; max-width: 100vw; max-height: 100vh; margin: 0; border-radius: 0; overflow-y: auto; background: var(--bg-primary);">
+        <div class="login-header" style="display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 1.5rem;">
+            <h3 style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-user-tag" style="color: var(--accent-primary);"></i>
+                Roles Management
+            </h3>
+            <button onclick="closeRolesManagement()" style="background: #ef4444; color: white; border: none; width: 40px; height: 40px; border-radius: 8px; font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Close">&times;</button>
+        </div>
+        
+        <div class="modal-body" style="padding: 2rem;">
+            <!-- Roles List Section -->
+            <div style="margin-bottom: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h4 style="margin: 0; color: var(--text-primary);">
+                        <i class="fas fa-list" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+                        Existing Roles
+                    </h4>
+                    <button onclick="openAddRoleForm()" style="padding: 0.6rem 1.2rem; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                        <i class="fas fa-plus" style="margin-right: 0.5rem;"></i>Add New Role
+                    </button>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 8px; overflow: hidden;">
+                        <thead>
+                            <tr style="background: var(--bg-tertiary);">
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary);">Role Name</th>
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary);">Description</th>
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary);">Duties</th>
+                                <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary);">File</th>
+                                <th style="padding: 1rem; text-align: center; font-weight: 600; color: var(--text-primary);">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rolesTableBody">
+                            <tr>
+                                <td colspan="5" style="padding: 2rem; text-align: center; color: var(--text-tertiary);">Loading roles...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Add/Edit Role Form Section -->
+            <div id="roleFormSection" style="display: none; background: var(--card-bg); border-radius: 12px; padding: 1.5rem; border: 1px solid var(--border-color); margin-top: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <h4 id="roleFormTitle" style="margin: 0; color: var(--text-primary);">
+                        <i class="fas fa-plus-circle" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+                        Add New Role
+                    </h4>
+                    <button onclick="closeRoleForm()" style="background: var(--bg-tertiary); color: var(--text-secondary); border: none; width: 32px; height: 32px; border-radius: 6px; cursor: pointer;">&times;</button>
+                </div>
+                
+                <form id="createRoleForm" onsubmit="createRole(event)">
+                    <input type="hidden" id="editRoleId" value="">
+                    
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-bottom: 1rem;">
+                        <div>
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--text-secondary); font-size: 0.9rem;">
+                                Role Name <span style="color: #ef4444;">*</span>
+                            </label>
+                            <input type="text" id="newRoleName" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary);" placeholder="e.g., Dental Assistant">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--text-secondary); font-size: 0.9rem;">
+                                Description
+                            </label>
+                            <input type="text" id="newRoleDescription" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary);" placeholder="Brief description of the role">
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--text-secondary); font-size: 0.9rem;">
+                            Duties
+                        </label>
+                        <textarea id="newRoleDuties" rows="3" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); resize: vertical;" placeholder="List the main duties for this role..."></textarea>
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--text-secondary); font-size: 0.9rem;">
+                            Responsibilities
+                        </label>
+                        <textarea id="newRoleResponsibilities" rows="3" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); resize: vertical;" placeholder="List the responsibilities for this role..."></textarea>
+                    </div>
+                    
+                    <div style="margin-bottom: 1.5rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--text-secondary); font-size: 0.9rem;">
+                            <i class="fas fa-file-upload" style="margin-right: 0.5rem; color: var(--accent-primary);"></i>
+                            Upload Document (Job Description, etc.)
+                        </label>
+                        <div style="display: flex; gap: 1rem; align-items: center;">
+                            <input type="file" id="roleFileUpload" accept=".pdf,.doc,.docx,.txt" style="display: none;" onchange="handleRoleFileUpload(event)">
+                            <button type="button" onclick="document.getElementById('roleFileUpload').click()" style="padding: 0.75rem 1.5rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px dashed var(--border-color); border-radius: 8px; cursor: pointer;">
+                                <i class="fas fa-cloud-upload-alt" style="margin-right: 0.5rem;"></i>Choose File
+                            </button>
+                            <span id="roleFileName" style="color: var(--text-secondary); font-size: 0.9rem;">No file selected</span>
+                            <input type="hidden" id="roleFileUrl" value="">
+                        </div>
+                    </div>
+                    
+                    <div id="createRoleError" style="display: none; padding: 0.75rem; background: #fee2e2; border: 1px solid #fecaca; border-radius: 8px; color: #991b1b; margin-bottom: 1rem;"></div>
+                    
+                    <div style="display: flex; gap: 1rem;">
+                        <button type="submit" id="roleSubmitBtn" style="flex: 1; padding: 0.75rem 1.5rem; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                            <i class="fas fa-plus-circle" style="margin-right: 0.5rem;"></i>Add Role
+                        </button>
+                        <button type="button" onclick="closeRoleForm()" style="padding: 0.75rem 1.5rem; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer;">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -40690,7 +41179,8 @@ async function loadAllDataFromAPI() {
             syncSuppliesFromAPI(),
             syncTasksFromAPI(),
             syncSchedulesFromAPI(),
-            syncVendorsFromAPI()
+            syncVendorsFromAPI(),
+            syncRolesFromAPI()
         ]);
         
         console.log('✅ All data synced from database');
@@ -40707,6 +41197,7 @@ async function loadAllDataFromAPI() {
         loadOfficesForUserForm();
         loadSupervisorsForUserForm();
         initPhoneFormatting();
+        populateRoleDropdowns();
         
     } catch (error) {
         console.error('❌ Error loading data from API:', error);
