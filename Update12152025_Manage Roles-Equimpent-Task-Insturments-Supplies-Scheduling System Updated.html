@@ -25794,7 +25794,7 @@
         // Navigate to date from small calendar widget
         
         // Quick Calendar State
-        let quickCalendarDate = new Date(2025, 10, 16); // November 16, 2025
+        let quickCalendarDate = new Date(); // Use current date
         let quickCalendarOpen = false;
 
         // Toggle Quick Calendar Dropdown
@@ -25844,120 +25844,120 @@
                               'July', 'August', 'September', 'October', 'November', 'December'];
             const monthYearText = `${monthNames[month]} ${year}`;
             
-            // Find elements in active view or use fallback
-            const activeView = document.querySelector('.content-view.active');
-            const monthDisplay = activeView ? activeView.querySelector('#quickCalendarMonth') : document.getElementById('quickCalendarMonth');
-            if (monthDisplay) {
-                monthDisplay.textContent = monthYearText;
-            }
+            // Update ALL calendar month displays across all views
+            document.querySelectorAll('#quickCalendarMonth, [id="quickCalendarMonth"]').forEach(el => {
+                el.textContent = monthYearText;
+            });
             
-            // Update button text if it exists
-            const buttonDate = activeView ? activeView.querySelector('#quickCalendarButtonDate') : document.getElementById('quickCalendarButtonDate');
-            if (buttonDate) {
-                buttonDate.textContent = monthYearText;
-            }
+            // Update ALL button texts across all views
+            document.querySelectorAll('#quickCalendarButtonDate, [id="quickCalendarButtonDate"]').forEach(el => {
+                el.textContent = monthYearText;
+            });
             
             // Get first day of month and number of days
             const firstDay = new Date(year, month, 1).getDay();
             const daysInMonth = new Date(year, month + 1, 0).getDate();
             const daysInPrevMonth = new Date(year, month, 0).getDate();
             
-            // Clear existing days (keep day headers)
-            const grid = activeView ? activeView.querySelector('#quickCalendarGrid') : document.getElementById('quickCalendarGrid');
-            if (!grid) return;
-            
-            // Get existing day headers before clearing
-            const existingHeaders = Array.from(grid.querySelectorAll(':scope > div:nth-child(-n+7)'));
-            
-            // Clear the grid
-            grid.innerHTML = '';
-            
-            // Re-add day headers if they exist, otherwise create them
-            if (existingHeaders.length === 7) {
-                existingHeaders.forEach(header => grid.appendChild(header.cloneNode(true)));
-            } else {
-                // Create day headers
-                const dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-                dayNames.forEach(dayName => {
-                    const headerEl = document.createElement('div');
-                    headerEl.style.cssText = 'font-weight: 600; color: var(--text-secondary); font-size: 0.75rem; padding: 0.25rem; text-align: center;';
-                    headerEl.textContent = dayName;
-                    grid.appendChild(headerEl);
-                });
-            }
-            
-            const today = new Date();
-            const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
-            const todayDate = isCurrentMonth ? today.getDate() : -1;
-            
-            // Add days from previous month
-            for (let i = firstDay - 1; i >= 0; i--) {
-                const day = daysInPrevMonth - i;
-                const dayEl = document.createElement('div');
-                dayEl.style.cssText = 'padding: 0.4rem; color: var(--text-secondary); opacity: 0.4; font-size: 0.8rem; text-align: center;';
-                dayEl.textContent = day;
-                grid.appendChild(dayEl);
-            }
-            
-            // Add days of current month
-            for (let day = 1; day <= daysInMonth; day++) {
-                const dayEl = document.createElement('div');
-                const isToday = day === todayDate;
+            // Update ALL calendar grids across all views
+            document.querySelectorAll('#quickCalendarGrid, [id="quickCalendarGrid"]').forEach(grid => {
+                // Get existing day headers before clearing
+                const existingHeaders = Array.from(grid.querySelectorAll(':scope > div:nth-child(-n+7)'));
                 
-                dayEl.style.cssText = `
-                    padding: 0.4rem;
-                    cursor: pointer;
-                    border-radius: 6px;
-                    transition: all 0.2s;
-                    font-size: 0.8rem;
-                    font-weight: 500;
-                    text-align: center;
-                    color: ${isToday ? 'white' : '#2d3748'};
-                    ${isToday ? 'background: var(--accent-primary); font-weight: 600;' : ''}
-                `;
+                // Clear the grid
+                grid.innerHTML = '';
                 
-                dayEl.textContent = day;
-                dayEl.onmouseover = function() {
-                    if (!isToday) this.style.background = 'var(--accent-light)';
-                };
-                dayEl.onmouseout = function() {
-                    if (!isToday) this.style.background = 'transparent';
-                };
-                dayEl.onclick = function(e) {
-                    e.stopPropagation(); // Prevent closing the dropdown
-                    quickCalendarDate = new Date(year, month, day);
-                    
-                    // Sync main calendar
-                    if (window.calendarInstance) {
-                        window.calendarInstance.currentDate = new Date(quickCalendarDate);
-                        window.calendarInstance.render();
-                    }
-                    
-                    // Sync My Schedule calendar if it exists
-                    if (typeof window.myScheduleGoToDate === 'function') {
-                        window.myScheduleGoToDate(quickCalendarDate);
-                    }
-                    
-                    renderQuickCalendar();
-                    
-                    // Refresh table view if active
-                    if (typeof isTableView !== 'undefined' && isTableView && typeof populateTable === 'function') {
-                        populateTable();
-                    }
-                };
+                // Re-add day headers if they exist, otherwise create them
+                if (existingHeaders.length === 7) {
+                    existingHeaders.forEach(header => grid.appendChild(header.cloneNode(true)));
+                } else {
+                    // Create day headers
+                    const dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+                    dayNames.forEach(dayName => {
+                        const headerEl = document.createElement('div');
+                        headerEl.style.cssText = 'font-weight: 600; color: var(--text-secondary); font-size: 0.75rem; padding: 0.25rem; text-align: center;';
+                        headerEl.textContent = dayName;
+                        grid.appendChild(headerEl);
+                    });
+                }
                 
-                grid.appendChild(dayEl);
-            }
-            
-            // Add days from next month
-            const totalCells = grid.children.length - 7; // Subtract day headers
-            const remainingCells = 42 - totalCells; // 6 rows * 7 days
-            for (let day = 1; day <= remainingCells; day++) {
-                const dayEl = document.createElement('div');
-                dayEl.style.cssText = 'padding: 0.4rem; color: var(--text-secondary); opacity: 0.4; font-size: 0.8rem; text-align: center;';
-                dayEl.textContent = day;
-                grid.appendChild(dayEl);
-            }
+                const today = new Date();
+                const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+                const todayDate = isCurrentMonth ? today.getDate() : -1;
+                
+                // Add days from previous month
+                for (let i = firstDay - 1; i >= 0; i--) {
+                    const day = daysInPrevMonth - i;
+                    const dayEl = document.createElement('div');
+                    dayEl.style.cssText = 'padding: 0.4rem; color: var(--text-secondary); opacity: 0.4; font-size: 0.8rem; text-align: center;';
+                    dayEl.textContent = day;
+                    grid.appendChild(dayEl);
+                }
+                
+                // Add days of current month
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const dayEl = document.createElement('div');
+                    const isToday = day === todayDate;
+                    
+                    dayEl.style.cssText = `
+                        padding: 0.4rem;
+                        cursor: pointer;
+                        border-radius: 6px;
+                        transition: all 0.2s;
+                        font-size: 0.8rem;
+                        font-weight: 500;
+                        text-align: center;
+                        color: ${isToday ? 'white' : '#2d3748'};
+                        ${isToday ? 'background: var(--accent-primary); font-weight: 600;' : ''}
+                    `;
+                    
+                    dayEl.textContent = day;
+                    dayEl.onmouseover = function() {
+                        if (!isToday) this.style.background = 'var(--accent-light)';
+                    };
+                    dayEl.onmouseout = function() {
+                        if (!isToday) this.style.background = 'transparent';
+                    };
+                    
+                    // Use closure to capture the day value
+                    (function(selectedDay) {
+                        dayEl.onclick = function(e) {
+                            e.stopPropagation(); // Prevent closing the dropdown
+                            quickCalendarDate = new Date(year, month, selectedDay);
+                            
+                            // Sync main calendar
+                            if (window.calendarInstance) {
+                                window.calendarInstance.currentDate = new Date(quickCalendarDate);
+                                window.calendarInstance.render();
+                            }
+                            
+                            // Sync My Schedule calendar if it exists
+                            if (typeof window.myScheduleGoToDate === 'function') {
+                                window.myScheduleGoToDate(quickCalendarDate);
+                            }
+                            
+                            renderQuickCalendar();
+                            
+                            // Refresh table view if active
+                            if (typeof isTableView !== 'undefined' && isTableView && typeof populateTable === 'function') {
+                                populateTable();
+                            }
+                        };
+                    })(day);
+                    
+                    grid.appendChild(dayEl);
+                }
+                
+                // Add days from next month
+                const totalCells = grid.children.length - 7; // Subtract day headers
+                const remainingCells = 42 - totalCells; // 6 rows * 7 days
+                for (let day = 1; day <= remainingCells; day++) {
+                    const dayEl = document.createElement('div');
+                    dayEl.style.cssText = 'padding: 0.4rem; color: var(--text-secondary); opacity: 0.4; font-size: 0.8rem; text-align: center;';
+                    dayEl.textContent = day;
+                    grid.appendChild(dayEl);
+                }
+            });
         }
 
         // Previous Month
