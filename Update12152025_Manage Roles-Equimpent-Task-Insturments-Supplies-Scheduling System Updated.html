@@ -9665,8 +9665,13 @@
                     </a>
                     <a href="#" class="nav-item" onclick="switchContentView('tasks', event)">
                         <i class="fas fa-list-check"></i>
-                        <span>My Tasks</span>
+                        <span>Task Templates</span>
                         <span class="nav-badge">6</span>
+                    </a>
+                    <a href="#" class="nav-item" onclick="switchContentView('task-assignments', event)">
+                        <i class="fas fa-link"></i>
+                        <span>Task Assignments</span>
+                        <span class="nav-badge" id="taskAssignmentsNavBadge">0</span>
                     </a>
                     <a href="#" class="nav-item" onclick="toggleFloatingTasksPanel(); event.preventDefault();">
                         <i class="fas fa-clipboard-list bounce-icon"></i>
@@ -11394,10 +11399,15 @@
                 <!-- Tasks Section (Left) -->
                 <div class="calendar-section" id="tasksSection" style="max-width: 100%;">
                     <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-                        <h2 class="section-title">
-                            <i class="fas fa-tasks" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
-                            Task Management
-                        </h2>
+                        <div>
+                            <h2 class="section-title" style="margin-bottom: 0.25rem;">
+                                <i class="fas fa-layer-group" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+                                Task Templates
+                            </h2>
+                            <p style="margin: 0; font-size: 0.8rem; color: var(--text-secondary);">
+                                Define reusable task templates • Use <a href="#" onclick="switchContentView('task-assignments', event); return false;" style="color: var(--accent-primary); text-decoration: underline;">Task Assignments</a> to assign to entities
+                            </p>
+                        </div>
                         <div style="display: flex; gap: 0.5rem; align-items: center;">
                             <!-- Date Navigator for Tasks -->
                             <div style="display: flex; align-items: center; gap: 0.25rem; background: var(--bg-secondary); border-radius: 8px; padding: 0.25rem;">
@@ -11646,6 +11656,61 @@
                                     <i class="fas fa-list" style="color: var(--accent-primary);"></i> All Tasks
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Task Assignments View -->
+        <div class="content-view" id="view-task-assignments">
+            <div class="dashboard-grid" style="grid-template-columns: 1fr;">
+                <div class="calendar-section" style="max-width: 100%;">
+                    <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
+                        <h2 class="section-title">
+                            <i class="fas fa-link" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+                            Task Assignments
+                        </h2>
+                        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                            <!-- Search -->
+                            <div style="position: relative;">
+                                <i class="fas fa-search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-secondary);"></i>
+                                <input type="text" id="assignmentSearch" placeholder="Search assignments..." onkeyup="renderTaskAssignmentsView()" style="padding: 0.5rem 0.75rem 0.5rem 2rem; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.85rem; width: 200px;">
+                            </div>
+                            
+                            <!-- Status Filter -->
+                            <select id="assignmentFilterStatus" onchange="renderTaskAssignmentsView()" style="padding: 0.5rem 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.85rem; cursor: pointer;">
+                                <option value="all">All Status</option>
+                                <option value="pending">Pending</option>
+                                <option value="in-progress">In Progress</option>
+                                <option value="completed">Completed</option>
+                                <option value="overdue">Overdue</option>
+                            </select>
+                            
+                            <!-- Entity Type Filter -->
+                            <select id="assignmentFilterEntity" onchange="renderTaskAssignmentsView()" style="padding: 0.5rem 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.85rem; cursor: pointer;">
+                                <option value="all">All Entities</option>
+                                <option value="employee">Employees</option>
+                                <option value="equipment">Equipment</option>
+                                <option value="instrument">Instruments</option>
+                                <option value="supply">Supplies</option>
+                                <option value="room">Rooms</option>
+                                <option value="provider">Providers</option>
+                            </select>
+                            
+                            <!-- New Assignment Button -->
+                            <button onclick="openTaskAssignmentModal()" style="padding: 0.6rem 1rem; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+                                <i class="fas fa-plus"></i> New Assignment
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Assignments Container -->
+                    <div id="taskAssignmentsContainer">
+                        <!-- Will be populated dynamically by renderTaskAssignmentsView() -->
+                        <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+                            <i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 1rem;"></i>
+                            <p>Loading task assignments...</p>
                         </div>
                     </div>
                 </div>
@@ -26179,6 +26244,14 @@
                         }
                     }, 50);
                 }
+                
+                // Render Task Assignments view
+                if (viewName === 'task-assignments') {
+                    setTimeout(() => {
+                        renderTaskAssignmentsView();
+                        updateTaskAssignmentsNavBadge();
+                    }, 50);
+                }
 
             } catch (error) {
                 console.error('Error switching content view:', error);
@@ -32415,6 +32488,726 @@ window.addEventListener('load', function() {
         
         // ============================================
         // END TEAM CHAT FUNCTIONS
+        // ============================================
+        
+        // ============================================
+        // TASK ASSIGNMENT SYSTEM
+        // ============================================
+        
+        // Task Assignments - Links tasks to entities (employees, equipment, instruments, supplies, etc.)
+        window.taskAssignments = JSON.parse(localStorage.getItem('reformDental_taskAssignments')) || [];
+        
+        // Entity Types for Task Assignments
+        const taskEntityTypes = [
+            { id: 'employee', name: 'Employee', icon: 'fa-user', color: '#3b82f6' },
+            { id: 'equipment', name: 'Equipment', icon: 'fa-cog', color: '#f59e0b' },
+            { id: 'instrument', name: 'Instrument', icon: 'fa-tools', color: '#8b5cf6' },
+            { id: 'supply', name: 'Supply', icon: 'fa-boxes', color: '#ec4899' },
+            { id: 'room', name: 'Room', icon: 'fa-door-open', color: '#14b8a6' },
+            { id: 'clinic', name: 'Clinic', icon: 'fa-hospital', color: '#6366f1' },
+            { id: 'patient', name: 'Patient', icon: 'fa-user-injured', color: '#ef4444' },
+            { id: 'provider', name: 'Provider', icon: 'fa-user-md', color: '#10b981' }
+        ];
+        
+        // Assignment Status Options
+        const assignmentStatusOptions = [
+            { id: 'pending', name: 'Pending', color: '#eab308', icon: 'fa-clock' },
+            { id: 'in-progress', name: 'In Progress', color: '#3b82f6', icon: 'fa-spinner' },
+            { id: 'completed', name: 'Completed', color: '#10b981', icon: 'fa-check-circle' },
+            { id: 'overdue', name: 'Overdue', color: '#ef4444', icon: 'fa-exclamation-circle' },
+            { id: 'cancelled', name: 'Cancelled', color: '#64748b', icon: 'fa-times-circle' }
+        ];
+        
+        // Save Task Assignments to localStorage
+        function saveTaskAssignments() {
+            localStorage.setItem('reformDental_taskAssignments', JSON.stringify(window.taskAssignments));
+        }
+        
+        // Generate unique ID for assignments
+        function generateAssignmentId() {
+            return 'assign-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+        }
+        
+        // Create a new task assignment
+        function createTaskAssignment(data) {
+            const assignment = {
+                id: generateAssignmentId(),
+                taskTemplateId: data.taskTemplateId,
+                title: data.title || '',
+                description: data.description || '',
+                priority: data.priority || 'Medium',
+                status: data.status || 'pending',
+                dueDate: data.dueDate || null,
+                dueTime: data.dueTime || null,
+                recurrence: data.recurrence || 'one-time',
+                linkedEntities: data.linkedEntities || [], // Array of { entityType, entityId, entityName, role }
+                primaryAssignee: data.primaryAssignee || null, // { entityType, entityId, entityName }
+                notes: data.notes || '',
+                createdAt: new Date().toISOString(),
+                createdBy: 'current-user', // Would be actual user in real app
+                completedAt: null,
+                completedBy: null
+            };
+            
+            window.taskAssignments.push(assignment);
+            saveTaskAssignments();
+            renderTaskAssignmentsView();
+            
+            if (typeof showNotification === 'function') {
+                showNotification('Task assignment created successfully', 'success');
+            }
+            
+            return assignment;
+        }
+        
+        // Update task assignment
+        function updateTaskAssignment(assignmentId, updates) {
+            const index = window.taskAssignments.findIndex(a => a.id === assignmentId);
+            if (index !== -1) {
+                window.taskAssignments[index] = { ...window.taskAssignments[index], ...updates };
+                saveTaskAssignments();
+                renderTaskAssignmentsView();
+                return window.taskAssignments[index];
+            }
+            return null;
+        }
+        
+        // Delete task assignment
+        function deleteTaskAssignment(assignmentId) {
+            const index = window.taskAssignments.findIndex(a => a.id === assignmentId);
+            if (index !== -1) {
+                window.taskAssignments.splice(index, 1);
+                saveTaskAssignments();
+                renderTaskAssignmentsView();
+                if (typeof showNotification === 'function') {
+                    showNotification('Task assignment deleted', 'info');
+                }
+                return true;
+            }
+            return false;
+        }
+        
+        // Get entities by type for dropdown population
+        function getEntitiesByType(entityType) {
+            switch (entityType) {
+                case 'employee':
+                    return (window.masterEmployees || []).map(e => ({ id: e.id, name: e.name, details: e.role || e.department }));
+                case 'equipment':
+                    return (window.masterEquipment || []).map(e => ({ id: e.id, name: e.name, details: e.type || e.category }));
+                case 'instrument':
+                    return (window.masterInstruments || []).map(i => ({ id: i.id, name: i.name, details: i.category }));
+                case 'supply':
+                    return (window.masterSupplies || []).map(s => ({ id: s.id, name: s.name, details: s.category }));
+                case 'room':
+                    return (window.masterRooms || []).map(r => ({ id: r.id, name: r.name, details: r.clinic || r.type }));
+                case 'clinic':
+                    return (window.masterClinics || []).map(c => ({ id: c.id, name: c.name, details: c.address }));
+                case 'patient':
+                    return (window.masterPatients || []).map(p => ({ id: p.id, name: p.name, details: p.phone }));
+                case 'provider':
+                    return (window.masterProviders || []).map(p => ({ id: p.id, name: p.name, details: p.specialty }));
+                default:
+                    return [];
+            }
+        }
+        
+        // Get assignment statistics
+        function getAssignmentStats() {
+            const stats = {
+                total: window.taskAssignments.length,
+                pending: 0,
+                inProgress: 0,
+                completed: 0,
+                overdue: 0,
+                byEntity: {}
+            };
+            
+            const now = new Date();
+            
+            window.taskAssignments.forEach(a => {
+                // Check if overdue
+                if (a.dueDate && a.status !== 'completed' && a.status !== 'cancelled') {
+                    const dueDate = new Date(a.dueDate);
+                    if (dueDate < now) {
+                        a.status = 'overdue';
+                    }
+                }
+                
+                switch (a.status) {
+                    case 'pending': stats.pending++; break;
+                    case 'in-progress': stats.inProgress++; break;
+                    case 'completed': stats.completed++; break;
+                    case 'overdue': stats.overdue++; break;
+                }
+                
+                // Count by entity
+                a.linkedEntities.forEach(entity => {
+                    if (!stats.byEntity[entity.entityType]) {
+                        stats.byEntity[entity.entityType] = 0;
+                    }
+                    stats.byEntity[entity.entityType]++;
+                });
+            });
+            
+            return stats;
+        }
+        
+        // Open Task Assignment Modal
+        function openTaskAssignmentModal(templateId = null, assignmentId = null) {
+            const template = templateId ? window.taskTemplates.find(t => t.id === templateId) : null;
+            const assignment = assignmentId ? window.taskAssignments.find(a => a.id === assignmentId) : null;
+            const isEdit = !!assignment;
+            
+            const modalHTML = `
+                <div class="modal-overlay active" id="taskAssignmentModal" onclick="if(event.target === this) closeTaskAssignmentModal()">
+                    <div class="modal-content" style="max-width: 700px; max-height: 90vh; overflow-y: auto;" onclick="event.stopPropagation()">
+                        <div class="modal-header">
+                            <h2 style="display: flex; align-items: center; gap: 0.75rem;">
+                                <i class="fas fa-link" style="color: var(--accent-primary);"></i>
+                                ${isEdit ? 'Edit Task Assignment' : 'Create Task Assignment'}
+                            </h2>
+                            <button class="modal-close" onclick="closeTaskAssignmentModal()">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        
+                        <div class="modal-body" style="padding: 1.5rem;">
+                            <!-- Task Template Selection -->
+                            <div class="form-group" style="margin-bottom: 1.5rem;">
+                                <label class="form-label">Task Template</label>
+                                <select id="assignTaskTemplate" class="form-input-enhanced" onchange="onTaskTemplateSelect(this.value)" ${isEdit ? 'disabled' : ''}>
+                                    <option value="">-- Select a task template --</option>
+                                    ${window.taskTemplates.map(t => `
+                                        <option value="${t.id}" ${(template && t.id === template.id) || (assignment && t.id === assignment.taskTemplateId) ? 'selected' : ''}>
+                                            ${t.title} (${t.category})
+                                        </option>
+                                    `).join('')}
+                                    <option value="custom">+ Custom Task (No Template)</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Custom Title (shown if no template or custom) -->
+                            <div class="form-group" id="customTitleGroup" style="margin-bottom: 1rem; ${template ? 'display: none;' : ''}">
+                                <label class="form-label">Task Title</label>
+                                <input type="text" id="assignTaskTitle" class="form-input-enhanced" placeholder="Enter task title" value="${assignment?.title || ''}">
+                            </div>
+                            
+                            <!-- Description -->
+                            <div class="form-group" style="margin-bottom: 1rem;">
+                                <label class="form-label">Description</label>
+                                <textarea id="assignTaskDescription" class="form-input-enhanced" rows="2" placeholder="Task description...">${assignment?.description || template?.description || ''}</textarea>
+                            </div>
+                            
+                            <!-- Priority & Status Row -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                                <div class="form-group">
+                                    <label class="form-label">Priority</label>
+                                    <select id="assignTaskPriority" class="form-input-enhanced">
+                                        <option value="Low" ${(assignment?.priority || template?.priority) === 'Low' ? 'selected' : ''}>Low</option>
+                                        <option value="Medium" ${(assignment?.priority || template?.priority || 'Medium') === 'Medium' ? 'selected' : ''}>Medium</option>
+                                        <option value="High" ${(assignment?.priority || template?.priority) === 'High' ? 'selected' : ''}>High</option>
+                                        <option value="Critical" ${(assignment?.priority || template?.priority) === 'Critical' ? 'selected' : ''}>Critical</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Status</label>
+                                    <select id="assignTaskStatus" class="form-input-enhanced">
+                                        ${assignmentStatusOptions.map(s => `
+                                            <option value="${s.id}" ${(assignment?.status || 'pending') === s.id ? 'selected' : ''}>${s.name}</option>
+                                        `).join('')}
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <!-- Due Date & Time Row -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                                <div class="form-group">
+                                    <label class="form-label">Due Date</label>
+                                    <input type="date" id="assignTaskDueDate" class="form-input-enhanced" value="${assignment?.dueDate || ''}">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Due Time</label>
+                                    <input type="time" id="assignTaskDueTime" class="form-input-enhanced" value="${assignment?.dueTime || ''}">
+                                </div>
+                            </div>
+                            
+                            <!-- Recurrence -->
+                            <div class="form-group" style="margin-bottom: 1.5rem;">
+                                <label class="form-label">Recurrence</label>
+                                <select id="assignTaskRecurrence" class="form-input-enhanced">
+                                    <option value="one-time" ${(assignment?.recurrence || template?.recurrence || 'one-time').toLowerCase().includes('one') ? 'selected' : ''}>One-time</option>
+                                    <option value="daily" ${(assignment?.recurrence || template?.recurrence || '').toLowerCase() === 'daily' ? 'selected' : ''}>Daily</option>
+                                    <option value="weekly" ${(assignment?.recurrence || template?.recurrence || '').toLowerCase() === 'weekly' ? 'selected' : ''}>Weekly</option>
+                                    <option value="monthly" ${(assignment?.recurrence || template?.recurrence || '').toLowerCase() === 'monthly' ? 'selected' : ''}>Monthly</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Linked Entities Section -->
+                            <div style="background: var(--bg-secondary); border-radius: 12px; padding: 1rem; margin-bottom: 1rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                    <h4 style="margin: 0; font-size: 0.95rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+                                        <i class="fas fa-link" style="color: var(--accent-primary);"></i>
+                                        Linked Entities
+                                    </h4>
+                                    <button type="button" onclick="addLinkedEntityRow()" style="background: var(--accent-primary); color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem;">
+                                        <i class="fas fa-plus"></i> Add Entity
+                                    </button>
+                                </div>
+                                
+                                <div id="linkedEntitiesContainer">
+                                    ${(assignment?.linkedEntities || []).map((entity, idx) => createLinkedEntityRowHTML(idx, entity)).join('')}
+                                </div>
+                                
+                                <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.75rem; margin-bottom: 0;">
+                                    <i class="fas fa-info-circle"></i> Link employees, equipment, instruments, supplies, rooms, etc. to this task.
+                                </p>
+                            </div>
+                            
+                            <!-- Primary Assignee -->
+                            <div class="form-group" style="margin-bottom: 1rem;">
+                                <label class="form-label">Primary Assignee (Optional)</label>
+                                <select id="assignPrimaryAssignee" class="form-input-enhanced">
+                                    <option value="">-- Select from linked entities --</option>
+                                </select>
+                                <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                                    The primary person/entity responsible for completing this task.
+                                </p>
+                            </div>
+                            
+                            <!-- Notes -->
+                            <div class="form-group">
+                                <label class="form-label">Notes</label>
+                                <textarea id="assignTaskNotes" class="form-input-enhanced" rows="2" placeholder="Additional notes...">${assignment?.notes || ''}</textarea>
+                            </div>
+                        </div>
+                        
+                        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between;">
+                            <button type="button" onclick="closeTaskAssignmentModal()" style="padding: 0.6rem 1.25rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; color: var(--text-secondary);">
+                                Cancel
+                            </button>
+                            <button type="button" onclick="saveTaskAssignment('${assignmentId || ''}')" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                                <i class="fas fa-save"></i> ${isEdit ? 'Update Assignment' : 'Create Assignment'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            
+            // If editing, populate primary assignee dropdown
+            if (assignment) {
+                setTimeout(() => updatePrimaryAssigneeDropdown(), 100);
+            }
+        }
+        
+        // Create HTML for a linked entity row
+        function createLinkedEntityRowHTML(index, entity = null) {
+            return `
+                <div class="linked-entity-row" data-index="${index}" style="display: grid; grid-template-columns: 140px 1fr 100px 40px; gap: 0.5rem; margin-bottom: 0.5rem; align-items: center;">
+                    <select class="form-input-enhanced entity-type-select" onchange="onEntityTypeChange(${index}, this.value)" style="font-size: 0.85rem;">
+                        <option value="">Type...</option>
+                        ${taskEntityTypes.map(t => `
+                            <option value="${t.id}" ${entity?.entityType === t.id ? 'selected' : ''}>${t.name}</option>
+                        `).join('')}
+                    </select>
+                    <select class="form-input-enhanced entity-select" id="entitySelect_${index}" style="font-size: 0.85rem;">
+                        <option value="">Select ${entity?.entityType || 'entity'}...</option>
+                        ${entity ? getEntitiesByType(entity.entityType).map(e => `
+                            <option value="${e.id}" data-name="${e.name}" ${e.id === entity.entityId ? 'selected' : ''}>${e.name}${e.details ? ' (' + e.details + ')' : ''}</option>
+                        `).join('') : ''}
+                    </select>
+                    <select class="form-input-enhanced entity-role-select" style="font-size: 0.85rem;">
+                        <option value="assigned" ${entity?.role === 'assigned' ? 'selected' : ''}>Assigned</option>
+                        <option value="responsible" ${entity?.role === 'responsible' ? 'selected' : ''}>Responsible</option>
+                        <option value="involved" ${entity?.role === 'involved' ? 'selected' : ''}>Involved</option>
+                        <option value="uses" ${entity?.role === 'uses' ? 'selected' : ''}>Uses</option>
+                        <option value="located-at" ${entity?.role === 'located-at' ? 'selected' : ''}>Located At</option>
+                    </select>
+                    <button type="button" onclick="removeLinkedEntityRow(${index})" style="background: #fee2e2; border: none; color: #dc2626; padding: 0.4rem; border-radius: 6px; cursor: pointer;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+        }
+        
+        // Add a new linked entity row
+        let linkedEntityIndex = 0;
+        function addLinkedEntityRow() {
+            const container = document.getElementById('linkedEntitiesContainer');
+            if (container) {
+                linkedEntityIndex++;
+                container.insertAdjacentHTML('beforeend', createLinkedEntityRowHTML(linkedEntityIndex));
+            }
+        }
+        
+        // Remove a linked entity row
+        function removeLinkedEntityRow(index) {
+            const row = document.querySelector(`.linked-entity-row[data-index="${index}"]`);
+            if (row) {
+                row.remove();
+                updatePrimaryAssigneeDropdown();
+            }
+        }
+        
+        // On entity type change, populate the entity select
+        function onEntityTypeChange(index, entityType) {
+            const entitySelect = document.getElementById(`entitySelect_${index}`);
+            if (entitySelect && entityType) {
+                const entities = getEntitiesByType(entityType);
+                entitySelect.innerHTML = `
+                    <option value="">Select ${entityType}...</option>
+                    ${entities.map(e => `
+                        <option value="${e.id}" data-name="${e.name}">${e.name}${e.details ? ' (' + e.details + ')' : ''}</option>
+                    `).join('')}
+                `;
+            }
+            updatePrimaryAssigneeDropdown();
+        }
+        
+        // On task template select
+        function onTaskTemplateSelect(templateId) {
+            const customTitleGroup = document.getElementById('customTitleGroup');
+            const descriptionField = document.getElementById('assignTaskDescription');
+            const priorityField = document.getElementById('assignTaskPriority');
+            
+            if (templateId === 'custom' || !templateId) {
+                if (customTitleGroup) customTitleGroup.style.display = 'block';
+                if (descriptionField) descriptionField.value = '';
+            } else {
+                const template = window.taskTemplates.find(t => t.id === templateId);
+                if (template) {
+                    if (customTitleGroup) customTitleGroup.style.display = 'none';
+                    if (descriptionField) descriptionField.value = template.description || '';
+                    if (priorityField) priorityField.value = template.priority || 'Medium';
+                }
+            }
+        }
+        
+        // Update primary assignee dropdown based on linked entities
+        function updatePrimaryAssigneeDropdown() {
+            const dropdown = document.getElementById('assignPrimaryAssignee');
+            if (!dropdown) return;
+            
+            const linkedEntities = collectLinkedEntities();
+            const assignableEntities = linkedEntities.filter(e => 
+                e.entityType === 'employee' || e.entityType === 'provider'
+            );
+            
+            dropdown.innerHTML = `
+                <option value="">-- Select from linked entities --</option>
+                ${assignableEntities.map(e => `
+                    <option value="${e.entityType}:${e.entityId}">${e.entityName} (${e.entityType})</option>
+                `).join('')}
+            `;
+        }
+        
+        // Collect linked entities from the form
+        function collectLinkedEntities() {
+            const entities = [];
+            const rows = document.querySelectorAll('.linked-entity-row');
+            
+            rows.forEach(row => {
+                const typeSelect = row.querySelector('.entity-type-select');
+                const entitySelect = row.querySelector('.entity-select');
+                const roleSelect = row.querySelector('.entity-role-select');
+                
+                if (typeSelect?.value && entitySelect?.value) {
+                    entities.push({
+                        entityType: typeSelect.value,
+                        entityId: entitySelect.value,
+                        entityName: entitySelect.options[entitySelect.selectedIndex]?.dataset?.name || entitySelect.options[entitySelect.selectedIndex]?.text || '',
+                        role: roleSelect?.value || 'assigned'
+                    });
+                }
+            });
+            
+            return entities;
+        }
+        
+        // Save task assignment from modal
+        function saveTaskAssignment(assignmentId) {
+            const templateSelect = document.getElementById('assignTaskTemplate');
+            const titleInput = document.getElementById('assignTaskTitle');
+            const descriptionInput = document.getElementById('assignTaskDescription');
+            const prioritySelect = document.getElementById('assignTaskPriority');
+            const statusSelect = document.getElementById('assignTaskStatus');
+            const dueDateInput = document.getElementById('assignTaskDueDate');
+            const dueTimeInput = document.getElementById('assignTaskDueTime');
+            const recurrenceSelect = document.getElementById('assignTaskRecurrence');
+            const primaryAssigneeSelect = document.getElementById('assignPrimaryAssignee');
+            const notesInput = document.getElementById('assignTaskNotes');
+            
+            const templateId = templateSelect?.value;
+            const template = templateId && templateId !== 'custom' ? window.taskTemplates.find(t => t.id === templateId) : null;
+            
+            const linkedEntities = collectLinkedEntities();
+            
+            // Parse primary assignee
+            let primaryAssignee = null;
+            if (primaryAssigneeSelect?.value) {
+                const [entityType, entityId] = primaryAssigneeSelect.value.split(':');
+                const entity = linkedEntities.find(e => e.entityType === entityType && e.entityId === entityId);
+                if (entity) {
+                    primaryAssignee = {
+                        entityType: entity.entityType,
+                        entityId: entity.entityId,
+                        entityName: entity.entityName
+                    };
+                }
+            }
+            
+            const data = {
+                taskTemplateId: templateId !== 'custom' ? templateId : null,
+                title: template ? template.title : (titleInput?.value || 'Untitled Task'),
+                description: descriptionInput?.value || '',
+                priority: prioritySelect?.value || 'Medium',
+                status: statusSelect?.value || 'pending',
+                dueDate: dueDateInput?.value || null,
+                dueTime: dueTimeInput?.value || null,
+                recurrence: recurrenceSelect?.value || 'one-time',
+                linkedEntities: linkedEntities,
+                primaryAssignee: primaryAssignee,
+                notes: notesInput?.value || ''
+            };
+            
+            // Validation
+            if (!data.title && !template) {
+                showNotification('Please enter a task title or select a template', 'error');
+                return;
+            }
+            
+            if (assignmentId) {
+                updateTaskAssignment(assignmentId, data);
+                showNotification('Task assignment updated', 'success');
+            } else {
+                createTaskAssignment(data);
+            }
+            
+            closeTaskAssignmentModal();
+        }
+        
+        // Close task assignment modal
+        function closeTaskAssignmentModal() {
+            const modal = document.getElementById('taskAssignmentModal');
+            if (modal) modal.remove();
+            linkedEntityIndex = 0;
+        }
+        
+        // Render task assignments view
+        function renderTaskAssignmentsView() {
+            const container = document.getElementById('taskAssignmentsContainer');
+            if (!container) return;
+            
+            const stats = getAssignmentStats();
+            const filterStatus = document.getElementById('assignmentFilterStatus')?.value || 'all';
+            const filterEntity = document.getElementById('assignmentFilterEntity')?.value || 'all';
+            const searchQuery = document.getElementById('assignmentSearch')?.value?.toLowerCase() || '';
+            
+            // Filter assignments
+            let filteredAssignments = window.taskAssignments.filter(a => {
+                if (filterStatus !== 'all' && a.status !== filterStatus) return false;
+                if (filterEntity !== 'all' && !a.linkedEntities.some(e => e.entityType === filterEntity)) return false;
+                if (searchQuery && !a.title.toLowerCase().includes(searchQuery) && !a.description.toLowerCase().includes(searchQuery)) return false;
+                return true;
+            });
+            
+            // Sort by due date, then by priority
+            const priorityOrder = { 'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3 };
+            filteredAssignments.sort((a, b) => {
+                if (a.dueDate && b.dueDate) {
+                    return new Date(a.dueDate) - new Date(b.dueDate);
+                }
+                if (a.dueDate) return -1;
+                if (b.dueDate) return 1;
+                return (priorityOrder[a.priority] || 2) - (priorityOrder[b.priority] || 2);
+            });
+            
+            container.innerHTML = `
+                <!-- Stats Cards -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                    <div style="background: white; padding: 1rem; border-radius: 12px; border-left: 4px solid #3b82f6; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        <div style="font-size: 2rem; font-weight: 700; color: #3b82f6;">${stats.total}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary);">Total Assignments</div>
+                    </div>
+                    <div style="background: white; padding: 1rem; border-radius: 12px; border-left: 4px solid #eab308; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        <div style="font-size: 2rem; font-weight: 700; color: #eab308;">${stats.pending}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary);">Pending</div>
+                    </div>
+                    <div style="background: white; padding: 1rem; border-radius: 12px; border-left: 4px solid #3b82f6; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        <div style="font-size: 2rem; font-weight: 700; color: #3b82f6;">${stats.inProgress}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary);">In Progress</div>
+                    </div>
+                    <div style="background: white; padding: 1rem; border-radius: 12px; border-left: 4px solid #10b981; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        <div style="font-size: 2rem; font-weight: 700; color: #10b981;">${stats.completed}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary);">Completed</div>
+                    </div>
+                    <div style="background: white; padding: 1rem; border-radius: 12px; border-left: 4px solid #ef4444; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        <div style="font-size: 2rem; font-weight: 700; color: #ef4444;">${stats.overdue}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary);">Overdue</div>
+                    </div>
+                </div>
+                
+                <!-- Assignment Cards -->
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                    ${filteredAssignments.length === 0 ? `
+                        <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+                            <i class="fas fa-clipboard-list" style="font-size: 3rem; opacity: 0.3; margin-bottom: 1rem;"></i>
+                            <p>No task assignments found.</p>
+                            <button onclick="openTaskAssignmentModal()" style="margin-top: 1rem; padding: 0.6rem 1.25rem; background: var(--accent-primary); color: white; border: none; border-radius: 8px; cursor: pointer;">
+                                <i class="fas fa-plus"></i> Create First Assignment
+                            </button>
+                        </div>
+                    ` : filteredAssignments.map(a => renderAssignmentCard(a)).join('')}
+                </div>
+            `;
+        }
+        
+        // Render a single assignment card
+        function renderAssignmentCard(assignment) {
+            const statusOption = assignmentStatusOptions.find(s => s.id === assignment.status) || assignmentStatusOptions[0];
+            const priorityColor = { 'Critical': '#dc2626', 'High': '#f59e0b', 'Medium': '#3b82f6', 'Low': '#10b981' }[assignment.priority] || '#64748b';
+            const template = assignment.taskTemplateId ? window.taskTemplates.find(t => t.id === assignment.taskTemplateId) : null;
+            
+            const dueInfo = assignment.dueDate ? formatDueDate(assignment.dueDate, assignment.dueTime) : null;
+            
+            return `
+                <div class="assignment-card card-enhanced" style="background: white; border-radius: 12px; padding: 1rem; border-left: 4px solid ${priorityColor}; transition: all 0.2s;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+                        <div style="flex: 1;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                                ${template ? `<i class="fas ${template.icon}" style="color: ${template.iconColor};"></i>` : '<i class="fas fa-tasks" style="color: var(--accent-primary);"></i>'}
+                                <h4 style="margin: 0; font-size: 1rem; color: var(--text-primary);">${assignment.title}</h4>
+                            </div>
+                            <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary);">${assignment.description || 'No description'}</p>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <span style="background: ${statusOption.color}20; color: ${statusOption.color}; padding: 0.25rem 0.6rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">
+                                <i class="fas ${statusOption.icon}" style="margin-right: 0.25rem;"></i>${statusOption.name}
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <!-- Linked Entities -->
+                    ${assignment.linkedEntities.length > 0 ? `
+                        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+                            ${assignment.linkedEntities.map(e => {
+                                const entityType = taskEntityTypes.find(t => t.id === e.entityType);
+                                return `
+                                    <span style="background: ${entityType?.color}15; color: ${entityType?.color}; padding: 0.2rem 0.5rem; border-radius: 6px; font-size: 0.75rem; display: flex; align-items: center; gap: 0.25rem;">
+                                        <i class="fas ${entityType?.icon}"></i> ${e.entityName}
+                                        <span style="opacity: 0.7; font-size: 0.65rem;">(${e.role})</span>
+                                    </span>
+                                `;
+                            }).join('')}
+                        </div>
+                    ` : ''}
+                    
+                    <!-- Footer -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 0.75rem; border-top: 1px solid var(--border-color);">
+                        <div style="display: flex; gap: 1rem; font-size: 0.8rem; color: var(--text-secondary);">
+                            ${dueInfo ? `
+                                <span style="color: ${dueInfo.isOverdue ? '#ef4444' : 'inherit'};">
+                                    <i class="fas fa-calendar"></i> ${dueInfo.text}
+                                </span>
+                            ` : ''}
+                            <span style="background: ${priorityColor}15; color: ${priorityColor}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600;">
+                                ${assignment.priority}
+                            </span>
+                            ${assignment.primaryAssignee ? `
+                                <span><i class="fas fa-user"></i> ${assignment.primaryAssignee.entityName}</span>
+                            ` : ''}
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="openTaskAssignmentModal(null, '${assignment.id}')" style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0.35rem 0.6rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem;" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="quickUpdateAssignmentStatus('${assignment.id}')" style="background: var(--accent-primary); border: none; color: white; padding: 0.35rem 0.6rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem;" title="Update Status">
+                                <i class="fas fa-check"></i>
+                            </button>
+                            <button onclick="confirmDeleteAssignment('${assignment.id}')" style="background: #fee2e2; border: none; color: #dc2626; padding: 0.35rem 0.6rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem;" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Format due date for display
+        function formatDueDate(dueDate, dueTime) {
+            const due = new Date(dueDate);
+            const now = new Date();
+            const isOverdue = due < now && !dueDate.includes(now.toISOString().split('T')[0]);
+            
+            const options = { month: 'short', day: 'numeric' };
+            let text = due.toLocaleDateString('en-US', options);
+            
+            if (dueTime) {
+                text += ' at ' + dueTime;
+            }
+            
+            // Check if today
+            if (due.toDateString() === now.toDateString()) {
+                text = 'Today' + (dueTime ? ' at ' + dueTime : '');
+            }
+            
+            // Check if tomorrow
+            const tomorrow = new Date(now);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            if (due.toDateString() === tomorrow.toDateString()) {
+                text = 'Tomorrow' + (dueTime ? ' at ' + dueTime : '');
+            }
+            
+            return { text, isOverdue };
+        }
+        
+        // Quick update assignment status
+        function quickUpdateAssignmentStatus(assignmentId) {
+            const assignment = window.taskAssignments.find(a => a.id === assignmentId);
+            if (!assignment) return;
+            
+            const statusOrder = ['pending', 'in-progress', 'completed'];
+            const currentIndex = statusOrder.indexOf(assignment.status);
+            const nextStatus = statusOrder[(currentIndex + 1) % statusOrder.length];
+            
+            updateTaskAssignment(assignmentId, { 
+                status: nextStatus,
+                completedAt: nextStatus === 'completed' ? new Date().toISOString() : null
+            });
+            
+            const statusName = assignmentStatusOptions.find(s => s.id === nextStatus)?.name || nextStatus;
+            showNotification(`Status updated to: ${statusName}`, 'success');
+        }
+        
+        // Confirm delete assignment
+        function confirmDeleteAssignment(assignmentId) {
+            if (confirm('Are you sure you want to delete this task assignment?')) {
+                deleteTaskAssignment(assignmentId);
+            }
+        }
+        
+        // Update nav badge for task assignments
+        function updateTaskAssignmentsNavBadge() {
+            const badge = document.getElementById('taskAssignmentsNavBadge');
+            if (badge) {
+                const pendingCount = window.taskAssignments.filter(a => 
+                    a.status === 'pending' || a.status === 'in-progress' || a.status === 'overdue'
+                ).length;
+                badge.textContent = pendingCount;
+                badge.style.display = pendingCount > 0 ? 'inline-flex' : 'none';
+            }
+        }
+        
+        // Initialize task assignments on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(() => {
+                updateTaskAssignmentsNavBadge();
+            }, 500);
+        });
+        
+        // ============================================
+        // END TASK ASSIGNMENT SYSTEM
         // ============================================
         
         // Task Templates - Now customizable!
