@@ -32589,25 +32589,86 @@ window.addEventListener('load', function() {
         
         // Get entities by type for dropdown population
         function getEntitiesByType(entityType) {
-            switch (entityType) {
-                case 'employee':
-                    return (window.masterEmployees || []).map(e => ({ id: e.id, name: e.name, details: e.role || e.department }));
-                case 'equipment':
-                    return (window.masterEquipment || []).map(e => ({ id: e.id, name: e.name, details: e.type || e.category }));
-                case 'instrument':
-                    return (window.masterInstruments || []).map(i => ({ id: i.id, name: i.name, details: i.category }));
-                case 'supply':
-                    return (window.masterSupplies || []).map(s => ({ id: s.id, name: s.name, details: s.category }));
-                case 'room':
-                    return (window.masterRooms || []).map(r => ({ id: r.id, name: r.name, details: r.clinic || r.type }));
-                case 'clinic':
-                    return (window.masterClinics || []).map(c => ({ id: c.id, name: c.name, details: c.address }));
-                case 'patient':
-                    return (window.masterPatients || []).map(p => ({ id: p.id, name: p.name, details: p.phone }));
-                case 'provider':
-                    return (window.masterProviders || []).map(p => ({ id: p.id, name: p.name, details: p.specialty }));
-                default:
-                    return [];
+            try {
+                switch (entityType) {
+                    case 'employee':
+                        // Use masterData.getAllEmployees() which returns employeeResources
+                        const employees = window.masterData?.getAllEmployees() || [];
+                        return employees.map(e => ({ 
+                            id: e.id, 
+                            name: e.title || e.name, 
+                            details: e.extendedProps?.role || e.extendedProps?.type || '' 
+                        }));
+                    
+                    case 'equipment':
+                        // Use loadEquipment() function
+                        const equipment = typeof loadEquipment === 'function' ? loadEquipment() : [];
+                        return equipment.map(e => ({ 
+                            id: e.id, 
+                            name: e.name, 
+                            details: e.type || e.category || e.status || '' 
+                        }));
+                    
+                    case 'instrument':
+                        // Use loadInstruments() function
+                        const instruments = typeof loadInstruments === 'function' ? loadInstruments() : [];
+                        return instruments.map(i => ({ 
+                            id: i.id, 
+                            name: i.name, 
+                            details: i.category || i.type || '' 
+                        }));
+                    
+                    case 'supply':
+                        // Use loadSupplies() function
+                        const supplies = typeof loadSupplies === 'function' ? loadSupplies() : [];
+                        return supplies.map(s => ({ 
+                            id: s.id, 
+                            name: s.name, 
+                            details: s.category || `Qty: ${s.quantity || 0}` 
+                        }));
+                    
+                    case 'room':
+                        // Use masterData.rooms
+                        const rooms = window.masterData?.rooms || [];
+                        return rooms.map(r => ({ 
+                            id: r.id || r.roomID, 
+                            name: r.name || r.roomName || r.roomType, 
+                            details: r.clinicName || '' 
+                        }));
+                    
+                    case 'clinic':
+                        // Use masterData.clinics
+                        const clinics = window.masterData?.clinics || [];
+                        return clinics.map(c => ({ 
+                            id: c.id || c.dbId, 
+                            name: c.name, 
+                            details: c.address || '' 
+                        }));
+                    
+                    case 'patient':
+                        // Patients may be stored differently - check localStorage or API
+                        const patients = JSON.parse(localStorage.getItem('patients') || '[]');
+                        return patients.map(p => ({ 
+                            id: p.id, 
+                            name: p.name || `${p.firstName} ${p.lastName}`, 
+                            details: p.phone || p.email || '' 
+                        }));
+                    
+                    case 'provider':
+                        // Use masterData.getProviders()
+                        const providers = window.masterData?.getProviders() || [];
+                        return providers.map(p => ({ 
+                            id: p.id, 
+                            name: p.title || p.name, 
+                            details: p.extendedProps?.role || p.extendedProps?.specialty || '' 
+                        }));
+                    
+                    default:
+                        return [];
+                }
+            } catch (e) {
+                console.error('Error getting entities by type:', entityType, e);
+                return [];
             }
         }
         
