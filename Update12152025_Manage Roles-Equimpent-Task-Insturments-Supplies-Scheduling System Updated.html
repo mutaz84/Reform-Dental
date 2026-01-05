@@ -4701,6 +4701,145 @@
             opacity: 0.6;
         }
 
+        /* Tasks List View Styles */
+        .tasks-list-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            max-height: calc(100vh - 300px);
+            overflow-y: auto;
+        }
+
+        .task-list-item {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .task-list-item:hover {
+            border-color: var(--accent-primary);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            transform: translateY(-2px);
+        }
+
+        .task-list-checkbox {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: 2px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .task-list-checkbox:hover {
+            border-color: #10b981;
+            background: #10b98110;
+        }
+
+        .task-list-checkbox.completed {
+            background: #10b981;
+            border-color: #10b981;
+            color: white;
+        }
+
+        .task-list-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .task-list-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            margin-bottom: 0.25rem;
+        }
+
+        .task-list-item.completed .task-list-title {
+            text-decoration: line-through;
+            color: var(--text-secondary);
+        }
+
+        .task-list-meta {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .task-list-meta span {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .task-list-badges {
+            display: flex;
+            gap: 0.5rem;
+            flex-shrink: 0;
+        }
+
+        .task-list-priority {
+            padding: 0.25rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .task-list-priority.critical { background: #fee2e2; color: #dc2626; }
+        .task-list-priority.high { background: #fef3c7; color: #d97706; }
+        .task-list-priority.medium { background: #dbeafe; color: #2563eb; }
+        .task-list-priority.low { background: #d1fae5; color: #059669; }
+
+        .task-list-status {
+            padding: 0.25rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
+        .task-list-actions {
+            display: flex;
+            gap: 0.5rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .task-list-item:hover .task-list-actions {
+            opacity: 1;
+        }
+
+        .task-list-action-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .task-list-action-btn:hover {
+            background: var(--accent-primary);
+            color: white;
+            border-color: var(--accent-primary);
+        }
+
         /* ============ LOGIN SCREEN ============ */
         .login-screen {
             position: fixed;
@@ -12520,9 +12659,8 @@
                         <button class="task-hub-tab" onclick="switchTaskHubTab('timeline')" data-tab="timeline">
                             <i class="fas fa-calendar-alt"></i> Timeline
                         </button>
-                        <button class="task-hub-tab" onclick="switchTaskHubTab('templates')" data-tab="templates">
-                            <i class="fas fa-layer-group"></i> Templates
-                            <span class="tab-badge" id="templatesBadge">0</span>
+                        <button class="task-hub-tab" onclick="switchTaskHubTab('list')" data-tab="list">
+                            <i class="fas fa-list"></i> List
                         </button>
                         <button class="task-hub-tab" onclick="switchTaskHubTab('activity')" data-tab="activity">
                             <i class="fas fa-history"></i> Activity
@@ -12534,7 +12672,7 @@
                         <!-- Smart Search -->
                         <div class="smart-search-container">
                             <i class="fas fa-search smart-search-icon"></i>
-                            <input type="text" class="smart-search-input" id="taskHubSearch" placeholder="Search tasks, templates, entities..." oninput="handleTaskHubSearch(this.value)" onfocus="showSearchResults()" onblur="setTimeout(() => hideSearchResults(), 200)">
+                            <input type="text" class="smart-search-input" id="taskHubSearch" placeholder="Search my tasks..." oninput="handleTaskHubSearch(this.value)" onfocus="showSearchResults()" onblur="setTimeout(() => hideSearchResults(), 200)">
                             <div class="smart-search-results" id="taskHubSearchResults">
                                 <!-- Results will be populated dynamically -->
                             </div>
@@ -12673,21 +12811,26 @@
                         </div>
                     </div>
                     
-                    <!-- Templates Panel -->
-                    <div class="task-hub-panel" id="panel-templates">
+                    <!-- List Panel -->
+                    <div class="task-hub-panel" id="panel-list">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                             <div>
-                                <h3 style="margin: 0 0 0.25rem 0; font-size: 1.1rem;">Task Templates</h3>
+                                <h3 style="margin: 0 0 0.25rem 0; font-size: 1.1rem;">All Tasks</h3>
                                 <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary);">
-                                    Reusable task definitions. Click a template to create an assignment.
+                                    Complete list of all your assigned tasks
                                 </p>
                             </div>
-                            <button class="btn-enhanced btn-primary-enhanced" onclick="openCreateTemplateModal()">
-                                <i class="fas fa-plus"></i> New Template
-                            </button>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <select id="listSortBy" onchange="renderTaskList()" class="form-input-enhanced" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;">
+                                    <option value="dueDate">Sort by Due Date</option>
+                                    <option value="priority">Sort by Priority</option>
+                                    <option value="status">Sort by Status</option>
+                                    <option value="created">Sort by Created</option>
+                                </select>
+                            </div>
                         </div>
-                        <div class="templates-grid" id="templatesGrid">
-                            <!-- Templates will be rendered here -->
+                        <div class="tasks-list-container" id="tasksListContainer">
+                            <!-- Task list will be rendered here -->
                         </div>
                     </div>
                     
@@ -12725,14 +12868,8 @@
                         </button>
                     </div>
                     <div class="fab-option">
-                        <span class="fab-option-label">New Assignment</span>
-                        <button class="fab-option-btn assignment" onclick="openTaskAssignmentModal()">
-                            <i class="fas fa-link"></i>
-                        </button>
-                    </div>
-                    <div class="fab-option">
-                        <span class="fab-option-label">New Template</span>
-                        <button class="fab-option-btn template" onclick="openCreateTemplateModal()">
+                        <span class="fab-option-label">From Template</span>
+                        <button class="fab-option-btn assignment" onclick="openTaskFromTemplateModal()">
                             <i class="fas fa-layer-group"></i>
                         </button>
                     </div>
