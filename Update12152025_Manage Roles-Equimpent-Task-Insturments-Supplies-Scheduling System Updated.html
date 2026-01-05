@@ -5021,26 +5021,121 @@
         .task-priority-badge.low { background: #d1fae5; color: #059669; }
 
         /* Empty State */
-        .task-hub-empty {
+        .task-hub-empty,
+        .empty-tasks-message {
             text-align: center;
             padding: 3rem 2rem;
             color: var(--text-secondary);
         }
 
-        .task-hub-empty i {
+        .task-hub-empty i,
+        .empty-tasks-message i {
             font-size: 3rem;
             opacity: 0.3;
             margin-bottom: 1rem;
+            display: block;
         }
 
-        .task-hub-empty h4 {
+        .task-hub-empty h4,
+        .empty-tasks-message h4 {
             margin: 0 0 0.5rem 0;
             color: var(--text-primary);
         }
 
-        .task-hub-empty p {
+        .task-hub-empty p,
+        .empty-tasks-message p {
             margin: 0;
             font-size: 0.9rem;
+        }
+
+        /* Task Hub Card Header & Badges */
+        .task-hub-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.5rem;
+        }
+
+        .task-hub-card-badges {
+            display: flex;
+            gap: 0.5rem;
+            flex-shrink: 0;
+        }
+
+        .priority-badge {
+            padding: 0.2rem 0.5rem;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .priority-badge.critical { background: #fee2e2; color: #dc2626; }
+        .priority-badge.high { background: #fef3c7; color: #d97706; }
+        .priority-badge.medium { background: #dbeafe; color: #2563eb; }
+        .priority-badge.low { background: #d1fae5; color: #059669; }
+
+        .pay-badge {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            padding: 0.2rem 0.5rem;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
+        /* Task Action Buttons */
+        .task-action-btn {
+            padding: 0.4rem 0.75rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+
+        .task-action-btn:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .task-action-btn.claim {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: white;
+            border: none;
+            font-weight: 600;
+            padding: 0.5rem 1rem;
+        }
+
+        .task-action-btn.claim:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .task-action-btn.complete {
+            background: #10b981;
+            color: white;
+            border: none;
+        }
+
+        .task-action-btn.complete:hover {
+            background: #059669;
+        }
+
+        .task-completed-badge {
+            padding: 0.35rem 0.75rem;
+            background: #d1fae5;
+            color: #059669;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .task-hub-card-meta .overdue {
+            color: #dc2626;
+            font-weight: 500;
         }
 
         /* ============ LOGIN SCREEN ============ */
@@ -27592,11 +27687,7 @@
                         taskHubView.classList.add('active');
                         setTimeout(() => {
                             initTaskHub();
-                            if (viewName === 'task-assignments') {
-                                switchTaskHubTab('kanban');
-                            } else {
-                                switchTaskHubTab('templates');
-                            }
+                            switchTaskHubTab('my-tasks');
                         }, 50);
                     }
                 }
@@ -34635,27 +34726,21 @@ window.addEventListener('load', function() {
         
         // Task Hub State
         let taskHubState = {
-            currentTab: 'kanban',
-            timelineDate: new Date(),
-            timelineView: 'month',
+            currentTab: 'my-tasks',
             filters: {
                 status: 'all',
                 priority: 'all',
-                entityType: 'all'
+                category: 'all',
+                dueDate: 'all'
             },
-            searchQuery: '',
-            fabOpen: false,
-            draggedCard: null,
-            activityLog: []
+            searchQuery: ''
         };
         
         // Initialize Task Hub
         function initTaskHub() {
-            // Load activity log from localStorage
-            taskHubState.activityLog = JSON.parse(localStorage.getItem('taskActivityLog') || '[]');
-            
             // Render initial view
-            renderKanbanBoard();
+            renderTaskHubMyTasks();
+            updateTaskHubStats();
             updateTaskHubBadges();
         }
         
@@ -34675,19 +34760,380 @@ window.addEventListener('load', function() {
             
             // Render appropriate view
             switch (tabName) {
-                case 'kanban':
-                    renderKanbanBoard();
+                case 'my-tasks':
+                    renderTaskHubMyTasks();
                     break;
-                case 'timeline':
-                    renderTimelineView();
+                case 'floating':
+                    renderTaskHubFloating();
                     break;
-                case 'templates':
-                    renderTemplatesGrid();
+                case 'bonus':
+                    renderTaskHubBonus();
                     break;
-                case 'activity':
-                    renderActivityFeed();
+                case 'completed':
+                    renderTaskHubCompleted();
                     break;
             }
+        }
+        
+        // Update Task Hub Stats
+        function updateTaskHubStats() {
+            const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+            const userId = currentUser?.id || currentUser?.name;
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            
+            // Get user's tasks
+            const myTasks = window.tasksData.filter(t => 
+                t.assignedTo === userId || t.claimedBy === userId
+            );
+            
+            // Calculate stats
+            const pending = myTasks.filter(t => t.status === 'Pending' || t.status === 'Not Started').length;
+            const inProgress = myTasks.filter(t => t.status === 'In Progress').length;
+            const overdue = myTasks.filter(t => {
+                if (t.status === 'Completed') return false;
+                if (!t.dueDate) return false;
+                return new Date(t.dueDate) < today;
+            }).length;
+            const completedToday = myTasks.filter(t => {
+                if (t.status !== 'Completed') return false;
+                if (!t.completedAt) return false;
+                const completed = new Date(t.completedAt);
+                return completed >= today;
+            }).length;
+            
+            // Update DOM
+            const statPending = document.getElementById('statPending');
+            const statInProgress = document.getElementById('statInProgress');
+            const statOverdue = document.getElementById('statOverdue');
+            const statCompletedToday = document.getElementById('statCompletedToday');
+            
+            if (statPending) statPending.textContent = pending;
+            if (statInProgress) statInProgress.textContent = inProgress;
+            if (statOverdue) statOverdue.textContent = overdue;
+            if (statCompletedToday) statCompletedToday.textContent = completedToday;
+        }
+        
+        // Render My Tasks
+        function renderTaskHubMyTasks() {
+            const container = document.getElementById('myTasksContainer');
+            if (!container) return;
+            
+            const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+            const userId = currentUser?.id || currentUser?.name;
+            
+            // Get user's assigned and claimed tasks
+            let myTasks = window.tasksData.filter(t => 
+                (t.assignedTo === userId || t.claimedBy === userId) && t.status !== 'Completed'
+            );
+            
+            // Apply filters
+            myTasks = applyTaskFilters(myTasks);
+            
+            // Apply sorting
+            const sortBy = document.getElementById('myTasksSort')?.value || 'dueDate';
+            myTasks = sortTasks(myTasks, sortBy);
+            
+            if (myTasks.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-tasks-message">
+                        <i class="fas fa-clipboard-check"></i>
+                        <h4>No tasks assigned</h4>
+                        <p>Check the Floating or Bonus tabs for available tasks to claim!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = myTasks.map(task => renderTaskHubCard(task)).join('');
+        }
+        
+        // Render Floating Tasks in Hub
+        function renderTaskHubFloating() {
+            const container = document.getElementById('floatingTasksContainer');
+            if (!container) return;
+            
+            // Get unclaimed floating tasks
+            let floatingTasks = window.tasksData.filter(t => 
+                t.taskType === 'Floating' && t.status !== 'Completed' && !t.claimedBy
+            );
+            
+            // Apply filters
+            floatingTasks = applyTaskFilters(floatingTasks);
+            
+            if (floatingTasks.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-tasks-message">
+                        <i class="fas fa-hand-pointer"></i>
+                        <h4>No floating tasks available</h4>
+                        <p>Check back later for new tasks to claim!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = floatingTasks.map(task => renderTaskHubCard(task, 'floating')).join('');
+        }
+        
+        // Render Bonus Tasks in Hub
+        function renderTaskHubBonus() {
+            const container = document.getElementById('bonusTasksContainer');
+            if (!container) return;
+            
+            // Get unclaimed bonus tasks
+            let bonusTasks = window.tasksData.filter(t => 
+                t.taskType === 'Bonus' && t.status !== 'Completed' && !t.claimedBy
+            );
+            
+            // Apply filters
+            bonusTasks = applyTaskFilters(bonusTasks);
+            
+            if (bonusTasks.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-tasks-message">
+                        <i class="fas fa-star"></i>
+                        <h4>No bonus tasks available</h4>
+                        <p>Bonus tasks offer extra compensation. Check back later!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = bonusTasks.map(task => renderTaskHubCard(task, 'bonus')).join('');
+        }
+        
+        // Render Completed Tasks in Hub
+        function renderTaskHubCompleted() {
+            const container = document.getElementById('completedTasksContainer');
+            if (!container) return;
+            
+            const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+            const userId = currentUser?.id || currentUser?.name;
+            const range = document.getElementById('completedTasksRange')?.value || 'month';
+            
+            // Get date range
+            const now = new Date();
+            let startDate;
+            switch (range) {
+                case 'today':
+                    startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    break;
+                case 'week':
+                    startDate = new Date(now);
+                    startDate.setDate(startDate.getDate() - 7);
+                    break;
+                case 'month':
+                default:
+                    startDate = new Date(now);
+                    startDate.setDate(startDate.getDate() - 30);
+                    break;
+            }
+            
+            // Get completed tasks
+            let completedTasks = window.tasksData.filter(t => {
+                if (t.status !== 'Completed') return false;
+                if (t.assignedTo !== userId && t.claimedBy !== userId && t.completedBy !== userId) return false;
+                if (t.completedAt && new Date(t.completedAt) < startDate) return false;
+                return true;
+            });
+            
+            // Sort by completion date (most recent first)
+            completedTasks.sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0));
+            
+            if (completedTasks.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-tasks-message">
+                        <i class="fas fa-check-circle"></i>
+                        <h4>No completed tasks</h4>
+                        <p>Tasks you complete will appear here.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = completedTasks.map(task => renderTaskHubCard(task, 'completed')).join('');
+        }
+        
+        // Render Task Hub Card
+        function renderTaskHubCard(task, type = 'normal') {
+            const priorityColors = {
+                'Critical': '#dc2626',
+                'High': '#f59e0b',
+                'Medium': '#3b82f6',
+                'Low': '#10b981'
+            };
+            const priorityColor = priorityColors[task.priority] || '#64748b';
+            
+            const dueInfo = task.dueDate ? formatTaskDueDate(task.dueDate) : null;
+            const isOverdue = dueInfo && dueInfo.isOverdue;
+            
+            let actionButtons = '';
+            if (type === 'floating' || type === 'bonus') {
+                actionButtons = `
+                    <button class="task-action-btn claim" onclick="claimTaskFromHub('${task.id}')">
+                        <i class="fas fa-hand-pointer"></i> Claim
+                    </button>
+                `;
+            } else if (type === 'completed') {
+                actionButtons = `
+                    <span class="task-completed-badge">
+                        <i class="fas fa-check"></i> Completed
+                    </span>
+                `;
+            } else {
+                actionButtons = `
+                    <button class="task-action-btn" onclick="viewTaskDetails('${task.id}')">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    <button class="task-action-btn complete" onclick="completeTaskFromHub('${task.id}')">
+                        <i class="fas fa-check"></i>
+                    </button>
+                `;
+            }
+            
+            return `
+                <div class="task-hub-card ${type} ${isOverdue ? 'overdue' : ''}" style="border-left-color: ${priorityColor};">
+                    <div class="task-hub-card-header">
+                        <div class="task-hub-card-title">${task.title}</div>
+                        <div class="task-hub-card-badges">
+                            <span class="priority-badge ${task.priority?.toLowerCase()}">${task.priority || 'Medium'}</span>
+                            ${task.taskType === 'Bonus' && task.payAmount ? `<span class="pay-badge"><i class="fas fa-dollar-sign"></i>${task.payAmount}</span>` : ''}
+                        </div>
+                    </div>
+                    ${task.description ? `<div class="task-hub-card-desc">${task.description}</div>` : ''}
+                    <div class="task-hub-card-meta">
+                        ${task.estimatedTime ? `<span><i class="fas fa-clock"></i> ${task.estimatedTime} min</span>` : ''}
+                        ${task.category ? `<span><i class="fas fa-folder"></i> ${task.category}</span>` : ''}
+                        ${dueInfo ? `<span class="${isOverdue ? 'overdue' : ''}"><i class="fas fa-calendar"></i> ${dueInfo.text}</span>` : ''}
+                    </div>
+                    <div class="task-hub-card-actions">
+                        ${actionButtons}
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Helper Functions
+        function applyTaskFilters(tasks) {
+            const priority = document.getElementById('taskHubFilterPriority')?.value || 'all';
+            const dueFilter = document.getElementById('taskHubFilterDue')?.value || 'all';
+            const category = document.getElementById('taskHubFilterCategory')?.value || 'all';
+            const search = taskHubState.searchQuery?.toLowerCase() || '';
+            
+            return tasks.filter(task => {
+                if (priority !== 'all' && task.priority !== priority) return false;
+                if (category !== 'all' && task.category !== category) return false;
+                
+                if (dueFilter !== 'all' && task.dueDate) {
+                    const due = new Date(task.dueDate);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const weekEnd = new Date(today);
+                    weekEnd.setDate(weekEnd.getDate() + 7);
+                    
+                    if (dueFilter === 'today' && due.toDateString() !== today.toDateString()) return false;
+                    if (dueFilter === 'week' && due > weekEnd) return false;
+                    if (dueFilter === 'overdue' && due >= today) return false;
+                }
+                
+                if (search && !task.title?.toLowerCase().includes(search) && !task.description?.toLowerCase().includes(search)) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        function sortTasks(tasks, sortBy) {
+            return [...tasks].sort((a, b) => {
+                switch (sortBy) {
+                    case 'dueDate':
+                        if (!a.dueDate && !b.dueDate) return 0;
+                        if (!a.dueDate) return 1;
+                        if (!b.dueDate) return -1;
+                        return new Date(a.dueDate) - new Date(b.dueDate);
+                    case 'priority':
+                        const priorityOrder = { 'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3 };
+                        return (priorityOrder[a.priority] || 2) - (priorityOrder[b.priority] || 2);
+                    case 'status':
+                        return (a.status || '').localeCompare(b.status || '');
+                    default:
+                        return 0;
+                }
+            });
+        }
+        
+        function formatTaskDueDate(dueDate) {
+            const due = new Date(dueDate);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            
+            const isOverdue = due < today;
+            
+            let text;
+            if (due.toDateString() === today.toDateString()) {
+                text = 'Due Today';
+            } else if (due.toDateString() === tomorrow.toDateString()) {
+                text = 'Due Tomorrow';
+            } else if (isOverdue) {
+                const daysAgo = Math.ceil((today - due) / (1000 * 60 * 60 * 24));
+                text = `${daysAgo} day${daysAgo > 1 ? 's' : ''} overdue`;
+            } else {
+                text = due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }
+            
+            return { text, isOverdue };
+        }
+        
+        // Task Actions
+        function claimTaskFromHub(taskId) {
+            const taskIndex = window.tasksData.findIndex(t => t.id == taskId);
+            if (taskIndex === -1) return;
+            
+            const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+            window.tasksData[taskIndex].claimedBy = currentUser?.id || currentUser?.name;
+            window.tasksData[taskIndex].claimedAt = new Date().toISOString();
+            window.tasksData[taskIndex].status = 'In Progress';
+            
+            showNotification('Task claimed successfully!', 'success');
+            initTaskHub();
+            switchTaskHubTab('my-tasks');
+        }
+        
+        function completeTaskFromHub(taskId) {
+            const taskIndex = window.tasksData.findIndex(t => t.id == taskId);
+            if (taskIndex === -1) return;
+            
+            const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+            window.tasksData[taskIndex].status = 'Completed';
+            window.tasksData[taskIndex].completedBy = currentUser?.id || currentUser?.name;
+            window.tasksData[taskIndex].completedAt = new Date().toISOString();
+            
+            showNotification('Task completed!', 'success');
+            initTaskHub();
+        }
+        
+        function viewTaskDetails(taskId) {
+            const task = window.tasksData.find(t => t.id == taskId);
+            if (!task) return;
+            
+            // Open task details modal (if exists) or show alert
+            if (typeof openTaskModal === 'function') {
+                openTaskModal(task);
+            } else {
+                alert(`Task: ${task.title}\n\n${task.description || 'No description'}\n\nPriority: ${task.priority}\nStatus: ${task.status}`);
+            }
+        }
+        
+        // Alias for HTML compatibility
+        function renderMyTasks() {
+            renderTaskHubMyTasks();
+        }
+        
+        function renderCompletedTasks() {
+            renderTaskHubCompleted();
         }
         
         // Render Kanban Board
@@ -35186,106 +35632,51 @@ window.addEventListener('load', function() {
             const lowerQuery = query.toLowerCase();
             
             // Search tasks
-            const matchingTasks = window.taskAssignments.filter(a => 
-                a.title.toLowerCase().includes(lowerQuery) ||
-                a.description?.toLowerCase().includes(lowerQuery)
-            ).slice(0, 5);
-            
-            // Search templates
-            const matchingTemplates = window.taskTemplates.filter(t =>
-                t.title.toLowerCase().includes(lowerQuery) ||
+            const matchingTasks = window.tasksData.filter(t => 
+                t.title?.toLowerCase().includes(lowerQuery) ||
                 t.description?.toLowerCase().includes(lowerQuery)
-            ).slice(0, 3);
-            
-            // Search entities
-            const allEntities = [];
-            ['employee', 'equipment', 'instrument', 'supply', 'room', 'provider', 'vendor'].forEach(type => {
-                const entities = getEntitiesByType(type);
-                entities.forEach(e => {
-                    if (e.name.toLowerCase().includes(lowerQuery)) {
-                        allEntities.push({ ...e, entityType: type });
-                    }
-                });
-            });
-            const matchingEntities = allEntities.slice(0, 5);
+            ).slice(0, 8);
             
             container.innerHTML = `
                 ${matchingTasks.length > 0 ? `
                     <div class="search-category">
                         <div class="search-category-title"><i class="fas fa-tasks"></i> Tasks</div>
                         ${matchingTasks.map(t => `
-                            <div class="search-result-item" onclick="openTaskAssignmentModal(null, '${t.id}'); hideSearchResults();">
+                            <div class="search-result-item" onclick="viewTaskDetails('${t.id}'); hideSearchResults();">
                                 <i class="fas fa-clipboard-list"></i>
                                 <span>${t.title}</span>
-                                <span class="search-result-badge">${t.status}</span>
+                                <span class="search-result-badge ${t.taskType?.toLowerCase() || ''}">${t.taskType || t.status}</span>
                             </div>
                         `).join('')}
                     </div>
-                ` : ''}
-                
-                ${matchingTemplates.length > 0 ? `
-                    <div class="search-category">
-                        <div class="search-category-title"><i class="fas fa-layer-group"></i> Templates</div>
-                        ${matchingTemplates.map(t => `
-                            <div class="search-result-item" onclick="openTaskAssignmentModal('${t.id}'); hideSearchResults();">
-                                <i class="fas ${t.icon || 'fa-tasks'}"></i>
-                                <span>${t.title}</span>
-                            </div>
-                        `).join('')}
-                    </div>
-                ` : ''}
-                
-                ${matchingEntities.length > 0 ? `
-                    <div class="search-category">
-                        <div class="search-category-title"><i class="fas fa-link"></i> Entities</div>
-                        ${matchingEntities.map(e => {
-                            const entityType = taskEntityTypes.find(t => t.id === e.entityType);
-                            return `
-                                <div class="search-result-item" onclick="filterByEntity('${e.entityType}', '${e.id}'); hideSearchResults();">
-                                    <i class="fas ${entityType?.icon || 'fa-tag'}" style="color: ${entityType?.color};"></i>
-                                    <span>${e.name}</span>
-                                    <span class="search-result-badge">${e.entityType}</span>
-                                </div>
-                            `;
-                        }).join('')}
-                    </div>
-                ` : ''}
-                
-                ${matchingTasks.length === 0 && matchingTemplates.length === 0 && matchingEntities.length === 0 ? `
+                ` : `
                     <div style="padding: 1rem; text-align: center; color: var(--text-secondary);">
                         <i class="fas fa-search" style="opacity: 0.5;"></i>
-                        No results found
+                        No tasks found
                     </div>
-                ` : ''}
+                `}
             `;
             
             container.classList.add('active');
         }
         
-        // Filter by entity (from search)
-        function filterByEntity(entityType, entityId) {
-            taskHubState.filters.entityType = entityType;
-            document.getElementById('taskHubFilterEntity').value = entityType;
-            renderCurrentTaskHubView();
-        }
-        
         // Apply Task Hub Filters
         function applyTaskHubFilters() {
-            taskHubState.filters.status = document.getElementById('taskHubFilterStatus')?.value || 'all';
-            taskHubState.filters.priority = document.getElementById('taskHubFilterPriority')?.value || 'all';
-            taskHubState.filters.entityType = document.getElementById('taskHubFilterEntity')?.value || 'all';
-            
             renderCurrentTaskHubView();
         }
         
         function clearTaskHubFilters() {
-            taskHubState.filters = { status: 'all', priority: 'all', entityType: 'all' };
             taskHubState.searchQuery = '';
             
-            document.getElementById('taskHubFilterStatus').value = 'all';
-            document.getElementById('taskHubFilterPriority').value = 'all';
-            document.getElementById('taskHubFilterEntity').value = 'all';
-            document.getElementById('taskHubSearch').value = '';
+            const priorityFilter = document.getElementById('taskHubFilterPriority');
+            const dueFilter = document.getElementById('taskHubFilterDue');
+            const categoryFilter = document.getElementById('taskHubFilterCategory');
+            const searchInput = document.getElementById('taskHubSearch');
+            
+            if (priorityFilter) priorityFilter.value = 'all';
+            if (dueFilter) dueFilter.value = 'all';
+            if (categoryFilter) categoryFilter.value = 'all';
+            if (searchInput) searchInput.value = '';
             
             renderCurrentTaskHubView();
         }
@@ -35300,35 +35691,61 @@ window.addEventListener('load', function() {
         // Render Current View
         function renderCurrentTaskHubView() {
             switch (taskHubState.currentTab) {
-                case 'kanban':
-                    renderKanbanBoard();
+                case 'my-tasks':
+                    renderTaskHubMyTasks();
                     break;
-                case 'timeline':
-                    renderTimelineView();
+                case 'floating':
+                    renderTaskHubFloating();
                     break;
-                case 'templates':
-                    renderTemplatesGrid();
+                case 'bonus':
+                    renderTaskHubBonus();
                     break;
-                case 'activity':
-                    renderActivityFeed();
+                case 'completed':
+                    renderTaskHubCompleted();
                     break;
             }
         }
         
         // Update Task Hub Badges
         function updateTaskHubBadges() {
-            const kanbanBadge = document.getElementById('kanbanBadge');
-            const templatesBadge = document.getElementById('templatesBadge');
+            const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+            const userId = currentUser?.id || currentUser?.name;
             
-            if (kanbanBadge) {
-                const activeCount = window.taskAssignments.filter(a => 
-                    a.status !== 'completed' && a.status !== 'cancelled'
+            // My Tasks badge
+            const myTasksBadge = document.getElementById('myTasksBadge');
+            if (myTasksBadge) {
+                const myTasksCount = window.tasksData.filter(t => 
+                    (t.assignedTo === userId || t.claimedBy === userId) && t.status !== 'Completed'
                 ).length;
-                kanbanBadge.textContent = activeCount;
+                myTasksBadge.textContent = myTasksCount;
             }
             
-            if (templatesBadge) {
-                templatesBadge.textContent = window.taskTemplates?.length || 0;
+            // Floating Tasks badge
+            const floatingBadge = document.getElementById('floatingTasksBadge');
+            if (floatingBadge) {
+                const floatingCount = window.tasksData.filter(t => 
+                    t.taskType === 'Floating' && t.status !== 'Completed' && !t.claimedBy
+                ).length;
+                floatingBadge.textContent = floatingCount;
+            }
+            
+            // Bonus Tasks badge
+            const bonusBadge = document.getElementById('bonusTasksBadge');
+            if (bonusBadge) {
+                const bonusCount = window.tasksData.filter(t => 
+                    t.taskType === 'Bonus' && t.status !== 'Completed' && !t.claimedBy
+                ).length;
+                bonusBadge.textContent = bonusCount;
+            }
+            
+            // Nav badge (total active)
+            const navBadge = document.getElementById('taskHubNavBadge');
+            if (navBadge) {
+                const totalActive = window.tasksData.filter(t => 
+                    ((t.assignedTo === userId || t.claimedBy === userId) && t.status !== 'Completed') ||
+                    ((t.taskType === 'Floating' || t.taskType === 'Bonus') && t.status !== 'Completed' && !t.claimedBy)
+                ).length;
+                navBadge.textContent = totalActive;
             }
         }
         
