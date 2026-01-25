@@ -14121,18 +14121,25 @@
                 localStorage.removeItem('userRole');
                 localStorage.removeItem('currentUser');
                 
-                // Clear chat caches
-                chatUserIdCache = null;
-                currentDbUserId = null;
-                chatUsersCache = [];
-                currentChatUserId = null;
+                // Clear chat caches safely (these variables may be declared later)
+                try {
+                    if (typeof window.chatUserIdCache !== 'undefined') window.chatUserIdCache = null;
+                    if (typeof window.currentDbUserId !== 'undefined') window.currentDbUserId = null;
+                    if (typeof window.chatUsersCache !== 'undefined') window.chatUsersCache = [];
+                    if (typeof window.currentChatUserId !== 'undefined') window.currentChatUserId = null;
+                } catch (e) {
+                    console.log('Chat caches not initialized yet, skipping clear');
+                }
                 
                 checkAuth();
                 
                 // Clear form
-                document.getElementById('username').value = '';
-                document.getElementById('password').value = '';
-                document.getElementById('loginError').style.display = 'none';
+                const usernameEl = document.getElementById('username');
+                const passwordEl = document.getElementById('password');
+                const loginErrorEl = document.getElementById('loginError');
+                if (usernameEl) usernameEl.value = '';
+                if (passwordEl) passwordEl.value = '';
+                if (loginErrorEl) loginErrorEl.style.display = 'none';
                 
                 // Force page reload to reset state
                 setTimeout(() => location.reload(), 100);
@@ -32932,19 +32939,19 @@ window.addEventListener('load', function() {
         // ============================================
         // TEAM CHAT FUNCTIONS
         // ============================================
-        let currentChatUserId = null;
-        let currentChatType = 'direct'; // 'direct', 'group', 'announcement'
-        let currentChatTab = 'direct';
-        let chatPollingInterval = null;
-        let lastMessageTimestamp = null;
-        let chatUsersCache = [];
+        window.currentChatUserId = null;
+        window.currentChatType = 'direct'; // 'direct', 'group', 'announcement'
+        window.currentChatTab = 'direct';
+        window.chatPollingInterval = null;
+        window.lastMessageTimestamp = null;
+        window.chatUsersCache = [];
         
         function openChat() {
             const modal = document.getElementById('chatModal');
             if (modal) {
                 modal.style.display = 'flex';
-                currentChatTab = 'direct';
-                currentChatType = 'direct';
+                window.currentChatTab = 'direct';
+                window.currentChatType = 'direct';
                 loadConversations();
                 startChatPolling();
                 updateOnlineStatus(true);
@@ -32957,16 +32964,16 @@ window.addEventListener('load', function() {
                 modal.style.display = 'none';
             }
             stopChatPolling();
-            currentChatUserId = null;
+            window.currentChatUserId = null;
             hideNewChatPanel();
         }
         
         // Switch between chat tabs (direct, group, announcements)
         function switchChatTab(tab) {
             console.log('📑 Switching to tab:', tab);
-            currentChatTab = tab;
-            currentChatType = tab === 'announcements' ? 'announcement' : tab;
-            currentChatUserId = null;
+            window.currentChatTab = tab;
+            window.currentChatType = tab === 'announcements' ? 'announcement' : tab;
+            window.currentChatUserId = null;
             
             // Hide new chat panel if open
             hideNewChatPanel();
@@ -33050,7 +33057,7 @@ window.addEventListener('load', function() {
         // Close current conversation and go back to list
         function closeChatConversation() {
             console.log('🔙 Closing conversation');
-            currentChatUserId = null;
+            window.currentChatUserId = null;
             resetChatArea();
         }
         
@@ -33140,8 +33147,8 @@ window.addEventListener('load', function() {
             }
             
             // Set chat type
-            currentChatType = 'group';
-            currentChatUserId = groupId;
+            window.currentChatType = 'group';
+            window.currentChatUserId = groupId;
             
             // Show chat area with null checks
             const chatHeader = document.getElementById('chatAreaHeader');
@@ -33177,8 +33184,8 @@ window.addEventListener('load', function() {
             }
             
             // Set chat type
-            currentChatType = 'announcement';
-            currentChatUserId = annId;
+            window.currentChatType = 'announcement';
+            window.currentChatUserId = annId;
             
             // Show chat area with null checks
             const chatHeader = document.getElementById('chatAreaHeader');
@@ -33622,14 +33629,14 @@ window.addEventListener('load', function() {
             }
         }
         
-        // Cache for users loaded from API for chat
-        let chatUserIdCache = null;
-        let currentDbUserId = null; // Store the database user ID
+        // Cache for users loaded from API for chat - use window to make globally accessible
+        window.chatUserIdCache = null;
+        window.currentDbUserId = null; // Store the database user ID
         
         async function getCurrentUserId() {
             // Return cached ID if we have it
-            if (currentDbUserId) {
-                return currentDbUserId;
+            if (window.currentDbUserId) {
+                return window.currentDbUserId;
             }
             
             // Get logged-in user from localStorage
@@ -33645,23 +33652,23 @@ window.addEventListener('load', function() {
                 
                 // Check if user has a stored database ID
                 if (currentUserData.dbId) {
-                    currentDbUserId = currentUserData.dbId;
-                    console.log('✅ Using stored database ID:', currentDbUserId);
-                    return currentDbUserId;
+                    window.currentDbUserId = currentUserData.dbId;
+                    console.log('✅ Using stored database ID:', window.currentDbUserId);
+                    return window.currentDbUserId;
                 }
                 
                 // Fetch users from API to get the ID
-                if (!chatUserIdCache) {
+                if (!window.chatUserIdCache) {
                     const response = await fetch('/api/users');
                     if (response.ok) {
-                        chatUserIdCache = await response.json();
-                        console.log('📥 Loaded users from API:', chatUserIdCache.length, 'users');
+                        window.chatUserIdCache = await response.json();
+                        console.log('📥 Loaded users from API:', window.chatUserIdCache.length, 'users');
                     }
                 }
                 
-                if (chatUserIdCache && chatUserIdCache.length > 0) {
+                if (window.chatUserIdCache && window.chatUserIdCache.length > 0) {
                     // Find matching user by name or username (case-insensitive)
-                    const loggedInUser = chatUserIdCache.find(u => {
+                    const loggedInUser = window.chatUserIdCache.find(u => {
                         const fnMatch = u.FirstName?.toLowerCase() === currentUserData.firstName?.toLowerCase();
                         const lnMatch = u.LastName?.toLowerCase() === currentUserData.lastName?.toLowerCase();
                         const unMatch = u.Username?.toLowerCase() === currentUserData.username?.toLowerCase();
@@ -33670,16 +33677,16 @@ window.addEventListener('load', function() {
                     });
                     
                     if (loggedInUser) {
-                        currentDbUserId = loggedInUser.Id;
-                        console.log('✅ Found user in database with ID:', currentDbUserId);
+                        window.currentDbUserId = loggedInUser.Id;
+                        console.log('✅ Found user in database with ID:', window.currentDbUserId);
                         
                         // Store the database ID for future use
-                        currentUserData.dbId = currentDbUserId;
+                        currentUserData.dbId = window.currentDbUserId;
                         localStorage.setItem('currentUser', JSON.stringify(currentUserData));
                         
-                        return currentDbUserId;
+                        return window.currentDbUserId;
                     } else {
-                        console.warn('⚠️ User not found in database. Available users:', chatUserIdCache.map(u => `${u.FirstName} ${u.LastName} (${u.Username})`));
+                        console.warn('⚠️ User not found in database. Available users:', window.chatUserIdCache.map(u => `${u.FirstName} ${u.LastName} (${u.Username})`));
                         return null;
                     }
                 }
@@ -33764,8 +33771,8 @@ window.addEventListener('load', function() {
             console.log('📨 Selecting conversation with user ID:', otherUserId, firstName, lastName);
             
             // Reset chat type and set new user
-            currentChatType = 'direct';
-            currentChatUserId = otherUserId;
+            window.currentChatType = 'direct';
+            window.currentChatUserId = otherUserId;
             
             // Clear messages immediately to prevent showing old messages
             const messagesArea = document.getElementById('messagesArea');
@@ -33842,7 +33849,7 @@ window.addEventListener('load', function() {
             if (!container) return;
             
             // Verify we're loading for the correct user
-            if (currentChatType !== 'direct' || currentChatUserId !== otherUserId) {
+            if (window.currentChatType !== 'direct' || window.currentChatUserId !== otherUserId) {
                 console.log('⚠️ Chat context changed, skipping message load');
                 return;
             }
@@ -33860,7 +33867,7 @@ window.addEventListener('load', function() {
                 if (!response.ok) throw new Error('Failed to load messages');
                 
                 // Double-check the context hasn't changed while we were fetching
-                if (currentChatType !== 'direct' || currentChatUserId !== otherUserId) {
+                if (window.currentChatType !== 'direct' || window.currentChatUserId !== otherUserId) {
                     console.log('⚠️ Chat context changed during fetch, discarding messages');
                     return;
                 }
@@ -33914,14 +33921,14 @@ window.addEventListener('load', function() {
             const input = document.getElementById('messageInput');
             const message = input.value.trim();
             
-            if (!message || !currentChatUserId) return;
+            if (!message || !window.currentChatUserId) return;
             
             const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
             
             // Handle group messages (localStorage)
-            if (currentChatType === 'group') {
+            if (window.currentChatType === 'group') {
                 const groupChats = JSON.parse(localStorage.getItem('groupChats') || '[]');
-                const groupIndex = groupChats.findIndex(g => g.id === currentChatUserId);
+                const groupIndex = groupChats.findIndex(g => g.id === window.currentChatUserId);
                 
                 if (groupIndex !== -1) {
                     if (!groupChats[groupIndex].messages) {
@@ -33947,9 +33954,9 @@ window.addEventListener('load', function() {
             }
             
             // Handle announcement replies (localStorage)
-            if (currentChatType === 'announcement') {
+            if (window.currentChatType === 'announcement') {
                 const announcements = JSON.parse(localStorage.getItem('announcements') || '[]');
-                const annIndex = announcements.findIndex(a => a.id === currentChatUserId);
+                const annIndex = announcements.findIndex(a => a.id === window.currentChatUserId);
                 
                 if (annIndex !== -1) {
                     if (!announcements[annIndex].replies) {
@@ -33966,7 +33973,7 @@ window.addEventListener('load', function() {
                     input.value = '';
                     
                     // Reload announcement
-                    selectAnnouncement(currentChatUserId);
+                    selectAnnouncement(window.currentChatUserId);
                     showNotification('Reply sent!', 'success');
                 }
                 return;
@@ -33982,14 +33989,14 @@ window.addEventListener('load', function() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         senderId: userId,
-                        receiverId: currentChatUserId,
+                        receiverId: window.currentChatUserId,
                         message: message
                     })
                 });
                 
                 if (response.ok) {
                     input.value = '';
-                    await loadMessages(currentChatUserId);
+                    await loadMessages(window.currentChatUserId);
                     loadConversations();
                 } else {
                     throw new Error('Failed to send message');
@@ -34183,10 +34190,10 @@ window.addEventListener('load', function() {
         
         function startChatPolling() {
             // Poll for new messages every 5 seconds
-            chatPollingInterval = setInterval(async () => {
+            window.chatPollingInterval = setInterval(async () => {
                 // Only poll when on direct messages tab AND viewing a specific conversation
-                if (currentChatTab === 'direct' && currentChatType === 'direct' && currentChatUserId) {
-                    await loadMessages(currentChatUserId);
+                if (window.currentChatTab === 'direct' && window.currentChatType === 'direct' && window.currentChatUserId) {
+                    await loadMessages(window.currentChatUserId);
                     await loadConversations();
                 }
                 // Always update unread badge
@@ -34195,9 +34202,9 @@ window.addEventListener('load', function() {
         }
         
         function stopChatPolling() {
-            if (chatPollingInterval) {
-                clearInterval(chatPollingInterval);
-                chatPollingInterval = null;
+            if (window.chatPollingInterval) {
+                clearInterval(window.chatPollingInterval);
+                window.chatPollingInterval = null;
             }
         }
         
