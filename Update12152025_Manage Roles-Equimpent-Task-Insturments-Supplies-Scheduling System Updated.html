@@ -12965,6 +12965,10 @@
                             <i class="fas fa-star"></i> Bonus
                             <span class="tab-badge bonus-badge" id="bonusTasksBadge">0</span>
                         </button>
+                        <button class="task-hub-tab" onclick="switchTaskHubTab('assignment-board')" data-tab="assignment-board">
+                            <i class="fas fa-users-cog"></i> Assignment Board
+                            <span class="tab-badge assignment-badge" id="unassignedTasksBadge">0</span>
+                        </button>
                         <button class="task-hub-tab" onclick="switchTaskHubTab('completed')" data-tab="completed">
                             <i class="fas fa-check-circle"></i> Completed
                         </button>
@@ -13108,6 +13112,48 @@
                         </div>
                         <div class="tasks-list-container" id="bonusTasksContainer">
                             <!-- Bonus tasks will be rendered here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Assignment Board Panel - Drag & Drop Task Assignment -->
+                    <div class="task-hub-panel" id="panel-assignment-board">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+                            <div>
+                                <h3 style="margin: 0 0 0.25rem 0;"><i class="fas fa-users-cog" style="color: var(--accent-primary); margin-right: 0.5rem;"></i> Task Assignment Board</h3>
+                                <p style="margin: 0; color: var(--text-secondary); font-size: 0.85rem;">Drag employees to unassigned tasks to assign them</p>
+                            </div>
+                            <button onclick="openCreateTaskModal()" style="padding: 0.6rem 1rem; background: var(--accent-primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                                <i class="fas fa-plus"></i> Create Task
+                            </button>
+                        </div>
+                        
+                        <!-- Assignment Board Layout -->
+                        <div style="display: grid; grid-template-columns: 280px 1fr; gap: 1.5rem; min-height: 500px;">
+                            
+                            <!-- Employees Sidebar (Draggable) -->
+                            <div style="background: var(--bg-secondary); border-radius: 12px; padding: 1rem; border: 2px solid var(--border-color);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                    <h4 style="margin: 0; font-size: 0.95rem; color: var(--text-primary);">
+                                        <i class="fas fa-users" style="color: #3b82f6; margin-right: 0.5rem;"></i> Employees
+                                    </h4>
+                                    <input type="text" id="employeeSearchAssignment" placeholder="Search..." oninput="filterEmployeesForAssignment()" style="width: 100px; padding: 0.4rem 0.6rem; font-size: 0.8rem; border: 1px solid var(--border-color); border-radius: 6px;">
+                                </div>
+                                <div id="employeeListForAssignment" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 450px; overflow-y: auto;">
+                                    <!-- Employees will be rendered here -->
+                                </div>
+                            </div>
+                            
+                            <!-- Unassigned Tasks (Drop Zones) -->
+                            <div style="display: flex; flex-direction: column; gap: 1rem;">
+                                <div style="display: flex; gap: 1rem; margin-bottom: 0.5rem;">
+                                    <button onclick="filterUnassignedTasks('all')" class="assignment-filter-btn active" data-filter="all" style="padding: 0.5rem 1rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600;">All</button>
+                                    <button onclick="filterUnassignedTasks('Floating')" class="assignment-filter-btn" data-filter="Floating" style="padding: 0.5rem 1rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-size: 0.85rem;">Floating</button>
+                                    <button onclick="filterUnassignedTasks('Bonus')" class="assignment-filter-btn" data-filter="Bonus" style="padding: 0.5rem 1rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-size: 0.85rem;">Bonus</button>
+                                </div>
+                                <div id="unassignedTasksContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; max-height: 500px; overflow-y: auto;">
+                                    <!-- Unassigned tasks will be rendered here -->
+                                </div>
+                            </div>
                         </div>
                     </div>
                     
@@ -25037,10 +25083,12 @@
         // Initialize duties from localStorage
         loadEmployeeDuties();
 
-        // Automatically convert tasks from employeeTasksDatabase to calendar events
+        // Automatically convert tasks from employeeTasksDatabase and window.tasksData to calendar events
         // This happens AFTER all databases are defined but BEFORE the calendar initializes
         function convertTasksToEvents() {
             console.log('Converting tasks to calendar events...');
+            
+            // First, process employeeTasksDatabase (legacy tasks)
             employeeTasksDatabase.forEach(task => {
                 if (!task.dueDate) {
                     console.warn('Skipping task without due date:', task.title);
@@ -25076,6 +25124,81 @@
                     eventDatabase[existingIndex] = taskEvent;
                 }
             });
+            
+            // Then, process window.tasksData (new Task Hub tasks)
+            if (window.tasksData && window.tasksData.length > 0) {
+                console.log('Processing Task Hub tasks:', window.tasksData.length);
+                window.tasksData.forEach(task => {
+                    // Skip tasks without a due date
+                    if (!task.dueDate) {
+                        console.warn('Skipping task without due date:', task.title);
+                        return;
+                    }
+                    
+                    // Determine employee/resource for task
+                    let resourceId = task.assignee || task.assignedTo || task.claimedBy || null;
+                    
+                    // Get time from dueDate if it includes time, otherwise use default
+                    const dueDateStr = task.dueDate;
+                    let taskDate = dueDateStr;
+                    let taskTime = task.dueTime || '09:00';
+                    
+                    // Handle full datetime strings
+                    if (dueDateStr.includes('T')) {
+                        const parts = dueDateStr.split('T');
+                        taskDate = parts[0];
+                        if (parts[1]) {
+                            taskTime = parts[1].substring(0, 5); // Get HH:MM
+                        }
+                    }
+                    
+                    // Determine display properties based on task type
+                    const taskTypeColors = {
+                        'Standard': '#3b82f6',
+                        'Floating': '#8b5cf6',
+                        'Bonus': '#f59e0b'
+                    };
+                    const taskColor = taskTypeColors[task.taskType] || '#3b82f6';
+                    
+                    // Create task icon based on type
+                    let taskIcon = '📋';
+                    if (task.taskType === 'Floating') taskIcon = '🎯';
+                    if (task.taskType === 'Bonus') taskIcon = '⭐';
+                    
+                    const taskEvent = {
+                        id: task.id,
+                        title: `${taskIcon} ${task.title}`,
+                        start: `${taskDate}T${taskTime}:00`,
+                        end: `${taskDate}T${taskTime}:00`,
+                        resourceId: resourceId,
+                        employee: resourceId,
+                        priority: task.priority,
+                        description: task.description,
+                        notes: `Type: ${task.taskType} | Status: ${task.status}${task.isPaid ? ' | Paid: $' + task.payAmount : ''}`,
+                        paid: task.isPaid || false,
+                        overdue: task.status === 'Overdue',
+                        type: 'task',
+                        eventCategory: 'task',
+                        isTask: true,
+                        taskStatus: task.status,
+                        taskType: task.taskType,
+                        backgroundColor: taskColor,
+                        borderColor: taskColor,
+                        location: task.location
+                    };
+                    
+                    // Check if event with this ID already exists to avoid duplicates
+                    const existingIndex = eventDatabase.findIndex(e => e.id === task.id);
+                    if (existingIndex === -1) {
+                        eventDatabase.push(taskEvent);
+                        console.log('Added Task Hub event:', task.title, 'for:', resourceId || 'Unassigned');
+                    } else {
+                        // Update existing
+                        eventDatabase[existingIndex] = taskEvent;
+                    }
+                });
+            }
+            
             console.log('Task conversion complete. Total events:', eventDatabase.length);
         }
 
@@ -31906,6 +32029,15 @@ window.addEventListener('load', function() {
         // Global Tasks Data Store - Loaded from API or localStorage
         window.tasksData = JSON.parse(localStorage.getItem('tasksData') || '[]');
         
+        // Sync tasksData to calendar events (called after tasksData is loaded)
+        if (typeof convertTasksToEvents === 'function' && window.tasksData.length > 0) {
+            console.log('Syncing Task Hub tasks to calendar...');
+            convertTasksToEvents();
+            if (window.calendar) {
+                window.calendar.refetchEvents();
+            }
+        }
+        
         // Global Duties Data Store - Loaded from API
         window.dutiesData = [];
         
@@ -34979,6 +35111,9 @@ window.addEventListener('load', function() {
                 case 'bonus':
                     renderTaskHubBonus();
                     break;
+                case 'assignment-board':
+                    renderAssignmentBoard();
+                    break;
                 case 'completed':
                     renderTaskHubCompleted();
                     break;
@@ -35111,6 +35246,275 @@ window.addEventListener('load', function() {
             
             container.innerHTML = bonusTasks.map(task => renderTaskHubCard(task, 'bonus')).join('');
         }
+        
+        // ============================================
+        // ASSIGNMENT BOARD - Drag & Drop Task Assignment
+        // ============================================
+        
+        let assignmentBoardFilter = 'all';
+        let draggedEmployeeData = null;
+        
+        // Render the Assignment Board
+        function renderAssignmentBoard() {
+            renderEmployeesForAssignment();
+            renderUnassignedTasks();
+            updateUnassignedBadge();
+        }
+        
+        // Render employees list for drag and drop
+        function renderEmployeesForAssignment() {
+            const container = document.getElementById('employeeListForAssignment');
+            if (!container) return;
+            
+            // Get employees from users
+            const storedUsers = localStorage.getItem('users');
+            const usersData = storedUsers ? JSON.parse(storedUsers) : {};
+            const employees = Object.entries(usersData).map(([username, user]) => ({
+                id: username,
+                name: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : username,
+                role: user.role || 'User',
+                jobTitle: user.jobTitle || user.role || '',
+                avatar: (user.firstName?.[0] || 'U') + (user.lastName?.[0] || '')
+            }));
+            
+            // Also add from masterData if available
+            if (window.masterData) {
+                const providers = window.masterData.getProviders() || [];
+                const assistants = window.masterData.getAssistants() || [];
+                [...providers, ...assistants].forEach(emp => {
+                    if (!employees.find(e => e.name === emp.title)) {
+                        employees.push({
+                            id: emp.id || emp.title,
+                            name: emp.title,
+                            role: emp.jobTitle || 'Staff',
+                            jobTitle: emp.jobTitle || '',
+                            avatar: emp.title.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2)
+                        });
+                    }
+                });
+            }
+            
+            if (employees.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 1rem;">No employees found</div>';
+                return;
+            }
+            
+            container.innerHTML = employees.map(emp => `
+                <div class="draggable-employee" 
+                     draggable="true" 
+                     data-employee-id="${emp.id}" 
+                     data-employee-name="${emp.name}"
+                     ondragstart="handleEmployeeDragStart(event, '${emp.id}', '${emp.name}')"
+                     ondragend="handleEmployeeDragEnd(event)"
+                     style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--card-bg); border: 2px solid var(--border-color); border-radius: 8px; cursor: grab; transition: all 0.2s;"
+                     onmouseover="this.style.borderColor='var(--accent-primary)'; this.style.transform='translateX(4px)';"
+                     onmouseout="this.style.borderColor='var(--border-color)'; this.style.transform='none';">
+                    <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem;">${emp.avatar}</div>
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${emp.name}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary);">${emp.jobTitle || emp.role}</div>
+                    </div>
+                    <i class="fas fa-grip-vertical" style="color: var(--text-tertiary);"></i>
+                </div>
+            `).join('');
+        }
+        
+        // Filter employees search
+        window.filterEmployeesForAssignment = function() {
+            const search = document.getElementById('employeeSearchAssignment')?.value?.toLowerCase() || '';
+            const items = document.querySelectorAll('.draggable-employee');
+            items.forEach(item => {
+                const name = item.dataset.employeeName?.toLowerCase() || '';
+                item.style.display = name.includes(search) ? 'flex' : 'none';
+            });
+        };
+        
+        // Render unassigned tasks (Floating/Bonus without assignee)
+        function renderUnassignedTasks() {
+            const container = document.getElementById('unassignedTasksContainer');
+            if (!container) return;
+            
+            // Get unassigned tasks (Floating or Bonus with no assignee and not claimed)
+            let unassignedTasks = window.tasksData.filter(t => {
+                const isUnassigned = !t.assignee && !t.claimedBy;
+                const isFloatingOrBonus = t.taskType === 'Floating' || t.taskType === 'Bonus';
+                const notCompleted = t.status !== 'Completed';
+                
+                // Apply filter
+                if (assignmentBoardFilter !== 'all' && t.taskType !== assignmentBoardFilter) {
+                    return false;
+                }
+                
+                return isUnassigned && isFloatingOrBonus && notCompleted;
+            });
+            
+            if (unassignedTasks.length === 0) {
+                container.innerHTML = `
+                    <div style="grid-column: 1 / -1; text-align: center; padding: 3rem; color: var(--text-secondary);">
+                        <i class="fas fa-check-circle" style="font-size: 3rem; color: #10b981; margin-bottom: 1rem; display: block;"></i>
+                        <h4 style="margin: 0 0 0.5rem 0;">All tasks are assigned!</h4>
+                        <p style="margin: 0; font-size: 0.9rem;">Create new Floating or Bonus tasks to assign them here.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = unassignedTasks.map(task => {
+                const priorityColors = { 'Critical': '#dc2626', 'High': '#f59e0b', 'Medium': '#3b82f6', 'Low': '#10b981' };
+                const priorityColor = priorityColors[task.priority] || '#64748b';
+                const typeColor = task.taskType === 'Bonus' ? '#f59e0b' : '#3b82f6';
+                const typeBg = task.taskType === 'Bonus' ? '#fef3c7' : '#dbeafe';
+                
+                return `
+                    <div class="unassigned-task-card" 
+                         data-task-id="${task.id}"
+                         ondragover="handleTaskDragOver(event)"
+                         ondragleave="handleTaskDragLeave(event)"
+                         ondrop="handleTaskDrop(event, '${task.id}')"
+                         style="background: var(--card-bg); border: 2px dashed var(--border-color); border-radius: 12px; padding: 1rem; transition: all 0.3s;">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.75rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span style="padding: 0.25rem 0.5rem; background: ${typeBg}; color: ${typeColor}; border-radius: 4px; font-size: 0.7rem; font-weight: 600;">
+                                    <i class="fas ${task.taskType === 'Bonus' ? 'fa-star' : 'fa-hand-pointer'}"></i> ${task.taskType}
+                                </span>
+                                <span style="padding: 0.25rem 0.5rem; background: ${priorityColor}20; color: ${priorityColor}; border-radius: 4px; font-size: 0.7rem; font-weight: 600;">
+                                    ${task.priority}
+                                </span>
+                            </div>
+                            ${task.isPaid && task.payAmount ? `<span style="font-weight: 700; color: #10b981; font-size: 0.9rem;">$${task.payAmount}</span>` : ''}
+                        </div>
+                        <h4 style="margin: 0 0 0.5rem 0; font-size: 1rem; color: var(--text-primary);">${task.title}</h4>
+                        <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4;">${(task.description || '').substring(0, 80)}${task.description?.length > 80 ? '...' : ''}</p>
+                        <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                            ${task.dueDate ? `<span><i class="fas fa-calendar"></i> ${new Date(task.dueDate).toLocaleDateString()}</span>` : ''}
+                            ${task.location ? `<span><i class="fas fa-map-marker-alt"></i> ${task.location}</span>` : ''}
+                            ${task.timeEstimate ? `<span><i class="fas fa-clock"></i> ${task.timeEstimate}</span>` : ''}
+                        </div>
+                        <div class="drop-zone" style="background: linear-gradient(135deg, #f0f9ff, #e0f2fe); border: 2px dashed #3b82f6; border-radius: 8px; padding: 1rem; text-align: center; color: #3b82f6; font-weight: 600; font-size: 0.85rem;">
+                            <i class="fas fa-user-plus" style="margin-right: 0.5rem;"></i> Drop employee here to assign
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // Filter unassigned tasks
+        window.filterUnassignedTasks = function(filter) {
+            assignmentBoardFilter = filter;
+            // Update filter buttons
+            document.querySelectorAll('.assignment-filter-btn').forEach(btn => {
+                btn.style.background = btn.dataset.filter === filter ? 'var(--accent-primary)' : 'var(--bg-secondary)';
+                btn.style.color = btn.dataset.filter === filter ? 'white' : 'var(--text-primary)';
+                btn.style.border = btn.dataset.filter === filter ? 'none' : '1px solid var(--border-color)';
+            });
+            renderUnassignedTasks();
+        };
+        
+        // Drag handlers for employees
+        window.handleEmployeeDragStart = function(event, employeeId, employeeName) {
+            draggedEmployeeData = { id: employeeId, name: employeeName };
+            event.dataTransfer.setData('text/plain', JSON.stringify(draggedEmployeeData));
+            event.dataTransfer.effectAllowed = 'copy';
+            event.target.style.opacity = '0.5';
+            event.target.style.cursor = 'grabbing';
+        };
+        
+        window.handleEmployeeDragEnd = function(event) {
+            event.target.style.opacity = '1';
+            event.target.style.cursor = 'grab';
+            draggedEmployeeData = null;
+        };
+        
+        // Drag handlers for task cards (drop zones)
+        window.handleTaskDragOver = function(event) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+            const card = event.currentTarget;
+            card.style.borderColor = '#10b981';
+            card.style.borderStyle = 'solid';
+            card.style.background = '#f0fdf4';
+            const dropZone = card.querySelector('.drop-zone');
+            if (dropZone) {
+                dropZone.style.background = '#10b981';
+                dropZone.style.color = 'white';
+                dropZone.style.borderColor = '#10b981';
+            }
+        };
+        
+        window.handleTaskDragLeave = function(event) {
+            const card = event.currentTarget;
+            card.style.borderColor = 'var(--border-color)';
+            card.style.borderStyle = 'dashed';
+            card.style.background = 'var(--card-bg)';
+            const dropZone = card.querySelector('.drop-zone');
+            if (dropZone) {
+                dropZone.style.background = 'linear-gradient(135deg, #f0f9ff, #e0f2fe)';
+                dropZone.style.color = '#3b82f6';
+                dropZone.style.borderColor = '#3b82f6';
+            }
+        };
+        
+        window.handleTaskDrop = function(event, taskId) {
+            event.preventDefault();
+            
+            const data = event.dataTransfer.getData('text/plain');
+            if (!data) return;
+            
+            const employee = JSON.parse(data);
+            
+            // Find and update the task
+            const taskIndex = window.tasksData.findIndex(t => t.id === taskId);
+            if (taskIndex === -1) return;
+            
+            const task = window.tasksData[taskIndex];
+            
+            // Assign the employee to the task
+            task.assignee = employee.name;
+            task.assignedAt = new Date().toISOString();
+            task.assignedBy = 'Admin'; // Or get current user
+            
+            // Save to localStorage
+            localStorage.setItem('tasksData', JSON.stringify(window.tasksData));
+            
+            // Update in database
+            if (typeof updateTaskViaAPI === 'function') {
+                updateTaskViaAPI(taskId.replace('task-', ''), {
+                    assignee: employee.name,
+                    assignedUserId: employee.id
+                });
+            }
+            
+            // Show success notification
+            if (typeof showNotification === 'function') {
+                showNotification(`Task "${task.title}" assigned to ${employee.name}`, 'success');
+            } else {
+                alert(`✅ Task "${task.title}" assigned to ${employee.name}`);
+            }
+            
+            // Re-render the board
+            renderAssignmentBoard();
+            updateTaskHubBadges();
+        };
+        
+        // Update unassigned tasks badge
+        function updateUnassignedBadge() {
+            const badge = document.getElementById('unassignedTasksBadge');
+            if (!badge) return;
+            
+            const count = window.tasksData.filter(t => {
+                const isUnassigned = !t.assignee && !t.claimedBy;
+                const isFloatingOrBonus = t.taskType === 'Floating' || t.taskType === 'Bonus';
+                const notCompleted = t.status !== 'Completed';
+                return isUnassigned && isFloatingOrBonus && notCompleted;
+            }).length;
+            
+            badge.textContent = count;
+            badge.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
+        
+        // ============================================
+        // END ASSIGNMENT BOARD
+        // ============================================
         
         // Render Completed Tasks in Hub
         function renderTaskHubCompleted() {
@@ -35956,6 +36360,19 @@ window.addEventListener('load', function() {
                     ((t.taskType === 'Floating' || t.taskType === 'Bonus') && t.status !== 'Completed' && !t.claimedBy)
                 ).length;
                 navBadge.textContent = totalActive;
+            }
+            
+            // Unassigned Tasks badge (Assignment Board)
+            const unassignedBadge = document.getElementById('unassignedTasksBadge');
+            if (unassignedBadge) {
+                const unassignedCount = window.tasksData.filter(t => {
+                    const isUnassigned = !t.assignee && !t.claimedBy;
+                    const isFloatingOrBonus = t.taskType === 'Floating' || t.taskType === 'Bonus';
+                    const notCompleted = t.status !== 'Completed';
+                    return isUnassigned && isFloatingOrBonus && notCompleted;
+                }).length;
+                unassignedBadge.textContent = unassignedCount;
+                unassignedBadge.style.display = unassignedCount > 0 ? 'inline-flex' : 'none';
             }
         }
         
@@ -37596,6 +38013,20 @@ window.addEventListener('load', function() {
             const categories = ['Clinical', 'Administrative', 'Compliance', 'Equipment', 'Marketing', 'Facility', 'Business Center'];
             const selectedCategories = Array.isArray(data.categories) ? data.categories : (data.category ? [data.category] : []);
             
+            // Get rooms dynamically from localStorage
+            const rooms = typeof loadRooms === 'function' ? loadRooms() : [];
+            let roomOptions = '<option value="">Select Room (Optional)</option>';
+            roomOptions += '<option value="Any Room" ' + (data.location === 'Any Room' ? 'selected' : '') + '>Any Room</option>';
+            rooms.forEach(room => {
+                const roomName = room.name || room.roomName || room;
+                roomOptions += `<option value="${roomName}" ${data.location === roomName ? 'selected' : ''}>${roomName}</option>`;
+            });
+            roomOptions += '<option value="Other">Other (Specify)</option>';
+            
+            // Check if assignee should be shown (hidden for Floating/Bonus)
+            const isFloatingOrBonus = data.taskType === 'Floating' || data.taskType === 'Bonus';
+            const assigneeDisplay = isFloatingOrBonus ? 'none' : 'grid';
+            
             // Tomorrow's date as default
             const tomorrow = new Date();
             tomorrow.setDate(tomorrow.getDate() + 1);
@@ -37632,13 +38063,16 @@ window.addEventListener('load', function() {
                                     <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Task Type *</label>
                                     <select id="taskFormTaskType" onchange="toggleTaskTypeFields()" required style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; margin-top: 0.25rem;">
                                         <option value="Regular" ${data.taskType === 'Regular' || !data.taskType ? 'selected' : ''}>📋 Regular Task</option>
-                                        <option value="Floating" ${data.taskType === 'Floating' ? 'selected' : ''}>🎯 Floating Task (Claim-based)</option>
-                                        <option value="Bonus" ${data.taskType === 'Bonus' ? 'selected' : ''}>⭐ Bonus Task (Paid)</option>
+                                        <option value="Floating" ${data.taskType === 'Floating' ? 'selected' : ''}>🎯 Floating Task (Unassigned - Anyone can claim)</option>
+                                        <option value="Bonus" ${data.taskType === 'Bonus' ? 'selected' : ''}>⭐ Bonus Task (Unassigned - Paid)</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Location</label>
-                                    <input type="text" id="taskFormLocation" value="${data.location || ''}" placeholder="e.g., Front Desk, Operatory 1, Any Room" style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; margin-top: 0.25rem;">
+                                    <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Room/Location</label>
+                                    <select id="taskFormLocationSelect" onchange="handleRoomSelection()" style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; margin-top: 0.25rem;">
+                                        ${roomOptions}
+                                    </select>
+                                    <input type="text" id="taskFormLocation" value="${data.location || ''}" placeholder="Enter custom location..." style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; margin-top: 0.5rem; display: none;">
                                 </div>
                             </div>
                             
@@ -37677,11 +38111,22 @@ window.addEventListener('load', function() {
                                 <textarea id="taskFormDescription" placeholder="What exactly needs to be done? Include standards or references if applicable..." required style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; margin-top: 0.25rem; min-height: 80px; resize: vertical;">${data.description || ''}</textarea>
                             </div>
                             
-                            <!-- Primary & Secondary Assignee -->
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <!-- Info Banner for Floating/Bonus Tasks -->
+                            <div id="taskFormUnassignedBanner" style="display: ${isFloatingOrBonus ? 'block' : 'none'}; background: linear-gradient(135deg, #dbeafe, #bfdbfe); padding: 1rem; border-radius: 8px; border: 2px solid #3b82f6;">
+                                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                    <i class="fas fa-info-circle" style="color: #2563eb; font-size: 1.25rem;"></i>
+                                    <div>
+                                        <div style="font-weight: 600; color: #1e40af;">Unassigned Task</div>
+                                        <div style="font-size: 0.85rem; color: #3b82f6;">This task will be available for any employee to claim. You can assign it later via drag-and-drop in the Task Assignment Board.</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Primary & Secondary Assignee (hidden for Floating/Bonus) -->
+                            <div id="taskFormAssigneeSection" style="display: ${assigneeDisplay}; grid-template-columns: 1fr 1fr; gap: 1rem;">
                                 <div>
                                     <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Primary Assignee * <i class="fas fa-search" style="color: var(--text-secondary); font-size: 0.7rem;"></i></label>
-                                    <select id="taskFormAssignee" required style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; margin-top: 0.25rem;">
+                                    <select id="taskFormAssignee" style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; margin-top: 0.25rem;">
                                         ${assigneeOptions}
                                     </select>
                                 </div>
@@ -37892,13 +38337,70 @@ window.addEventListener('load', function() {
             
             // Initialize task type fields visibility
             toggleTaskTypeFields();
+            
+            // Initialize room selection if editing with existing location
+            if (data.location) {
+                const roomSelect = document.getElementById('taskFormLocationSelect');
+                const customInput = document.getElementById('taskFormLocation');
+                if (roomSelect && customInput) {
+                    // Check if location matches any room option
+                    const options = Array.from(roomSelect.options).map(o => o.value);
+                    if (options.includes(data.location)) {
+                        roomSelect.value = data.location;
+                    } else {
+                        roomSelect.value = 'Other';
+                        customInput.style.display = 'block';
+                        customInput.value = data.location;
+                    }
+                }
+            }
         }
         
-        // Toggle Task Type fields (Bonus/Floating)
+        // Handle room selection change
+        window.handleRoomSelection = function() {
+            const roomSelect = document.getElementById('taskFormLocationSelect');
+            const customInput = document.getElementById('taskFormLocation');
+            if (roomSelect && customInput) {
+                if (roomSelect.value === 'Other') {
+                    customInput.style.display = 'block';
+                    customInput.focus();
+                } else {
+                    customInput.style.display = 'none';
+                    customInput.value = roomSelect.value;
+                }
+            }
+        };
+        
+        // Toggle Task Type fields (Bonus/Floating) - Also controls assignee visibility
         window.toggleTaskTypeFields = function() {
             const taskType = document.getElementById('taskFormTaskType')?.value;
             const bonusFields = document.getElementById('taskFormBonusFields');
             const timeEstimateRow = document.getElementById('taskFormTimeEstimateRow');
+            const assigneeSection = document.getElementById('taskFormAssigneeSection');
+            const unassignedBanner = document.getElementById('taskFormUnassignedBanner');
+            const assigneeInput = document.getElementById('taskFormAssignee');
+            
+            const isFloatingOrBonus = (taskType === 'Floating' || taskType === 'Bonus');
+            
+            // Show/hide assignee section based on task type
+            if (assigneeSection) {
+                assigneeSection.style.display = isFloatingOrBonus ? 'none' : 'grid';
+            }
+            
+            // Show/hide unassigned info banner
+            if (unassignedBanner) {
+                unassignedBanner.style.display = isFloatingOrBonus ? 'block' : 'none';
+            }
+            
+            // Remove required attribute for Floating/Bonus tasks
+            if (assigneeInput) {
+                if (isFloatingOrBonus) {
+                    assigneeInput.removeAttribute('required');
+                    assigneeInput.value = ''; // Clear assignee for floating/bonus tasks
+                } else {
+                    assigneeInput.setAttribute('required', 'required');
+                }
+            }
             
             if (bonusFields) {
                 bonusFields.style.display = (taskType === 'Bonus') ? 'grid' : 'none';
@@ -37909,7 +38411,7 @@ window.addEventListener('load', function() {
             }
             
             if (timeEstimateRow) {
-                timeEstimateRow.style.display = (taskType === 'Floating' || taskType === 'Bonus') ? 'block' : 'none';
+                timeEstimateRow.style.display = isFloatingOrBonus ? 'block' : 'none';
             }
         };
         
@@ -38026,6 +38528,20 @@ window.addEventListener('load', function() {
         // Save task (create or update) - Enhanced Version
         window.saveTask = function() {
             const form = document.getElementById('taskForm');
+            
+            // Get task type to determine if assignee is required
+            const taskType = document.getElementById('taskFormTaskType')?.value || 'Regular';
+            const isFloatingOrBonus = (taskType === 'Floating' || taskType === 'Bonus');
+            
+            // For regular tasks, ensure assignee is selected
+            if (!isFloatingOrBonus) {
+                const assignee = document.getElementById('taskFormAssignee')?.value;
+                if (!assignee) {
+                    alert('Please select an assignee for this regular task.');
+                    return;
+                }
+            }
+            
             if (!form.checkValidity()) {
                 form.reportValidity();
                 return;
@@ -38047,9 +38563,18 @@ window.addEventListener('load', function() {
             const equipmentCategory = document.getElementById('taskFormEquipmentCategory').value;
             const equipmentItem = document.getElementById('taskFormEquipmentItem').value;
             
-            // Get task type fields
-            const taskType = document.getElementById('taskFormTaskType')?.value || 'Regular';
-            const location = document.getElementById('taskFormLocation')?.value || null;
+            // Get location from dropdown or custom input
+            const roomSelect = document.getElementById('taskFormLocationSelect');
+            const customLocationInput = document.getElementById('taskFormLocation');
+            let location = '';
+            if (roomSelect && roomSelect.value === 'Other') {
+                location = customLocationInput?.value || '';
+            } else if (roomSelect) {
+                location = roomSelect.value || '';
+            } else {
+                location = customLocationInput?.value || '';
+            }
+            
             const isPaid = document.getElementById('taskFormIsPaid')?.checked || false;
             const payAmount = document.getElementById('taskFormPayAmount')?.value ? parseFloat(document.getElementById('taskFormPayAmount').value) : null;
             const timeEstimate = document.getElementById('taskFormTimeEstimate')?.value || null;
@@ -38059,12 +38584,16 @@ window.addEventListener('load', function() {
             const visibility = visibilityRadio ? visibilityRadio.value : 'public';
             const visibleTo = visibility === 'private' ? getSelectedPrivateEmployees() : [];
             
+            // Get assignee (empty for Floating/Bonus tasks)
+            const assigneeValue = isFloatingOrBonus ? '' : (document.getElementById('taskFormAssignee')?.value || '');
+            const secondaryAssigneeValue = isFloatingOrBonus ? '' : (document.getElementById('taskFormSecondary')?.value || null);
+            
             const taskData = {
                 id: taskId || 'task-' + Date.now(),
                 title: document.getElementById('taskFormTitle').value,
                 description: document.getElementById('taskFormDescription').value,
-                assignee: document.getElementById('taskFormAssignee').value,
-                secondaryAssignee: document.getElementById('taskFormSecondary').value || null,
+                assignee: assigneeValue,
+                secondaryAssignee: secondaryAssigneeValue,
                 dueDate: document.getElementById('taskFormDueDate').value,
                 dueTime: document.getElementById('taskFormDueTime').value,
                 priority: document.getElementById('taskFormPriority').value,
@@ -38157,6 +38686,20 @@ window.addEventListener('load', function() {
             document.getElementById('taskFormModal')?.remove();
             renderTasksList();
             renderThisWeekTasks();
+            
+            // Refresh calendar to show the new/updated task
+            if (typeof convertTasksToEvents === 'function') {
+                convertTasksToEvents();
+                if (window.calendar) {
+                    window.calendar.refetchEvents();
+                }
+            }
+            
+            // Update Task Hub badges
+            if (typeof updateTaskHubBadges === 'function') {
+                updateTaskHubBadges();
+            }
+            
             alert(`✅ Task ${isEdit ? 'updated' : 'created'} successfully!`);
         };
         
