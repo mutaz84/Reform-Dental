@@ -31903,8 +31903,8 @@ window.addEventListener('load', function() {
         // TASK MANAGEMENT SYSTEM - FULL CRUD
         // ==========================================
         
-        // Global Tasks Data Store - Loaded from API
-        window.tasksData = [];
+        // Global Tasks Data Store - Loaded from API or localStorage
+        window.tasksData = JSON.parse(localStorage.getItem('tasksData') || '[]');
         
         // Global Duties Data Store - Loaded from API
         window.dutiesData = [];
@@ -46045,15 +46045,37 @@ async function syncTasksFromAPI() {
                 id: `task-${t.Id || t.id}`,
                 title: t.Title || t.title,
                 description: t.Description || t.description || '',
-                assignedTo: t.AssignedUserId || t.assignedUserId || '',
+                assignee: t.Assignee || t.assignee || t.AssignedUserId || t.assignedUserId || '',
+                secondaryAssignee: t.SecondaryAssignee || t.secondaryAssignee || '',
                 clinic: t.ClinicId || t.clinicId || '',
                 dueDate: t.DueDate || t.dueDate || '',
-                priority: t.Priority || t.priority || 'medium',
-                status: t.Status || t.status || 'pending',
-                category: t.Category || t.category || ''
+                dueTime: t.DueTime || t.dueTime || '',
+                priority: t.Priority || t.priority || 'Medium',
+                status: t.Status || t.status || 'Pending',
+                category: t.Category || t.category || '',
+                taskType: t.TaskType || t.taskType || 'general',
+                location: t.Location || t.location || '',
+                recurrence: t.Recurrence || t.recurrence || 'One-time',
+                complianceFlag: t.ComplianceFlag || t.complianceFlag || false,
+                isPaid: t.IsPaid || t.isPaid || false,
+                payAmount: t.PayAmount || t.payAmount || 0,
+                timeEstimate: t.TimeEstimate || t.timeEstimate || '',
+                createdAt: t.CreatedAt || t.createdAt || new Date().toISOString(),
+                createdBy: t.CreatedBy || t.createdBy || ''
             }));
-            localStorage.setItem('tasks', JSON.stringify(localTasks));
+            // Update window.tasksData for UI rendering
+            window.tasksData = localTasks;
+            // Store with correct key 'tasksData' to match save function
+            localStorage.setItem('tasksData', JSON.stringify(localTasks));
             console.log('✅ Synced', localTasks.length, 'tasks from API');
+            
+            // Refresh UI if task list is visible
+            if (typeof renderTasksList === 'function') {
+                renderTasksList();
+            }
+            if (typeof renderThisWeekTasks === 'function') {
+                renderThisWeekTasks();
+            }
         }
         return true;
     } catch (error) {
