@@ -35075,8 +35075,8 @@ window.addEventListener('load', function() {
         // TASK HUB - UNIFIED TASK MANAGEMENT
         // ============================================
         
-        // Task Hub State
-        let taskHubState = {
+        // Task Hub State - use window for global access
+        window.taskHubState = {
             currentTab: 'my-tasks',
             filters: {
                 status: 'all',
@@ -35097,7 +35097,7 @@ window.addEventListener('load', function() {
         
         // Switch Task Hub Tab
         function switchTaskHubTab(tabName) {
-            taskHubState.currentTab = tabName;
+            window.window.taskHubState.currentTab = tabName;
             
             // Update tab buttons
             document.querySelectorAll('.task-hub-tab').forEach(tab => {
@@ -35644,7 +35644,7 @@ window.addEventListener('load', function() {
             const priority = document.getElementById('taskHubFilterPriority')?.value || 'all';
             const dueFilter = document.getElementById('taskHubFilterDue')?.value || 'all';
             const category = document.getElementById('taskHubFilterCategory')?.value || 'all';
-            const search = taskHubState.searchQuery?.toLowerCase() || '';
+            const search = window.taskHubState.searchQuery?.toLowerCase() || '';
             
             return tasks.filter(task => {
                 if (priority !== 'all' && task.priority !== priority) return false;
@@ -35847,7 +35847,7 @@ window.addEventListener('load', function() {
         
         // Kanban Drag and Drop handlers
         function handleKanbanDragStart(event, assignmentId) {
-            taskHubState.draggedCard = assignmentId;
+            window.taskHubState.draggedCard = assignmentId;
             event.target.classList.add('dragging');
             event.dataTransfer.effectAllowed = 'move';
             event.dataTransfer.setData('text/plain', assignmentId);
@@ -35855,7 +35855,7 @@ window.addEventListener('load', function() {
         
         function handleKanbanDragEnd(event) {
             event.target.classList.remove('dragging');
-            taskHubState.draggedCard = null;
+            window.taskHubState.draggedCard = null;
             document.querySelectorAll('.kanban-column').forEach(col => col.classList.remove('drag-over'));
         }
         
@@ -35869,7 +35869,7 @@ window.addEventListener('load', function() {
             event.preventDefault();
             event.currentTarget.classList.remove('drag-over');
             
-            const assignmentId = event.dataTransfer.getData('text/plain') || taskHubState.draggedCard;
+            const assignmentId = event.dataTransfer.getData('text/plain') || window.taskHubState.draggedCard;
             if (!assignmentId) return;
             
             const assignment = window.taskAssignments.find(a => a.id === assignmentId);
@@ -35909,8 +35909,8 @@ window.addEventListener('load', function() {
             if (!container) return;
             
             const assignments = getFilteredAssignments().filter(a => a.dueDate);
-            const view = taskHubState.timelineView;
-            const currentDate = taskHubState.timelineDate;
+            const view = window.taskHubState.timelineView;
+            const currentDate = window.taskHubState.timelineDate;
             
             // Update date range display
             const dateRangeEl = document.getElementById('timelineDateRange');
@@ -36037,21 +36037,21 @@ window.addEventListener('load', function() {
         
         // Timeline Navigation
         function navigateTimeline(direction) {
-            if (taskHubState.timelineView === 'week') {
-                taskHubState.timelineDate.setDate(taskHubState.timelineDate.getDate() + (direction * 7));
+            if (window.taskHubState.timelineView === 'week') {
+                window.taskHubState.timelineDate.setDate(window.taskHubState.timelineDate.getDate() + (direction * 7));
             } else {
-                taskHubState.timelineDate.setMonth(taskHubState.timelineDate.getMonth() + direction);
+                window.taskHubState.timelineDate.setMonth(window.taskHubState.timelineDate.getMonth() + direction);
             }
             renderTimelineView();
         }
         
         function navigateTimelineToday() {
-            taskHubState.timelineDate = new Date();
+            window.taskHubState.timelineDate = new Date();
             renderTimelineView();
         }
         
         function setTimelineView(view) {
-            taskHubState.timelineView = view;
+            window.taskHubState.timelineView = view;
             renderTimelineView();
         }
         
@@ -36109,7 +36109,7 @@ window.addEventListener('load', function() {
             if (!container) return;
             
             const filterType = document.getElementById('activityFilter')?.value || 'all';
-            let activities = taskHubState.activityLog || [];
+            let activities = window.taskHubState.activityLog || [];
             
             if (filterType !== 'all') {
                 activities = activities.filter(a => a.type === filterType);
@@ -36165,14 +36165,14 @@ window.addEventListener('load', function() {
                 user: 'current-user'
             };
             
-            taskHubState.activityLog.unshift(activity);
+            window.taskHubState.activityLog.unshift(activity);
             
             // Keep only last 200 activities
-            if (taskHubState.activityLog.length > 200) {
-                taskHubState.activityLog = taskHubState.activityLog.slice(0, 200);
+            if (window.taskHubState.activityLog.length > 200) {
+                window.taskHubState.activityLog = window.taskHubState.activityLog.slice(0, 200);
             }
             
-            localStorage.setItem('taskActivityLog', JSON.stringify(taskHubState.activityLog));
+            localStorage.setItem('taskActivityLog', JSON.stringify(window.taskHubState.activityLog));
         }
         
         // Get Time Ago string
@@ -36196,8 +36196,8 @@ window.addEventListener('load', function() {
         // Get Filtered Assignments
         function getFilteredAssignments() {
             let assignments = [...window.taskAssignments];
-            const { status, priority, entityType } = taskHubState.filters;
-            const query = taskHubState.searchQuery.toLowerCase();
+            const { status, priority, entityType } = window.taskHubState.filters;
+            const query = window.taskHubState.searchQuery.toLowerCase();
             
             if (status !== 'all') {
                 assignments = assignments.filter(a => a.status === status);
@@ -36226,11 +36226,11 @@ window.addEventListener('load', function() {
         
         // Task Hub Search
         function handleTaskHubSearch(query) {
-            taskHubState.searchQuery = query;
+            window.taskHubState.searchQuery = query;
             
             // Debounce the search
-            clearTimeout(taskHubState.searchTimeout);
-            taskHubState.searchTimeout = setTimeout(() => {
+            clearTimeout(window.taskHubState.searchTimeout);
+            window.taskHubState.searchTimeout = setTimeout(() => {
                 renderCurrentTaskHubView();
                 showSmartSearchResults(query);
             }, 300);
@@ -36238,7 +36238,7 @@ window.addEventListener('load', function() {
         
         function showSearchResults() {
             const results = document.getElementById('taskHubSearchResults');
-            if (results && taskHubState.searchQuery) {
+            if (results && window.taskHubState.searchQuery) {
                 results.classList.add('active');
             }
         }
@@ -36292,7 +36292,7 @@ window.addEventListener('load', function() {
         }
         
         function clearTaskHubFilters() {
-            taskHubState.searchQuery = '';
+            window.taskHubState.searchQuery = '';
             
             const priorityFilter = document.getElementById('taskHubFilterPriority');
             const dueFilter = document.getElementById('taskHubFilterDue');
@@ -36316,7 +36316,7 @@ window.addEventListener('load', function() {
         
         // Render Current View
         function renderCurrentTaskHubView() {
-            switch (taskHubState.currentTab) {
+            switch (window.taskHubState.currentTab) {
                 case 'my-tasks':
                     renderTaskHubMyTasks();
                     break;
@@ -36392,8 +36392,8 @@ window.addEventListener('load', function() {
         function toggleTaskHubFab() {
             const fab = document.getElementById('taskHubFab');
             if (fab) {
-                taskHubState.fabOpen = !taskHubState.fabOpen;
-                fab.classList.toggle('active', taskHubState.fabOpen);
+                window.taskHubState.fabOpen = !window.taskHubState.fabOpen;
+                fab.classList.toggle('active', window.taskHubState.fabOpen);
             }
         }
         
@@ -36411,7 +36411,7 @@ window.addEventListener('load', function() {
             }
             
             // Close FAB
-            if (taskHubState.fabOpen) toggleTaskHubFab();
+            if (window.taskHubState.fabOpen) toggleTaskHubFab();
         }
         
         function closeQuickCreatePanel() {
@@ -37955,6 +37955,35 @@ window.addEventListener('load', function() {
             'Computers': ['Front Desk PC', 'Operatory 1 PC', 'Operatory 2 PC', 'Server', 'Tablet'],
             'HVAC/Facility': ['HVAC System', 'Compressor', 'Vacuum Pump', 'Nitrous System', 'Water Filtration'],
             'Other': ['Waiting Room TV', 'Phone System', 'Security System', 'Fire Extinguisher']
+        };
+        
+        // Build private employee checkboxes for task visibility (defined early to be available in modal)
+        window.buildPrivateEmployeeCheckboxes = function(selectedEmployees = []) {
+            const storedUsers = localStorage.getItem('users');
+            const usersData = storedUsers ? JSON.parse(storedUsers) : {};
+            const employees = Object.entries(usersData).map(([username, user]) => ({
+                id: username,
+                name: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : username,
+                role: user.role || 'User',
+                jobTitle: user.jobTitle || ''
+            }));
+            
+            if (employees.length === 0) {
+                return '<p style="text-align: center; color: var(--text-secondary); padding: 0.5rem; font-size: 0.85rem;">No employees found</p>';
+            }
+            
+            let html = '';
+            employees.forEach(emp => {
+                const isChecked = selectedEmployees.includes(emp.id) || selectedEmployees.includes(emp.name);
+                html += `
+                    <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.5rem; cursor: pointer; border-bottom: 1px solid var(--border-color);" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='transparent'">
+                        <input type="checkbox" name="taskPrivateEmployees" value="${emp.id}" ${isChecked ? 'checked' : ''} style="accent-color: var(--accent-primary);">
+                        <span style="font-size: 0.85rem; color: var(--text-primary);">${emp.name}</span>
+                        <span style="font-size: 0.75rem; color: var(--text-tertiary); margin-left: auto;">${emp.jobTitle || emp.role}</span>
+                    </label>
+                `;
+            });
+            return html;
         };
 
         // Task form modal (Create/Edit) - Enhanced Version
