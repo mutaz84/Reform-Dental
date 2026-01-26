@@ -24928,9 +24928,13 @@
                 return;
             }
             
-            // If not ready yet, wait a bit and retry (page is still loading)
-            setTimeout(() => {
+            // If not ready yet, keep checking silently until it's available
+            let attempts = 0;
+            const maxAttempts = 50; // 5 seconds total
+            const checkInterval = setInterval(() => {
+                attempts++;
                 if (typeof window.openTaskFormModal === 'function') {
+                    clearInterval(checkInterval);
                     try {
                         window.openTaskFormModal(null, template);
                     } catch (e) {
@@ -24939,10 +24943,11 @@
                             showNotification('Error opening task form. Please try again.', 'error');
                         }
                     }
-                } else {
-                    console.error('❌ openTaskFormModal still not defined');
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(checkInterval);
+                    console.error('❌ openTaskFormModal not defined after waiting');
                     if (typeof showNotification === 'function') {
-                        showNotification('Task form not ready. Please try again.', 'error');
+                        showNotification('Task form not ready. Please refresh the page.', 'error');
                     }
                 }
             }, 100);
