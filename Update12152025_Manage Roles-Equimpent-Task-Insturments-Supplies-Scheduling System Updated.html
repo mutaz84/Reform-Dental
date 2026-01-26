@@ -24920,6 +24920,41 @@
 
         // Simple queue system for early task form calls
         window.__taskFormQueue = window.__taskFormQueue || [];
+
+        function flushTaskFormQueues() {
+            if (typeof window.openTaskFormModal !== 'function') return false;
+            const queued = [];
+            if (Array.isArray(window.__taskFormQueue) && window.__taskFormQueue.length) {
+                queued.push(...window.__taskFormQueue);
+                window.__taskFormQueue.length = 0;
+            }
+            if (Array.isArray(window.__taskFormOpenQueue) && window.__taskFormOpenQueue.length) {
+                queued.push(...window.__taskFormOpenQueue);
+                window.__taskFormOpenQueue.length = 0;
+            }
+            if (!queued.length) return false;
+            queued.forEach((item) => {
+                const taskId = item && Object.prototype.hasOwnProperty.call(item, 'taskId') ? item.taskId : null;
+                const template = item && Object.prototype.hasOwnProperty.call(item, 'template') ? item.template : (taskId ? null : item);
+                setTimeout(() => {
+                    try { window.openTaskFormModal(taskId, template); } catch (e) { console.error('Queued Task form open failed:', e); }
+                }, 0);
+            });
+            return true;
+        }
+
+        function attemptFlushTaskFormQueue() {
+            const flushed = flushTaskFormQueues();
+            if (flushed) return;
+            if (typeof window.openTaskFormModal !== 'function') {
+                if (!window.__taskFormQueueRetry) {
+                    window.__taskFormQueueRetry = setTimeout(() => {
+                        window.__taskFormQueueRetry = null;
+                        attemptFlushTaskFormQueue();
+                    }, 200);
+                }
+            }
+        }
         
         // Helper: Safely open the Task Form modal
         function openTaskFormSafe(template) {
@@ -24939,6 +24974,7 @@
             // If not ready yet, queue it silently
             console.log('⏳ Task form not ready yet, queueing call...');
             window.__taskFormQueue.push({ template });
+            attemptFlushTaskFormQueue();
         }
         window.openTaskFormSafe = openTaskFormSafe;
 
@@ -29163,6 +29199,9 @@
                     console.log('⏳ Task form not ready yet, queueing task click...');
                     window.__taskFormQueue = window.__taskFormQueue || [];
                     window.__taskFormQueue.push({ taskId: taskId, template: null });
+                    if (typeof attemptFlushTaskFormQueue === 'function') {
+                        attemptFlushTaskFormQueue();
+                    }
                 }
                 return;
             }
