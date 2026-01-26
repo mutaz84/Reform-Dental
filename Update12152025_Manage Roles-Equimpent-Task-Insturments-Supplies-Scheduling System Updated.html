@@ -1643,17 +1643,7 @@
         }
 
         // Attach event listener for Sticky Notes nav item
-        document.addEventListener('DOMContentLoaded', function() {
-            const navItems = document.querySelectorAll('.nav-item');
-            navItems.forEach(item => {
-                if (item.textContent.includes('Sticky Notes')) {
-                    console.log('Found Sticky Notes nav item, attaching listener');
-                    item.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        console.log('Sticky Notes nav clicked!');
-                        toggleStickyNotesPanel();
-                    });
-                }
+        
             });
         });
     </script>
@@ -47233,6 +47223,64 @@ async function loadAllDataFromAPI() {
     }
 }
 
+
+async function initializeApp() {
+    console.log('🚀 Application Initializing...');
+    
+    // Show a global loading indicator if you have one
+    // e.g., document.getElementById('global-loader').style.display = 'block';
+
+    // First, load all critical data from the API
+    await loadAllDataFromAPI();
+
+    console.log('✅ API Data loaded, proceeding with UI initialization.');
+
+    // Now that we have data, initialize all UI components
+    // This is where we'll consolidate all the logic from the scattered DOMContentLoaded listeners
+    
+    // Initialize master data (like employees and rooms for the calendar)
+    masterData.initialize(); 
+
+    // Initialize the main calendar
+    if (typeof initializeCalendar === 'function') {
+        initializeCalendar();
+    } else {
+        console.error('initializeCalendar function not found!');
+    }
+
+    // Initialize the task form modal so it's ready to be opened
+    if (typeof window.openTaskFormModal === 'function') {
+        // The function is defined, let's process any queued calls
+        console.log('Task form is ready. Processing queue...');
+        if (window.__taskFormQueue && window.__taskFormQueue.length > 0) {
+            window.__taskFormQueue.forEach(args => window.openTaskFormModal(...args));
+            window.__taskFormQueue = []; // Clear the queue
+        }
+    }
+
+    // Initialize other UI components that were previously in their own listeners
+    setupTabNavigation();
+    initializeAllSortableTables();
+    setupRoleManagement();
+    setupClinicManagement();
+    setupVendorManagement();
+    setupUserManagement();
+    setupEquipmentManagement();
+    setupInstrumentManagement();
+    setupSupplyManagement();
+    ensureFilterInitialization();
+    initializeSupplyRequestForm();
+    initializeInstrumentRequestForm();
+    initializeEquipmentRequestForm();
+    
+    // Hide the global loading indicator
+    // e.g., document.getElementById('global-loader').style.display = 'none';
+    console.log('🎉 Application Initialized Successfully!');
+}
+
+// Single entry point for the application
+document.addEventListener('DOMContentLoaded', initializeApp);
+
 // Load clinic filter dropdown from offices
 async function loadClinicFilterDropdown() {
     const clinicSelect = document.getElementById('clinicFilterSelect');
@@ -47279,6 +47327,7 @@ if (typeof window.logout === 'undefined' && typeof logout === 'function') {
     window.logout = logout;
 }
 console.log('✅ Global functions exported to window object');
+
 </script>
 
 </body></html>
