@@ -46373,7 +46373,10 @@ const API_BASE_URL = '/api';
 async function fetchUsersFromAPI() {
     try {
         const response = await fetch(`${API_BASE_URL}/users`);
-        if (!response.ok) throw new Error('Failed to fetch users');
+        if (!response.ok) {
+            console.error('❌ Failed to fetch users:', response.status);
+            return null;
+        }
         const users = await response.json();
         console.log('✅ Fetched', users.length, 'users from API');
         return users;
@@ -46387,7 +46390,10 @@ async function fetchUsersFromAPI() {
 async function fetchClinicsFromAPI() {
     try {
         const response = await fetch(`${API_BASE_URL}/clinics`);
-        if (!response.ok) throw new Error('Failed to fetch clinics');
+        if (!response.ok) {
+            console.error('❌ Failed to fetch clinics:', response.status);
+            return null;
+        }
         const clinics = await response.json();
         console.log('✅ Fetched', clinics.length, 'clinics from API');
         return clinics;
@@ -47156,21 +47162,36 @@ async function loadAllDataFromAPI() {
     showSyncStatus('Syncing with database...', true);
     
     try {
-        await Promise.all([
-            syncUsersFromAPI(),
-            syncClinicsFromAPI(),
-            syncRoomsFromAPI(),
-            syncEquipmentFromAPI(),
-            syncInstrumentsFromAPI(),
-            syncSuppliesFromAPI(),
-            syncTasksFromAPI(),
-            syncSchedulesFromAPI(),
-            syncVendorsFromAPI(),
-            syncRolesFromAPI()
-        ]);
-        
-        console.log('✅ All data synced from database');
-        showSyncStatus('All data synced from database!', true);
+        const syncSteps = [
+            { name: 'users', fn: () => syncUsersFromAPI() },
+            { name: 'clinics', fn: () => syncClinicsFromAPI() },
+            { name: 'rooms', fn: () => syncRoomsFromAPI() },
+            { name: 'equipment', fn: () => syncEquipmentFromAPI() },
+            { name: 'instruments', fn: () => syncInstrumentsFromAPI() },
+            { name: 'supplies', fn: () => syncSuppliesFromAPI() },
+            { name: 'tasks', fn: () => syncTasksFromAPI() },
+            { name: 'schedules', fn: () => syncSchedulesFromAPI() },
+            { name: 'vendors', fn: () => syncVendorsFromAPI() },
+            { name: 'roles', fn: () => syncRolesFromAPI() }
+        ];
+
+        const results = await Promise.allSettled(syncSteps.map(s => Promise.resolve().then(s.fn)));
+
+        const failed = [];
+        results.forEach((r, idx) => {
+            if (r.status === 'rejected') {
+                failed.push(syncSteps[idx].name);
+                console.error(`❌ Sync step failed: ${syncSteps[idx].name}`, r.reason);
+            }
+        });
+
+        if (failed.length) {
+            console.warn('⚠️ Some data failed to sync:', failed);
+            showSyncStatus(`Some data failed to sync: ${failed.join(', ')}`, false);
+        } else {
+            console.log('✅ All data synced from database');
+            showSyncStatus('All data synced from database!', true);
+        }
         
         // Refresh UI if needed
         if (typeof renderUsersTable === 'function') renderUsersTable();
