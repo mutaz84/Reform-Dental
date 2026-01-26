@@ -24998,21 +24998,39 @@
             return 'room-' + location.toLowerCase().replace(/\s+/g, '-');
         }
 
-        // Helper: Safely open the Task Form modal, retrying briefly if not yet available
+        // Helper: Safely open the Task Form modal without alerts; retry with backoff if not yet available
         function openTaskFormSafe(template) {
-            let attempts = 0;
-            function tryOpen() {
-                if (typeof window.openTaskFormModal === 'function') {
-                    window.openTaskFormModal(null, template);
-                } else if (attempts < 20) {
-                    attempts++;
-                    setTimeout(tryOpen, 100);
-                } else {
-                    console.warn('Task form modal not available to create task from slot');
-                    alert('The Task form is still loading. Please click the slot again in a moment.');
+            const openIfReady = () => {
+                try {
+                    if (typeof window.openTaskFormModal === 'function') {
+                        window.openTaskFormModal(null, template);
+                        return true;
+                    }
+                } catch (e) {
+                    console.error('Failed to open Task form:', e);
                 }
-            }
-            tryOpen();
+                return false;
+            };
+
+            // Try immediately first
+            if (openIfReady()) return;
+
+            // Exponential backoff up to ~8s, no blocking alerts
+            let delay = 200; // ms
+            const maxDelay = 2000; // ms
+            const deadline = Date.now() + 8000; // ms
+
+            const tick = () => {
+                if (openIfReady()) return;
+                if (Date.now() >= deadline) {
+                    console.warn('Task form not ready after waiting. Please try again.');
+                    return;
+                }
+                delay = Math.min(maxDelay, Math.floor(delay * 1.6));
+                setTimeout(tick, delay);
+            };
+
+            setTimeout(tick, delay);
         }
         window.openTaskFormSafe = openTaskFormSafe;
 
