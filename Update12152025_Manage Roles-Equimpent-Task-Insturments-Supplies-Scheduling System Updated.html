@@ -24998,39 +24998,44 @@
             return 'room-' + location.toLowerCase().replace(/\s+/g, '-');
         }
 
-        // Helper: Safely open the Task Form modal without alerts; retry with backoff if not yet available
-        function openTaskFormSafe(template) {
-            const openIfReady = () => {
+        // Queue stub for early calls before the Task form is defined
+        if (!window.__taskFormOpenQueue) window.__taskFormOpenQueue = [];
+        if (typeof window.openTaskFormModal !== 'function') {
+            const __taskFormStub = function(taskId, template = null) {
+                window.__taskFormOpenQueue.push({ taskId, template });
+                if (!window.__taskFormQueuedLogged) {
+                    console.info('Task form not ready yet; queued open request.');
+                    window.__taskFormQueuedLogged = true;
+                    setTimeout(() => { window.__taskFormQueuedLogged = false; }, 1000);
+                }
+            };
+            window.openTaskFormModal = __taskFormStub;
+            (function watchAndFlush() {
                 try {
-                    if (typeof window.openTaskFormModal === 'function') {
-                        window.openTaskFormModal(null, template);
-                        return true;
+                    if (typeof window.openTaskFormModal === 'function' && window.openTaskFormModal !== __taskFormStub) {
+                        if (Array.isArray(window.__taskFormOpenQueue) && window.__taskFormOpenQueue.length) {
+                            const q = window.__taskFormOpenQueue.slice();
+                            window.__taskFormOpenQueue.length = 0;
+                            q.forEach(({ taskId, template }) => {
+                                setTimeout(() => {
+                                    try { window.openTaskFormModal(taskId, template); } catch (e) { console.error('Flush openTaskFormModal failed:', e); }
+                                }, 0);
+                            });
+                        }
+                        return;
                     }
-                } catch (e) {
-                    console.error('Failed to open Task form:', e);
-                }
-                return false;
-            };
+                } catch {}
+                setTimeout(watchAndFlush, 200);
+            })();
+        }
 
-            // Try immediately first
-            if (openIfReady()) return;
-
-            // Exponential backoff up to ~8s, no blocking alerts
-            let delay = 200; // ms
-            const maxDelay = 2000; // ms
-            const deadline = Date.now() + 8000; // ms
-
-            const tick = () => {
-                if (openIfReady()) return;
-                if (Date.now() >= deadline) {
-                    console.warn('Task form not ready after waiting. Please try again.');
-                    return;
-                }
-                delay = Math.min(maxDelay, Math.floor(delay * 1.6));
-                setTimeout(tick, delay);
-            };
-
-            setTimeout(tick, delay);
+        // Helper: Safely open the Task Form modal; if not ready, queue the request
+        function openTaskFormSafe(template) {
+            try {
+                window.openTaskFormModal(null, template);
+            } catch (e) {
+                console.error('Error invoking Task form open:', e);
+            }
         }
         window.openTaskFormSafe = openTaskFormSafe;
 
