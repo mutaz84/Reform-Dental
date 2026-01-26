@@ -30293,11 +30293,29 @@ function minimizeFloatingTasksPanel() {
     panel.classList.toggle('minimized');
 }
 
+function getClaimedByDisplay(claimedBy) {
+    if (!claimedBy) return '';
+    try {
+        const usersData = (typeof getUsersDataSafe === 'function') ? getUsersDataSafe() : {};
+        const direct = usersData[claimedBy];
+        const user = direct || Object.values(usersData).find(u => u && (u.email === claimedBy || u.id === claimedBy || u.name === claimedBy || u.username === claimedBy));
+        if (user) {
+            const first = user.firstName || '';
+            const last = user.lastName || '';
+            const full = `${first} ${last}`.trim();
+            return full || user.name || user.username || user.email || claimedBy;
+        }
+    } catch (e) {
+        console.warn('Could not resolve claimedBy name:', e);
+    }
+    return claimedBy;
+}
+
 function renderFloatingTasks() {
     const body = document.getElementById('floatingTasksBody');
     
     // Get floating tasks from tasksData (database-backed)
-    const floatingTasks = window.tasksData.filter(t => t.taskType === 'Floating' && t.status !== 'Completed' && !t.claimedBy);
+    const floatingTasks = window.tasksData.filter(t => t.taskType === 'Floating' && t.status !== 'Completed');
     
     if (floatingTasks.length === 0) {
         body.innerHTML = `
@@ -30312,13 +30330,16 @@ function renderFloatingTasks() {
     
     let html = '';
     floatingTasks.forEach(task => {
+        const isClaimed = !!task.claimedBy;
+        const claimedByLabel = isClaimed ? getClaimedByDisplay(task.claimedBy) : '';
         html += `
-            <div class="floating-task-item">
+            <div class="floating-task-item" ${isClaimed ? `title="Claimed by ${claimedByLabel}"` : ''}>
                 <div class="floating-task-header">
                     <div class="floating-task-title">${task.title}</div>
                     <div class="floating-task-badges">
                         <span class="floating-task-badge priority"><i class="fas fa-flag"></i></span>
                         ${task.isPaid ? `<span class="floating-task-badge" style="background: #10b981;"><i class="fas fa-dollar-sign"></i></span>` : ''}
+                        ${isClaimed ? `<span class="floating-task-badge" style="background: #e5e7eb; color: #374151;" title="Claimed by ${claimedByLabel}"><i class="fas fa-user-check"></i> Claimed</span>` : ''}
                     </div>
                 </div>
                 <div class="floating-task-desc">${task.description}</div>
@@ -30329,10 +30350,17 @@ function renderFloatingTasks() {
                     ${task.isPaid && task.payAmount ? `<span style="color: #10b981; font-weight: 600;"><i class="fas fa-dollar-sign"></i>$${task.payAmount}</span>` : ''}
                 </div>
                 <div class="floating-task-actions">
-                    <button class="claim-task-btn" onclick="claimFloatingTask('${task.id}')">
-                        <i class="fas fa-hand-pointer"></i>
-                        Claim This Task
-                    </button>
+                    ${isClaimed ? `
+                        <button class="claim-task-btn" disabled title="Claimed by ${claimedByLabel}" style="opacity: 0.6; cursor: not-allowed;">
+                            <i class="fas fa-user-check"></i>
+                            Claimed
+                        </button>
+                    ` : `
+                        <button class="claim-task-btn" onclick="claimFloatingTask('${task.id}')">
+                            <i class="fas fa-hand-pointer"></i>
+                            Claim This Task
+                        </button>
+                    `}
                     <button class="dismiss-task-btn" onclick="dismissFloatingTask('${task.id}')">
                         <i class="fas fa-times"></i>
                     </button>
@@ -30353,6 +30381,11 @@ async function claimFloatingTask(taskId) {
     
     const task = window.tasksData[taskIndex];
     const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
+    const currentUserKey = currentUser?.email || currentUser?.id || currentUser?.name;
+    if (task.claimedBy && task.claimedBy !== currentUserKey) {
+        showNotification(`Task already claimed by ${getClaimedByDisplay(task.claimedBy)}`, 'warning');
+        return;
+    }
     
     try {
         // Update task in database
@@ -30478,6 +30511,11 @@ async function claimBonusTask(taskId) {
     
     const task = window.tasksData[taskIndex];
     const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
+    const currentUserKey = currentUser?.email || currentUser?.id || currentUser?.name;
+    if (task.claimedBy && task.claimedBy !== currentUserKey) {
+        showNotification(`Task already claimed by ${getClaimedByDisplay(task.claimedBy)}`, 'warning');
+        return;
+    }
     
     try {
         // Update task in database
@@ -31069,7 +31107,7 @@ function renderBonusTasks() {
     const body = document.getElementById('bonusTasksBody');
     
     // Get bonus tasks from tasksData (database-backed)
-    const bonusTasks = window.tasksData.filter(t => t.taskType === 'Bonus' && t.status !== 'Completed' && !t.claimedBy);
+    const bonusTasks = window.tasksData.filter(t => t.taskType === 'Bonus' && t.status !== 'Completed');
     
     if (bonusTasks.length === 0) {
         body.innerHTML = `
@@ -31084,12 +31122,15 @@ function renderBonusTasks() {
     
     let html = '';
     bonusTasks.forEach(task => {
+        const isClaimed = !!task.claimedBy;
+        const claimedByLabel = isClaimed ? getClaimedByDisplay(task.claimedBy) : '';
         html += `
-            <div class="floating-task-item">
+            <div class="floating-task-item" ${isClaimed ? `title="Claimed by ${claimedByLabel}"` : ''}>
                 <div class="floating-task-header">
                     <div class="floating-task-title">${task.title}</div>
                     <div class="floating-task-badges">
                         <span class="floating-task-badge" style="background: #eab308; color: white;"><i class="fas fa-star"></i></span>
+                        ${isClaimed ? `<span class="floating-task-badge" style="background: #e5e7eb; color: #374151;" title="Claimed by ${claimedByLabel}"><i class="fas fa-user-check"></i> Claimed</span>` : ''}
                     </div>
                 </div>
                 <div class="floating-task-desc">${task.description}</div>
@@ -31100,10 +31141,17 @@ function renderBonusTasks() {
                     <span style="color: #eab308; font-weight: 600;"><i class="fas fa-star"></i>$${task.payAmount || '0'}</span>
                 </div>
                 <div class="floating-task-actions">
-                    <button class="claim-task-btn" onclick="claimBonusTask('${task.id}')">
-                        <i class="fas fa-hand-pointer"></i>
-                        Claim This Bonus
-                    </button>
+                    ${isClaimed ? `
+                        <button class="claim-task-btn" disabled title="Claimed by ${claimedByLabel}" style="opacity: 0.6; cursor: not-allowed;">
+                            <i class="fas fa-user-check"></i>
+                            Claimed
+                        </button>
+                    ` : `
+                        <button class="claim-task-btn" onclick="claimBonusTask('${task.id}')">
+                            <i class="fas fa-hand-pointer"></i>
+                            Claim This Bonus
+                        </button>
+                    `}
                     <button class="dismiss-task-btn" onclick="dismissBonusTask('${task.id}')">
                         <i class="fas fa-times"></i>
                     </button>
@@ -35470,7 +35518,7 @@ window.addEventListener('load', function() {
             
             // Get unclaimed floating tasks
             let floatingTasks = window.tasksData.filter(t => 
-                t.taskType === 'Floating' && t.status !== 'Completed' && !t.claimedBy
+                t.taskType === 'Floating' && t.status !== 'Completed'
             );
             
             // Apply filters
@@ -35497,7 +35545,7 @@ window.addEventListener('load', function() {
             
             // Get unclaimed bonus tasks
             let bonusTasks = window.tasksData.filter(t => 
-                t.taskType === 'Bonus' && t.status !== 'Completed' && !t.claimedBy
+                t.taskType === 'Bonus' && t.status !== 'Completed'
             );
             
             // Apply filters
@@ -35886,11 +35934,20 @@ window.addEventListener('load', function() {
             
             let actionButtons = '';
             if (type === 'floating' || type === 'bonus') {
-                actionButtons = `
-                    <button class="task-action-btn claim" onclick="claimTaskFromHub('${task.id}')">
-                        <i class="fas fa-hand-pointer"></i> Claim
-                    </button>
-                `;
+                if (task.claimedBy) {
+                    const claimedByLabel = getClaimedByDisplay(task.claimedBy);
+                    actionButtons = `
+                        <span class="task-completed-badge" title="Claimed by ${claimedByLabel}" style="background: #e5e7eb; color: #374151;">
+                            <i class="fas fa-user-check"></i> Claimed
+                        </span>
+                    `;
+                } else {
+                    actionButtons = `
+                        <button class="task-action-btn claim" onclick="claimTaskFromHub('${task.id}')">
+                            <i class="fas fa-hand-pointer"></i> Claim
+                        </button>
+                    `;
+                }
             } else if (type === 'completed') {
                 actionButtons = `
                     <span class="task-completed-badge">
@@ -36010,7 +36067,13 @@ window.addEventListener('load', function() {
             if (taskIndex === -1) return;
             
             const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
-            window.tasksData[taskIndex].claimedBy = currentUser?.id || currentUser?.name;
+            const currentUserKey = currentUser?.email || currentUser?.id || currentUser?.name;
+            const existingClaim = window.tasksData[taskIndex].claimedBy;
+            if (existingClaim && existingClaim !== currentUserKey) {
+                showNotification(`Task already claimed by ${getClaimedByDisplay(existingClaim)}`, 'warning');
+                return;
+            }
+            window.tasksData[taskIndex].claimedBy = currentUserKey || currentUser?.id || currentUser?.name;
             window.tasksData[taskIndex].claimedAt = new Date().toISOString();
             window.tasksData[taskIndex].status = 'In Progress';
             
