@@ -28677,6 +28677,7 @@
         // Save queue to prevent race conditions
         let saveInProgress = false;
         let saveQueued = false;
+        let stickyNotesApiDisabled = false;
         
         async function saveStickyNotes() {
             // If save is already in progress, queue another save
@@ -28700,6 +28701,9 @@
                 localStorage.setItem('reformdentalStickyNotes', JSON.stringify(notesData));
                 
                 // Sync to database - save all notes that don't have dbId
+                if (stickyNotesApiDisabled) {
+                    return;
+                }
                 for (const note of stickyNotes) {
                     const text = note.element.querySelector('.sticky-note-content-item').value;
                     const positionX = parseInt(note.element.style.left) || 100;
@@ -28709,11 +28713,16 @@
                     try {
                         if (note.dbId) {
                             // Update existing note
-                            await fetch(`/api/stickynotes?id=${note.dbId}`, {
+                            const updateResponse = await fetch(`/api/stickynotes?id=${note.dbId}`, {
                                 method: 'PUT',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ text, positionX, positionY, color })
                             });
+                            if (!updateResponse.ok) {
+                                stickyNotesApiDisabled = true;
+                                console.warn('Sticky notes API disabled due to error response. Using localStorage only.');
+                                return;
+                            }
                         } else {
                             // Create new note
                             const response = await fetch('/api/stickynotes', {
@@ -28725,10 +28734,15 @@
                                 const newNote = await response.json();
                                 note.dbId = newNote.Id;
                                 console.log('Saved new sticky note with ID:', newNote.Id);
+                            } else {
+                                stickyNotesApiDisabled = true;
+                                console.warn('Sticky notes API disabled due to error response. Using localStorage only.');
+                                return;
                             }
                         }
                     } catch (error) {
                         console.error('Error saving sticky note to database:', error);
+                        stickyNotesApiDisabled = true;
                     }
                 }
             } finally {
@@ -28745,8 +28759,15 @@
         async function loadStickyNotes() {
             try {
                 // Try to load from database first
-                const response = await fetch('/api/stickynotes');
-                if (response.ok) {
+                if (!stickyNotesApiDisabled) {
+                    const response = await fetch('/api/stickynotes');
+                    if (!response.ok) {
+                        stickyNotesApiDisabled = true;
+                    }
+                }
+                if (!stickyNotesApiDisabled) {
+                    const response = await fetch('/api/stickynotes');
+                    if (response.ok) {
                     const notesData = await response.json();
                     if (notesData && notesData.length > 0) {
                         notesData.forEach(noteData => {
@@ -28764,9 +28785,11 @@
                         });
                         return;
                     }
+                    }
                 }
             } catch (error) {
                 console.error('Error loading from database, falling back to localStorage:', error);
+                stickyNotesApiDisabled = true;
             }
             
             // Fallback to localStorage
