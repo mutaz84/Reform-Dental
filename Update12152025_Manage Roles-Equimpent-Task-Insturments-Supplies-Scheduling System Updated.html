@@ -29190,8 +29190,12 @@
         function openEventModal(eventData) {
             const modal = document.getElementById('eventModal');
             
+            // Store the event ID for editing
+            modal.dataset.eventId = eventData.id || '';
+            console.log('Opening event modal for event ID:', eventData.id);
+            
             // Set title
-            document.getElementById('modalTitle').textContent = eventData.title.replace('💰 ', '').replace('⚠️ ', '');
+            document.getElementById('modalTitle').textContent = eventData.title.replace('💰 ', '').replace('⚠️ ', '').replace('📋 ', '').replace('🎯 ', '').replace('⭐ ', '');
             
             // Set badges
             let badgesHTML = '';
@@ -29510,8 +29514,38 @@
         });
 
         function editEvent() {
-            // Placeholder for edit event functionality
-            alert('Edit Event functionality - to be implemented with form');
+            // Get the current event from the modal
+            const modalEl = document.getElementById('eventModal');
+            const eventId = modalEl ? modalEl.dataset.eventId : null;
+            
+            console.log('editEvent called, eventId:', eventId);
+            
+            if (eventId) {
+                // Check if this is a task (task IDs start with 'task-')
+                if (eventId.startsWith('task-')) {
+                    // Close the event modal
+                    closeEventModal();
+                    // Open the task edit form
+                    if (typeof window.openTaskFormModal === 'function') {
+                        window.openTaskFormModal(eventId);
+                    } else if (typeof openTaskFormModal === 'function') {
+                        openTaskFormModal(eventId);
+                    } else {
+                        alert('Task edit form not available. Please use Manage Tasks to edit this task.');
+                    }
+                    return;
+                }
+                
+                // For regular events, open the add event modal with prefilled data
+                const event = eventDatabase.find(e => e.id === eventId);
+                if (event) {
+                    closeEventModal();
+                    openAddEventModal(event);
+                    return;
+                }
+            }
+            
+            alert('Unable to edit this event. Please try again.');
         }
 
         // Table View Functions
