@@ -24998,6 +24998,24 @@
             return 'room-' + location.toLowerCase().replace(/\s+/g, '-');
         }
 
+        // Helper: Safely open the Task Form modal, retrying briefly if not yet available
+        function openTaskFormSafe(template) {
+            let attempts = 0;
+            function tryOpen() {
+                if (typeof window.openTaskFormModal === 'function') {
+                    window.openTaskFormModal(null, template);
+                } else if (attempts < 20) {
+                    attempts++;
+                    setTimeout(tryOpen, 100);
+                } else {
+                    console.warn('Task form modal not available to create task from slot');
+                    alert('The Task form is still loading. Please click the slot again in a moment.');
+                }
+            }
+            tryOpen();
+        }
+        window.openTaskFormSafe = openTaskFormSafe;
+
         // Helper: Get the correct people list based on event category
         function getEventPeople(event) {
             if (event.eventCategory === 'dental') {
@@ -27142,15 +27160,13 @@
                     const endTime = `${(hour + 1).toString().padStart(2, '0')}:00:00`;
                     
                     // Create a task directly from the slot (tasks only)
-                    if (typeof window.openTaskFormModal === 'function') {
+                    {
                         const template = {
                             dueDate: dateStr,
                             dueTime: startTime.substring(0, 5),
                             taskType: 'Regular'
                         };
-                        window.openTaskFormModal(null, template);
-                    } else {
-                        console.warn('Task form modal not available to create task from slot');
+                        openTaskFormSafe(template);
                     }
                 },
                 
@@ -27160,7 +27176,7 @@
                     const endTime = `${(hour + 1).toString().padStart(2, '0')}:00:00`;
                     
                     // Create a task directly from the resource slot (tasks only)
-                    if (typeof window.openTaskFormModal === 'function') {
+                    {
                         let template = {
                             dueDate: dateStr,
                             dueTime: startTime.substring(0, 5),
@@ -27178,9 +27194,7 @@
                             const assignee = emp?.title || emp?.name || '';
                             if (assignee) template.assignee = assignee;
                         }
-                        window.openTaskFormModal(null, template);
-                    } else {
-                        console.warn('Task form modal not available to create task from resource slot');
+                        openTaskFormSafe(template);
                     }
                 },
                 
