@@ -32187,17 +32187,40 @@ window.addEventListener('load', function() {
         // TASK MANAGEMENT SYSTEM - FULL CRUD
         // ==========================================
         
-        // Global Tasks Data Store - Loaded from API or localStorage
-        window.tasksData = safeParseLocalStorageJSON('tasksData', [], { expect: 'array' });
+        // Global Tasks Data Store - Loaded from API
+        window.tasksData = [];
         
-        // Sync tasksData to calendar events (called after tasksData is loaded)
-        if (typeof convertTasksToEvents === 'function' && window.tasksData.length > 0) {
-            console.log('Syncing Task Hub tasks to calendar...');
-            convertTasksToEvents();
-            if (window.calendar) {
-                window.calendar.refetchEvents();
+        // Load Tasks from API
+        async function loadTasksFromAPI() {
+            try {
+                console.log('📥 Loading tasks from API...');
+                const response = await fetch('/api/tasks');
+                if (response.ok) {
+                    window.tasksData = await response.json();
+                    console.log('✅ Loaded', window.tasksData.length, 'tasks from API');
+                    
+                    // Sync to calendar
+                    if (typeof convertTasksToEvents === 'function') {
+                        convertTasksToEvents();
+                        if (window.calendar) {
+                            window.calendar.refetchEvents();
+                        }
+                    }
+                    
+                    // Render task lists
+                    if (typeof renderTasksList === 'function') {
+                        renderTasksList();
+                    }
+                } else {
+                    console.error('❌ Failed to load tasks from API:', response.status);
+                }
+            } catch (error) {
+                console.error('❌ Error loading tasks from API:', error);
             }
         }
+        
+        // Load tasks on page load
+        loadTasksFromAPI();
         
         // Global Duties Data Store - Loaded from API
         window.dutiesData = [];
@@ -38953,29 +38976,24 @@ window.addEventListener('load', function() {
                 }
             }
             
-            // Save to localStorage
-            localStorage.setItem('tasksData', JSON.stringify(tasksData));
-            
+            // Close modal and reload from API
             document.getElementById('taskFormModal')?.remove();
-            renderTasksList();
-            renderThisWeekTasks();
             
-            // Refresh calendar to show the new/updated task
-            if (typeof convertTasksToEvents === 'function') {
-                convertTasksToEvents();
-                console.log('✅ Tasks converted to events. eventDatabase now has', typeof eventDatabase !== 'undefined' ? eventDatabase.length : 0, 'events');
+            // Reload tasks from API to get fresh data
+            if (typeof loadTasksFromAPI === 'function') {
+                await loadTasksFromAPI();
+            } else {
+                // Fallback: refresh local display
+                renderTasksList();
+                renderThisWeekTasks();
                 
-                // Refresh FullCalendar if it exists
-                if (window.calendar) {
-                    window.calendar.refetchEvents();
+                if (typeof convertTasksToEvents === 'function') {
+                    convertTasksToEvents();
+                    if (window.calendar) {
+                        window.calendar.refetchEvents();
+                    }
                 }
-                
-                // Refresh custom calendar instance (By Room/Employee view)
-                if (window.calendarInstance && typeof window.calendarInstance.render === 'function') {
-                    console.log('🔄 Re-rendering calendarInstance...');
-                    window.calendarInstance.render();
-                    console.log('✅ calendarInstance re-rendered');
-                }
+            }
                 
                 // Also trigger a view mode refresh to force complete re-render
                 if (typeof switchViewMode === 'function' && typeof currentViewMode !== 'undefined') {
@@ -46818,45 +46836,56 @@ async function syncSuppliesFromAPI() {
 
 // ============ TASKS API FUNCTIONS ============
 async function saveTaskToAPI(taskData) {
-    if (typeof API_BASE_URL === 'undefined') return;
     try {
-        const response = await fetch(`${API_BASE_URL}/tasks`, {
+        console.log('💾 Saving task to API:', taskData);
+        const response = await fetch('/api/tasks', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 title: taskData.title || taskData.name,
                 description: taskData.description || '',
-                assignedUserId: taskData.assignedUserId || null,
-                clinicId: taskData.clinicId || null,
+                assignee: taskData.assignee || null,
                 dueDate: taskData.dueDate || null,
-                priority: taskData.priority || 'medium',
-                status: taskData.status || 'pending',
-                category: taskData.category || ''
+                priority: taskData.priority || 'Medium',
+                status: taskData.status || 'Pending',
+                category: taskData.category || '',
+                taskType: taskData.taskType || 'Regular',
+                location: taskData.location || null,
+                isPaid: taskData.isPaid || false,
+                payAmount: taskData.payAmount || null,
+                timeEstimate: taskData.timeEstimate || null
             })
         });
         if (response.ok) {
             const result = await response.json();
-            console.log('✅ Task saved to database:', result.id);
-            showSyncStatus('Task saved to database', true);
+            console.log('✅ Task saved to database with ID:', result.id);
+            showNotification('Task saved successfully', 'success');
             return result;
+        } else {
+            console.error('❌ Failed to save task:', response.status, response.statusText);
+            showNotification('Failed to save task to database', 'error');
         }
     } catch (error) {
         console.error('❌ Error saving task to API:', error);
+        showNotification('Error saving task: ' + error.message, 'error');
     }
     return null;
 }
 
 async function updateTaskViaAPI(id, taskData) {
-    if (typeof API_BASE_URL === 'undefined') return;
     try {
-        const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
+        console.log('📝 Updating task via API:', id, taskData);
+        const response = await fetch(`/api/tasks/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(taskData)
         });
         if (response.ok) {
             console.log('✅ Task updated in database');
-            showSyncStatus('Task updated', true);
+            showNotification('Task updated successfully', 'success');
+        } else {
+            console.error('❌ Failed to update task:', response.status);
+            showNotification('Failed to update task', 'error');
         }
     } catch (error) {
         console.error('❌ Error updating task:', error);
