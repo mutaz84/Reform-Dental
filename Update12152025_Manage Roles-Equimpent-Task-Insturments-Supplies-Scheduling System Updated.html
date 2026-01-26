@@ -18832,13 +18832,13 @@
                     
                     <!-- Action Buttons -->
                     <div style="padding: 1rem 1.5rem; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); display: flex; gap: 0.75rem; flex-wrap: wrap;">
-                        <button onclick="document.getElementById('taskManagementModal').remove(); openTaskFormModal(null);" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                        <button onclick="document.getElementById('taskManagementModal')?.remove(); openTaskFormSafeWithId(null, null);" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
                             <i class="fas fa-plus"></i> New Task
                         </button>
-                        <button onclick="document.getElementById('taskManagementModal').remove(); openTaskFormModal(null, {taskType: 'Floating'});" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                        <button onclick="document.getElementById('taskManagementModal')?.remove(); openTaskFormSafeWithId(null, {taskType: 'Floating'});" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
                             <i class="fas fa-hand-pointer"></i> New Floating Task
                         </button>
-                        <button onclick="document.getElementById('taskManagementModal').remove(); openTaskFormModal(null, {taskType: 'Bonus', isPaid: true});" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                        <button onclick="document.getElementById('taskManagementModal')?.remove(); openTaskFormSafeWithId(null, {taskType: 'Bonus', isPaid: true});" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
                             <i class="fas fa-star"></i> New Bonus Task
                         </button>
                         <button onclick="openManageTemplatesModal(); document.getElementById('taskManagementModal').remove();" style="padding: 0.6rem 1.25rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; margin-left: auto;">
@@ -18947,7 +18947,7 @@
                             </div>
                         </div>
                         <div style="display: flex; gap: 0.5rem; flex-shrink: 0;">
-                            <button onclick="document.getElementById('taskManagementModal').remove(); openTaskFormModal('${task.id}');" style="padding: 0.5rem 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-secondary); cursor: pointer;" title="Edit">
+                            <button onclick="document.getElementById('taskManagementModal')?.remove(); openTaskFormSafeWithId('${task.id}', null);" style="padding: 0.5rem 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-secondary); cursor: pointer;" title="Edit">
                                 <i class="fas fa-edit"></i>
                             </button>
                             <button onclick="deleteTaskFromManagement('${task.id}')" style="padding: 0.5rem 0.75rem; background: #fee2e2; border: 1px solid #fecaca; border-radius: 6px; color: #dc2626; cursor: pointer;" title="Delete">
@@ -37836,17 +37836,37 @@ window.addEventListener('load', function() {
             }
         };
         
+        // Safe task form opener (handles late-loaded modal)
+        window.openTaskFormSafeWithId = function(taskId, template = null) {
+            if (typeof window.openTaskFormModal === 'function') {
+                try {
+                    window.openTaskFormModal(taskId, template);
+                } catch (e) {
+                    console.error('❌ Error opening task form:', e);
+                    if (typeof showNotification === 'function') {
+                        showNotification('Error opening task form. Please try again.', 'error');
+                    }
+                }
+                return;
+            }
+            window.__taskFormQueue = window.__taskFormQueue || [];
+            window.__taskFormQueue.push({ taskId, template });
+            if (typeof attemptFlushTaskFormQueue === 'function') {
+                attemptFlushTaskFormQueue();
+            }
+        };
+
         // Open create task modal
         window.openCreateTaskModal = function() {
             console.log('openCreateTaskModal called');
-            openTaskFormModal(null);
+            window.openTaskFormSafeWithId(null, null);
         };
         
         // Open edit task modal
         window.openEditTaskModal = function(taskId) {
             console.log('openEditTaskModal called for:', taskId);
             document.getElementById('taskDetailModal')?.remove();
-            openTaskFormModal(taskId);
+            window.openTaskFormSafeWithId(taskId, null);
         };
         
         // Create task from template
@@ -37857,7 +37877,7 @@ window.addEventListener('load', function() {
                 return;
             }
             
-            openTaskFormModal(null, template);
+            window.openTaskFormSafeWithId(null, template);
         };
         
         // Render templates in sidebar
