@@ -26064,11 +26064,10 @@
                                 this.handleDrop(e, date, hour);
                             };
                             
-                            // Make clickable to create new event
+                            // Make clickable to create a new task/event (ignore clicks on existing events)
                             slot.onclick = (e) => {
-                                if (e.target === slot) {
-                                    this.handleSlotClick(date, hour);
-                                }
+                                if (e.target.closest && e.target.closest('.calendar-event')) return;
+                                this.handleSlotClick(date, hour);
                             };
                             
                             row.appendChild(slot);
@@ -26335,11 +26334,10 @@
                                     this.handleResourceDrop(e, date, hour, resource.id);
                                 };
                                 
-                                // Make clickable to create new event
+                                // Make clickable to create a new task/event (ignore clicks on existing events)
                                 slot.onclick = (e) => {
-                                    if (e.target === slot) {
-                                        this.handleResourceSlotClick(date, hour, resource.id);
-                                    }
+                                    if (e.target.closest && e.target.closest('.calendar-event')) return;
+                                    this.handleResourceSlotClick(date, hour, resource.id);
                                 };
                                 
                                 row.appendChild(slot);
@@ -27143,14 +27141,21 @@
                     const startTime = `${hour.toString().padStart(2, '0')}:00:00`;
                     const endTime = `${(hour + 1).toString().padStart(2, '0')}:00:00`;
                     
-                    // Pre-fill modal with date and time
-                    if (window.openEventModal) {
+                    // Prefer creating a task directly from the slot
+                    if (typeof window.openTaskFormModal === 'function') {
+                        const template = {
+                            dueDate: dateStr,
+                            dueTime: startTime.substring(0, 5),
+                            taskType: 'Regular'
+                        };
+                        window.openTaskFormModal(null, template);
+                    } else if (typeof window.openEventModal === 'function') {
+                        // Fallback to event modal
                         window.openEventModal();
                         setTimeout(() => {
                             const dateInput = document.getElementById('eventDate');
                             const startInput = document.getElementById('eventStartTime');
                             const endInput = document.getElementById('eventEndTime');
-                            
                             if (dateInput) dateInput.value = dateStr;
                             if (startInput) startInput.value = startTime.substring(0, 5);
                             if (endInput) endInput.value = endTime.substring(0, 5);
@@ -27163,23 +27168,39 @@
                     const startTime = `${hour.toString().padStart(2, '0')}:00:00`;
                     const endTime = `${(hour + 1).toString().padStart(2, '0')}:00:00`;
                     
-                    if (window.openEventModal) {
+                    // Prefer creating a task directly from the resource slot
+                    if (typeof window.openTaskFormModal === 'function') {
+                        let template = {
+                            dueDate: dateStr,
+                            dueTime: startTime.substring(0, 5),
+                            taskType: 'Regular'
+                        };
+                        // If Room view, prefill location with the room name
+                        if (this.viewMode === 'room' && typeof roomResources !== 'undefined') {
+                            const resource = roomResources.find(r => r.id === resourceId);
+                            const locName = resource?.title || resource?.name || resource?.roomName || '';
+                            if (locName) template.location = locName;
+                        }
+                        // If Employee/Provider view, prefill assignee
+                        if ((this.viewMode === 'employee' || this.viewMode === 'provider') && typeof employeeResources !== 'undefined') {
+                            const emp = employeeResources.find(r => r.id === resourceId || r.title === resourceId);
+                            const assignee = emp?.title || emp?.name || '';
+                            if (assignee) template.assignee = assignee;
+                        }
+                        window.openTaskFormModal(null, template);
+                    } else if (typeof window.openEventModal === 'function') {
+                        // Fallback to event modal
                         window.openEventModal();
                         setTimeout(() => {
                             const dateInput = document.getElementById('eventDate');
                             const startInput = document.getElementById('eventStartTime');
                             const endInput = document.getElementById('eventEndTime');
-                            
                             if (dateInput) dateInput.value = dateStr;
                             if (startInput) startInput.value = startTime.substring(0, 5);
                             if (endInput) endInput.value = endTime.substring(0, 5);
-                            
-                            // Pre-select resource if in employee/provider mode
                             if (this.viewMode === 'employee' || this.viewMode === 'provider') {
                                 const employeeSelect = document.getElementById('eventEmployee');
-                                if (employeeSelect) {
-                                    employeeSelect.value = resourceId;
-                                }
+                                if (employeeSelect) employeeSelect.value = resourceId;
                             }
                         }, 100);
                     }
