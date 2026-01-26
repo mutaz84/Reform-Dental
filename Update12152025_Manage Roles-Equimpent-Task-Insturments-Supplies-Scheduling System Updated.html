@@ -47140,6 +47140,16 @@ loadDataFromAPI = loadAllDataFromAPI;
 if (typeof window.openTaskFormModal === 'undefined' && typeof openTaskFormModal === 'function') {
     window.openTaskFormModal = openTaskFormModal;
 }
+// If any Task-form open requests were queued before initialization, flush them now
+if (typeof window.openTaskFormModal === 'function' && Array.isArray(window.__taskFormOpenQueue) && window.__taskFormOpenQueue.length) {
+    const q = window.__taskFormOpenQueue.slice();
+    window.__taskFormOpenQueue.length = 0;
+    q.forEach(({ taskId, template }) => {
+        setTimeout(() => {
+            try { window.openTaskFormModal(taskId, template); } catch (e) { console.error('Queued Task form open failed:', e); }
+        }, 0);
+    });
+}
 if (typeof window.deleteTaskFromManagement === 'undefined' && typeof deleteTaskFromManagement === 'function') {
     window.deleteTaskFromManagement = deleteTaskFromManagement;
 }
