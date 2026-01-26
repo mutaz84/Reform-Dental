@@ -35468,6 +35468,24 @@ window.addEventListener('load', function() {
         // ============================================
         // ASSIGNMENT BOARD - Drag & Drop Task Assignment
         // ============================================
+
+        function getUsersDataSafe() {
+            const parsed = safeParseLocalStorageJSON('users', {});
+            if (Array.isArray(parsed)) {
+                const obj = {};
+                parsed.forEach(u => {
+                    if (!u) return;
+                    if (typeof u === 'string') {
+                        obj[u] = { firstName: '', lastName: '', role: 'User' };
+                        return;
+                    }
+                    const key = u.username || u.userName || u.email || u.id || u.name;
+                    if (key) obj[key] = u;
+                });
+                return obj;
+            }
+            return (parsed && typeof parsed === 'object') ? parsed : {};
+        }
         
         let assignmentBoardFilter = 'all';
         let draggedEmployeeData = null;
@@ -35485,8 +35503,7 @@ window.addEventListener('load', function() {
             if (!container) return;
             
             // Get employees from users
-            const storedUsers = localStorage.getItem('users');
-            const usersData = storedUsers ? JSON.parse(storedUsers) : {};
+            const usersData = getUsersDataSafe();
             const employees = Object.entries(usersData).map(([username, user]) => ({
                 id: username,
                 name: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : username,
@@ -38168,8 +38185,7 @@ window.addEventListener('load', function() {
         
         // Build private employee checkboxes for task visibility (defined early to be available in modal)
         window.buildPrivateEmployeeCheckboxes = function(selectedEmployees = []) {
-            const storedUsers = localStorage.getItem('users');
-            const usersData = storedUsers ? JSON.parse(storedUsers) : {};
+            const usersData = getUsersDataSafe();
             const employees = Object.entries(usersData).map(([username, user]) => ({
                 id: username,
                 name: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : username,
@@ -38198,13 +38214,14 @@ window.addEventListener('load', function() {
         // Task form modal (Create/Edit) - Enhanced Version
         window.openTaskFormModal = function(taskId, template = null) {
             console.log('openTaskFormModal called with taskId:', taskId, 'template:', template);
-            const task = taskId ? window.tasksData.find(t => t.id === taskId) : null;
+            const taskList = Array.isArray(window.tasksData) ? window.tasksData : [];
+            const task = taskId ? taskList.find(t => t.id === taskId) : null;
             console.log('Found task:', task);
             const isEdit = !!task;
             const data = task || template || {};
             
             // Get dynamic equipment categories
-            const dynamicEquipmentCategories = getEquipmentCategories();
+            const dynamicEquipmentCategories = (typeof getEquipmentCategories === 'function') ? getEquipmentCategories() : {};
             
             // Get employees from masterData
             const employees = window.masterData ? [...window.masterData.getProviders(), ...window.masterData.getAssistants()] : [];
@@ -38213,8 +38230,7 @@ window.addEventListener('load', function() {
             const vendors = loadVendors ? loadVendors() : [];
             
             // Get users from localStorage
-            const storedUsers = localStorage.getItem('users');
-            const usersData = storedUsers ? JSON.parse(storedUsers) : {};
+            const usersData = getUsersDataSafe();
             const usersList = Object.entries(usersData).map(([username, user]) => ({
                 id: username,
                 name: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : username,
@@ -38681,8 +38697,7 @@ window.addEventListener('load', function() {
         
         // Build private employee checkboxes for task visibility
         window.buildPrivateEmployeeCheckboxes = function(selectedEmployees = []) {
-            const storedUsers = localStorage.getItem('users');
-            const usersData = storedUsers ? JSON.parse(storedUsers) : {};
+            const usersData = getUsersDataSafe();
             const employees = Object.entries(usersData).map(([username, user]) => ({
                 id: username,
                 name: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : username,
