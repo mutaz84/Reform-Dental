@@ -30311,6 +30311,60 @@ function getClaimedByDisplay(claimedBy) {
     return claimedBy;
 }
 
+function loadTaskClaimCache() {
+    try {
+        if (typeof safeParseLocalStorageJSON === 'function') {
+            const cache = safeParseLocalStorageJSON('taskClaimCache', {}, { expect: 'object' });
+            window.__taskClaimCache = (cache && typeof cache === 'object' && !Array.isArray(cache)) ? cache : {};
+            return;
+        }
+        const raw = localStorage.getItem('taskClaimCache');
+        const parsed = raw ? JSON.parse(raw) : {};
+        window.__taskClaimCache = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+    } catch (e) {
+        window.__taskClaimCache = {};
+    }
+}
+
+function saveTaskClaimCache() {
+    try {
+        localStorage.setItem('taskClaimCache', JSON.stringify(window.__taskClaimCache || {}));
+    } catch (e) {
+        // ignore storage failures
+    }
+}
+
+function getTaskClaimInfo(task) {
+    if (!task) return { claimedBy: null, claimedAt: null };
+    if (task.claimedBy) return { claimedBy: task.claimedBy, claimedAt: task.claimedAt || null };
+    const cache = window.__taskClaimCache || {};
+    const cached = cache[task.id];
+    if (cached && cached.claimedBy) {
+        return { claimedBy: cached.claimedBy, claimedAt: cached.claimedAt || null };
+    }
+    return { claimedBy: null, claimedAt: null };
+}
+
+function recordTaskClaim(taskId, claimedBy, claimedAt) {
+    if (!taskId || !claimedBy) return;
+    if (!window.__taskClaimCache) loadTaskClaimCache();
+    window.__taskClaimCache[taskId] = { claimedBy, claimedAt: claimedAt || new Date().toISOString() };
+    saveTaskClaimCache();
+}
+
+function applyClaimCacheToTasks() {
+    if (!Array.isArray(window.tasksData)) return;
+    if (!window.__taskClaimCache) loadTaskClaimCache();
+    window.tasksData.forEach(t => {
+        if (!t || t.claimedBy) return;
+        const cached = window.__taskClaimCache[t.id];
+        if (cached && cached.claimedBy) {
+            t.claimedBy = cached.claimedBy;
+            t.claimedAt = cached.claimedAt || t.claimedAt || null;
+        }
+    });
+}
+
 function renderFloatingTasks() {
     const body = document.getElementById('floatingTasksBody');
     
@@ -30330,8 +30384,9 @@ function renderFloatingTasks() {
     
     let html = '';
     floatingTasks.forEach(task => {
-        const isClaimed = !!task.claimedBy;
-        const claimedByLabel = isClaimed ? getClaimedByDisplay(task.claimedBy) : '';
+        const claimInfo = getTaskClaimInfo(task);
+        const isClaimed = !!claimInfo.claimedBy;
+        const claimedByLabel = isClaimed ? getClaimedByDisplay(claimInfo.claimedBy) : '';
         html += `
             <div class="floating-task-item" ${isClaimed ? `title="Claimed by ${claimedByLabel}"` : ''}>
                 <div class="floating-task-header">
@@ -30382,8 +30437,9 @@ async function claimFloatingTask(taskId) {
     const task = window.tasksData[taskIndex];
     const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
     const currentUserKey = currentUser?.email || currentUser?.id || currentUser?.name;
-    if (task.claimedBy && task.claimedBy !== currentUserKey) {
-        showNotification(`Task already claimed by ${getClaimedByDisplay(task.claimedBy)}`, 'warning');
+    const existingClaim = getTaskClaimInfo(task).claimedBy;
+    if (existingClaim && existingClaim !== currentUserKey) {
+        showNotification(`Task already claimed by ${getClaimedByDisplay(existingClaim)}`, 'warning');
         return;
     }
     
@@ -30402,9 +30458,12 @@ async function claimFloatingTask(taskId) {
         
         if (response.ok) {
             // Update local data
-            window.tasksData[taskIndex].claimedBy = currentUser ? currentUser.email : 'Unknown';
-            window.tasksData[taskIndex].claimedAt = new Date().toISOString();
+            const claimedByValue = currentUserKey || (currentUser ? currentUser.email : 'Unknown');
+            const claimedAtValue = new Date().toISOString();
+            window.tasksData[taskIndex].claimedBy = claimedByValue;
+            window.tasksData[taskIndex].claimedAt = claimedAtValue;
             window.tasksData[taskIndex].status = 'In Progress';
+            recordTaskClaim(taskId, claimedByValue, claimedAtValue);
             
             // Add to event database for calendar display
             const newEvent = {
@@ -30512,8 +30571,9 @@ async function claimBonusTask(taskId) {
     const task = window.tasksData[taskIndex];
     const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
     const currentUserKey = currentUser?.email || currentUser?.id || currentUser?.name;
-    if (task.claimedBy && task.claimedBy !== currentUserKey) {
-        showNotification(`Task already claimed by ${getClaimedByDisplay(task.claimedBy)}`, 'warning');
+    const existingClaim = getTaskClaimInfo(task).claimedBy;
+    if (existingClaim && existingClaim !== currentUserKey) {
+        showNotification(`Task already claimed by ${getClaimedByDisplay(existingClaim)}`, 'warning');
         return;
     }
     
@@ -30532,9 +30592,12 @@ async function claimBonusTask(taskId) {
         
         if (response.ok) {
             // Update local data
-            window.tasksData[taskIndex].claimedBy = currentUser ? currentUser.email : 'Unknown';
-            window.tasksData[taskIndex].claimedAt = new Date().toISOString();
+            const claimedByValue = currentUserKey || (currentUser ? currentUser.email : 'Unknown');
+            const claimedAtValue = new Date().toISOString();
+            window.tasksData[taskIndex].claimedBy = claimedByValue;
+            window.tasksData[taskIndex].claimedAt = claimedAtValue;
             window.tasksData[taskIndex].status = 'In Progress';
+            recordTaskClaim(taskId, claimedByValue, claimedAtValue);
             
             renderBonusTasks();
             updateBonusTasksCount();
@@ -31122,8 +31185,9 @@ function renderBonusTasks() {
     
     let html = '';
     bonusTasks.forEach(task => {
-        const isClaimed = !!task.claimedBy;
-        const claimedByLabel = isClaimed ? getClaimedByDisplay(task.claimedBy) : '';
+        const claimInfo = getTaskClaimInfo(task);
+        const isClaimed = !!claimInfo.claimedBy;
+        const claimedByLabel = isClaimed ? getClaimedByDisplay(claimInfo.claimedBy) : '';
         html += `
             <div class="floating-task-item" ${isClaimed ? `title="Claimed by ${claimedByLabel}"` : ''}>
                 <div class="floating-task-header">
@@ -31171,6 +31235,9 @@ window.addEventListener('load', function() {
             }
         } catch (e) {
             console.warn('Could not initialize resources:', e.message);
+        }
+        if (typeof loadTaskClaimCache === 'function') {
+            loadTaskClaimCache();
         }
         if (typeof updateFilterUI === 'function') {
             updateFilterUI();
@@ -32319,6 +32386,7 @@ window.addEventListener('load', function() {
                 if (response.ok) {
                     window.tasksData = await response.json();
                     console.log('✅ Loaded', window.tasksData.length, 'tasks from API');
+                    applyClaimCacheToTasks();
                     
                     // Sync to calendar
                     if (typeof convertTasksToEvents === 'function') {
@@ -35934,8 +36002,9 @@ window.addEventListener('load', function() {
             
             let actionButtons = '';
             if (type === 'floating' || type === 'bonus') {
-                if (task.claimedBy) {
-                    const claimedByLabel = getClaimedByDisplay(task.claimedBy);
+                const claimInfo = getTaskClaimInfo(task);
+                if (claimInfo.claimedBy) {
+                    const claimedByLabel = getClaimedByDisplay(claimInfo.claimedBy);
                     actionButtons = `
                         <span class="task-completed-badge" title="Claimed by ${claimedByLabel}" style="background: #e5e7eb; color: #374151;">
                             <i class="fas fa-user-check"></i> Claimed
@@ -36068,14 +36137,17 @@ window.addEventListener('load', function() {
             
             const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
             const currentUserKey = currentUser?.email || currentUser?.id || currentUser?.name;
-            const existingClaim = window.tasksData[taskIndex].claimedBy;
+            const existingClaim = getTaskClaimInfo(window.tasksData[taskIndex]).claimedBy;
             if (existingClaim && existingClaim !== currentUserKey) {
                 showNotification(`Task already claimed by ${getClaimedByDisplay(existingClaim)}`, 'warning');
                 return;
             }
-            window.tasksData[taskIndex].claimedBy = currentUserKey || currentUser?.id || currentUser?.name;
-            window.tasksData[taskIndex].claimedAt = new Date().toISOString();
+            const claimedByValue = currentUserKey || currentUser?.id || currentUser?.name;
+            const claimedAtValue = new Date().toISOString();
+            window.tasksData[taskIndex].claimedBy = claimedByValue;
+            window.tasksData[taskIndex].claimedAt = claimedAtValue;
             window.tasksData[taskIndex].status = 'In Progress';
+            recordTaskClaim(taskId, claimedByValue, claimedAtValue);
             
             showNotification('Task claimed successfully!', 'success');
             initTaskHub();
