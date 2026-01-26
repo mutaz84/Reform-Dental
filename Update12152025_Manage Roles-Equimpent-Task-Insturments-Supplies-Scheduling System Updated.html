@@ -25200,10 +25200,11 @@
                     const existingIndex = eventDatabase.findIndex(e => e.id === task.id);
                     if (existingIndex === -1) {
                         eventDatabase.push(taskEvent);
-                        console.log('Added Task Hub event:', task.title, 'for:', resourceId || 'Unassigned');
+                        console.log('Added Task Hub event:', task.title, 'for:', resourceId || 'Unassigned', 'location:', task.location, 'date:', taskDate, 'time:', taskTime);
                     } else {
                         // Update existing
                         eventDatabase[existingIndex] = taskEvent;
+                        console.log('Updated Task Hub event:', task.title, 'location:', task.location, 'date:', taskDate, 'time:', taskTime);
                     }
                 });
             }
@@ -38748,8 +38749,18 @@ window.addEventListener('load', function() {
             // Refresh calendar to show the new/updated task
             if (typeof convertTasksToEvents === 'function') {
                 convertTasksToEvents();
+                console.log('✅ Tasks converted to events. eventDatabase now has', typeof eventDatabase !== 'undefined' ? eventDatabase.length : 0, 'events');
                 if (window.calendar) {
                     window.calendar.refetchEvents();
+                }
+                // Also refresh custom calendar (By Room view)
+                if (typeof customCalendar !== 'undefined' && customCalendar && typeof customCalendar.render === 'function') {
+                    customCalendar.render();
+                    console.log('✅ Custom calendar re-rendered');
+                }
+                // Also try to refresh if switchToView exists
+                if (typeof switchToView === 'function' && typeof currentViewMode !== 'undefined') {
+                    switchToView(currentViewMode);
                 }
             }
             
