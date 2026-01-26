@@ -37175,16 +37175,23 @@ window.addEventListener('load', function() {
             
             // Filter tasks by dropdown filters
             let filteredTasks = window.tasksData.filter(task => {
-                // For non-admin users, only show tasks assigned to them (primary or secondary)
+                // For non-admin users, show:
+                // 1. Tasks assigned to them (primary or secondary)
+                // 2. Bonus and Floating tasks (unassigned tasks that anyone can claim)
                 if (userRole !== 'admin' && userName) {
                     const isAssignedToUser = task.assignee === userName || task.secondaryAssignee === userName;
-                    if (!isAssignedToUser) return false;
+                    const isBonusOrFloating = task.taskType === 'Bonus' || task.taskType === 'Floating';
+                    if (!isAssignedToUser && !isBonusOrFloating) return false;
                 }
                 
                 if (statusFilter && task.status !== statusFilter) return false;
                 if (priorityFilter && task.priority !== priorityFilter) return false;
                 if (categoryFilter && task.category !== categoryFilter) return false;
-                if (assigneeFilter && task.assignee !== assigneeFilter) return false;
+                // For assignee filter, include unassigned Bonus/Floating tasks when "All" or no filter
+                if (assigneeFilter) {
+                    const isBonusOrFloating = task.taskType === 'Bonus' || task.taskType === 'Floating';
+                    if (task.assignee !== assigneeFilter && !isBonusOrFloating) return false;
+                }
                 return true;
             });
             
