@@ -29163,7 +29163,22 @@
             const event = info.event;
             const eventData = eventDatabase.find(e => e.id === event.id);
 
-            // Normal scheduled tasks / appointments
+            // Check if this is a task - open task form instead of event modal
+            if (eventData && (eventData.isTask || eventData.eventCategory === 'task' || eventData.type === 'task')) {
+                // Extract task ID (remove 'task-' prefix if present)
+                const taskId = eventData.id;
+                if (typeof window.openTaskFormModal === 'function') {
+                    window.openTaskFormModal(taskId);
+                } else {
+                    console.error('❌ openTaskFormModal not available');
+                    if (typeof showNotification === 'function') {
+                        showNotification('Task form not ready. Please refresh the page.', 'error');
+                    }
+                }
+                return;
+            }
+
+            // Normal scheduled appointments/events (not tasks)
             if (eventData) {
                 openEventModal(eventData);
                 return;
