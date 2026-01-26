@@ -38268,34 +38268,35 @@ window.addEventListener('load', function() {
 
         // Task form modal (Create/Edit) - Enhanced Version
         window.__realOpenTaskFormModal = function(taskId, template = null) {
-            console.log('✅ Real openTaskFormModal called with taskId:', taskId, 'template:', template);
-            
-            // Remove any existing modal first to prevent duplicates
-            const existingModal = document.getElementById('taskFormModal');
-            if (existingModal) {
-                console.log('🗑️ Removing existing task form modal');
-                existingModal.remove();
-            }
-            
-            console.log('🔍 Loading task data for ID:', taskId);
-            
-            const taskList = Array.isArray(window.tasksData) ? window.tasksData : [];
-            const task = taskId ? taskList.find(t => t.id === taskId) : null;
-            console.log('Found task:', task);
-            const isEdit = !!task;
-            const data = task || template || {};
-            
-            // Get dynamic equipment categories
-            const dynamicEquipmentCategories = (typeof getEquipmentCategories === 'function') ? getEquipmentCategories() : {};
-            
-            // Get employees from masterData
-            const employees = window.masterData ? [...window.masterData.getProviders(), ...window.masterData.getAssistants()] : [];
-            
-            // Get vendors from localStorage
-            const vendors = loadVendors ? loadVendors() : [];
-            
-            // Get users from localStorage
-            const usersData = getUsersDataSafe();
+            try {
+                console.log('✅ Real openTaskFormModal called with taskId:', taskId, 'template:', template);
+                
+                // Remove any existing modal first to prevent duplicates
+                const existingModal = document.getElementById('taskFormModal');
+                if (existingModal) {
+                    console.log('🗑️ Removing existing task form modal');
+                    existingModal.remove();
+                }
+                
+                console.log('🔍 Loading task data for ID:', taskId);
+                
+                const taskList = Array.isArray(window.tasksData) ? window.tasksData : [];
+                const task = taskId ? taskList.find(t => t.id === taskId) : null;
+                console.log('Found task:', task);
+                const isEdit = !!task;
+                const data = task || template || {};
+                
+                // Get dynamic equipment categories
+                const dynamicEquipmentCategories = (typeof getEquipmentCategories === 'function') ? getEquipmentCategories() : {};
+                
+                // Get employees from masterData
+                const employees = window.masterData ? [...window.masterData.getProviders(), ...window.masterData.getAssistants()] : [];
+                
+                // Get vendors from localStorage
+                const vendors = (typeof loadVendors === 'function') ? loadVendors() : [];
+                
+                // Get users from localStorage
+                const usersData = getUsersDataSafe();
             const usersList = Object.entries(usersData).map(([username, user]) => ({
                 id: username,
                 name: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : username,
@@ -38685,6 +38686,12 @@ window.addEventListener('load', function() {
                         customInput.style.display = 'block';
                         customInput.value = data.location;
                     }
+                }
+            }
+            } catch (e) {
+                console.error('❌ Task form failed to open:', e);
+                if (typeof showNotification === 'function') {
+                    showNotification('Task form failed to open. Check console for details.', 'error');
                 }
             }
         }
