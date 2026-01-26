@@ -24943,18 +24943,22 @@
         // Helper: Safely open the Task Form modal; if not ready, queue the request
         function openTaskFormSafe(template) {
             try {
-                if (typeof window.openTaskFormModal !== 'function') {
-                    console.warn('openTaskFormModal not yet defined, call will be queued');
+                // Check if it's the real function (not the stub)
+                if (typeof window.openTaskFormModal !== 'function' || window.openTaskFormModal.__isTaskFormStub === true) {
+                    console.warn('⏳ openTaskFormModal not yet ready, queueing call...');
+                    if (!window.__taskFormOpenQueue) window.__taskFormOpenQueue = [];
+                    window.__taskFormOpenQueue.push({ taskId: null, template });
                     if (typeof showNotification === 'function') {
-                        showNotification('Task form is loading…', 'info');
+                        showNotification('Task form is loading, please wait...', 'info');
                     }
                     return;
                 }
+                console.log('✅ openTaskFormSafe: Calling real function');
                 window.openTaskFormModal(null, template);
             } catch (e) {
                 console.error('❌ Error invoking Task form open:', e);
                 if (typeof showNotification === 'function') {
-                    showNotification('Error opening task form. Check console.', 'error');
+                    showNotification('Error opening task form. Please try again.', 'error');
                 }
             }
         }
@@ -38535,6 +38539,10 @@ window.addEventListener('load', function() {
                 }
             }
         }
+        
+        // Mark as real function (not stub) - critical for openTaskFormSafe detection
+        delete window.openTaskFormModal.__isTaskFormStub;
+        console.log('✅ Real openTaskFormModal defined, stub flag removed');
         
         // Immediately flush any queued task form opens now that the real function is defined
         if (Array.isArray(window.__taskFormOpenQueue) && window.__taskFormOpenQueue.length > 0) {
