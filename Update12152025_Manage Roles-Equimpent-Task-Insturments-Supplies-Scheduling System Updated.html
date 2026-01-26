@@ -12531,7 +12531,7 @@
                     </div>
                 </div>
                             
-                            <button class="btn btn-primary" onclick="openAddEventModal()">
+                            <button class="btn btn-primary" onclick="openTaskFromToolbar()">
                                 <i class="fas fa-plus"></i>
                                 Add Event
                             </button>
@@ -14435,7 +14435,7 @@
             const usersJson = localStorage.getItem('appUsers');
             if (!usersJson) return;
             
-            const users = JSON.parse(usersJson);
+            const users = safeParseLocalStorageJSON('appUsers', {}, { expect: 'object' });
             let updated = false;
             
             // Get all current permission categories
@@ -16000,8 +16000,7 @@
         
         // Load rooms from localStorage
         function loadRooms() {
-            const rooms = localStorage.getItem('rooms');
-            return rooms ? JSON.parse(rooms) : [];
+            return safeParseLocalStorageJSON('rooms', [], { expect: 'array' });
         }
 
         // Save rooms to localStorage and sync to API
@@ -16460,9 +16459,8 @@
                 console.log('📋 Loading clinics from masterData:', clinics);
             } else {
                 // Fallback to localStorage
-                const stored = localStorage.getItem('clinics');
-                if (stored) {
-                    clinics = JSON.parse(stored);
+                clinics = safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
+                if (clinics && clinics.length > 0) {
                     console.log('📋 Loading clinics from localStorage:', clinics);
                 }
             }
@@ -16834,9 +16832,9 @@
                 }));
             }
             // Fallback to localStorage clinics
-            const clinics = localStorage.getItem('clinics');
-            if (clinics) {
-                return JSON.parse(clinics).map(c => ({
+            const clinics = safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
+            if (clinics && clinics.length > 0) {
+                return clinics.map(c => ({
                     officeID: c.dbId || c.id,  // Use dbId first for matching with rooms
                     officeName: c.name,
                     phone: c.phone || '',
@@ -17283,8 +17281,7 @@
 
         // Load vendors from localStorage
         function loadVendors() {
-            const vendors = localStorage.getItem('vendors');
-            return vendors ? JSON.parse(vendors) : [];
+            return safeParseLocalStorageJSON('vendors', [], { expect: 'array' });
         }
 
         // Save vendors to localStorage
@@ -21626,8 +21623,7 @@
         
         // Load equipment from localStorage
         function loadEquipment() {
-            const equipment = localStorage.getItem('equipment');
-            return equipment ? JSON.parse(equipment) : [];
+            return safeParseLocalStorageJSON('equipment', [], { expect: 'array' });
         }
 
         // Save equipment to localStorage and sync to API
@@ -22144,8 +22140,7 @@
         
         // Load instruments from localStorage
         function loadInstruments() {
-            const instruments = localStorage.getItem('instruments');
-            return instruments ? JSON.parse(instruments) : [];
+            return safeParseLocalStorageJSON('instruments', [], { expect: 'array' });
         }
 
         // Save instruments to localStorage and sync to API
@@ -22875,8 +22870,7 @@
         
         // Load supplies from localStorage
         function loadSupplies() {
-            const supplies = localStorage.getItem('supplies');
-            return supplies ? JSON.parse(supplies) : [];
+            return safeParseLocalStorageJSON('supplies', [], { expect: 'array' });
         }
 
         // Save supplies to localStorage and sync to API
@@ -24691,10 +24685,7 @@
             },
             // Load clinics from localStorage
             loadClinics: function() {
-                const stored = localStorage.getItem('clinics');
-                if (stored) {
-                    this.clinics = JSON.parse(stored);
-                }
+                this.clinics = safeParseLocalStorageJSON('clinics', this.clinics || [], { expect: 'array' });
                 return this.clinics;
             },
             // Save clinics to localStorage
@@ -24704,10 +24695,7 @@
             },
             // Load rooms from localStorage
             loadRooms: function() {
-                const stored = localStorage.getItem('rooms');
-                if (stored) {
-                    this.rooms = JSON.parse(stored);
-                }
+                this.rooms = safeParseLocalStorageJSON('rooms', this.rooms || [], { expect: 'array' });
                 return this.rooms;
             },
             // Save rooms to localStorage
@@ -25045,6 +25033,7 @@
             const __taskFormStub = function(taskId, template = null) {
                 window.__taskFormOpenQueue.push({ taskId, template });
             };
+            __taskFormStub.__isTaskFormStub = true;
             window.openTaskFormModal = __taskFormStub;
             (function watchAndFlush() {
                 try {
@@ -25069,12 +25058,34 @@
         // Helper: Safely open the Task Form modal; if not ready, queue the request
         function openTaskFormSafe(template) {
             try {
+                if (window.openTaskFormModal && window.openTaskFormModal.__isTaskFormStub) {
+                    const now = Date.now();
+                    if (!window.__lastTaskFormQueuedToastAt || (now - window.__lastTaskFormQueuedToastAt) > 1500) {
+                        window.__lastTaskFormQueuedToastAt = now;
+                        if (typeof showNotification === 'function') {
+                            showNotification('Loading Task form…', 'info');
+                        }
+                    }
+                }
                 window.openTaskFormModal(null, template);
             } catch (e) {
                 console.error('Error invoking Task form open:', e);
             }
         }
         window.openTaskFormSafe = openTaskFormSafe;
+
+        // Toolbar "+" helper: open Task form with a sensible default dueDate
+        function openTaskFromToolbar() {
+            try {
+                const cal = window.calendarInstance;
+                const baseDate = cal && cal.currentDate ? new Date(cal.currentDate) : new Date();
+                const dateStr = baseDate.toISOString().split('T')[0];
+                openTaskFormSafe({ dueDate: dateStr, taskType: 'Regular' });
+            } catch (e) {
+                console.error('openTaskFromToolbar failed:', e);
+            }
+        }
+        window.openTaskFromToolbar = openTaskFromToolbar;
 
         // Helper: Get the correct people list based on event category
         function getEventPeople(event) {
