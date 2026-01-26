@@ -19022,7 +19022,33 @@
             const index = window.tasksData.findIndex(t => t.id == taskId);
             if (index !== -1) {
                 window.tasksData.splice(index, 1);
-                saveTasksData();
+                try {
+                    // Persist updated tasks locally
+                    localStorage.setItem('tasksData', JSON.stringify(window.tasksData));
+
+                    // If API update helper exists, notify backend (best-effort)
+                    if (typeof updateTaskViaAPI === 'function') {
+                        const numericId = String(taskId).startsWith('task-') ? String(taskId).replace('task-', '') : taskId;
+                        updateTaskViaAPI(numericId, { deleted: true });
+                    }
+
+                    // Keep calendar in sync after deletion
+                    if (typeof convertTasksToEvents === 'function') {
+                        convertTasksToEvents();
+                    }
+                    if (window.calendarInstance && typeof window.calendarInstance.refetchEvents === 'function') {
+                        window.calendarInstance.refetchEvents();
+                    } else if (window.calendar && typeof window.calendar.refetchEvents === 'function') {
+                        window.calendar.refetchEvents();
+                    }
+
+                    // Update Task Hub badges/counters if available
+                    if (typeof updateTaskHubBadges === 'function') {
+                        updateTaskHubBadges();
+                    }
+                } catch (e) {
+                    console.error('Error while saving tasks after deletion:', e);
+                }
                 filterTaskManagementList();
                 showNotification('Task deleted successfully', 'success');
             }
