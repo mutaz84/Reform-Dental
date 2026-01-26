@@ -35506,6 +35506,19 @@ window.addEventListener('load', function() {
             }
             return (parsed && typeof parsed === 'object') ? parsed : {};
         }
+
+        function ensureTasksDataArray() {
+            if (Array.isArray(window.tasksData)) return window.tasksData;
+
+            const repaired = safeParseLocalStorageJSON('tasksData', [], { expect: 'array' });
+            window.tasksData = Array.isArray(repaired) ? repaired : [];
+            try {
+                localStorage.setItem('tasksData', JSON.stringify(window.tasksData));
+            } catch (e) {
+                console.warn('Could not persist repaired tasksData:', e);
+            }
+            return window.tasksData;
+        }
         
         let assignmentBoardFilter = 'all';
         let draggedEmployeeData = null;
@@ -38805,7 +38818,7 @@ window.addEventListener('load', function() {
             itemSelect.innerHTML = '<option value="">Select Item</option>';
             
             // Get dynamic equipment categories
-            const dynamicCategories = getEquipmentCategories();
+            const dynamicCategories = (typeof getEquipmentCategories === 'function') ? getEquipmentCategories() : {};
             
             if (category && dynamicCategories[category]) {
                 dynamicCategories[category].forEach(item => {
@@ -38816,6 +38829,7 @@ window.addEventListener('load', function() {
         
         // Save task (create or update) - Enhanced Version
         window.saveTask = function() {
+            const tasksData = ensureTasksDataArray();
             const form = document.getElementById('taskForm');
             
             // Get task type to determine if assignee is required
@@ -38918,18 +38932,18 @@ window.addEventListener('load', function() {
             };
             
             if (isEdit) {
-                const index = window.tasksData.findIndex(t => t.id === taskId);
+                const index = tasksData.findIndex(t => t.id === taskId);
                 if (index > -1) {
                     // Preserve some fields
-                    taskData.createdAt = window.tasksData[index].createdAt;
-                    taskData.createdBy = window.tasksData[index].createdBy;
-                    taskData.completedAt = window.tasksData[index].completedAt;
-                    taskData.completedBy = window.tasksData[index].completedBy;
-                    taskData.completedTime = window.tasksData[index].completedTime;
-                    taskData.notes = window.tasksData[index].notes;
-                    taskData.claimedBy = window.tasksData[index].claimedBy;
-                    taskData.claimedAt = window.tasksData[index].claimedAt;
-                    window.tasksData[index] = taskData;
+                    taskData.createdAt = tasksData[index].createdAt;
+                    taskData.createdBy = tasksData[index].createdBy;
+                    taskData.completedAt = tasksData[index].completedAt;
+                    taskData.completedBy = tasksData[index].completedBy;
+                    taskData.completedTime = tasksData[index].completedTime;
+                    taskData.notes = tasksData[index].notes;
+                    taskData.claimedBy = tasksData[index].claimedBy;
+                    taskData.claimedAt = tasksData[index].claimedAt;
+                    tasksData[index] = taskData;
                     console.log('📋 Updated task data:', taskData);
                     // Update in database
                     if (typeof updateTaskViaAPI === 'function') {
@@ -38951,7 +38965,7 @@ window.addEventListener('load', function() {
                     }
                 }
             } else {
-                window.tasksData.push(taskData);
+                tasksData.push(taskData);
                 console.log('📋 New task data:', taskData);
                 // Save to database
                 if (typeof saveTaskToAPI === 'function') {
@@ -38974,7 +38988,7 @@ window.addEventListener('load', function() {
             }
             
             // Save to localStorage
-            localStorage.setItem('tasksData', JSON.stringify(window.tasksData));
+            localStorage.setItem('tasksData', JSON.stringify(tasksData));
             
             document.getElementById('taskFormModal')?.remove();
             renderTasksList();
