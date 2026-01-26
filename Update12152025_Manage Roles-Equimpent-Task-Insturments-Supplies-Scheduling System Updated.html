@@ -1605,6 +1605,17 @@
             return parsed;
         }
 
+        // Early task-form proxy to prevent "not ready" failures
+        if (typeof window !== 'undefined' && typeof window.openTaskFormModal !== 'function') {
+            window.openTaskFormModal = function(taskId, template = null) {
+                window.__taskFormQueue = window.__taskFormQueue || [];
+                window.__taskFormQueue.push({ taskId, template });
+                if (typeof attemptFlushTaskFormQueue === 'function') {
+                    attemptFlushTaskFormQueue();
+                }
+            };
+        }
+
         // Sticky Notes Functions - Define early so they're available to navigation
         function toggleStickyNotesPanel() {
             console.log('toggleStickyNotesPanel called');
@@ -38256,7 +38267,7 @@ window.addEventListener('load', function() {
         };
 
         // Task form modal (Create/Edit) - Enhanced Version
-        window.openTaskFormModal = function(taskId, template = null) {
+        window.__realOpenTaskFormModal = function(taskId, template = null) {
             console.log('✅ Real openTaskFormModal called with taskId:', taskId, 'template:', template);
             
             // Remove any existing modal first to prevent duplicates
@@ -38676,6 +38687,11 @@ window.addEventListener('load', function() {
                     }
                 }
             }
+        }
+        // Promote real implementation to the public API and flush any queued opens
+        window.openTaskFormModal = window.__realOpenTaskFormModal;
+        if (typeof attemptFlushTaskFormQueue === 'function') {
+            attemptFlushTaskFormQueue();
         }
         
         // Function is now defined and ready to use
