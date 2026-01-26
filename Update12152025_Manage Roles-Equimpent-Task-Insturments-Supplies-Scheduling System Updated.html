@@ -26311,7 +26311,7 @@
                                 // Make clickable to create a new task/event (ignore clicks on existing events)
                                 slot.onclick = (e) => {
                                     if (e.target.closest && e.target.closest('.calendar-event')) return;
-                                    this.handleResourceSlotClick(date, hour, resource.id);
+                                    this.handleResourceSlotClick(date, hour, minute, resource.id);
                                 };
                                 
                                 row.appendChild(slot);
@@ -27135,10 +27135,12 @@
                     }
                 },
                 
-                handleResourceSlotClick: function(date, hour, resourceId) {
+                handleResourceSlotClick: function(date, hour, minute = 0, resourceId) {
                     const dateStr = date.toISOString().split('T')[0];
-                    const startTime = `${hour.toString().padStart(2, '0')}:00:00`;
-                    const endTime = `${(hour + 1).toString().padStart(2, '0')}:00:00`;
+                    const startTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
+                    const endHour = minute === 30 ? hour + 1 : hour;
+                    const endMinute = minute === 30 ? 0 : 30;
+                    const endTime = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}:00`;
                     
                     // Create a task directly from the resource slot (tasks only)
                     {
@@ -27153,11 +27155,11 @@
                             const locName = resource?.title || resource?.name || resource?.roomName || '';
                             if (locName) template.location = locName;
                         }
-                        // If Employee/Provider view, prefill assignee
+                        // If Employee/Provider view, prefill assignee with resource ID
                         if ((this.viewMode === 'employee' || this.viewMode === 'provider') && typeof employeeResources !== 'undefined') {
-                            const emp = employeeResources.find(r => r.id === resourceId || r.title === resourceId);
-                            const assignee = emp?.title || emp?.name || '';
-                            if (assignee) template.assignee = assignee;
+                            const emp = employeeResources.find(r => r.id === resourceId);
+                            // Use resource ID (e.g., 'dr-smith') instead of title
+                            if (emp && emp.id) template.assignee = emp.id;
                         }
                         openTaskFormSafe(template);
                     }
