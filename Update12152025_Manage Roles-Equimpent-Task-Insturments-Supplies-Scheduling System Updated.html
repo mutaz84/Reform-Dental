@@ -24912,51 +24912,20 @@
             return 'room-' + location.toLowerCase().replace(/\s+/g, '-');
         }
 
-        // Queue stub for early calls before the Task form is defined
-        if (!window.__taskFormOpenQueue) window.__taskFormOpenQueue = [];
-        if (typeof window.openTaskFormModal !== 'function') {
-            const __taskFormStub = function(taskId, template = null) {
-                window.__taskFormOpenQueue.push({ taskId, template });
-            };
-            __taskFormStub.__isTaskFormStub = true;
-            window.openTaskFormModal = __taskFormStub;
-            (function watchAndFlush() {
-                try {
-                    // Flush as soon as the real function replaces the stub
-                    if (typeof window.openTaskFormModal === 'function' && window.openTaskFormModal !== __taskFormStub) {
-                        if (Array.isArray(window.__taskFormOpenQueue) && window.__taskFormOpenQueue.length) {
-                            const q = window.__taskFormOpenQueue.slice();
-                            window.__taskFormOpenQueue.length = 0;
-                            q.forEach(({ taskId, template }) => {
-                                setTimeout(() => {
-                                    try { window.openTaskFormModal(taskId, template); } catch (e) { console.error('Flush openTaskFormModal failed:', e); }
-                                }, 0);
-                            });
-                        }
-                        return;
-                    }
-                } catch {}
-                setTimeout(watchAndFlush, 200);
-            })();
-        }
-
-        // Helper: Safely open the Task Form modal; if not ready, queue the request
+        // Helper: Safely open the Task Form modal
+        // Helper: Safely open the Task Form modal
         function openTaskFormSafe(template) {
             try {
-                // Check if it's the real function (not the stub)
-                if (typeof window.openTaskFormModal !== 'function' || window.openTaskFormModal.__isTaskFormStub === true) {
-                    console.warn('⏳ openTaskFormModal not yet ready, queueing call...');
-                    if (!window.__taskFormOpenQueue) window.__taskFormOpenQueue = [];
-                    window.__taskFormOpenQueue.push({ taskId: null, template });
+                if (typeof window.openTaskFormModal !== 'function') {
+                    console.error('❌ openTaskFormModal is not defined yet');
                     if (typeof showNotification === 'function') {
-                        showNotification('Task form is loading, please wait...', 'info');
+                        showNotification('Error: Task form not initialized. Please refresh the page.', 'error');
                     }
                     return;
                 }
-                console.log('✅ openTaskFormSafe: Calling real function');
                 window.openTaskFormModal(null, template);
             } catch (e) {
-                console.error('❌ Error invoking Task form open:', e);
+                console.error('❌ Error opening task form:', e);
                 if (typeof showNotification === 'function') {
                     showNotification('Error opening task form. Please try again.', 'error');
                 }
@@ -38540,25 +38509,8 @@ window.addEventListener('load', function() {
             }
         }
         
-        // Mark as real function (not stub) - critical for openTaskFormSafe detection
-        delete window.openTaskFormModal.__isTaskFormStub;
-        console.log('✅ Real openTaskFormModal defined, stub flag removed');
-        
-        // Immediately flush any queued task form opens now that the real function is defined
-        if (Array.isArray(window.__taskFormOpenQueue) && window.__taskFormOpenQueue.length > 0) {
-            console.log('✅ Task form is ready. Flushing', window.__taskFormOpenQueue.length, 'queued calls...');
-            const queuedCalls = window.__taskFormOpenQueue.slice();
-            window.__taskFormOpenQueue.length = 0;
-            queuedCalls.forEach(({ taskId, template }) => {
-                setTimeout(() => {
-                    try {
-                        window.openTaskFormModal(taskId, template);
-                    } catch (e) {
-                        console.error('❌ Queued task form open failed:', e);
-                    }
-                }, 0);
-            });
-        }
+        // Function is now defined and ready to use
+        console.log('✅ openTaskFormModal defined and ready');
         
         // Handle room selection change
         window.handleRoomSelection = function() {
