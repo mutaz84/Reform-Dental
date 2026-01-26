@@ -25994,59 +25994,62 @@
                     });
                     grid.appendChild(header);
                     
-                    // Time slots
+                    // Time slots (30-minute intervals)
                     const slotsContainer = document.createElement('div');
                     slotsContainer.className = 'time-slots-container';
                     
                     for (let hour = 7; hour < 23; hour++) {
-                        const row = document.createElement('div');
-                        row.className = 'time-slot-row';
-                        
-                        const timeLabel = document.createElement('div');
-                        timeLabel.className = 'time-label';
-                        timeLabel.textContent = this.formatHour(hour);
-                        row.appendChild(timeLabel);
-                        
-                        dates.forEach(date => {
-                            const slot = document.createElement('div');
-                            slot.className = 'time-slot';
-                            slot.dataset.date = date.toISOString().split('T')[0];
-                            slot.dataset.hour = hour;
+                        for (let minute = 0; minute < 60; minute += 30) {
+                            const row = document.createElement('div');
+                            row.className = 'time-slot-row';
                             
-                            // Add events for this slot
-                            const slotEvents = this.getEventsForSlot(date, hour);
-                            slotEvents.forEach(event => {
-                                const eventEl = this.createEventElement(event, false);
-                                slot.appendChild(eventEl);
+                            const timeLabel = document.createElement('div');
+                            timeLabel.className = 'time-label';
+                            timeLabel.textContent = this.formatTime(hour, minute);
+                            row.appendChild(timeLabel);
+                            
+                            dates.forEach(date => {
+                                const slot = document.createElement('div');
+                                slot.className = 'time-slot';
+                                slot.dataset.date = date.toISOString().split('T')[0];
+                                slot.dataset.hour = hour;
+                                slot.dataset.minute = minute;
+                                
+                                // Add events for this slot
+                                const slotEvents = this.getEventsForSlot(date, hour, minute);
+                                slotEvents.forEach(event => {
+                                    const eventEl = this.createEventElement(event, false);
+                                    slot.appendChild(eventEl);
+                                });
+                                
+                                // Make droppable
+                                slot.ondragover = (e) => {
+                                    e.preventDefault();
+                                    // Add visual feedback
+                                    slot.style.background = 'rgba(59, 130, 246, 0.1)';
+                                    slot.style.borderTop = '2px solid #3b82f6';
+                                };
+                                slot.ondragleave = (e) => {
+                                    // Remove visual feedback
+                                    slot.style.background = '';
+                                    slot.style.borderTop = '';
+                                };
+                                slot.ondrop = (e) => {
+                                    // Remove visual feedback
+                                    slot.style.background = '';
+                                    slot.style.borderTop = '';
+                                    this.handleDrop(e, date, hour, minute);
+                                };
+                                
+                                // Make clickable to create a new task/event (ignore clicks on existing events)
+                                slot.onclick = (e) => {
+                                    if (e.target.closest && e.target.closest('.calendar-event')) return;
+                                    this.handleSlotClick(date, hour, minute);
+                                };
+                                
+                                row.appendChild(slot);
                             });
-                            
-                            // Make droppable
-                            slot.ondragover = (e) => {
-                                e.preventDefault();
-                                // Add visual feedback
-                                slot.style.background = 'rgba(59, 130, 246, 0.1)';
-                                slot.style.borderTop = '2px solid #3b82f6';
-                            };
-                            slot.ondragleave = (e) => {
-                                // Remove visual feedback
-                                slot.style.background = '';
-                                slot.style.borderTop = '';
-                            };
-                            slot.ondrop = (e) => {
-                                // Remove visual feedback
-                                slot.style.background = '';
-                                slot.style.borderTop = '';
-                                this.handleDrop(e, date, hour);
-                            };
-                            
-                            // Make clickable to create a new task/event (ignore clicks on existing events)
-                            slot.onclick = (e) => {
-                                if (e.target.closest && e.target.closest('.calendar-event')) return;
-                                this.handleSlotClick(date, hour);
-                            };
-                            
-                            row.appendChild(slot);
-                        });
+                        }
                         
                         slotsContainer.appendChild(row);
                     }
@@ -26212,33 +26215,35 @@
                         grid.appendChild(unscheduledRow);
                     }
                     
-                    // Time slots
+                    // Time slots (30-minute intervals)
                     const slotsContainer = document.createElement('div');
                     slotsContainer.className = 'time-slots-container resource-slots';
                     
                     for (let hour = 7; hour < 23; hour++) {
-                        const row = document.createElement('div');
-                        row.className = 'time-slot-row';
-                        
-                        const timeLabel = document.createElement('div');
-                        timeLabel.className = 'time-label';
-                        timeLabel.textContent = this.formatHour(hour);
-                        row.appendChild(timeLabel);
-                        
-                        const spacer = document.createElement('div');
-                        spacer.className = 'resource-spacer';
-                        row.appendChild(spacer);
-                        
-                        dates.forEach(date => {
-                            resources.forEach(resource => {
-                                const slot = document.createElement('div');
-                                slot.className = 'time-slot resource-slot';
-                                slot.dataset.date = date.toISOString().split('T')[0];
-                                slot.dataset.hour = hour;
-                                slot.dataset.resourceId = resource.id;
-                                
-                                // Add events for this slot and resource
-                                const slotEvents = this.getEventsForResourceSlot(date, hour, resource.id);
+                        for (let minute = 0; minute < 60; minute += 30) {
+                            const row = document.createElement('div');
+                            row.className = 'time-slot-row';
+                            
+                            const timeLabel = document.createElement('div');
+                            timeLabel.className = 'time-label';
+                            timeLabel.textContent = this.formatTime(hour, minute);
+                            row.appendChild(timeLabel);
+                            
+                            const spacer = document.createElement('div');
+                            spacer.className = 'resource-spacer';
+                            row.appendChild(spacer);
+                            
+                            dates.forEach(date => {
+                                resources.forEach(resource => {
+                                    const slot = document.createElement('div');
+                                    slot.className = 'time-slot resource-slot';
+                                    slot.dataset.date = date.toISOString().split('T')[0];
+                                    slot.dataset.hour = hour;
+                                    slot.dataset.minute = minute;
+                                    slot.dataset.resourceId = resource.id;
+                                    
+                                    // Add events for this slot and resource
+                                    const slotEvents = this.getEventsForResourceSlot(date, hour, minute, resource.id);
                                 
                                 // For assistants mode, position events side-by-side if multiple
                                 if (currentEmployeeDataType === 'assistants' && slotEvents.length > 0) {
@@ -26440,13 +26445,14 @@
                     return new Date(d.setDate(diff));
                 },
                 
-                formatHour: function(hour) {
+                formatTime: function(hour, minute) {
                     const period = hour >= 12 ? 'PM' : 'AM';
                     const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
-                    return `${displayHour}:00 ${period}`;
+                    const displayMinute = minute.toString().padStart(2, '0');
+                    return `${displayHour}:${displayMinute} ${period}`;
                 },
                 
-                getEventsForSlot: function(date, hour) {
+                getEventsForSlot: function(date, hour, minute = 0) {
                     const dateStr = date.toISOString().split('T')[0];
                     let filteredEvents = [];
                     
@@ -26489,8 +26495,8 @@
                         const eventTime = event.start.split('T')[1];
                         if (!eventTime) return false;
                         
-                        const eventHour = parseInt(eventTime.split(':')[0]);
-                        return eventHour === hour;
+                        const [eventHour, eventMinute] = eventTime.split(':').map(n => parseInt(n));
+                        return eventHour === hour && Math.floor(eventMinute / 30) * 30 === minute;
                     });
                 },
                 
@@ -26516,14 +26522,14 @@
                     return allItems;
                 },
                 
-                getEventsForResourceSlot: function(date, hour, resourceId) {
+                getEventsForResourceSlot: function(date, hour, minute, resourceId) {
                     const dateStr = date.toISOString().split('T')[0];
                     let filteredEvents = [];
 
                     const DEBUG_SLOT_LOGS = false;
                     const slotLog = (...args) => { if (DEBUG_SLOT_LOGS) console.log(...args); };
                     
-                    slotLog('getEventsForResourceSlot called - Date:', dateStr, 'Hour:', hour, 'ResourceId:', resourceId, 'DataType:', currentEmployeeDataType);
+                    slotLog('getEventsForResourceSlot called - Date:', dateStr, 'Hour:', hour, 'Minute:', minute, 'ResourceId:', resourceId, 'DataType:', currentEmployeeDataType);
                     
                     // Show selected data type or regular events
                     if (showWorkingHours && currentEmployeeDataType === 'working-hours') {
@@ -26573,9 +26579,10 @@
                             return false;
                         }
                         
-                        const eventHour = parseInt(eventTime.split(':')[0]);
-                        if (eventHour !== hour) {
-                            slotLog('  - Hour mismatch:', eventHour, '!==', hour);
+                        const [eventHour, eventMinute] = eventTime.split(':').map(n => parseInt(n));
+                        const eventSlotMinute = Math.floor(eventMinute / 30) * 30;
+                        if (eventHour !== hour || eventSlotMinute !== minute) {
+                            slotLog('  - Time mismatch:', eventHour, ':', eventSlotMinute, '!==', hour, ':', minute);
                             return false;
                         }
                         
@@ -26935,12 +26942,12 @@
                     });
                 },
                 
-                handleDrop: function(e, date, hour) {
+                handleDrop: function(e, date, hour, minute = 0) {
                     e.preventDefault();
                     if (!this.draggedEvent) return;
                     
                     const dateStr = date.toISOString().split('T')[0];
-                    const timeStr = `${hour.toString().padStart(2, '0')}:00:00`;
+                    const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
                     
                     // Calculate duration BEFORE modifying the event
                     const duration = this.calculateEventDuration(this.draggedEvent);
@@ -26948,8 +26955,9 @@
                     // Get original start hour for comparison
                     const origStart = new Date(this.draggedEvent.start);
                     const origHour = origStart.getHours();
+                    const origMinute = origStart.getMinutes();
                     
-                    alert(`Moving event from ${origHour}:00 to ${hour}:00\nDuration: ${duration} hours\nNew time will be: ${hour}:00 to ${hour + duration}:00`);
+                    alert(`Moving event from ${origHour}:${origMinute.toString().padStart(2, '0')} to ${hour}:${minute.toString().padStart(2, '0')}\nDuration: ${duration} hours\nNew time will be: ${hour}:${minute.toString().padStart(2, '0')} to ${hour + Math.floor(duration)}:${((minute + (duration % 1) * 60) % 60).toString().padStart(2, '0')}`);
                     
                     console.log('Dragging event:', this.draggedEvent.title);
                     console.log('Original start:', this.draggedEvent.start);
@@ -27113,11 +27121,13 @@
                     });
                 },
                 
-                handleSlotClick: function(date, hour) {
+                handleSlotClick: function(date, hour, minute = 0) {
                     // Quick create event at this time
                     const dateStr = date.toISOString().split('T')[0];
-                    const startTime = `${hour.toString().padStart(2, '0')}:00:00`;
-                    const endTime = `${(hour + 1).toString().padStart(2, '0')}:00:00`;
+                    const startTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
+                    const endHour = minute === 30 ? hour + 1 : hour;
+                    const endMinute = minute === 30 ? 0 : 30;
+                    const endTime = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}:00`;
                     
                     // Create a task directly from the slot (tasks only)
                     {
