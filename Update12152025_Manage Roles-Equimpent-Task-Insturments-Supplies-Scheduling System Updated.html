@@ -24590,38 +24590,51 @@
         
         // Function to load employees from user management into employeeResources
         function loadEmployeeResourcesFromUsers() {
-            const users = loadUsers();
-            employeeResources = [];
-            
-            Object.keys(users).forEach(username => {
-                const user = users[username];
-                // Skip admin account and inactive users
-                if (username === 'admin' || user.employeeStatus === 'Inactive') return;
-                
-                // Determine type based on staffType
-                let type = 'assistant';
-                if (user.staffType === 'clinical' && user.employeeType === 'Full-time Provider') {
-                    type = 'provider';
-                } else if (user.staffType === 'clinical') {
-                    type = 'assistant';
-                }
-                
-                employeeResources.push({
-                    id: username.toLowerCase().replace(/\s+/g, '-'),
-                    title: user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || username,
-                    extendedProps: {
-                        role: user.jobTitle || 'Staff',
-                        type: type,
-                        staffType: user.staffType || 'non-clinical',
-                        color: user.color || '#06b6d4',
-                        clinics: [],
-                        assignedProvider: null
+            try {
+                const usersRaw = (typeof loadUsers === 'function') ? loadUsers() : {};
+                const users = (usersRaw && typeof usersRaw === 'object') ? usersRaw : {};
+
+                employeeResources = [];
+
+                Object.keys(users).forEach(username => {
+                    const user = users[username] || {};
+                    // Skip admin account and inactive users
+                    if (username === 'admin' || user.employeeStatus === 'Inactive') return;
+
+                    // Determine type based on staffType
+                    let type = 'assistant';
+                    if (user.staffType === 'clinical' && user.employeeType === 'Full-time Provider') {
+                        type = 'provider';
+                    } else if (user.staffType === 'clinical') {
+                        type = 'assistant';
                     }
+
+                    const title = (user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || username || '').trim();
+
+                    employeeResources.push({
+                        id: (username || title || 'user').toString().toLowerCase().replace(/\s+/g, '-'),
+                        title: title || username,
+                        extendedProps: {
+                            role: user.jobTitle || 'Staff',
+                            type: type,
+                            staffType: user.staffType || 'non-clinical',
+                            color: user.color || '#06b6d4',
+                            clinics: [],
+                            assignedProvider: null
+                        }
+                    });
                 });
-            });
-            
-            console.log('✅ Loaded', employeeResources.length, 'employees from User Management');
-            return employeeResources;
+
+                console.log('✅ Loaded', employeeResources.length, 'employees from User Management');
+                return employeeResources;
+            } catch (e) {
+                console.error('❌ loadEmployeeResourcesFromUsers failed:', e);
+                employeeResources = [];
+                if (typeof showNotification === 'function') {
+                    showNotification('Employee data failed to load (Task form will still work).', 'warning');
+                }
+                return employeeResources;
+            }
         }
 
         // ========================================
@@ -24713,7 +24726,14 @@
         };
         
         // Initialize master data on load
-        masterData.initialize();
+        try {
+            masterData.initialize();
+        } catch (e) {
+            console.error('❌ masterData.initialize failed:', e);
+            if (typeof showNotification === 'function') {
+                showNotification('Some data failed to load. You can still create tasks.', 'warning');
+            }
+        }
         
         // Sync data to all schedule builders
         function syncMasterDataToScheduleBuilders() {
