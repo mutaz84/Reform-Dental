@@ -1564,21 +1564,45 @@
         </style><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
-        // Safe localStorage JSON parsing (prevents app breakage when a stored value is malformed)
-        function safeParseLocalStorageJSON(key, fallbackValue) {
+        // Safe localStorage JSON parsing (prevents app breakage when a stored value is malformed OR wrong-shaped)
+        // Usage: safeParseLocalStorageJSON('tasksData', [], { expect: 'array' })
+        function safeParseLocalStorageJSON(key, fallbackValue, options = null) {
             const raw = localStorage.getItem(key);
             if (raw === null || raw === undefined || raw === '') return fallbackValue;
+
+            let parsed;
             try {
-                return JSON.parse(raw);
+                parsed = JSON.parse(raw);
             } catch (err) {
                 console.warn(`⚠️ Invalid JSON in localStorage["${key}"]. Resetting to default.`, err);
-                try {
-                    localStorage.setItem(key, JSON.stringify(fallbackValue));
-                } catch (_) {
-                    // Ignore quota/permission errors
-                }
+                try { localStorage.setItem(key, JSON.stringify(fallbackValue)); } catch (_) {}
                 return fallbackValue;
             }
+
+            const expect = options && options.expect;
+            if (expect === 'array' && !Array.isArray(parsed)) {
+                console.warn(`⚠️ Wrong type in localStorage["${key}"] (expected array). Resetting to default.`);
+                try { localStorage.setItem(key, JSON.stringify(fallbackValue)); } catch (_) {}
+                return fallbackValue;
+            }
+            if (expect === 'object') {
+                const isObject = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed);
+                if (!isObject) {
+                    console.warn(`⚠️ Wrong type in localStorage["${key}"] (expected object). Resetting to default.`);
+                    try { localStorage.setItem(key, JSON.stringify(fallbackValue)); } catch (_) {}
+                    return fallbackValue;
+                }
+            }
+            if (expect === 'objectOrNull') {
+                const isObjectOrNull = parsed === null || (typeof parsed === 'object' && !Array.isArray(parsed));
+                if (!isObjectOrNull) {
+                    console.warn(`⚠️ Wrong type in localStorage["${key}"] (expected object or null). Resetting to default.`);
+                    try { localStorage.setItem(key, JSON.stringify(fallbackValue)); } catch (_) {}
+                    return fallbackValue;
+                }
+            }
+
+            return parsed;
         }
 
         // Sticky Notes Functions - Define early so they're available to navigation
@@ -14472,11 +14496,11 @@
             // Note: Always call syncUsersFromAPI() before this to ensure data is fresh
             const usersJson = localStorage.getItem('appUsers');
             if (usersJson) {
-                return safeParseLocalStorageJSON('appUsers', {});
+                return safeParseLocalStorageJSON('appUsers', {}, { expect: 'object' });
             }
             // Fallback if localStorage is empty
             initializeUsers();
-            return safeParseLocalStorageJSON('appUsers', {});
+            return safeParseLocalStorageJSON('appUsers', {}, { expect: 'object' });
         }
 
         // Save users to localStorage and optionally sync to API
@@ -14535,7 +14559,7 @@
                     
                     // Store the database ID back in localStorage
                     if (result.id) {
-                        const users = safeParseLocalStorageJSON('appUsers', {});
+                        const users = safeParseLocalStorageJSON('appUsers', {}, { expect: 'object' });
                         if (users[username]) {
                             users[username].id = result.id;
                             localStorage.setItem('appUsers', JSON.stringify(users));
@@ -14726,7 +14750,7 @@
         
         // Load Master Settings from localStorage/API
         function loadMasterSettings() {
-            const settings = safeParseLocalStorageJSON('masterSettings', {});
+            const settings = safeParseLocalStorageJSON('masterSettings', {}, { expect: 'object' });
             
             // Load company name
             const companyName = settings.companyName || 'ReformDental';
@@ -14847,7 +14871,7 @@
         // Load and apply settings on page load
         async function initMasterSettings() {
             // First try to load from localStorage for immediate display
-            let settings = safeParseLocalStorageJSON('masterSettings', {});
+            let settings = safeParseLocalStorageJSON('masterSettings', {}, { expect: 'object' });
             if (Object.keys(settings).length > 0) {
                 applyMasterSettings(settings);
             }
@@ -16179,7 +16203,7 @@
             if (!container) return;
             
             const users = loadUsers();
-            const currentUser = safeParseLocalStorageJSON('currentUser', {});
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
             
             // Filter out admin from being edited (admin always has full permissions)
             const editableUsers = Object.entries(users).filter(([username, user]) => {
@@ -16409,7 +16433,7 @@
             saveUsers(users);
             
             // Update current user if they're editing themselves
-            const currentUser = safeParseLocalStorageJSON('currentUser', {});
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
             if (currentUser.username === selectedPermissionUser) {
                 currentUser.permissions = tempPermissions;
                 localStorage.setItem('currentUser', JSON.stringify(currentUser));
@@ -23278,7 +23302,7 @@
             if (!officeSelect) return;
             
             // Get offices from localStorage or API
-            let offices = safeParseLocalStorageJSON('clinics', []);
+            let offices = safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
             
             // Try to get from API
             try {
@@ -23303,7 +23327,7 @@
             if (!supervisorSelect) return;
             
             // Get users from localStorage or API
-            let users = safeParseLocalStorageJSON('users', []);
+            let users = safeParseLocalStorageJSON('users', [], { expect: 'array' });
             
             // Try to get from API
             try {
@@ -30290,7 +30314,7 @@ async function claimFloatingTask(taskId) {
     if (taskIndex === -1) return;
     
     const task = window.tasksData[taskIndex];
-    const currentUser = safeParseLocalStorageJSON('currentUser', null);
+    const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
     
     try {
         // Update task in database
@@ -30415,7 +30439,7 @@ async function claimBonusTask(taskId) {
     if (taskIndex === -1) return;
     
     const task = window.tasksData[taskIndex];
-    const currentUser = safeParseLocalStorageJSON('currentUser', null);
+    const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
     
     try {
         // Update task in database
@@ -32199,7 +32223,7 @@ window.addEventListener('load', function() {
         // ==========================================
         
         // Global Tasks Data Store - Loaded from API or localStorage
-        window.tasksData = safeParseLocalStorageJSON('tasksData', []);
+        window.tasksData = safeParseLocalStorageJSON('tasksData', [], { expect: 'array' });
         
         // Sync tasksData to calendar events (called after tasksData is loaded)
         if (typeof convertTasksToEvents === 'function' && window.tasksData.length > 0) {
@@ -32303,7 +32327,7 @@ window.addEventListener('load', function() {
             const container = document.getElementById('myDutiesContainer');
             if (!container) return;
             
-            const currentUser = safeParseLocalStorageJSON('currentUser', null);
+            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
             
             // Filter duties for current user if logged in
             let myDuties = window.dutiesData;
@@ -32460,7 +32484,7 @@ window.addEventListener('load', function() {
         }
         
         function loadRoles() {
-            return safeParseLocalStorageJSON('roles', []);
+            return safeParseLocalStorageJSON('roles', [], { expect: 'array' });
         }
         
         function saveRoles(roles) {
@@ -32773,7 +32797,7 @@ window.addEventListener('load', function() {
         
         function openPasswordManager() {
             // Check permission
-            const currentUser = safeParseLocalStorageJSON('currentUser', {});
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
             const hasPermission = currentUser.role === 'admin' || 
                 (currentUser.permissions && currentUser.permissions.password_manager && 
                  currentUser.permissions.password_manager.view === 'full');
@@ -32899,7 +32923,7 @@ window.addEventListener('load', function() {
         }
         
         function exportPasswordList() {
-            const currentUser = safeParseLocalStorageJSON('currentUser', {});
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
             const hasPermission = currentUser.role === 'admin' || 
                 (currentUser.permissions && currentUser.permissions.password_manager && 
                  currentUser.permissions.password_manager.export === 'full');
@@ -33176,7 +33200,7 @@ window.addEventListener('load', function() {
                     newChatBtn.style.display = 'flex';
                     newChatBtnText.textContent = 'New Group';
                 } else if (tab === 'announcements') {
-                    const currentUser = safeParseLocalStorageJSON('currentUser', {});
+                    const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
                     if (currentUser.role === 'admin' || currentUser.role === 'manager') {
                         newChatBtn.style.display = 'flex';
                         newChatBtnText.textContent = 'New Announcement';
@@ -33230,7 +33254,7 @@ window.addEventListener('load', function() {
             if (!container) return;
             
             // Load group chats from localStorage (will integrate with API later)
-            const groupChats = safeParseLocalStorageJSON('groupChats', []);
+            const groupChats = safeParseLocalStorageJSON('groupChats', [], { expect: 'array' });
             
             if (groupChats.length === 0) {
                 container.innerHTML = `
@@ -33266,7 +33290,7 @@ window.addEventListener('load', function() {
             if (!container) return;
             
             // Load announcements from localStorage (will integrate with API later)
-            const announcements = safeParseLocalStorageJSON('announcements', []);
+            const announcements = safeParseLocalStorageJSON('announcements', [], { expect: 'array' });
             
             if (announcements.length === 0) {
                 container.innerHTML = `
@@ -33302,7 +33326,7 @@ window.addEventListener('load', function() {
         // Select group chat
         function selectGroupChat(groupId) {
             console.log('👥 selectGroupChat called with groupId:', groupId);
-            const groupChats = safeParseLocalStorageJSON('groupChats', []);
+            const groupChats = safeParseLocalStorageJSON('groupChats', [], { expect: 'array' });
             const group = groupChats.find(g => g.id === groupId);
             if (!group) {
                 console.log('❌ Group not found');
@@ -33339,7 +33363,7 @@ window.addEventListener('load', function() {
         // Select announcement
         function selectAnnouncement(annId) {
             console.log('📢 selectAnnouncement called with annId:', annId);
-            const announcements = safeParseLocalStorageJSON('announcements', []);
+            const announcements = safeParseLocalStorageJSON('announcements', [], { expect: 'array' });
             const ann = announcements.find(a => a.id === annId);
             if (!ann) {
                 console.log('❌ Announcement not found');
@@ -33361,7 +33385,7 @@ window.addEventListener('load', function() {
             if (chatHeader) chatHeader.style.display = 'block';
             
             // Only admins/managers can reply to announcements
-            const currentUser = safeParseLocalStorageJSON('currentUser', {});
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
             if (messageInput) {
                 if (currentUser.role === 'admin' || currentUser.role === 'manager') {
                     messageInput.style.display = 'block';
@@ -33403,7 +33427,7 @@ window.addEventListener('load', function() {
         // Display messages helper
         function displayMessages(messages, isGroup = false) {
             const messagesArea = document.getElementById('messagesArea');
-            const currentUser = safeParseLocalStorageJSON('currentUser', {});
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
             
             if (!messages || messages.length === 0) {
                 messagesArea.innerHTML = `
@@ -33522,7 +33546,7 @@ window.addEventListener('load', function() {
             const panel = document.getElementById('newChatPanel');
             if (panel) {
                 panel.style.display = 'block';
-                const currentUser = safeParseLocalStorageJSON('currentUser', {});
+                const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
                 panel.innerHTML = `
                     <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 1rem;">
                         <button onclick="hideNewChatPanel()" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: 1.25rem;">
@@ -33714,7 +33738,7 @@ window.addEventListener('load', function() {
                 return;
             }
             
-            const currentUser = safeParseLocalStorageJSON('currentUser', {});
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
             members.push(currentUser.username); // Add creator to group
             
             const newGroup = {
@@ -33755,7 +33779,7 @@ window.addEventListener('load', function() {
                 return;
             }
             
-            const currentUser = safeParseLocalStorageJSON('currentUser', {});
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
             
             const newAnnouncement = {
                 id: 'ann-' + Date.now(),
@@ -34086,7 +34110,7 @@ window.addEventListener('load', function() {
             
             if (!message || !window.currentChatUserId) return;
             
-            const currentUser = safeParseLocalStorageJSON('currentUser', {});
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
             
             // Handle group messages (localStorage)
             if (window.currentChatType === 'group') {
@@ -34224,7 +34248,7 @@ window.addEventListener('load', function() {
             if (!container) return;
             
             const usersData = safeParseLocalStorageJSON('users', {});
-            const currentUser = safeParseLocalStorageJSON('currentUser', {});
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
             
             // Convert localStorage users to the same format as API users
             const users = Object.entries(usersData)
@@ -34447,7 +34471,7 @@ window.addEventListener('load', function() {
         // ============================================
         
         // Task Assignments - Links tasks to entities (employees, equipment, instruments, supplies, etc.)
-        window.taskAssignments = safeParseLocalStorageJSON('reformDental_taskAssignments', []);
+        window.taskAssignments = safeParseLocalStorageJSON('reformDental_taskAssignments', [], { expect: 'array' });
         
         // Entity Types for Task Assignments
         const taskEntityTypes = [
@@ -34600,7 +34624,7 @@ window.addEventListener('load', function() {
                     
                     case 'patient':
                         // Patients may be stored differently - check localStorage or API
-                        const patients = safeParseLocalStorageJSON('patients', []);
+                        const patients = safeParseLocalStorageJSON('patients', [], { expect: 'array' });
                         return patients.map(p => ({ 
                             id: p.id, 
                             name: p.name || `${p.firstName} ${p.lastName}`, 
@@ -35305,7 +35329,7 @@ window.addEventListener('load', function() {
         
         // Update Task Hub Stats
         function updateTaskHubStats() {
-            const currentUser = safeParseLocalStorageJSON('currentUser', null);
+            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
             const userId = currentUser?.id || currentUser?.name;
             const now = new Date();
             const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -35347,7 +35371,7 @@ window.addEventListener('load', function() {
             const container = document.getElementById('myTasksContainer');
             if (!container) return;
             
-            const currentUser = safeParseLocalStorageJSON('currentUser', null);
+            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
             const userId = currentUser?.id || currentUser?.name;
             
             // Get user's assigned and claimed tasks
@@ -35707,7 +35731,7 @@ window.addEventListener('load', function() {
             const container = document.getElementById('completedTasksContainer');
             if (!container) return;
             
-            const currentUser = safeParseLocalStorageJSON('currentUser', null);
+            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
             const userId = currentUser?.id || currentUser?.name;
             const range = document.getElementById('completedTasksRange')?.value || 'month';
             
@@ -35892,7 +35916,7 @@ window.addEventListener('load', function() {
             const taskIndex = window.tasksData.findIndex(t => t.id == taskId);
             if (taskIndex === -1) return;
             
-            const currentUser = safeParseLocalStorageJSON('currentUser', null);
+            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
             window.tasksData[taskIndex].claimedBy = currentUser?.id || currentUser?.name;
             window.tasksData[taskIndex].claimedAt = new Date().toISOString();
             window.tasksData[taskIndex].status = 'In Progress';
@@ -35906,7 +35930,7 @@ window.addEventListener('load', function() {
             const taskIndex = window.tasksData.findIndex(t => t.id == taskId);
             if (taskIndex === -1) return;
             
-            const currentUser = safeParseLocalStorageJSON('currentUser', null);
+            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
             window.tasksData[taskIndex].status = 'Completed';
             window.tasksData[taskIndex].completedBy = currentUser?.id || currentUser?.name;
             window.tasksData[taskIndex].completedAt = new Date().toISOString();
@@ -36508,7 +36532,7 @@ window.addEventListener('load', function() {
         
         // Update Task Hub Badges
         function updateTaskHubBadges() {
-            const currentUser = safeParseLocalStorageJSON('currentUser', null);
+            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
             const userId = currentUser?.id || currentUser?.name;
             
             // My Tasks badge
@@ -47132,7 +47156,7 @@ async function loadClinicFilterDropdown() {
     if (!clinicSelect) return;
     
     // Get offices from localStorage or API
-    let offices = safeParseLocalStorageJSON('clinics', []);
+    let offices = safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
     
     // Keep "All Clinics" option and add offices
     clinicSelect.innerHTML = '<option value="">All Clinics</option>';
