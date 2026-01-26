@@ -32759,7 +32759,9 @@ window.addEventListener('load', function() {
                     }));
                     localStorage.setItem('roles', JSON.stringify(localRoles));
                     console.log('✅ Synced', localRoles.length, 'roles from API');
-                    populateRoleDropdowns();
+                    if (typeof populateRoleDropdowns === 'function') {
+                        populateRoleDropdowns();
+                    }
                 }
                 return true;
             } catch (error) {
@@ -41755,6 +41757,10 @@ function initChatHighlight() {
 // Fetch unread message count from API
 async function fetchUnreadChatCount() {
     try {
+        if (typeof getCurrentUserId !== 'function') {
+            console.warn('⚠️ getCurrentUserId not available; skipping unread count');
+            return;
+        }
         const currentUserId = await getCurrentUserId();
         if (!currentUserId) {
             console.log('⚠️ No user ID found for unread count');
@@ -47174,25 +47180,31 @@ async function loadAllDataFromAPI() {
     
     try {
         const syncSteps = [
-            { name: 'users', fn: () => syncUsersFromAPI() },
-            { name: 'clinics', fn: () => syncClinicsFromAPI() },
-            { name: 'rooms', fn: () => syncRoomsFromAPI() },
-            { name: 'equipment', fn: () => syncEquipmentFromAPI() },
-            { name: 'instruments', fn: () => syncInstrumentsFromAPI() },
-            { name: 'supplies', fn: () => syncSuppliesFromAPI() },
-            { name: 'tasks', fn: () => syncTasksFromAPI() },
-            { name: 'schedules', fn: () => syncSchedulesFromAPI() },
-            { name: 'vendors', fn: () => syncVendorsFromAPI() },
-            { name: 'roles', fn: () => syncRolesFromAPI() }
+            { name: 'users', fn: typeof syncUsersFromAPI === 'function' ? syncUsersFromAPI : null },
+            { name: 'clinics', fn: typeof syncClinicsFromAPI === 'function' ? syncClinicsFromAPI : null },
+            { name: 'rooms', fn: typeof syncRoomsFromAPI === 'function' ? syncRoomsFromAPI : null },
+            { name: 'equipment', fn: typeof syncEquipmentFromAPI === 'function' ? syncEquipmentFromAPI : null },
+            { name: 'instruments', fn: typeof syncInstrumentsFromAPI === 'function' ? syncInstrumentsFromAPI : null },
+            { name: 'supplies', fn: typeof syncSuppliesFromAPI === 'function' ? syncSuppliesFromAPI : null },
+            { name: 'tasks', fn: typeof syncTasksFromAPI === 'function' ? syncTasksFromAPI : null },
+            { name: 'schedules', fn: typeof syncSchedulesFromAPI === 'function' ? syncSchedulesFromAPI : null },
+            { name: 'vendors', fn: typeof syncVendorsFromAPI === 'function' ? syncVendorsFromAPI : null },
+            { name: 'roles', fn: typeof syncRolesFromAPI === 'function' ? syncRolesFromAPI : null }
         ];
 
-        const results = await Promise.allSettled(syncSteps.map(s => Promise.resolve().then(s.fn)));
+        const missing = syncSteps.filter(s => !s.fn).map(s => s.name);
+        if (missing.length) {
+            console.warn('⚠️ Missing sync functions:', missing.join(', '));
+        }
+
+        const activeSteps = syncSteps.filter(s => typeof s.fn === 'function');
+        const results = await Promise.allSettled(activeSteps.map(s => Promise.resolve().then(() => s.fn())));
 
         const failed = [];
         results.forEach((r, idx) => {
             if (r.status === 'rejected') {
-                failed.push(syncSteps[idx].name);
-                console.error(`❌ Sync step failed: ${syncSteps[idx].name}`, r.reason);
+                failed.push(activeSteps[idx].name);
+                console.error(`❌ Sync step failed: ${activeSteps[idx].name}`, r.reason);
             }
         });
 
@@ -47211,11 +47223,11 @@ async function loadAllDataFromAPI() {
         if (typeof displaySuppliesList === 'function') displaySuppliesList();
         
         // Load dynamic dropdowns
-        loadClinicFilterDropdown();
-        loadOfficesForUserForm();
-        loadSupervisorsForUserForm();
-        initPhoneFormatting();
-        populateRoleDropdowns();
+        if (typeof loadClinicFilterDropdown === 'function') loadClinicFilterDropdown();
+        if (typeof loadOfficesForUserForm === 'function') loadOfficesForUserForm();
+        if (typeof loadSupervisorsForUserForm === 'function') loadSupervisorsForUserForm();
+        if (typeof initPhoneFormatting === 'function') initPhoneFormatting();
+        if (typeof populateRoleDropdowns === 'function') populateRoleDropdowns();
         
         // Refresh calendar if in room view
         if (typeof customCalendar !== 'undefined' && customCalendar && typeof customCalendar.render === 'function') {
@@ -47244,7 +47256,9 @@ async function initializeApp() {
     // This is where we'll consolidate all the logic from the scattered DOMContentLoaded listeners
     
     // Initialize master data (like employees and rooms for the calendar)
-    masterData.initialize(); 
+    if (typeof masterData !== 'undefined' && masterData && typeof masterData.initialize === 'function') {
+        masterData.initialize();
+    }
 
     // Initialize the main calendar
     if (typeof initializeCalendar === 'function') {
@@ -47264,19 +47278,19 @@ async function initializeApp() {
     }
 
     // Initialize other UI components that were previously in their own listeners
-    setupTabNavigation();
-    initializeAllSortableTables();
-    setupRoleManagement();
-    setupClinicManagement();
-    setupVendorManagement();
-    setupUserManagement();
-    setupEquipmentManagement();
-    setupInstrumentManagement();
-    setupSupplyManagement();
-    ensureFilterInitialization();
-    initializeSupplyRequestForm();
-    initializeInstrumentRequestForm();
-    initializeEquipmentRequestForm();
+    if (typeof setupTabNavigation === 'function') setupTabNavigation();
+    if (typeof initializeAllSortableTables === 'function') initializeAllSortableTables();
+    if (typeof setupRoleManagement === 'function') setupRoleManagement();
+    if (typeof setupClinicManagement === 'function') setupClinicManagement();
+    if (typeof setupVendorManagement === 'function') setupVendorManagement();
+    if (typeof setupUserManagement === 'function') setupUserManagement();
+    if (typeof setupEquipmentManagement === 'function') setupEquipmentManagement();
+    if (typeof setupInstrumentManagement === 'function') setupInstrumentManagement();
+    if (typeof setupSupplyManagement === 'function') setupSupplyManagement();
+    if (typeof ensureFilterInitialization === 'function') ensureFilterInitialization();
+    if (typeof initializeSupplyRequestForm === 'function') initializeSupplyRequestForm();
+    if (typeof initializeInstrumentRequestForm === 'function') initializeInstrumentRequestForm();
+    if (typeof initializeEquipmentRequestForm === 'function') initializeEquipmentRequestForm();
     
     // Hide the global loading indicator
     // e.g., document.getElementById('global-loader').style.display = 'none';
