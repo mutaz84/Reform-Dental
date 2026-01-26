@@ -12564,14 +12564,6 @@
                                 <i class="fas fa-door-open"></i>
                                 <span>By Room</span>
                             </button>
-                            <button class="view-mode-btn" data-view-mode="provider" onclick="switchViewMode('provider')">
-                                <i class="fas fa-user-md"></i>
-                                <span>By Provider</span>
-                            </button>
-                            <button class="view-mode-btn" data-view-mode="event" onclick="switchViewMode('event')">
-                                <i class="fas fa-calendar-check"></i>
-                                <span>By Event</span>
-                            </button>
                         </div>
                     </div>
 
@@ -24379,7 +24371,10 @@
 
         // Get filtered events based on current filters
         function getFilteredEvents() {
-            let filteredEvents = eventDatabase;
+            // Filter to only show tasks (exclude duties and schedules/working hours)
+            let filteredEvents = eventDatabase.filter(event => {
+                return event.isTask === true || event.eventCategory === 'task' || event.type === 'task';
+            });
             
             // Apply clinic filter for all views
             if (clinicFilter) {
@@ -24433,7 +24428,7 @@
             const currentFilter = filterStatePerView[currentViewMode];
             
             // Filter by selected resource if in single-resource view
-            if (currentFilter && ['employee', 'provider'].includes(currentViewMode)) {
+            if (currentFilter && currentViewMode === 'employee') {
                 filteredEvents = filteredEvents.filter(event => {
                     return event.resourceId === currentFilter || event.employee === currentFilter;
                 });
@@ -24459,21 +24454,6 @@
                 });
             }
             
-            // Filter by event type if event view with filter
-            if (currentFilter && currentViewMode === 'event') {
-                const eventTypeId = currentFilter;
-                let eventType = eventTypeId;
-                
-                if (eventTypeId.startsWith('event-type-')) {
-                    eventType = eventTypeId.substring(11);
-                }
-                
-                filteredEvents = filteredEvents.filter(event => {
-                    const eventTypeFromDb = (event.type || 'other').toString().toLowerCase();
-                    return eventTypeFromDb === eventType;
-                });
-            }
-            
             return filteredEvents;
         }
 
@@ -24491,63 +24471,6 @@
             } else if (viewMode === 'room') {
                 resources = roomResources;
                 title = '<i class="fas fa-door-open"></i> Rooms';
-            } else if (viewMode === 'provider') {
-                resources = providerResources;
-                title = '<i class="fas fa-user-md"></i> Providers';
-            } else if (viewMode === 'event') {
-                // Build a compact event-by-day list for the next 7 days
-                const now = new Date();
-                const days = [];
-                for (let d = 0; d < 7; d++) {
-                    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + d);
-                    days.push(day);
-                }
-
-                let htmlEvents = `
-                    <div class="legend-panel">
-                        <div class="legend-panel-title"><i class="fas fa-calendar-check"></i> Events (Next 7 days)</div>
-                        <div class="legend-items">
-                `;
-
-                days.forEach(day => {
-                    const YYYY = day.getFullYear();
-                    const MM = String(day.getMonth() + 1).padStart(2, '0');
-                    const DD = String(day.getDate()).padStart(2, '0');
-                    const dateStr = `${YYYY}-${MM}-${DD}`;
-                    const events = eventDatabase.filter(e => e.start && e.start.indexOf(dateStr) === 0);
-
-                    htmlEvents += `<div style="padding:0.5rem 0.25rem; border-bottom:1px solid var(--border-color);"><div style="font-weight:700; color:var(--text-primary); margin-bottom:0.35rem;">${day.toLocaleDateString(undefined,{ weekday: 'short', month: 'short', day: 'numeric' })}</div>`;
-
-                    if (events.length === 0) {
-                        htmlEvents += `<div style="color:var(--text-secondary); font-size:0.85rem;">No events</div>`;
-                    } else {
-                        events.forEach(ev => {
-                            const employeeNames = {
-                                'all': 'All Staff',
-                                'john-smith': 'John Smith',
-                                'sarah-johnson': 'Sarah Johnson',
-                                'mike-davis': 'Mike Davis',
-                                'emily-brown': 'Emily Brown',
-                                'james-wilson': 'James Wilson'
-                            };
-                            htmlEvents += `
-                                <div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0;">
-                                    <div style="width:8px;height:8px;border-radius:50%;background:${ev.backgroundColor};flex-shrink:0;"></div>
-                                    <div style="flex:1;min-width:0;font-size:0.85rem;color:var(--text-primary);">
-                                        <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${ev.title}</div>
-                                        <div style="font-size:0.75rem;color:var(--text-secondary);">${employeeNames[ev.employee] || ev.employee} • ${ev.location || ''}</div>
-                                    </div>
-                                </div>
-                            `;
-                        });
-                    }
-
-                    htmlEvents += `</div>`;
-                });
-
-                htmlEvents += `</div></div>`;
-                legendContainer.innerHTML = htmlEvents;
-                return;
             }
 
             if (!resources || resources.length === 0) {
