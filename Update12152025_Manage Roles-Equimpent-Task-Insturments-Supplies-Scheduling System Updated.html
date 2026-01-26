@@ -24915,21 +24915,37 @@
         // Helper: Safely open the Task Form modal
         // Helper: Safely open the Task Form modal
         function openTaskFormSafe(template) {
-            try {
-                if (typeof window.openTaskFormModal !== 'function') {
-                    console.error('❌ openTaskFormModal is not defined yet');
+            // If function is ready, call it immediately
+            if (typeof window.openTaskFormModal === 'function') {
+                try {
+                    window.openTaskFormModal(null, template);
+                } catch (e) {
+                    console.error('❌ Error opening task form:', e);
                     if (typeof showNotification === 'function') {
-                        showNotification('Error: Task form not initialized. Please refresh the page.', 'error');
+                        showNotification('Error opening task form. Please try again.', 'error');
                     }
-                    return;
                 }
-                window.openTaskFormModal(null, template);
-            } catch (e) {
-                console.error('❌ Error opening task form:', e);
-                if (typeof showNotification === 'function') {
-                    showNotification('Error opening task form. Please try again.', 'error');
-                }
+                return;
             }
+            
+            // If not ready yet, wait a bit and retry (page is still loading)
+            setTimeout(() => {
+                if (typeof window.openTaskFormModal === 'function') {
+                    try {
+                        window.openTaskFormModal(null, template);
+                    } catch (e) {
+                        console.error('❌ Error opening task form:', e);
+                        if (typeof showNotification === 'function') {
+                            showNotification('Error opening task form. Please try again.', 'error');
+                        }
+                    }
+                } else {
+                    console.error('❌ openTaskFormModal still not defined');
+                    if (typeof showNotification === 'function') {
+                        showNotification('Task form not ready. Please try again.', 'error');
+                    }
+                }
+            }, 100);
         }
         window.openTaskFormSafe = openTaskFormSafe;
 
