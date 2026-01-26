@@ -26392,10 +26392,38 @@
                     // Show regular events first (max 3)
                     regularEvents.slice(0, 3).forEach(event => {
                         const priorityClass = event.priority || 'low';
-                        html += `<div class="event-item priority-${priorityClass}" title="${event.title}" onclick="handleEventClick({event: ${JSON.stringify(event).replace(/"/g, '&quot;')}}); event.stopPropagation();">
+                        const isTask = event.isTask || event.eventCategory === 'task';
+                        
+                        // Add assignment flag for assigned tasks
+                        let assignmentFlag = '';
+                        if (isTask && event.resourceId) {
+                            assignmentFlag = ' <span style="font-size: 0.6rem;">🚩</span>';
+                        }
+                        
+                        // Build tooltip for tasks
+                        let tooltipText = event.title;
+                        if (isTask) {
+                            const taskInfo = [];
+                            taskInfo.push(event.title.replace(/📋|🎯|⭐/g, '').trim());
+                            if (event.resourceId) {
+                                const emp = employeeResources.find(e => e.id === event.resourceId);
+                                const assigneeName = emp ? emp.title : event.resourceId;
+                                taskInfo.push(`Assignee: ${assigneeName}`);
+                            } else {
+                                taskInfo.push(`Assignee: Unassigned`);
+                            }
+                            if (event.location) taskInfo.push(`Location: ${event.location}`);
+                            if (event.priority) taskInfo.push(`Priority: ${event.priority.charAt(0).toUpperCase() + event.priority.slice(1)}`);
+                            if (event.taskStatus) taskInfo.push(`Status: ${event.taskStatus}`);
+                            if (event.taskType) taskInfo.push(`Type: ${event.taskType}`);
+                            if (event.description) taskInfo.push(`Description: ${event.description}`);
+                            tooltipText = taskInfo.join('\n');
+                        }
+                        
+                        html += `<div class="event-item priority-${priorityClass}" title="${tooltipText}" onclick="handleEventClick({event: ${JSON.stringify(event).replace(/"/g, '&quot;')}}); event.stopPropagation();">
                             ${event.overdue ? '<span class="badge overdue">!</span>' : ''}
                             ${event.paid ? '<span class="badge paid">$</span>' : ''}
-                            <span class="event-title">${event.title}</span>
+                            <span class="event-title">${event.title}${assignmentFlag}</span>
                         </div>`;
                     });
                     
@@ -26713,6 +26741,33 @@
                         if (event.paid) badges += '<span class="event-badge paid">$</span>';
                     }
                     
+                    // Add assignment flag for tasks
+                    let assignmentFlag = '';
+                    if (isTask && event.resourceId) {
+                        assignmentFlag = '<span class="event-badge assigned" style="background: #10b981; color: white; font-size: 0.6rem; padding: 1px 3px; margin-left: 2px;">🚩</span>';
+                    }
+                    
+                    // Build tooltip with task information
+                    let tooltipText = '';
+                    if (isTask) {
+                        const taskInfo = [];
+                        if (event.title) taskInfo.push(`Title: ${event.title.replace(/📋|🎯|⭐/g, '').trim()}`);
+                        if (event.resourceId) {
+                            const emp = employeeResources.find(e => e.id === event.resourceId);
+                            const assigneeName = emp ? emp.title : event.resourceId;
+                            taskInfo.push(`Assignee: ${assigneeName}`);
+                        } else {
+                            taskInfo.push(`Assignee: Unassigned`);
+                        }
+                        if (event.location) taskInfo.push(`Location: ${event.location}`);
+                        if (event.priority) taskInfo.push(`Priority: ${event.priority.charAt(0).toUpperCase() + event.priority.slice(1)}`);
+                        if (event.taskStatus) taskInfo.push(`Status: ${event.taskStatus}`);
+                        if (event.taskType) taskInfo.push(`Type: ${event.taskType}`);
+                        if (event.description) taskInfo.push(`Description: ${event.description}`);
+                        if (event.paid && event.notes) taskInfo.push(`Notes: ${event.notes}`);
+                        tooltipText = taskInfo.join('&#10;'); // &#10; is newline in HTML
+                    }
+                    
                     // Calculate event duration for height
                     const duration = this.calculateEventDuration(event);
                     // Don't set height/position for assistants in resource view - handled in slot creation
@@ -26762,9 +26817,14 @@
                         eventEl.innerHTML = `
                             ${resizeHandles}
                             <div class="event-time">${timeStr}</div>
-                            ${badges}
+                            ${badges}${assignmentFlag}
                             <span class="event-text">${event.title}</span>
                         `;
+                        
+                        // Add tooltip for tasks
+                        if (isTask && tooltipText) {
+                            eventEl.title = tooltipText;
+                        }
                         
                         // Show handles on hover
                         if (duration >= 1) {
