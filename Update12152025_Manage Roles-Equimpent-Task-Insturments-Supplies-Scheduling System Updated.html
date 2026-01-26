@@ -38274,6 +38274,23 @@ window.addEventListener('load', function() {
             'HVAC/Facility': ['HVAC System', 'Compressor', 'Vacuum Pump', 'Nitrous System', 'Water Filtration'],
             'Other': ['Waiting Room TV', 'Phone System', 'Security System', 'Fire Extinguisher']
         };
+
+        // Safe users data helper (prevents task form from failing if not defined elsewhere)
+        if (typeof window.getUsersDataSafe !== 'function') {
+            window.getUsersDataSafe = function() {
+                try {
+                    if (typeof safeParseLocalStorageJSON === 'function') {
+                        return safeParseLocalStorageJSON('usersData', {}, { expect: 'object' });
+                    }
+                    const raw = localStorage.getItem('usersData');
+                    const parsed = raw ? JSON.parse(raw) : {};
+                    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+                } catch (e) {
+                    console.warn('Failed to load usersData:', e);
+                    return {};
+                }
+            };
+        }
         
         // Build private employee checkboxes for task visibility (defined early to be available in modal)
         window.buildPrivateEmployeeCheckboxes = function(selectedEmployees = []) {
@@ -38326,8 +38343,10 @@ window.addEventListener('load', function() {
                 // Get dynamic equipment categories
                 const dynamicEquipmentCategories = (typeof getEquipmentCategories === 'function') ? getEquipmentCategories() : {};
                 
-                // Get employees from masterData
-                const employees = window.masterData ? [...window.masterData.getProviders(), ...window.masterData.getAssistants()] : [];
+                // Get employees from masterData (guarded)
+                const employees = (window.masterData && typeof window.masterData.getProviders === 'function' && typeof window.masterData.getAssistants === 'function')
+                    ? [...window.masterData.getProviders(), ...window.masterData.getAssistants()]
+                    : [];
                 
                 // Get vendors from localStorage
                 const vendors = (typeof loadVendors === 'function') ? loadVendors() : [];
@@ -39104,12 +39123,11 @@ window.addEventListener('load', function() {
                     }
                 }
             }
-                
-                // Also trigger a view mode refresh to force complete re-render
-                if (typeof switchViewMode === 'function' && typeof currentViewMode !== 'undefined') {
-                    console.log('🔄 Refreshing view mode:', currentViewMode);
-                    switchViewMode(currentViewMode);
-                }
+
+            // Also trigger a view mode refresh to force complete re-render
+            if (typeof switchViewMode === 'function' && typeof currentViewMode !== 'undefined') {
+                console.log('🔄 Refreshing view mode:', currentViewMode);
+                switchViewMode(currentViewMode);
             }
             
             // Update Task Hub badges
