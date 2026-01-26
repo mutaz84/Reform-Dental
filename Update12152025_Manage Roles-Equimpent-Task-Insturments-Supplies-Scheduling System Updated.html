@@ -1615,6 +1615,23 @@
                 }
             };
         }
+        if (typeof window !== 'undefined' && typeof window.openTaskFormSafeWithId !== 'function') {
+            window.openTaskFormSafeWithId = function(taskId, template = null) {
+                if (typeof window.openTaskFormModal === 'function') {
+                    try {
+                        window.openTaskFormModal(taskId, template);
+                        return;
+                    } catch (e) {
+                        console.error('❌ Error opening task form:', e);
+                    }
+                }
+                window.__taskFormQueue = window.__taskFormQueue || [];
+                window.__taskFormQueue.push({ taskId, template });
+                if (typeof attemptFlushTaskFormQueue === 'function') {
+                    attemptFlushTaskFormQueue();
+                }
+            };
+        }
 
         // Sticky Notes Functions - Define early so they're available to navigation
         function toggleStickyNotesPanel() {
