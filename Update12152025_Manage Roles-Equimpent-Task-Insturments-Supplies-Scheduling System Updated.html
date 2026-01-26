@@ -25003,12 +25003,6 @@
         if (typeof window.openTaskFormModal !== 'function') {
             const __taskFormStub = function(taskId, template = null) {
                 window.__taskFormOpenQueue.push({ taskId, template });
-                console.info('🕒 Queued Task form open request', { taskId, template });
-                if (!window.__taskFormQueuedLogged) {
-                    console.info('Task form not ready yet; queued open request.');
-                    window.__taskFormQueuedLogged = true;
-                    setTimeout(() => { window.__taskFormQueuedLogged = false; }, 1000);
-                }
             };
             window.openTaskFormModal = __taskFormStub;
             (function watchAndFlush() {
@@ -25017,7 +25011,6 @@
                         if (Array.isArray(window.__taskFormOpenQueue) && window.__taskFormOpenQueue.length) {
                             const q = window.__taskFormOpenQueue.slice();
                             window.__taskFormOpenQueue.length = 0;
-                            console.info('🚀 Flushing queued Task form opens (watcher):', q.length);
                             q.forEach(({ taskId, template }) => {
                                 setTimeout(() => {
                                     try { window.openTaskFormModal(taskId, template); } catch (e) { console.error('Flush openTaskFormModal failed:', e); }
@@ -25034,7 +25027,6 @@
         // Helper: Safely open the Task Form modal; if not ready, queue the request
         function openTaskFormSafe(template) {
             try {
-                console.info('🟢 Request to open Task form from calendar slot', template);
                 window.openTaskFormModal(null, template);
             } catch (e) {
                 console.error('Error invoking Task form open:', e);
@@ -26588,8 +26580,11 @@
                 getEventsForResourceSlot: function(date, hour, resourceId) {
                     const dateStr = date.toISOString().split('T')[0];
                     let filteredEvents = [];
+
+                    const DEBUG_SLOT_LOGS = false;
+                    const slotLog = (...args) => { if (DEBUG_SLOT_LOGS) console.log(...args); };
                     
-                    console.log('getEventsForResourceSlot called - Date:', dateStr, 'Hour:', hour, 'ResourceId:', resourceId, 'DataType:', currentEmployeeDataType);
+                    slotLog('getEventsForResourceSlot called - Date:', dateStr, 'Hour:', hour, 'ResourceId:', resourceId, 'DataType:', currentEmployeeDataType);
                     
                     // Show selected data type or regular events
                     if (showWorkingHours && currentEmployeeDataType === 'working-hours') {
@@ -26606,9 +26601,9 @@
                         }
                     } else if (currentEmployeeDataType === 'assistants') {
                         // Show ONLY assistants
-                        console.log('Loading assistants for resource slot');
+                        slotLog('Loading assistants for resource slot');
                         const assistantEvents = generateAssistantsEventsForRange(date, date);
-                        console.log('Assistant events generated:', assistantEvents.length);
+                        slotLog('Assistant events generated:', assistantEvents.length);
                         if (assistantEvents && assistantEvents.length > 0) {
                             filteredEvents = assistantEvents;
                         }
@@ -26617,31 +26612,31 @@
                         filteredEvents = getFilteredEvents();
                     }
                     
-                    console.log('Filtered events before slot filtering:', filteredEvents.length);
+                    slotLog('Filtered events before slot filtering:', filteredEvents.length);
                     
                     const slotEvents = filteredEvents.filter(event => {
-                        console.log('Checking event:', event.title, 'Start:', event.start);
+                        slotLog('Checking event:', event.title, 'Start:', event.start);
                         
                         if (!event.start) {
-                            console.log('  - No start time, skipping');
+                            slotLog('  - No start time, skipping');
                             return false;
                         }
                         
                         const eventDate = event.start.split('T')[0];
                         if (eventDate !== dateStr) {
-                            console.log('  - Date mismatch:', eventDate, '!==', dateStr);
+                            slotLog('  - Date mismatch:', eventDate, '!==', dateStr);
                             return false;
                         }
                         
                         const eventTime = event.start.split('T')[1];
                         if (!eventTime) {
-                            console.log('  - No event time, skipping');
+                            slotLog('  - No event time, skipping');
                             return false;
                         }
                         
                         const eventHour = parseInt(eventTime.split(':')[0]);
                         if (eventHour !== hour) {
-                            console.log('  - Hour mismatch:', eventHour, '!==', hour);
+                            slotLog('  - Hour mismatch:', eventHour, '!==', hour);
                             return false;
                         }
                         
@@ -26649,18 +26644,18 @@
                         if (currentEmployeeDataType === 'assistants' && this.viewMode === 'provider') {
                             // In assistants mode with provider columns, match by provider ID (assistants stack in provider cells)
                             const matches = event.resourceId === resourceId || event.provider === resourceId;
-                            console.log('  - Assistant/Provider match check:', event.resourceId, '===', resourceId, '?', matches);
+                            slotLog('  - Assistant/Provider match check:', event.resourceId, '===', resourceId, '?', matches);
                             return matches;
                         } else if (this.viewMode === 'employee' || this.viewMode === 'provider') {
                             const matches = event.resourceId === resourceId || event.employee === resourceId || 
                                    (event.resourceIds && event.resourceIds.includes(resourceId));
-                            console.log('  - Resource match check:', event.resourceId, '===', resourceId, '?', matches);
+                            slotLog('  - Resource match check:', event.resourceId, '===', resourceId, '?', matches);
                             return matches;
                         } else if (this.viewMode === 'room') {
                             // Match by roomId or by converting location to room ID
                             const eventRoomId = event.roomId || getRoomIdFromLocation(event.location);
                             const matches = eventRoomId === resourceId;
-                            console.log('  - Room match: eventRoomId=', eventRoomId, 'resourceId=', resourceId, 'location=', event.location, 'match=', matches);
+                            slotLog('  - Room match: eventRoomId=', eventRoomId, 'resourceId=', resourceId, 'location=', event.location, 'match=', matches);
                             return matches;
                         } else if (this.viewMode === 'event') {
                             const typeKey = (event.type || 'other').toString().toLowerCase();
@@ -26670,7 +26665,7 @@
                         return false;
                     });
                     
-                    console.log('Final slot events:', slotEvents.length, slotEvents);
+                    slotLog('Final slot events:', slotEvents.length, slotEvents);
                     return slotEvents;
                 },
                 
@@ -47148,7 +47143,6 @@ if (typeof window.openTaskFormModal === 'undefined' && typeof openTaskFormModal 
 if (typeof window.openTaskFormModal === 'function' && Array.isArray(window.__taskFormOpenQueue) && window.__taskFormOpenQueue.length) {
     const q = window.__taskFormOpenQueue.slice();
     window.__taskFormOpenQueue.length = 0;
-    console.info('🚀 Flushing queued Task form opens (final):', q.length);
     q.forEach(({ taskId, template }) => {
         setTimeout(() => {
             try { window.openTaskFormModal(taskId, template); } catch (e) { console.error('Queued Task form open failed:', e); }
