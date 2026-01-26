@@ -24798,11 +24798,16 @@
         window.syncAllData = syncAllData;
 
         // Provider Resources (subset of employees who are providers/doctors)
-        const providerResources = employeeResources.filter(r => {
-            return r.extendedProps && r.extendedProps.type === 'provider';
-        }).map((r) => ({
-            ...r
-        }));
+        let providerResources = [];
+
+        function buildProviderResources() {
+            providerResources = (employeeResources || []).filter(r => {
+                return r.extendedProps && r.extendedProps.type === 'provider';
+            }).map((r) => ({
+                ...r
+            }));
+            return providerResources;
+        }
 
         // Event Data
         // Helper function to categorize events as Dental or General
@@ -24870,6 +24875,8 @@
         
         // Build room resources initially
         buildRoomResources();
+        // Build provider resources initially
+        buildProviderResources();
 
         // Event Type Resources (group events by their `type` for the "By Event" headers)
         let eventTypeMap = {};
@@ -47174,6 +47181,34 @@ async function syncVendorsFromAPI() {
 }
 
 // ============ ENHANCED LOAD ALL DATA ============
+function refreshResourcesAfterSync() {
+    try {
+        if (typeof loadEmployeeResourcesFromUsers === 'function') {
+            loadEmployeeResourcesFromUsers();
+        }
+        if (typeof buildProviderResources === 'function') {
+            buildProviderResources();
+        }
+        if (typeof buildRoomResources === 'function') {
+            buildRoomResources();
+        }
+        if (typeof initializeResourcesMap === 'function') {
+            initializeResourcesMap();
+        }
+        if (typeof updateFilterUI === 'function') {
+            updateFilterUI();
+        }
+        if (typeof updateResourceLegend === 'function') {
+            updateResourceLegend(currentViewMode || 'date');
+        }
+        if (window.calendarInstance && typeof window.calendarInstance.render === 'function') {
+            window.calendarInstance.render();
+        }
+    } catch (e) {
+        console.warn('⚠️ Resource refresh failed:', e.message || e);
+    }
+}
+
 async function loadAllDataFromAPI() {
     console.log('🔄 Loading ALL data from API...');
     showSyncStatus('Syncing with database...', true);
@@ -47215,6 +47250,9 @@ async function loadAllDataFromAPI() {
             console.log('✅ All data synced from database');
             showSyncStatus('All data synced from database!', true);
         }
+
+        // Rebuild employee/room/provider resources after sync
+        refreshResourcesAfterSync();
         
         // Refresh UI if needed
         if (typeof renderUsersTable === 'function') renderUsersTable();
