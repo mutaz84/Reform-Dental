@@ -29149,13 +29149,14 @@
             if (eventData && (eventData.isTask || eventData.eventCategory === 'task' || eventData.type === 'task')) {
                 // Extract task ID (remove 'task-' prefix if present)
                 const taskId = eventData.id;
-                if (typeof window.openTaskFormModal === 'function') {
+                
+                // Queue the call if function isn't ready yet
+                if (typeof window.openTaskFormModal === 'function' && !window.openTaskFormModal.__isStub) {
                     window.openTaskFormModal(taskId);
                 } else {
-                    console.error('❌ openTaskFormModal not available');
-                    if (typeof showNotification === 'function') {
-                        showNotification('Task form not ready. Please refresh the page.', 'error');
-                    }
+                    console.log('⏳ Task form not ready yet, queueing task click...');
+                    window.__taskFormQueue = window.__taskFormQueue || [];
+                    window.__taskFormQueue.push({ taskId: taskId, template: null });
                 }
                 return;
             }
@@ -38605,10 +38606,10 @@ window.addEventListener('load', function() {
             console.log('🔄 Flushing', window.__taskFormQueue.length, 'queued task form calls');
             const queue = window.__taskFormQueue.slice();
             window.__taskFormQueue.length = 0;
-            queue.forEach(({ template }) => {
+            queue.forEach(({ taskId, template }) => {
                 setTimeout(() => {
                     try {
-                        window.openTaskFormModal(null, template);
+                        window.openTaskFormModal(taskId || null, template);
                     } catch (e) {
                         console.error('❌ Error flushing queued task form:', e);
                     }
