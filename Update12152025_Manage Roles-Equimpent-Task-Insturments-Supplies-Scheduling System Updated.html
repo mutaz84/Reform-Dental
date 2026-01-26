@@ -24912,11 +24912,13 @@
             return 'room-' + location.toLowerCase().replace(/\s+/g, '-');
         }
 
-        // Helper: Safely open the Task Form modal
+        // Simple queue system for early task form calls
+        window.__taskFormQueue = window.__taskFormQueue || [];
+        
         // Helper: Safely open the Task Form modal
         function openTaskFormSafe(template) {
             // If function is ready, call it immediately
-            if (typeof window.openTaskFormModal === 'function') {
+            if (typeof window.openTaskFormModal === 'function' && !window.openTaskFormModal.__isStub) {
                 try {
                     window.openTaskFormModal(null, template);
                 } catch (e) {
@@ -24928,29 +24930,9 @@
                 return;
             }
             
-            // If not ready yet, keep checking silently until it's available
-            let attempts = 0;
-            const maxAttempts = 50; // 5 seconds total
-            const checkInterval = setInterval(() => {
-                attempts++;
-                if (typeof window.openTaskFormModal === 'function') {
-                    clearInterval(checkInterval);
-                    try {
-                        window.openTaskFormModal(null, template);
-                    } catch (e) {
-                        console.error('❌ Error opening task form:', e);
-                        if (typeof showNotification === 'function') {
-                            showNotification('Error opening task form. Please try again.', 'error');
-                        }
-                    }
-                } else if (attempts >= maxAttempts) {
-                    clearInterval(checkInterval);
-                    console.error('❌ openTaskFormModal not defined after waiting');
-                    if (typeof showNotification === 'function') {
-                        showNotification('Task form not ready. Please refresh the page.', 'error');
-                    }
-                }
-            }, 100);
+            // If not ready yet, queue it silently
+            console.log('⏳ Task form not ready yet, queueing call...');
+            window.__taskFormQueue.push({ template });
         }
         window.openTaskFormSafe = openTaskFormSafe;
 
@@ -38617,6 +38599,22 @@ window.addEventListener('load', function() {
         
         // Function is now defined and ready to use
         console.log('✅ openTaskFormModal defined and ready');
+        
+        // Flush any queued task form calls
+        if (window.__taskFormQueue && window.__taskFormQueue.length > 0) {
+            console.log('🔄 Flushing', window.__taskFormQueue.length, 'queued task form calls');
+            const queue = window.__taskFormQueue.slice();
+            window.__taskFormQueue.length = 0;
+            queue.forEach(({ template }) => {
+                setTimeout(() => {
+                    try {
+                        window.openTaskFormModal(null, template);
+                    } catch (e) {
+                        console.error('❌ Error flushing queued task form:', e);
+                    }
+                }, 0);
+            });
+        }
         
         // Handle room selection change
         window.handleRoomSelection = function() {
