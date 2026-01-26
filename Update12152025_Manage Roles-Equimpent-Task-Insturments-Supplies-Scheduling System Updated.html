@@ -25136,39 +25136,51 @@
             
             // Then, process window.tasksData (new Task Hub tasks)
             if (window.tasksData && window.tasksData.length > 0) {
-                console.log('Processing Task Hub tasks:', window.tasksData.length);
+                console.log('🔄 Processing Task Hub tasks:', window.tasksData.length);
                 window.tasksData.forEach(task => {
+                    console.log('📋 Processing task:', task);
+                    
                     // Skip tasks without a due date
                     if (!task.dueDate) {
-                        console.warn('Skipping task without due date:', task.title);
+                        console.warn('⚠️ Skipping task without due date:', task.title);
                         return;
                     }
                     
                     // Determine employee/resource for task
                     let resourceId = task.assignee || task.assignedTo || task.claimedBy || null;
                     
-                    // Get time from dueDate if it includes time, otherwise use default
-                    const dueDateStr = task.dueDate;
-                    let taskDate = dueDateStr;
-                    let taskTime = (task.dueTime && task.dueTime.trim()) ? task.dueTime : '09:00';
+                    // Parse the date - handle various formats
+                    let taskDate = '';
+                    let taskTime = '09:00'; // Default time
                     
-                    // Handle full datetime strings
-                    if (dueDateStr && dueDateStr.includes('T')) {
-                        const parts = dueDateStr.split('T');
-                        taskDate = parts[0];
-                        if (parts[1] && parts[1].trim()) {
-                            taskTime = parts[1].substring(0, 5); // Get HH:MM
+                    const dueDateStr = String(task.dueDate || '');
+                    
+                    // Handle ISO datetime strings (2026-01-25T00:00:00.000Z)
+                    if (dueDateStr.includes('T')) {
+                        taskDate = dueDateStr.split('T')[0];
+                        const timePart = dueDateStr.split('T')[1];
+                        if (timePart) {
+                            const extractedTime = timePart.substring(0, 5);
+                            // Only use extracted time if it's not 00:00
+                            if (extractedTime !== '00:00') {
+                                taskTime = extractedTime;
+                            }
                         }
+                    } else {
+                        taskDate = dueDateStr;
                     }
                     
-                    // Handle date-only strings (ensure we have just the date part)
-                    if (taskDate && taskDate.includes('T')) {
-                        taskDate = taskDate.split('T')[0];
+                    // Override with explicit dueTime if provided
+                    if (task.dueTime && task.dueTime.trim() && task.dueTime !== '00:00') {
+                        taskTime = task.dueTime;
                     }
+                    
+                    console.log('📅 Task date/time:', taskDate, taskTime, 'Location:', task.location);
                     
                     // Determine display properties based on task type
                     const taskTypeColors = {
                         'Standard': '#3b82f6',
+                        'Regular': '#3b82f6',
                         'Floating': '#8b5cf6',
                         'Bonus': '#f59e0b'
                     };
@@ -25179,12 +25191,16 @@
                     if (task.taskType === 'Floating') taskIcon = '🎯';
                     if (task.taskType === 'Bonus') taskIcon = '⭐';
                     
+                    // Generate room ID from location for room view matching
+                    const roomId = task.location ? 'room-' + task.location.toLowerCase().replace(/\s+/g, '-') : null;
+                    
                     const taskEvent = {
                         id: task.id,
                         title: `${taskIcon} ${task.title}`,
                         start: `${taskDate}T${taskTime}:00`,
                         end: `${taskDate}T${taskTime}:00`,
                         resourceId: resourceId,
+                        roomId: roomId,  // Add explicit roomId for room view
                         employee: resourceId,
                         priority: task.priority,
                         description: task.description,
@@ -25201,20 +25217,23 @@
                         location: task.location
                     };
                     
+                    console.log('✅ Created task event:', taskEvent);
+                    
                     // Check if event with this ID already exists to avoid duplicates
                     const existingIndex = eventDatabase.findIndex(e => e.id === task.id);
                     if (existingIndex === -1) {
                         eventDatabase.push(taskEvent);
-                        console.log('Added Task Hub event:', task.title, 'for:', resourceId || 'Unassigned', 'location:', task.location, 'date:', taskDate, 'time:', taskTime);
+                        console.log('➕ Added Task Hub event:', task.title);
                     } else {
                         // Update existing
                         eventDatabase[existingIndex] = taskEvent;
-                        console.log('Updated Task Hub event:', task.title, 'location:', task.location, 'date:', taskDate, 'time:', taskTime);
+                        console.log('🔄 Updated Task Hub event:', task.title);
                     }
                 });
             }
             
-            console.log('Task conversion complete. Total events:', eventDatabase.length);
+            console.log('✅ Task conversion complete. Total events in eventDatabase:', eventDatabase.length);
+            console.log('📊 eventDatabase contents:', eventDatabase.filter(e => e.isTask));
         }
 
         // Convert tasks immediately after all databases are defined
@@ -26570,9 +26589,11 @@
                             console.log('  - Resource match check:', event.resourceId, '===', resourceId, '?', matches);
                             return matches;
                         } else if (this.viewMode === 'room') {
-                            const roomId = getRoomIdFromLocation(event.location);
-                            console.log('  - Room match check: event.location=', event.location, 'roomId=', roomId, 'resourceId=', resourceId, 'match=', roomId === resourceId);
-                            return roomId === resourceId;
+                            // Match by roomId or by converting location to room ID
+                            const eventRoomId = event.roomId || getRoomIdFromLocation(event.location);
+                            const matches = eventRoomId === resourceId;
+                            console.log('  - Room match: eventRoomId=', eventRoomId, 'resourceId=', resourceId, 'location=', event.location, 'match=', matches);
+                            return matches;
                         } else if (this.viewMode === 'event') {
                             const typeKey = (event.type || 'other').toString().toLowerCase();
                             return 'event-type-' + typeKey === resourceId;
@@ -38725,12 +38746,14 @@ window.addEventListener('load', function() {
                 }
             } else {
                 window.tasksData.push(taskData);
+                console.log('📋 New task data:', taskData);
                 // Save to database
                 if (typeof saveTaskToAPI === 'function') {
                     saveTaskToAPI({
                         title: taskData.title,
                         description: taskData.description,
                         dueDate: taskData.dueDate || null,
+                        dueTime: taskData.dueTime || '09:00',
                         priority: taskData.priority,
                         status: taskData.status,
                         category: taskData.category,
