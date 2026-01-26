@@ -25078,18 +25078,19 @@
         // Helper: Safely open the Task Form modal; if not ready, queue the request
         function openTaskFormSafe(template) {
             try {
-                if (window.openTaskFormModal && window.openTaskFormModal.__isTaskFormStub) {
-                    const now = Date.now();
-                    if (!window.__lastTaskFormQueuedToastAt || (now - window.__lastTaskFormQueuedToastAt) > 1500) {
-                        window.__lastTaskFormQueuedToastAt = now;
-                        if (typeof showNotification === 'function') {
-                            showNotification('Loading Task form…', 'info');
-                        }
+                if (typeof window.openTaskFormModal !== 'function') {
+                    console.warn('openTaskFormModal not yet defined, call will be queued');
+                    if (typeof showNotification === 'function') {
+                        showNotification('Task form is loading…', 'info');
                     }
+                    return;
                 }
                 window.openTaskFormModal(null, template);
             } catch (e) {
-                console.error('Error invoking Task form open:', e);
+                console.error('❌ Error invoking Task form open:', e);
+                if (typeof showNotification === 'function') {
+                    showNotification('Error opening task form. Check console.', 'error');
+                }
             }
         }
         window.openTaskFormSafe = openTaskFormSafe;
@@ -38246,7 +38247,7 @@ window.addEventListener('load', function() {
 
         // Task form modal (Create/Edit) - Enhanced Version
         window.openTaskFormModal = function(taskId, template = null) {
-            console.log('openTaskFormModal called with taskId:', taskId, 'template:', template);
+            console.log('✅ Real openTaskFormModal called with taskId:', taskId, 'template:', template);
             const taskList = Array.isArray(window.tasksData) ? window.tasksData : [];
             const task = taskId ? taskList.find(t => t.id === taskId) : null;
             console.log('Found task:', task);
@@ -38657,6 +38658,22 @@ window.addEventListener('load', function() {
                     }
                 }
             }
+        }
+        
+        // Immediately flush any queued task form opens now that the real function is defined
+        if (Array.isArray(window.__taskFormOpenQueue) && window.__taskFormOpenQueue.length > 0) {
+            console.log('✅ Task form is ready. Flushing', window.__taskFormOpenQueue.length, 'queued calls...');
+            const queuedCalls = window.__taskFormOpenQueue.slice();
+            window.__taskFormOpenQueue.length = 0;
+            queuedCalls.forEach(({ taskId, template }) => {
+                setTimeout(() => {
+                    try {
+                        window.openTaskFormModal(taskId, template);
+                    } catch (e) {
+                        console.error('❌ Queued task form open failed:', e);
+                    }
+                }, 0);
+            });
         }
         
         // Handle room selection change
