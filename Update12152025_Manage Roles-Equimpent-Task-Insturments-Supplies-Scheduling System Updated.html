@@ -38726,12 +38726,14 @@ window.addEventListener('load', function() {
                     taskData.claimedBy = window.tasksData[index].claimedBy;
                     taskData.claimedAt = window.tasksData[index].claimedAt;
                     window.tasksData[index] = taskData;
+                    console.log('📋 Updated task data:', taskData);
                     // Update in database
                     if (typeof updateTaskViaAPI === 'function') {
                         updateTaskViaAPI(taskId.replace('task-', ''), {
                             title: taskData.title,
                             description: taskData.description,
                             dueDate: taskData.dueDate || null,
+                            dueTime: taskData.dueTime || '09:00',
                             priority: taskData.priority,
                             status: taskData.status,
                             category: taskData.category,
@@ -38778,17 +38780,23 @@ window.addEventListener('load', function() {
             if (typeof convertTasksToEvents === 'function') {
                 convertTasksToEvents();
                 console.log('✅ Tasks converted to events. eventDatabase now has', typeof eventDatabase !== 'undefined' ? eventDatabase.length : 0, 'events');
+                
+                // Refresh FullCalendar if it exists
                 if (window.calendar) {
                     window.calendar.refetchEvents();
                 }
-                // Also refresh custom calendar (By Room view)
-                if (typeof customCalendar !== 'undefined' && customCalendar && typeof customCalendar.render === 'function') {
-                    customCalendar.render();
-                    console.log('✅ Custom calendar re-rendered');
+                
+                // Refresh custom calendar instance (By Room/Employee view)
+                if (window.calendarInstance && typeof window.calendarInstance.render === 'function') {
+                    console.log('🔄 Re-rendering calendarInstance...');
+                    window.calendarInstance.render();
+                    console.log('✅ calendarInstance re-rendered');
                 }
-                // Also try to refresh if switchToView exists
-                if (typeof switchToView === 'function' && typeof currentViewMode !== 'undefined') {
-                    switchToView(currentViewMode);
+                
+                // Also trigger a view mode refresh to force complete re-render
+                if (typeof switchViewMode === 'function' && typeof currentViewMode !== 'undefined') {
+                    console.log('🔄 Refreshing view mode:', currentViewMode);
+                    switchViewMode(currentViewMode);
                 }
             }
             
