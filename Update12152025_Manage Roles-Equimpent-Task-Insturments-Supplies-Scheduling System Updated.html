@@ -26515,8 +26515,9 @@
                     });
                     grid.appendChild(resourceRow);
                     
-                    // Unscheduled items banner (only show in employee view when relevant)
-                    if (this.viewMode === 'employee' && (currentEmployeeDataType === 'duties' || currentEmployeeDataType === 'none')) {
+                    // Unscheduled items banner (employee + room views)
+                    if ((this.viewMode === 'employee' && (currentEmployeeDataType === 'duties' || currentEmployeeDataType === 'none')) ||
+                        (this.viewMode === 'room' && currentEmployeeDataType === 'none')) {
                         const unscheduledRow = document.createElement('div');
                         unscheduledRow.className = 'unscheduled-items-row';
                         unscheduledRow.innerHTML = '<div class="time-label">Unscheduled</div><div class="resource-spacer"></div>';
@@ -26527,7 +26528,7 @@
                                 unscheduledCell.className = 'unscheduled-cell';
                                 
                                 // Get unscheduled items for this resource
-                                const unscheduledItems = this.getUnscheduledItemsForResource(resource.id);
+                                const unscheduledItems = this.getUnscheduledItemsForResource(resource.id, date);
                                 
                                 if (unscheduledItems.length > 0) {
                                     unscheduledItems.forEach(item => {
@@ -26867,8 +26868,9 @@
                     });
                 },
                 
-                getUnscheduledItemsForResource: function(resourceId) {
+                getUnscheduledItemsForResource: function(resourceId, date = null) {
                     let allItems = [];
+                    const dateStr = date ? date.toISOString().split('T')[0] : null;
                     
                     // Get duties without time/date
                     if (currentEmployeeDataType === 'duties') {
@@ -26878,12 +26880,24 @@
                             return hasEmployee && lacksTime;
                         });
                     } else if (currentEmployeeDataType === 'none') {
-                        // For tasks view, check task database for unscheduled items
-                        allItems = employeeTasksDatabase.filter(task => {
-                            const hasEmployee = task.employeeId === resourceId;
-                            const lacksTime = !task.start || !task.end || !task.date;
-                            return hasEmployee && lacksTime;
-                        });
+                        if (this.viewMode === 'room') {
+                            const roomName = resourceId === 'room-unassigned' ? null : getRoomNameFromId(resourceId);
+                            allItems = (window.tasksData || []).filter(task => {
+                                const taskDate = (task.dueDate || '').toString().split('T')[0];
+                                const dateMatch = dateStr ? taskDate === dateStr : !!taskDate;
+                                const lacksTime = !task.dueTime || task.dueTime === '00:00';
+                                if (!dateMatch || !lacksTime) return false;
+                                if (resourceId === 'room-unassigned') return !task.location;
+                                return roomName && task.location && task.location.toLowerCase() === roomName.toLowerCase();
+                            });
+                        } else {
+                            // For tasks view, check task database for unscheduled items
+                            allItems = employeeTasksDatabase.filter(task => {
+                                const hasEmployee = task.employeeId === resourceId;
+                                const lacksTime = !task.start || !task.end || !task.date;
+                                return hasEmployee && lacksTime;
+                            });
+                        }
                     }
                     
                     return allItems;
