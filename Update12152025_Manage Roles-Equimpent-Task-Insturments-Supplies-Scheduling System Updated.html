@@ -18964,9 +18964,15 @@
                             </div>
                         </div>
                         <div style="display: flex; gap: 0.5rem; flex-shrink: 0;">
+                            ${canEditTask(task) ? `
                             <button onclick="document.getElementById('taskManagementModal')?.remove(); openTaskFormSafeWithId('${task.id}', null);" style="padding: 0.5rem 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-secondary); cursor: pointer;" title="Edit">
                                 <i class="fas fa-edit"></i>
                             </button>
+                            ` : `
+                            <button disabled style="padding: 0.5rem 0.75rem; background: #f3f4f6; border: 1px solid var(--border-color); border-radius: 6px; color: #9ca3af; cursor: not-allowed;" title="Only the creator can edit">
+                                <i class="fas fa-lock"></i>
+                            </button>
+                            `}
                             <button onclick="deleteTaskFromManagement('${task.id}')" style="padding: 0.5rem 0.75rem; background: #fee2e2; border: 1px solid #fecaca; border-radius: 6px; color: #dc2626; cursor: pointer;" title="Delete">
                                 <i class="fas fa-trash"></i>
                             </button>
@@ -30329,6 +30335,20 @@ function getClaimedByDisplay(claimedBy) {
     return claimedBy;
 }
 
+function getCurrentUserKey() {
+    const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
+    return currentUser?.email || currentUser?.id || currentUser?.name || null;
+}
+
+function canEditTask(task) {
+    if (!task) return false;
+    const currentUserKey = getCurrentUserKey();
+    if (!currentUserKey) return false;
+    // If task has no creator, allow (legacy); otherwise restrict to creator
+    if (!task.createdBy) return true;
+    return task.createdBy === currentUserKey;
+}
+
 function loadTaskClaimCache() {
     try {
         if (typeof safeParseLocalStorageJSON === 'function') {
@@ -38035,6 +38055,15 @@ window.addEventListener('load', function() {
         // Open edit task modal
         window.openEditTaskModal = function(taskId) {
             console.log('openEditTaskModal called for:', taskId);
+            const task = window.tasksData?.find(t => t.id === taskId);
+            if (task && !canEditTask(task)) {
+                if (typeof showNotification === 'function') {
+                    showNotification('Only the task creator can edit this task.', 'warning');
+                } else {
+                    alert('Only the task creator can edit this task.');
+                }
+                return;
+            }
             document.getElementById('taskDetailModal')?.remove();
             window.openTaskFormSafeWithId(taskId, null);
         };
@@ -38491,6 +38520,14 @@ window.addEventListener('load', function() {
                 const task = taskId ? taskList.find(t => t.id === taskId) : null;
                 console.log('Found task:', task);
                 const isEdit = !!task;
+                if (isEdit && !canEditTask(task)) {
+                    if (typeof showNotification === 'function') {
+                        showNotification('Only the task creator can edit this task.', 'warning');
+                    } else {
+                        alert('Only the task creator can edit this task.');
+                    }
+                    return;
+                }
                 const data = task || template || {};
                 
                 // Get dynamic equipment categories
@@ -39195,7 +39232,7 @@ window.addEventListener('load', function() {
                 visibleTo: visibleTo,
                 // Timestamps
                 createdAt: new Date().toISOString(),
-                createdBy: 'Admin',
+                createdBy: getCurrentUserKey() || 'Unknown',
                 completedAt: null,
                 completedBy: null,
                 completedTime: null,
