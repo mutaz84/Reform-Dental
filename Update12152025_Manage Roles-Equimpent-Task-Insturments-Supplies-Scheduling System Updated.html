@@ -47794,11 +47794,35 @@ async function saveTaskToAPI(taskData) {
 
 async function updateTaskViaAPI(id, taskData) {
     try {
-        console.log('📝 Updating task via API:', id, taskData);
-        const response = await fetch(`/api/tasks/${id}`, {
+        const normalizedId = String(id).startsWith('task-') ? String(id).replace('task-', '') : id;
+        const existing = Array.isArray(window.tasksData)
+            ? window.tasksData.find(t => t.id === id || t.id === `task-${normalizedId}` || t.id == normalizedId)
+            : null;
+        const merged = {
+            title: existing?.title,
+            description: existing?.description || '',
+            category: existing?.category || '',
+            priority: existing?.priority || 'Medium',
+            status: existing?.status || 'Pending',
+            dueDate: existing?.dueDate || null,
+            dueTime: existing?.dueTime || null,
+            taskType: existing?.taskType || 'Regular',
+            location: existing?.location || null,
+            isPaid: existing?.isPaid || false,
+            payAmount: existing?.payAmount || null,
+            timeEstimate: existing?.timeEstimate || null,
+            assignee: existing?.assignee || null,
+            assignedToId: existing?.assignedToId || null,
+            assignedById: existing?.assignedById || null,
+            claimedBy: existing?.claimedBy || null,
+            claimedAt: existing?.claimedAt || null,
+            ...taskData
+        };
+        console.log('📝 Updating task via API:', normalizedId, merged);
+        const response = await fetch(`/api/tasks/${normalizedId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(taskData)
+            body: JSON.stringify(merged)
         });
         if (response.ok) {
             console.log('✅ Task updated in database');
