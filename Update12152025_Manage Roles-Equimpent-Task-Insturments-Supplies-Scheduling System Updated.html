@@ -24959,7 +24959,7 @@
         function buildRoomResources() {
             const colors = ['#0ea5e9', '#6366f1', '#f97316', '#10b981', '#ec4899', '#a855f7', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16'];
             
-            roomResources = masterData.rooms.map((room, index) => {
+            const baseRooms = masterData.rooms.map((room, index) => {
                 const initials = room.name.split(' ').map(word => word[0]).join('').toUpperCase();
                 return {
                     id: 'room-' + room.name.toLowerCase().replace(/\s+/g, '-'),
@@ -24973,7 +24973,20 @@
                     }
                 };
             });
-            
+
+            const unassignedRoom = {
+                id: 'room-unassigned',
+                title: 'Unassigned',
+                initials: 'NA',
+                extendedProps: {
+                    role: 'Unassigned',
+                    color: '#94a3b8',
+                    clinicId: null,
+                    roomCategory: null
+                }
+            };
+
+            roomResources = [unassignedRoom, ...baseRooms];
             return roomResources;
         }
         
@@ -25540,15 +25553,19 @@
                         const dateStr = start.toISOString().split('T')[0];
                         const timeStr = start.toTimeString().slice(0, 5);
                         task.dueDate = dateStr;
-                        task.dueTime = timeStr;
+                        task.dueTime = info.event.allDay ? null : timeStr;
                     }
 
                     const resources = info.event.getResources ? info.event.getResources() : [];
                     const resourceId = resources && resources.length ? resources[0].id : null;
                     if (resourceId) {
                         if (currentViewMode === 'room') {
-                            const roomName = getRoomNameFromId(resourceId) || resourceId;
-                            task.location = roomName;
+                            if (resourceId === 'room-unassigned') {
+                                task.location = '';
+                            } else {
+                                const roomName = getRoomNameFromId(resourceId) || resourceId;
+                                task.location = roomName;
+                            }
                         } else if (currentViewMode === 'employee') {
                             task.assignee = resourceId;
                             task.assignedTo = resourceId;
@@ -25755,6 +25772,8 @@
                                     // No location: still show it (unassigned)
                                     processedEvents.push({
                                         ...event,
+                                        resourceId: 'room-unassigned',
+                                        resourceIds: undefined,
                                         title: titleWithBadges
                                     });
                                 }
