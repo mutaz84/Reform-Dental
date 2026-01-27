@@ -30626,8 +30626,56 @@ function canEditTask(task) {
     if (!task) return false;
     const keys = getCurrentUserKeys();
     if (!keys.length) return false;
-    if (!task.createdBy) return false;
-    return keys.includes(task.createdBy);
+    const creator = getTaskCreator(task);
+    if (!creator) return false;
+    return keys.includes(creator);
+}
+
+function loadTaskCreatorCache() {
+    try {
+        if (typeof safeParseLocalStorageJSON === 'function') {
+            const cache = safeParseLocalStorageJSON('taskCreatorCache', {}, { expect: 'object' });
+            window.__taskCreatorCache = (cache && typeof cache === 'object' && !Array.isArray(cache)) ? cache : {};
+            return;
+        }
+        const raw = localStorage.getItem('taskCreatorCache');
+        const parsed = raw ? JSON.parse(raw) : {};
+        window.__taskCreatorCache = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+    } catch (e) {
+        window.__taskCreatorCache = {};
+    }
+}
+
+function saveTaskCreatorCache() {
+    try {
+        localStorage.setItem('taskCreatorCache', JSON.stringify(window.__taskCreatorCache || {}));
+    } catch (e) {
+        // ignore storage failures
+    }
+}
+
+function recordTaskCreator(taskId, creator) {
+    if (!taskId || !creator) return;
+    if (!window.__taskCreatorCache) loadTaskCreatorCache();
+    window.__taskCreatorCache[taskId] = creator;
+    saveTaskCreatorCache();
+}
+
+function getTaskCreator(task) {
+    if (!task) return null;
+    if (task.createdBy) return task.createdBy;
+    const cache = window.__taskCreatorCache || {};
+    return cache[task.id] || null;
+}
+
+function applyCreatorCacheToTasks() {
+    if (!Array.isArray(window.tasksData)) return;
+    if (!window.__taskCreatorCache) loadTaskCreatorCache();
+    window.tasksData.forEach(t => {
+        if (!t || t.createdBy) return;
+        const cached = window.__taskCreatorCache[t.id];
+        if (cached) t.createdBy = cached;
+    });
 }
 
 function loadTaskClaimCache() {
@@ -31557,6 +31605,9 @@ window.addEventListener('load', function() {
         }
         if (typeof loadTaskClaimCache === 'function') {
             loadTaskClaimCache();
+        }
+        if (typeof loadTaskCreatorCache === 'function') {
+            loadTaskCreatorCache();
         }
         if (typeof updateFilterUI === 'function') {
             updateFilterUI();
@@ -32706,6 +32757,7 @@ window.addEventListener('load', function() {
                     window.tasksData = await response.json();
                     console.log('✅ Loaded', window.tasksData.length, 'tasks from API');
                     applyClaimCacheToTasks();
+                    applyCreatorCacheToTasks();
                     
                     // Sync to calendar
                     if (typeof convertTasksToEvents === 'function') {
@@ -39549,6 +39601,7 @@ window.addEventListener('load', function() {
             } else {
                 tasksData.push(taskData);
                 console.log('📋 New task data:', taskData);
+                recordTaskCreator(taskData.id, taskData.createdBy);
                 // Save to database
                 if (typeof saveTaskToAPI === 'function') {
                     saveTaskToAPI({
