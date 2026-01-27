@@ -25293,6 +25293,16 @@
                         console.warn('⚠️ Skipping task without due date:', task.title);
                         return;
                     }
+
+                    const hasDueTime = !!(task.dueTime && String(task.dueTime).trim() && task.dueTime !== '00:00');
+                    if (!hasDueTime) {
+                        const existingIndex = eventDatabase.findIndex(e => e.id === task.id);
+                        if (existingIndex !== -1) {
+                            eventDatabase.splice(existingIndex, 1);
+                        }
+                        console.log('⏸️ Task has date but no time, showing in unscheduled row:', task.title);
+                        return;
+                    }
                     
                     // Determine employee/resource for task
                     const claimInfo = (typeof getTaskClaimInfo === 'function') ? getTaskClaimInfo(task) : { claimedBy: task.claimedBy || null };
@@ -25427,8 +25437,19 @@
                         };
                     }
                 });
-                list.__draggableInit = true;
             }
+
+            list.querySelectorAll('.unassigned-task-item').forEach(item => {
+                item.addEventListener('dragstart', (e) => {
+                    const taskId = item.getAttribute('data-task-id');
+                    if (!taskId || !e.dataTransfer) return;
+                    e.dataTransfer.setData('text/plain', `task:${taskId}`);
+                    e.dataTransfer.setData('application/x-task-id', taskId);
+                    e.dataTransfer.effectAllowed = 'move';
+                });
+            });
+
+            list.__draggableInit = true;
         }
 
         function renderUnassignedTasksSidebar() {
@@ -26546,6 +26567,22 @@
                                 } else {
                                     unscheduledCell.innerHTML = '<span style="color: var(--text-tertiary); font-size: 0.7rem; font-style: italic;">—</span>';
                                 }
+
+                                // Make unscheduled cells droppable for no-time assignments
+                                unscheduledCell.ondragover = (e) => {
+                                    e.preventDefault();
+                                    unscheduledCell.style.background = 'rgba(251, 191, 36, 0.15)';
+                                    unscheduledCell.style.borderTop = '2px solid #f59e0b';
+                                };
+                                unscheduledCell.ondragleave = () => {
+                                    unscheduledCell.style.background = '';
+                                    unscheduledCell.style.borderTop = '';
+                                };
+                                unscheduledCell.ondrop = (e) => {
+                                    unscheduledCell.style.background = '';
+                                    unscheduledCell.style.borderTop = '';
+                                    this.handleUnscheduledDrop(e, date, resource.id);
+                                };
                                 
                                 unscheduledRow.appendChild(unscheduledCell);
                             });
@@ -26650,7 +26687,7 @@
                                     // Remove visual feedback
                                     slot.style.background = '';
                                     slot.style.borderTop = '';
-                                    this.handleResourceDrop(e, date, hour, resource.id);
+                                    this.handleResourceDrop(e, date, hour, minute, resource.id);
                                 };
                                 
                                 // Make clickable to create a new task/event (ignore clicks on existing events)
@@ -26901,6 +26938,52 @@
                     }
                     
                     return allItems;
+                },
+
+                handleUnscheduledDrop: function(e, date, resourceId) {
+                    e.preventDefault();
+                    const taskIdRaw = e.dataTransfer?.getData('application/x-task-id') || e.dataTransfer?.getData('text/plain') || '';
+                    const taskId = String(taskIdRaw).replace(/^task:/, '');
+                    if (!taskId) return;
+
+                    const task = Array.isArray(window.tasksData) ? window.tasksData.find(t => t.id == taskId) : null;
+                    if (!task) return;
+
+                    const dateStr = date.toISOString().split('T')[0];
+                    task.dueDate = dateStr;
+                    task.dueTime = null;
+
+                    if (this.viewMode === 'employee' || this.viewMode === 'provider') {
+                        task.assignee = resourceId;
+                        task.assignedTo = resourceId;
+                    } else if (this.viewMode === 'room') {
+                        if (resourceId === 'room-unassigned') {
+                            task.location = '';
+                        } else {
+                            const roomName = getRoomNameFromId(resourceId) || resourceId;
+                            task.location = roomName;
+                        }
+                    }
+
+                    if (typeof updateTaskViaAPI === 'function') {
+                        const apiId = String(taskId).startsWith('task-') ? String(taskId).replace('task-', '') : taskId;
+                        updateTaskViaAPI(apiId, {
+                            dueDate: task.dueDate || null,
+                            dueTime: null,
+                            assignee: task.assignee || null,
+                            assignedTo: task.assignedTo || null,
+                            location: task.location || null
+                        });
+                    }
+
+                    convertTasksToEvents();
+                    if (window.calendarInstance && typeof window.calendarInstance.render === 'function') {
+                        window.calendarInstance.render();
+                    }
+                    if (window.calendar && typeof window.calendar.refetchEvents === 'function') {
+                        window.calendar.refetchEvents();
+                    }
+                    renderUnassignedTasksSidebar();
                 },
                 
                 getEventsForResourceSlot: function(date, hour, minute, resourceId) {
@@ -27397,8 +27480,53 @@
                     this.render();
                 },
                 
-                handleResourceDrop: function(e, date, hour, resourceId) {
+                handleResourceDrop: function(e, date, hour, minute = 0, resourceId) {
                     e.preventDefault();
+                    const taskIdRaw = e.dataTransfer?.getData('application/x-task-id') || e.dataTransfer?.getData('text/plain') || '';
+                    const droppedTaskId = String(taskIdRaw).replace(/^task:/, '');
+                    if (!this.draggedEvent && droppedTaskId) {
+                        const task = Array.isArray(window.tasksData) ? window.tasksData.find(t => t.id == droppedTaskId) : null;
+                        if (!task) return;
+
+                        const dateStr = date.toISOString().split('T')[0];
+                        const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                        task.dueDate = dateStr;
+                        task.dueTime = timeStr;
+
+                        if (this.viewMode === 'employee' || this.viewMode === 'provider') {
+                            task.assignee = resourceId;
+                            task.assignedTo = resourceId;
+                        } else if (this.viewMode === 'room') {
+                            if (resourceId === 'room-unassigned') {
+                                task.location = '';
+                            } else {
+                                const roomName = getRoomNameFromId(resourceId) || resourceId;
+                                task.location = roomName;
+                            }
+                        }
+
+                        if (typeof updateTaskViaAPI === 'function') {
+                            const apiId = String(droppedTaskId).startsWith('task-') ? String(droppedTaskId).replace('task-', '') : droppedTaskId;
+                            updateTaskViaAPI(apiId, {
+                                dueDate: task.dueDate || null,
+                                dueTime: task.dueTime || null,
+                                assignee: task.assignee || null,
+                                assignedTo: task.assignedTo || null,
+                                location: task.location || null
+                            });
+                        }
+
+                        convertTasksToEvents();
+                        if (window.calendarInstance && typeof window.calendarInstance.render === 'function') {
+                            window.calendarInstance.render();
+                        }
+                        if (window.calendar && typeof window.calendar.refetchEvents === 'function') {
+                            window.calendar.refetchEvents();
+                        }
+                        renderUnassignedTasksSidebar();
+                        return;
+                    }
+
                     if (!this.draggedEvent) return;
                     
                     const dateStr = date.toISOString().split('T')[0];
