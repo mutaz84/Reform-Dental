@@ -47517,6 +47517,8 @@ async function syncSuppliesFromAPI() {
 async function saveTaskToAPI(taskData) {
     try {
         console.log('💾 Saving task to API:', taskData);
+        const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
+        const assignedById = Number.isFinite(Number(currentUser?.id)) ? Number(currentUser.id) : null;
         const response = await fetch('/api/tasks', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -47525,6 +47527,7 @@ async function saveTaskToAPI(taskData) {
                 description: taskData.description || '',
                 assignee: taskData.assignee || null,
                 dueDate: taskData.dueDate || null,
+                dueTime: taskData.dueTime || null,
                 priority: taskData.priority || 'Medium',
                 status: taskData.status || 'Pending',
                 category: taskData.category || '',
@@ -47532,7 +47535,9 @@ async function saveTaskToAPI(taskData) {
                 location: taskData.location || null,
                 isPaid: taskData.isPaid || false,
                 payAmount: taskData.payAmount || null,
-                timeEstimate: taskData.timeEstimate || null
+                timeEstimate: taskData.timeEstimate || null,
+                assignedById: taskData.assignedById || assignedById,
+                assignedToId: taskData.assignedToId || null
             })
         });
         if (response.ok) {
@@ -47607,7 +47612,9 @@ async function syncTasksFromAPI() {
                 payAmount: t.PayAmount || t.payAmount || 0,
                 timeEstimate: t.TimeEstimate || t.timeEstimate || '',
                 createdAt: t.CreatedAt || t.createdAt || new Date().toISOString(),
-                createdBy: t.CreatedBy || t.createdBy || ''
+                createdBy: t.CreatedBy || t.createdBy || t.AssignedById || t.assignedById || '',
+                assignedById: t.AssignedById || t.assignedById || null,
+                assignedToId: t.AssignedToId || t.assignedToId || null
             }));
             // Update window.tasksData for UI rendering
             window.tasksData = localTasks;
