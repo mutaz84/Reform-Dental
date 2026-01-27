@@ -19030,9 +19030,15 @@
                                 <i class="fas fa-lock"></i>
                             </button>
                             `}
+                            ${canEditTask(task) ? `
                             <button onclick="deleteTaskFromManagement('${task.id}')" style="padding: 0.5rem 0.75rem; background: #fee2e2; border: 1px solid #fecaca; border-radius: 6px; color: #dc2626; cursor: pointer;" title="Delete">
                                 <i class="fas fa-trash"></i>
                             </button>
+                            ` : `
+                            <button disabled style="padding: 0.5rem 0.75rem; background: #f3f4f6; border: 1px solid var(--border-color); border-radius: 6px; color: #9ca3af; cursor: not-allowed;" title="Only the creator can delete">
+                                <i class="fas fa-lock"></i>
+                            </button>
+                            `}
                         </div>
                     </div>
                 `;
@@ -19079,6 +19085,11 @@
         
         // Delete task from management
         function deleteTaskFromManagement(taskId) {
+            const task = window.tasksData.find(t => t.id == taskId);
+            if (task && !canEditTask(task)) {
+                showNotification('Only the task creator can delete this task.', 'warning');
+                return;
+            }
             if (!confirm('Are you sure you want to delete this task?')) return;
             
             const index = window.tasksData.findIndex(t => t.id == taskId);
@@ -38258,6 +38269,7 @@ window.addEventListener('load', function() {
             
             const userRole = localStorage.getItem('userRole');
             const isAdmin = userRole === 'admin';
+            const canManageTask = canEditTask(task) || isAdmin;
             const priorityColor = priorityColors[task.priority];
             const statusColor = statusColors[task.status];
             const dueDateFormatted = new Date(task.dueDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
@@ -38358,7 +38370,7 @@ window.addEventListener('load', function() {
                                 <i class="fas fa-play"></i> In Progress
                             </button>
                             ` : ''}
-                            ${isAdmin ? `
+                            ${canManageTask ? `
                             <button onclick="openEditTaskModal('${task.id}')" style="flex: 1; min-width: 100px; padding: 0.75rem; background: #f59e0b; color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
                                 <i class="fas fa-edit"></i> Edit
                             </button>
@@ -38417,6 +38429,10 @@ window.addEventListener('load', function() {
         window.deleteTask = function(taskId) {
             const task = window.tasksData.find(t => t.id === taskId);
             if (!task) return;
+            if (!canEditTask(task)) {
+                showNotification('Only the task creator can delete this task.', 'warning');
+                return;
+            }
             
             if (!confirm(`Are you sure you want to delete this task?\n\n"${task.title}"\n\nThis action cannot be undone.`)) return;
             
