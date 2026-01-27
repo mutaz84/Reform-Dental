@@ -24594,7 +24594,10 @@
                             staffType: user.staffType || 'non-clinical',
                             color: user.color || '#06b6d4',
                             clinics: [],
-                            assignedProvider: null
+                            assignedProvider: null,
+                            username: user.username || username || null,
+                            email: user.email || user.workEmail || user.personalEmail || null,
+                            dbId: user.dbId || user.id || user.Id || null
                         }
                     });
                 });
@@ -25244,12 +25247,26 @@
             if (!raw) return null;
             const key = String(raw).trim();
             if (!key) return null;
+            const keyLower = key.toLowerCase();
+            const keySlug = keyLower.replace(/\s+/g, '-');
+            const keyNum = Number.isFinite(Number(key)) ? Number(key) : null;
             if (typeof employeeResources !== 'undefined' && Array.isArray(employeeResources)) {
                 const direct = employeeResources.find(e => e.id === key);
                 if (direct) return direct.id;
-                const lower = key.toLowerCase();
-                const byTitle = employeeResources.find(e => (e.title || '').toLowerCase() === lower);
+                const byIdLower = employeeResources.find(e => (e.id || '').toLowerCase() === keyLower);
+                if (byIdLower) return byIdLower.id;
+                const byTitle = employeeResources.find(e => (e.title || '').toLowerCase() === keyLower);
                 if (byTitle) return byTitle.id;
+                const byTitleSlug = employeeResources.find(e => (e.title || '').toLowerCase().replace(/\s+/g, '-') === keySlug);
+                if (byTitleSlug) return byTitleSlug.id;
+                const byUsername = employeeResources.find(e => (e.extendedProps?.username || '').toLowerCase() === keyLower);
+                if (byUsername) return byUsername.id;
+                const byEmail = employeeResources.find(e => (e.extendedProps?.email || '').toLowerCase() === keyLower);
+                if (byEmail) return byEmail.id;
+                if (keyNum !== null) {
+                    const byDbId = employeeResources.find(e => Number(e.extendedProps?.dbId) === keyNum);
+                    if (byDbId) return byDbId.id;
+                }
             }
             return key;
         }
