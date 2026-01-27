@@ -25240,7 +25240,6 @@
                     if (task.taskType === 'Bonus') taskIcon = '⭐';
 
                     const isClaimed = (task.taskType === 'Floating' || task.taskType === 'Bonus') && !!claimInfo.claimedBy;
-                    const claimedFlag = isClaimed ? '🚩 ' : '';
                     const claimedByText = isClaimed && (typeof getClaimedByDisplay === 'function')
                         ? ` | Claimed by: ${getClaimedByDisplay(claimInfo.claimedBy)}`
                         : (isClaimed ? ' | Claimed' : '');
@@ -25250,7 +25249,7 @@
                     
                     const taskEvent = {
                         id: task.id,
-                        title: `${taskIcon} ${claimedFlag}${task.title}`,
+                        title: `${taskIcon} ${task.title}`,
                         start: `${taskDate}T${taskTime}:00`,
                         end: `${taskDate}T${taskTime}:00`,
                         resourceId: resourceId,
@@ -25266,6 +25265,9 @@
                         isTask: true,
                         taskStatus: task.status,
                         taskType: task.taskType,
+                        claimedBy: claimInfo.claimedBy || null,
+                        claimedAt: claimInfo.claimedAt || null,
+                        isClaimed: isClaimed,
                         backgroundColor: taskColor,
                         borderColor: taskColor,
                         location: task.location
@@ -25359,6 +25361,15 @@
                     // Paid badge
                     if (arg.event.extendedProps.paid) {
                         html += '<span class="event-mini-badge paid">$</span>';
+                    }
+
+                    // Claimed badge
+                    const claimedBy = arg.event.extendedProps.claimedBy;
+                    if (arg.event.extendedProps.isClaimed || claimedBy) {
+                        const claimedLabel = (typeof getClaimedByDisplay === 'function' && claimedBy)
+                            ? getClaimedByDisplay(claimedBy)
+                            : 'Claimed';
+                        html += `<span class="event-mini-badge" style="background: #e5e7eb; color: #374151;" title="Claimed by ${claimedLabel}">C</span>`;
                     }
                     
                     html += '<span class="fc-event-title">' + arg.event.title.replace('💰 ', '').replace('⚠️ ', '') + '</span>';
