@@ -5690,6 +5690,47 @@
             background: var(--text-secondary);
         }
 
+        /* Unassigned Tasks Sidebar Panel */
+        .unassigned-tasks-panel {
+            margin: 0.75rem;
+            padding: 0.75rem;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+        }
+
+        .unassigned-dropzone {
+            border: 2px dashed #94a3b8;
+            border-radius: 8px;
+            padding: 0.75rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            background: var(--bg-secondary);
+            transition: all 0.2s ease;
+        }
+
+        .unassigned-dropzone.drag-over {
+            border-color: var(--accent-primary);
+            background: #eef2ff;
+            color: var(--accent-primary);
+        }
+
+        .unassigned-task-item {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.5rem 0.6rem;
+            margin-top: 0.5rem;
+            cursor: grab;
+            font-size: 0.8rem;
+            color: var(--text-primary);
+        }
+
+        .unassigned-task-item:active {
+            cursor: grabbing;
+        }
+
         /* ============ SIDEBAR TOGGLE CSS ============ */
         .sidebar.hidden {
             display: none !important;
@@ -12637,6 +12678,22 @@
                 <div class="sidebar-right">
                     <div style="display: flex; justify-content: center; align-items: center; padding: 1rem; border-bottom: 1px solid var(--border-color);">
                         <span style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">Dental Office</span>
+                    </div>
+
+                    <!-- Unassigned Tasks Panel -->
+                    <div class="unassigned-tasks-panel">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                            <span style="font-weight: 700; color: var(--text-primary); font-size: 0.85rem;">
+                                <i class="fas fa-inbox" style="color: var(--accent-primary); margin-right: 0.35rem;"></i>
+                                Unassigned Tasks
+                            </span>
+                            <span id="unassignedTasksCount" style="font-size: 0.7rem; color: var(--text-secondary);"></span>
+                        </div>
+                        <div id="unassignedTasksDropzone" class="unassigned-dropzone">
+                            Drop here to unassign<br/>
+                            <span style="font-size: 0.7rem;">(clears date, time, employee, room)</span>
+                        </div>
+                        <div id="unassignedTasksList"></div>
                     </div>
                     <!-- Dental Office Section -->
                     <div class="nav-section" data-section="dental-office">
@@ -23777,6 +23834,8 @@
             if (isTableView) {
                 populateTable();
             }
+
+            renderUnassignedTasksSidebar();
         }
 
         // Generate Tasks Events for Calendar Display
@@ -24952,6 +25011,12 @@
             return 'room-' + location.toLowerCase().replace(/\s+/g, '-');
         }
 
+        function getRoomNameFromId(roomId) {
+            if (!roomId || !Array.isArray(roomResources)) return null;
+            const match = roomResources.find(r => r.id === roomId);
+            return match ? match.title : null;
+        }
+
         // Simple queue system for early task form calls
         window.__taskFormQueue = window.__taskFormQueue || [];
 
@@ -25296,6 +25361,113 @@
             
             console.log('✅ Task conversion complete. Total events in eventDatabase:', eventDatabase.length);
             console.log('📊 eventDatabase contents:', eventDatabase.filter(e => e.isTask));
+            try { renderUnassignedTasksSidebar(); } catch (_) {}
+        }
+
+        function getUnassignedTasksForSidebar() {
+            if (!Array.isArray(window.tasksData)) return [];
+            return window.tasksData.filter(task => {
+                const noDate = !task.dueDate;
+                const noTime = !task.dueTime;
+                const noEmployee = !task.assignee && !task.assignedTo && !task.claimedBy;
+                const noRoom = !task.location;
+                return noDate && noTime && noEmployee && noRoom;
+            });
+        }
+
+        function initUnassignedTaskDraggable() {
+            const list = document.getElementById('unassignedTasksList');
+            if (!list || list.__draggableInit) return;
+            if (window.FullCalendar && FullCalendar.Draggable) {
+                new FullCalendar.Draggable(list, {
+                    itemSelector: '.unassigned-task-item',
+                    eventData: function(el) {
+                        const taskId = el.getAttribute('data-task-id');
+                        const task = Array.isArray(window.tasksData) ? window.tasksData.find(t => t.id == taskId) : null;
+                        const title = task ? task.title : 'Task';
+                        return {
+                            id: taskId,
+                            title: title,
+                            extendedProps: {
+                                isTask: true,
+                                eventCategory: 'task',
+                                type: 'task',
+                                taskId: taskId
+                            }
+                        };
+                    }
+                });
+                list.__draggableInit = true;
+            }
+        }
+
+        function renderUnassignedTasksSidebar() {
+            const list = document.getElementById('unassignedTasksList');
+            const countEl = document.getElementById('unassignedTasksCount');
+            const dropzone = document.getElementById('unassignedTasksDropzone');
+            if (!list || !dropzone) return;
+
+            const tasks = getUnassignedTasksForSidebar();
+            if (countEl) countEl.textContent = tasks.length ? `${tasks.length} task(s)` : '';
+
+            if (!tasks.length) {
+                list.innerHTML = '<div style="margin-top:0.5rem; font-size:0.75rem; color: var(--text-secondary); text-align:center;">No unassigned tasks</div>';
+            } else {
+                list.innerHTML = tasks.map(task => `
+                    <div class="unassigned-task-item" draggable="true" data-task-id="${task.id}">
+                        <div style="font-weight:600; margin-bottom:0.15rem;">${task.title}</div>
+                        <div style="font-size:0.7rem; color: var(--text-secondary);">
+                            ${task.taskType || 'Regular'} • ${task.priority || 'Medium'}
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            initUnassignedTaskDraggable();
+
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.classList.add('drag-over');
+            });
+            dropzone.addEventListener('dragleave', () => {
+                dropzone.classList.remove('drag-over');
+            });
+            dropzone.addEventListener('drop', () => {
+                dropzone.classList.remove('drag-over');
+            });
+        }
+
+        function unassignTask(taskId) {
+            const task = Array.isArray(window.tasksData) ? window.tasksData.find(t => t.id == taskId) : null;
+            if (!task) return;
+
+            task.dueDate = null;
+            task.dueTime = null;
+            task.assignee = '';
+            task.assignedTo = '';
+            task.claimedBy = null;
+            task.claimedAt = null;
+            task.location = '';
+
+            const eventIndex = eventDatabase.findIndex(e => e.id === taskId);
+            if (eventIndex !== -1) eventDatabase.splice(eventIndex, 1);
+
+            if (typeof updateTaskViaAPI === 'function') {
+                const apiId = String(taskId).startsWith('task-') ? String(taskId).replace('task-', '') : taskId;
+                updateTaskViaAPI(apiId, {
+                    dueDate: null,
+                    dueTime: null,
+                    assignee: null,
+                    assignedTo: null,
+                    claimedBy: null,
+                    location: null
+                });
+            }
+
+            convertTasksToEvents();
+            if (window.calendar) window.calendar.refetchEvents();
+            renderUnassignedTasksSidebar();
+            showNotification('Task unassigned', 'info');
         }
 
         // Convert tasks immediately after all databases are defined
@@ -25344,6 +25516,66 @@
                 editable: true,
                 droppable: true,
                 eventDrop: handleEventDrop,
+                eventReceive: function(info) {
+                    const taskId = info.event.id;
+                    const task = Array.isArray(window.tasksData) ? window.tasksData.find(t => t.id == taskId) : null;
+                    if (!task) {
+                        info.event.remove();
+                        return;
+                    }
+
+                    const start = info.event.start;
+                    if (start) {
+                        const dateStr = start.toISOString().split('T')[0];
+                        const timeStr = start.toTimeString().slice(0, 5);
+                        task.dueDate = dateStr;
+                        task.dueTime = timeStr;
+                    }
+
+                    const resources = info.event.getResources ? info.event.getResources() : [];
+                    const resourceId = resources && resources.length ? resources[0].id : null;
+                    if (resourceId) {
+                        if (currentViewMode === 'room') {
+                            const roomName = getRoomNameFromId(resourceId) || resourceId;
+                            task.location = roomName;
+                        } else if (currentViewMode === 'employee') {
+                            task.assignee = resourceId;
+                            task.assignedTo = resourceId;
+                        }
+                    }
+
+                    if (typeof updateTaskViaAPI === 'function') {
+                        const apiId = String(taskId).startsWith('task-') ? String(taskId).replace('task-', '') : taskId;
+                        updateTaskViaAPI(apiId, {
+                            dueDate: task.dueDate || null,
+                            dueTime: task.dueTime || null,
+                            assignee: task.assignee || null,
+                            assignedTo: task.assignedTo || null,
+                            location: task.location || null
+                        });
+                    }
+
+                    info.event.remove();
+                    convertTasksToEvents();
+                    if (calendar) calendar.refetchEvents();
+                    renderUnassignedTasksSidebar();
+                    showNotification('Task assigned from Unassigned', 'success');
+                },
+                eventDragStop: function(info) {
+                    const dropzone = document.getElementById('unassignedTasksDropzone');
+                    if (!dropzone) return;
+                    const rect = dropzone.getBoundingClientRect();
+                    const x = info.jsEvent.clientX;
+                    const y = info.jsEvent.clientY;
+                    const isOverDropzone = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+                    if (isOverDropzone) {
+                        const isTask = info.event.extendedProps?.isTask || info.event.extendedProps?.eventCategory === 'task' || info.event.extendedProps?.type === 'task';
+                        if (isTask) {
+                            unassignTask(info.event.id);
+                            info.event.remove();
+                        }
+                    }
+                },
                 eventClick: handleEventClick,
                 eventContent: function(arg) {
                     let html = '<div class="event-badge-container">';
@@ -29209,6 +29441,44 @@
                 if (event.end) {
                     eventDatabase[eventIndex].end = event.end.toISOString();
                 }
+
+                const isTask = event.extendedProps?.isTask || event.extendedProps?.eventCategory === 'task' || event.extendedProps?.type === 'task';
+                if (isTask) {
+                    const task = Array.isArray(window.tasksData) ? window.tasksData.find(t => t.id === event.id) : null;
+                    if (task && event.start) {
+                        const dateStr = event.start.toISOString().split('T')[0];
+                        const timeStr = event.start.toTimeString().slice(0, 5);
+                        task.dueDate = dateStr;
+                        task.dueTime = timeStr;
+
+                        if (currentViewMode === 'employee' && event.getResources) {
+                            const resources = event.getResources();
+                            if (resources && resources.length) {
+                                task.assignee = resources[0].id;
+                                task.assignedTo = resources[0].id;
+                            }
+                        }
+
+                        if (currentViewMode === 'room' && event.getResources) {
+                            const resources = event.getResources();
+                            if (resources && resources.length) {
+                                task.location = getRoomNameFromId(resources[0].id) || resources[0].id;
+                            }
+                        }
+
+                        if (typeof updateTaskViaAPI === 'function') {
+                            const apiId = String(task.id).startsWith('task-') ? String(task.id).replace('task-', '') : task.id;
+                            updateTaskViaAPI(apiId, {
+                                dueDate: task.dueDate || null,
+                                dueTime: task.dueTime || null,
+                                assignee: task.assignee || null,
+                                assignedTo: task.assignedTo || null,
+                                location: task.location || null
+                            });
+                        }
+                        renderUnassignedTasksSidebar();
+                    }
+                }
                 
                 // In employee view, also update the assigned employee
                 if (currentViewMode === 'employee' && event.getResources) {
@@ -32449,6 +32719,7 @@ window.addEventListener('load', function() {
                     if (typeof renderTasksList === 'function') {
                         renderTasksList();
                     }
+                    renderUnassignedTasksSidebar();
                 } else {
                     console.error('❌ Failed to load tasks from API:', response.status);
                 }
@@ -38733,12 +39004,12 @@ window.addEventListener('load', function() {
                             <!-- Due Date, Time, Priority -->
                             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
                                 <div>
-                                    <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Due Date *</label>
-                                    <input type="date" id="taskFormDueDate" value="${data.dueDate || defaultDate}" required style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; margin-top: 0.25rem;">
+                                    <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Due Date</label>
+                                    <input type="date" id="taskFormDueDate" value="${data.dueDate || ''}" style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; margin-top: 0.25rem;">
                                 </div>
                                 <div>
                                     <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Due Time</label>
-                                    <input type="time" id="taskFormDueTime" value="${data.dueTime || '17:00'}" style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; margin-top: 0.25rem;">
+                                    <input type="time" id="taskFormDueTime" value="${data.dueTime || ''}" style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; margin-top: 0.25rem;">
                                 </div>
                                 <div>
                                     <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Priority * <i class="fas fa-clock" title="Higher priorities auto-escalate" style="color: #f59e0b; font-size: 0.7rem;"></i></label>
@@ -39210,14 +39481,17 @@ window.addEventListener('load', function() {
             const assigneeValue = isFloatingOrBonus ? '' : (document.getElementById('taskFormAssignee')?.value || '');
             const secondaryAssigneeValue = isFloatingOrBonus ? '' : (document.getElementById('taskFormSecondary')?.value || null);
             
+            const dueDateValue = document.getElementById('taskFormDueDate').value || null;
+            const dueTimeValue = document.getElementById('taskFormDueTime')?.value || null;
+
             const taskData = {
                 id: taskId || 'task-' + Date.now(),
                 title: document.getElementById('taskFormTitle').value,
                 description: document.getElementById('taskFormDescription').value,
                 assignee: assigneeValue,
                 secondaryAssignee: secondaryAssigneeValue,
-                dueDate: document.getElementById('taskFormDueDate').value,
-                dueTime: document.getElementById('taskFormDueTime').value,
+                dueDate: dueDateValue,
+                dueTime: dueDateValue ? dueTimeValue : null,
                 priority: document.getElementById('taskFormPriority').value,
                 categories: selectedCategories,
                 category: selectedCategories[0], // Keep primary category for backward compatibility
@@ -39270,7 +39544,7 @@ window.addEventListener('load', function() {
                             title: taskData.title,
                             description: taskData.description,
                             dueDate: taskData.dueDate || null,
-                            dueTime: taskData.dueTime || '09:00',
+                            dueTime: taskData.dueTime || null,
                             priority: taskData.priority,
                             status: taskData.status,
                             category: taskData.category,
@@ -39292,7 +39566,7 @@ window.addEventListener('load', function() {
                         title: taskData.title,
                         description: taskData.description,
                         dueDate: taskData.dueDate || null,
-                        dueTime: taskData.dueTime || '09:00',
+                        dueTime: taskData.dueTime || null,
                         priority: taskData.priority,
                         status: taskData.status,
                         category: taskData.category,
@@ -39336,6 +39610,8 @@ window.addEventListener('load', function() {
             if (typeof updateTaskHubBadges === 'function') {
                 updateTaskHubBadges();
             }
+
+            renderUnassignedTasksSidebar();
             
             alert(`✅ Task ${isEdit ? 'updated' : 'created'} successfully!`);
         };
