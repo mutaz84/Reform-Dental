@@ -24399,6 +24399,10 @@
             if (!filter || !baseResources) {
                 return baseResources;
             }
+
+            if (viewMode === 'room' && filter === 'room-unassigned') {
+                return baseResources.filter(r => r.id === 'room-unassigned');
+            }
             
             // For room view, need to convert room ID back to title
             if (viewMode === 'room' && filter.startsWith('room-')) {
@@ -24407,7 +24411,9 @@
                     .split('-')
                     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
                     .join(' ');
-                return baseResources.filter(r => r.title === roomName);
+                const matches = baseResources.filter(r => r.title === roomName);
+                const unassigned = baseResources.find(r => r.id === 'room-unassigned');
+                return unassigned ? [unassigned, ...matches] : matches;
             }
             
             // For employee, provider, and event views, match by ID
