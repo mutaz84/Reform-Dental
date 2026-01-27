@@ -25446,6 +25446,171 @@
             });
         }
 
+        // Hover tooltip (custom, rich details)
+        (function() {
+            const TOOLTIP_ID = 'taskHoverTooltip';
+            const TOOLTIP_OFFSET = 14;
+
+            function escapeHtml(str) {
+                return String(str ?? '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            function normalizeTaskId(raw) {
+                const s = String(raw ?? '').trim();
+                if (!s) return '';
+                return s.replace(/^task:/, '').replace(/^event:/, '');
+            }
+
+            function getTaskById(taskId) {
+                const id = normalizeTaskId(taskId);
+                if (!id || !Array.isArray(window.tasksData)) return null;
+                // Allow both `task-123` and `123` forms
+                const withoutPrefix = id.startsWith('task-') ? id.replace('task-', '') : id;
+                return window.tasksData.find(t => String(t.id) === id || String(t.id) === withoutPrefix || String(t.id) === 'task-' + withoutPrefix) || null;
+            }
+
+            function resolveAssigneeDisplay(assigneeRaw) {
+                const key = (typeof resolveEmployeeResourceId === 'function')
+                    ? resolveEmployeeResourceId(assigneeRaw)
+                    : (assigneeRaw || '');
+                if (!key) return '';
+                if (Array.isArray(employeeResources)) {
+                    const emp = employeeResources.find(e => e.id === key || e.title === key);
+                    if (emp) return emp.title || emp.name || emp.id;
+                }
+                return String(assigneeRaw || key);
+            }
+
+            function ensureTooltipEl() {
+                let el = document.getElementById(TOOLTIP_ID);
+                if (!el) {
+                    el = document.createElement('div');
+                    el.id = TOOLTIP_ID;
+                    el.style.cssText = [
+                        'position:fixed',
+                        'left:-9999px',
+                        'top:-9999px',
+                        'max-width:360px',
+                        'background:rgba(15, 23, 42, 0.96)',
+                        'color:#f8fafc',
+                        'border:1px solid rgba(148, 163, 184, 0.25)',
+                        'border-radius:10px',
+                        'padding:10px 12px',
+                        'box-shadow:0 12px 40px rgba(0,0,0,0.35)',
+                        'z-index:100000',
+                        'font-size:12px',
+                        'line-height:1.35',
+                        'pointer-events:none',
+                        'opacity:0',
+                        'transition:opacity 0.08s ease'
+                    ].join(';');
+                    document.body.appendChild(el);
+                }
+                return el;
+            }
+
+            function formatDateTime(dueDate, dueTime) {
+                if (!dueDate && !dueTime) return '';
+                const d = String(dueDate || '').split('T')[0];
+                const t = String(dueTime || '').slice(0, 5);
+                if (d && t) return `${d} ${t}`;
+                return d || t;
+            }
+
+            function buildTaskTooltipHtml(task, fallbackEvent) {
+                const title = task?.title || fallbackEvent?.title || 'Task';
+                const cleanTitle = String(title).replace(/📋|🎯|⭐/g, '').trim();
+
+                const status = task?.status || fallbackEvent?.taskStatus || '';
+                const priority = task?.priority || fallbackEvent?.priority || '';
+                const type = task?.taskType || fallbackEvent?.taskType || '';
+
+                const assignee = resolveAssigneeDisplay(task?.assignee || task?.assignedTo || fallbackEvent?.resourceId || fallbackEvent?.employee);
+                const room = task?.location || fallbackEvent?.location || '';
+                const due = formatDateTime(task?.dueDate, task?.dueTime);
+
+                const paid = task?.isPaid ? `Paid: $${task?.payAmount || ''}` : '';
+                const claimed = task?.claimedBy ? `Claimed by: ${task.claimedBy}` : '';
+
+                const description = task?.description || fallbackEvent?.description || '';
+                const notes = task?.notes || fallbackEvent?.notes || '';
+
+                const rows = [];
+                if (status) rows.push(['Status', status]);
+                if (priority) rows.push(['Priority', priority]);
+                if (type) rows.push(['Type', type]);
+                if (due) rows.push(['Due', due]);
+                if (assignee) rows.push(['Assignee', assignee]);
+                if (room) rows.push(['Room', room]);
+                if (paid) rows.push(['Pay', paid]);
+                if (claimed) rows.push(['Claim', claimed]);
+                if (description) rows.push(['Description', description]);
+                if (notes) rows.push(['Notes', notes]);
+
+                const rowsHtml = rows.map(([k, v]) => `
+                    <div style="display:flex; gap:8px; margin-top:4px;">
+                        <div style="min-width:74px; color:rgba(226,232,240,0.75);">${escapeHtml(k)}:</div>
+                        <div style="flex:1; white-space:pre-wrap;">${escapeHtml(v)}</div>
+                    </div>
+                `).join('');
+
+                return `
+                    <div style="font-weight:700; font-size:13px; margin-bottom:6px;">${escapeHtml(cleanTitle)}</div>
+                    ${rowsHtml || '<div style="color:rgba(226,232,240,0.75)">No details</div>'}
+                `;
+            }
+
+            function positionTooltip(el, clientX, clientY) {
+                const vw = window.innerWidth || document.documentElement.clientWidth;
+                const vh = window.innerHeight || document.documentElement.clientHeight;
+                const rect = el.getBoundingClientRect();
+
+                let left = clientX + TOOLTIP_OFFSET;
+                let top = clientY + TOOLTIP_OFFSET;
+
+                if (left + rect.width > vw - 8) left = Math.max(8, clientX - rect.width - TOOLTIP_OFFSET);
+                if (top + rect.height > vh - 8) top = Math.max(8, clientY - rect.height - TOOLTIP_OFFSET);
+
+                el.style.left = left + 'px';
+                el.style.top = top + 'px';
+            }
+
+            function showTooltip(e, taskId, fallbackEvent) {
+                const tooltip = ensureTooltipEl();
+                const task = getTaskById(taskId);
+                tooltip.innerHTML = buildTaskTooltipHtml(task, fallbackEvent);
+                tooltip.style.opacity = '1';
+                tooltip.style.display = 'block';
+                positionTooltip(tooltip, e.clientX, e.clientY);
+            }
+
+            function hideTooltip() {
+                const tooltip = document.getElementById(TOOLTIP_ID);
+                if (!tooltip) return;
+                tooltip.style.opacity = '0';
+                tooltip.style.left = '-9999px';
+                tooltip.style.top = '-9999px';
+            }
+
+            window.attachTaskHoverTooltip = function(el, taskId, fallbackEvent) {
+                if (!el || el.__taskTooltipInit) return;
+                el.__taskTooltipInit = true;
+                el.addEventListener('mouseenter', (e) => showTooltip(e, taskId, fallbackEvent));
+                el.addEventListener('mousemove', (e) => {
+                    const tooltip = document.getElementById(TOOLTIP_ID);
+                    if (!tooltip || tooltip.style.opacity !== '1') return;
+                    positionTooltip(tooltip, e.clientX, e.clientY);
+                });
+                el.addEventListener('mouseleave', hideTooltip);
+                el.addEventListener('dragstart', hideTooltip);
+            };
+        })();
+
         function initUnassignedTaskDraggable() {
             const list = document.getElementById('unassignedTasksList');
             if (!list) return;
@@ -25507,6 +25672,15 @@
             }
 
             initUnassignedTaskDraggable();
+
+            // Rich hover tooltip for unassigned tasks
+            list.querySelectorAll('.unassigned-task-item').forEach(itemEl => {
+                if (itemEl.__taskTooltipInit) return;
+                const tid = itemEl.getAttribute('data-task-id');
+                if (tid && typeof window.attachTaskHoverTooltip === 'function') {
+                    window.attachTaskHoverTooltip(itemEl, tid, null);
+                }
+            });
 
             dropzone.addEventListener('dragover', (e) => {
                 e.preventDefault();
@@ -26593,7 +26767,20 @@
                                         const itemEl = document.createElement('div');
                                         itemEl.className = currentEmployeeDataType === 'duties' ? 'unscheduled-duty-chip' : 'unscheduled-task-chip';
                                         itemEl.textContent = item.title || item.description || 'Untitled';
-                                        itemEl.title = item.description || item.title || 'No description';
+                                        // Make unscheduled tasks draggable into timed slots / other resources
+                                        if (currentEmployeeDataType === 'none' && item && item.id) {
+                                            itemEl.draggable = true;
+                                            itemEl.dataset.taskId = item.id;
+                                            itemEl.addEventListener('dragstart', (e) => {
+                                                if (!e.dataTransfer) return;
+                                                e.dataTransfer.setData('text/plain', `task:${item.id}`);
+                                                e.dataTransfer.setData('application/x-task-id', item.id);
+                                                e.dataTransfer.effectAllowed = 'move';
+                                            });
+                                            if (typeof window.attachTaskHoverTooltip === 'function') {
+                                                window.attachTaskHoverTooltip(itemEl, item.id, null);
+                                            }
+                                        }
                                         itemEl.onclick = (e) => {
                                             e.stopPropagation();
                                             // Show details modal for unscheduled item
@@ -27198,7 +27385,8 @@
                     }
                     
                     eventEl.className = eventClass;
-                    eventEl.draggable = !isWorkingHours && !isTask && !isDuty;
+                    // Allow dragging tasks/duties freely; block working hours + assistant blocks
+                    eventEl.draggable = !isWorkingHours && !isAssistant;
                     eventEl.dataset.eventId = event.id;
                     
                     if (isWorkingHours) {
@@ -27234,25 +27422,12 @@
                         assignmentFlag = '<span class="event-badge assigned" style="background: #10b981; color: white; font-size: 0.6rem; padding: 1px 3px; margin-left: 2px;">🚩</span>';
                     }
                     
-                    // Build tooltip with task information
-                    let tooltipText = '';
+                    // Prefer custom tooltip over native `title`
                     if (isTask) {
-                        const taskInfo = [];
-                        if (event.title) taskInfo.push(`Title: ${event.title.replace(/📋|🎯|⭐/g, '').trim()}`);
-                        if (event.resourceId) {
-                            const emp = employeeResources.find(e => e.id === event.resourceId);
-                            const assigneeName = emp ? emp.title : event.resourceId;
-                            taskInfo.push(`Assignee: ${assigneeName}`);
-                        } else {
-                            taskInfo.push(`Assignee: Unassigned`);
+                        eventEl.dataset.taskId = event.id;
+                        if (typeof window.attachTaskHoverTooltip === 'function') {
+                            window.attachTaskHoverTooltip(eventEl, event.id, event);
                         }
-                        if (event.location) taskInfo.push(`Location: ${event.location}`);
-                        if (event.priority) taskInfo.push(`Priority: ${event.priority.charAt(0).toUpperCase() + event.priority.slice(1)}`);
-                        if (event.taskStatus) taskInfo.push(`Status: ${event.taskStatus}`);
-                        if (event.taskType) taskInfo.push(`Type: ${event.taskType}`);
-                        if (event.description) taskInfo.push(`Description: ${event.description}`);
-                        if (event.paid && event.notes) taskInfo.push(`Notes: ${event.notes}`);
-                        tooltipText = taskInfo.join('&#10;'); // &#10; is newline in HTML
                     }
                     
                     // Calculate event duration for height
@@ -27307,11 +27482,6 @@
                             ${badges}${assignmentFlag}
                             <span class="event-text">${event.title}</span>
                         `;
-                        
-                        // Add tooltip for tasks
-                        if (isTask && tooltipText) {
-                            eventEl.title = tooltipText;
-                        }
                         
                         // Show handles on hover
                         if (duration >= 1) {
@@ -27376,17 +27546,7 @@
                             this.showEventContextMenu(e, event);
                         };
 
-                        // Hover tooltip with task details
-                        if (isTask) {
-                            const tooltipParts = [];
-                            if (event.title) tooltipParts.push(event.title.replace(/^\s*[\p{Emoji_Presentation}\p{Extended_Pictographic}]\s*/u, ''));
-                            if (event.description) tooltipParts.push(event.description);
-                            if (event.taskStatus) tooltipParts.push(`Status: ${event.taskStatus}`);
-                            if (event.priority) tooltipParts.push(`Priority: ${event.priority}`);
-                            if (event.location) tooltipParts.push(`Room: ${event.location}`);
-                            if (event.employee) tooltipParts.push(`Employee: ${event.employee}`);
-                            eventEl.title = tooltipParts.filter(Boolean).join('\n');
-                        }
+                        // Tooltip handled by attachTaskHoverTooltip
                     } else {
                         // Working hours blocks are clickable to show shift details
                         eventEl.style.cursor = 'pointer';
@@ -27483,7 +27643,7 @@
                     }
                     
                     this.draggedEvent = event;
-                    this.draggedElement = e.target;
+                    this.draggedElement = e.currentTarget || e.target;
                     e.dataTransfer.effectAllowed = 'move';
                     e.dataTransfer.setData('text/html', e.target.innerHTML);
                     if (e.dataTransfer && event && event.id) {
@@ -27504,7 +27664,35 @@
                 
                 handleDrop: function(e, date, hour, minute = 0) {
                     e.preventDefault();
-                    if (!this.draggedEvent) return;
+                    // Support dropping external (sidebar/unscheduled) tasks into the date grid
+                    if (!this.draggedEvent) {
+                        const taskIdRaw = e.dataTransfer?.getData('application/x-task-id') || e.dataTransfer?.getData('text/plain') || '';
+                        const droppedTaskId = String(taskIdRaw).replace(/^task:/, '').replace(/^event:/, '');
+                        if (!droppedTaskId) return;
+                        const task = Array.isArray(window.tasksData) ? window.tasksData.find(t => t.id == droppedTaskId) : null;
+                        if (!task) return;
+
+                        const dateStr = date.toISOString().split('T')[0];
+                        const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                        task.dueDate = dateStr;
+                        task.dueTime = timeStr;
+
+                        if (typeof updateTaskViaAPI === 'function') {
+                            const apiId = String(droppedTaskId).startsWith('task-') ? String(droppedTaskId).replace('task-', '') : droppedTaskId;
+                            updateTaskViaAPI(apiId, {
+                                dueDate: task.dueDate || null,
+                                dueTime: task.dueTime || null,
+                                assignee: task.assignee || null,
+                                assignedTo: task.assignedTo || null,
+                                location: task.location || null
+                            });
+                        }
+
+                        convertTasksToEvents();
+                        this.render();
+                        try { renderUnassignedTasksSidebar(); } catch (_) {}
+                        return;
+                    }
                     
                     const dateStr = date.toISOString().split('T')[0];
                     const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
@@ -27517,8 +27705,6 @@
                     const origHour = origStart.getHours();
                     const origMinute = origStart.getMinutes();
                     
-                    alert(`Moving event from ${origHour}:${origMinute.toString().padStart(2, '0')} to ${hour}:${minute.toString().padStart(2, '0')}\nDuration: ${duration} hours\nNew time will be: ${hour}:${minute.toString().padStart(2, '0')} to ${hour + Math.floor(duration)}:${((minute + (duration % 1) * 60) % 60).toString().padStart(2, '0')}`);
-                    
                     console.log('Dragging event:', this.draggedEvent.title);
                     console.log('Original start:', this.draggedEvent.start);
                     console.log('Original end:', this.draggedEvent.end);
@@ -27530,8 +27716,10 @@
                     const eventIndex = eventDatabase.findIndex(ev => ev.id === this.draggedEvent.id);
                     if (eventIndex !== -1) {
                         const newStart = `${dateStr}T${timeStr}`;
-                        const endHour = hour + duration;
-                        const newEnd = `${dateStr}T${endHour.toString().padStart(2, '0')}:00:00`;
+                        const endTotalMinutes = (hour * 60 + minute) + (duration * 60);
+                        const endHour = Math.floor(endTotalMinutes / 60);
+                        const endMinute = endTotalMinutes % 60;
+                        const newEnd = `${dateStr}T${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}:00`;
                         
                         console.log('New end will be:', newEnd);
                         
@@ -27613,15 +27801,17 @@
                     if (!this.draggedEvent) return;
                     
                     const dateStr = date.toISOString().split('T')[0];
-                    const timeStr = `${hour.toString().padStart(2, '0')}:00:00`;
+                    const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
                     
                     // Update event
                     const eventIndex = eventDatabase.findIndex(ev => ev.id === this.draggedEvent.id);
                     if (eventIndex !== -1) {
                         eventDatabase[eventIndex].start = `${dateStr}T${timeStr}`;
                         const duration = this.calculateEventDuration(this.draggedEvent);
-                        const endHour = hour + duration;
-                        eventDatabase[eventIndex].end = `${dateStr}T${endHour.toString().padStart(2, '0')}:00:00`;
+                        const endTotalMinutes = (hour * 60 + minute) + (duration * 60);
+                        const endHour = Math.floor(endTotalMinutes / 60);
+                        const endMinute = endTotalMinutes % 60;
+                        eventDatabase[eventIndex].end = `${dateStr}T${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}:00`;
                         
                         // Update resource
                         if (this.viewMode === 'employee' || this.viewMode === 'provider') {
@@ -27766,6 +27956,13 @@
                     events.forEach(event => {
                         event.ondragend = (e) => {
                             e.target.style.opacity = '1';
+                            e.target.style.pointerEvents = '';
+                            if (this.draggedElement) {
+                                this.draggedElement.style.opacity = '1';
+                                this.draggedElement.style.pointerEvents = '';
+                            }
+                            this.draggedEvent = null;
+                            this.draggedElement = null;
                         };
                     });
                 },
