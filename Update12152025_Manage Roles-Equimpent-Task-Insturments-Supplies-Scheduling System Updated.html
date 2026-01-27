@@ -47518,7 +47518,10 @@ async function saveTaskToAPI(taskData) {
     try {
         console.log('💾 Saving task to API:', taskData);
         const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
-        const assignedById = Number.isFinite(Number(currentUser?.id)) ? Number(currentUser.id) : null;
+        const assignedById = typeof getCurrentUserId === 'function'
+            ? await getCurrentUserId()
+            : (Number.isFinite(Number(currentUser?.id)) ? Number(currentUser.id) : null);
+        const assignedByKey = taskData.createdBy || taskData.assignedBy || currentUser?.workEmail || currentUser?.email || currentUser?.username || currentUser?.name || null;
         const response = await fetch('/api/tasks', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -47537,6 +47540,8 @@ async function saveTaskToAPI(taskData) {
                 payAmount: taskData.payAmount || null,
                 timeEstimate: taskData.timeEstimate || null,
                 assignedById: taskData.assignedById || assignedById,
+                assignedBy: assignedByKey,
+                createdBy: taskData.createdBy || null,
                 assignedToId: taskData.assignedToId || null
             })
         });
