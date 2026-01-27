@@ -26959,6 +26959,15 @@
                                 if (resourceId === 'room-unassigned') return !task.location;
                                 return roomName && task.location && task.location.toLowerCase() === roomName.toLowerCase();
                             });
+                        } else if (this.viewMode === 'employee' || this.viewMode === 'provider') {
+                            allItems = (window.tasksData || []).filter(task => {
+                                const taskDate = (task.dueDate || '').toString().split('T')[0];
+                                const dateMatch = dateStr ? taskDate === dateStr : !!taskDate;
+                                const lacksTime = !task.dueTime || task.dueTime === '00:00';
+                                if (!dateMatch || !lacksTime) return false;
+                                const assignedKey = resolveEmployeeResourceId(task.assignee || task.assignedTo || task.claimedBy || null);
+                                return assignedKey && assignedKey === resourceId;
+                            });
                         } else {
                             // For tasks view, check task database for unscheduled items
                             allItems = employeeTasksDatabase.filter(task => {
@@ -33039,7 +33048,9 @@ window.addEventListener('load', function() {
                     // Sync to calendar
                     if (typeof convertTasksToEvents === 'function') {
                         convertTasksToEvents();
-                        if (window.calendar) {
+                        if (window.calendarInstance && typeof window.calendarInstance.render === 'function') {
+                            window.calendarInstance.render();
+                        } else if (window.calendar && typeof window.calendar.refetchEvents === 'function') {
                             window.calendar.refetchEvents();
                         }
                     }
