@@ -30335,18 +30335,29 @@ function getClaimedByDisplay(claimedBy) {
     return claimedBy;
 }
 
-function getCurrentUserKey() {
+function getCurrentUserKeys() {
     const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
-    return currentUser?.email || currentUser?.id || currentUser?.name || null;
+    const keys = [
+        currentUser?.username,
+        currentUser?.email,
+        currentUser?.id,
+        currentUser?.name,
+        localStorage.getItem('loggedInUser')
+    ].filter(Boolean);
+    return Array.from(new Set(keys));
+}
+
+function getCurrentUserKey() {
+    const keys = getCurrentUserKeys();
+    return keys.length ? keys[0] : null;
 }
 
 function canEditTask(task) {
     if (!task) return false;
-    const currentUserKey = getCurrentUserKey();
-    if (!currentUserKey) return false;
-    // If task has no creator, allow (legacy); otherwise restrict to creator
-    if (!task.createdBy) return true;
-    return task.createdBy === currentUserKey;
+    const keys = getCurrentUserKeys();
+    if (!keys.length) return false;
+    if (!task.createdBy) return false;
+    return keys.includes(task.createdBy);
 }
 
 function loadTaskClaimCache() {
@@ -39290,7 +39301,8 @@ window.addEventListener('load', function() {
                         isPaid: taskData.isPaid,
                         payAmount: taskData.payAmount,
                         timeEstimate: taskData.timeEstimate,
-                        assignee: taskData.assignee
+                        assignee: taskData.assignee,
+                        createdBy: taskData.createdBy
                     });
                 }
             }
