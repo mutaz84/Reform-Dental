@@ -7856,6 +7856,43 @@
             transform: translateY(-1px);
             box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
         }
+
+        /* Current Time Indicator (Employee/Room views) */
+        .current-time-line {
+            position: absolute;
+            height: 2px;
+            background: rgba(239, 68, 68, 0.55); /* subtle red */
+            z-index: 50;
+            pointer-events: none;
+        }
+
+        .current-time-line::before {
+            content: '';
+            position: absolute;
+            left: -4px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(239, 68, 68, 0.65);
+        }
+
+        .current-time-label {
+            position: absolute;
+            left: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 10px;
+            font-weight: 600;
+            color: rgba(239, 68, 68, 0.85);
+            background: rgba(255, 255, 255, 0.85);
+            padding: 1px 6px;
+            border-radius: 999px;
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            pointer-events: none;
+            white-space: nowrap;
+        }
         
         .calendar-event .event-badge {
             display: inline-flex;
@@ -26429,6 +26466,11 @@
                                     isSyncingTop = true;
                                     scrollElement.scrollLeft = topScrollbarWrapper.scrollLeft;
                                     isSyncingTop = false;
+                                    try {
+                                        if (window.calendarInstance && typeof window.calendarInstance.updateCurrentTimeIndicator === 'function') {
+                                            window.calendarInstance.updateCurrentTimeIndicator();
+                                        }
+                                    } catch (_) {}
                                 };
                                 
                                 // When time-grid scrolls, move the top scrollbar
@@ -26437,6 +26479,11 @@
                                     isSyncingBottom = true;
                                     topScrollbarWrapper.scrollLeft = scrollElement.scrollLeft;
                                     isSyncingBottom = false;
+                                    try {
+                                        if (window.calendarInstance && typeof window.calendarInstance.updateCurrentTimeIndicator === 'function') {
+                                            window.calendarInstance.updateCurrentTimeIndicator();
+                                        }
+                                    } catch (_) {}
                                 };
                                 
                                 console.log('Scrollbars synced successfully');
@@ -26455,6 +26502,12 @@
                     
                     // Enable drag and drop
                     this.enableDragAndDrop();
+
+                    // Current-time indicator (Employee + Room views)
+                    try {
+                        if (typeof this.startCurrentTimeTicker === 'function') this.startCurrentTimeTicker();
+                        if (typeof this.updateCurrentTimeIndicator === 'function') this.updateCurrentTimeIndicator();
+                    } catch (_) {}
                 },
                 
                 renderMonthView: function() {
@@ -26669,6 +26722,7 @@
                         dayContainer.style.flex = '1';
                         dayContainer.style.minWidth = `${resources.length * 120}px`;
                         dayContainer.style.borderRight = '2px solid var(--border-color)';
+                        dayContainer.dataset.date = date.toISOString().split('T')[0];
                         
                         const dayHeader = document.createElement('div');
                         dayHeader.className = 'day-header';
@@ -26831,6 +26885,7 @@
                     // Time slots (30-minute intervals)
                     const slotsContainer = document.createElement('div');
                     slotsContainer.className = 'time-slots-container resource-slots';
+                    slotsContainer.style.position = 'relative';
                     
                     for (let hour = 7; hour < 23; hour++) {
                         for (let minute = 0; minute < 60; minute += 30) {
@@ -27985,6 +28040,147 @@
                             this.draggedElement = null;
                         };
                     });
+                },
+
+                // Current time indicator (Employee + Room views)
+                ensureTimeZone: async function() {
+                    if (this._resolvedTimeZone) return this._resolvedTimeZone;
+                    // Default to browser timezone
+                    try {
+                        this._resolvedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+                    } catch (_) {
+                        this._resolvedTimeZone = 'UTC';
+                    }
+                    // Best-effort IP-based timezone
+                    try {
+                        const resp = await fetch('https://ipapi.co/json/', { cache: 'no-store' });
+                        if (resp && resp.ok) {
+                            const data = await resp.json();
+                            if (data && data.timezone) {
+                                this._resolvedTimeZone = data.timezone;
+                            }
+                        }
+                    } catch (_) {
+                        // ignore; browser timezone already set
+                    }
+                    return this._resolvedTimeZone;
+                },
+
+                getNowInTimeZoneParts: function(timeZone) {
+                    // Returns { dateStr: 'YYYY-MM-DD', hour, minute, second }
+                    const dt = new Date();
+                    try {
+                        const parts = new Intl.DateTimeFormat('en-US', {
+                            timeZone,
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: false
+                        }).formatToParts(dt);
+
+                        const get = (type) => parts.find(p => p.type === type)?.value;
+                        const year = get('year');
+                        const month = get('month');
+                        const day = get('day');
+                        const hour = parseInt(get('hour') || '0', 10);
+                        const minute = parseInt(get('minute') || '0', 10);
+                        const second = parseInt(get('second') || '0', 10);
+                        return { dateStr: `${year}-${month}-${day}`, hour, minute, second };
+                    } catch (_) {
+                        // Fallback to local
+                        const d = new Date();
+                        const dateStr = d.toISOString().split('T')[0];
+                        return { dateStr, hour: d.getHours(), minute: d.getMinutes(), second: d.getSeconds() };
+                    }
+                },
+
+                startCurrentTimeTicker: function() {
+                    if (this._currentTimeIntervalId) return;
+                    this._currentTimeIntervalId = setInterval(() => {
+                        try { this.updateCurrentTimeIndicator(); } catch (_) {}
+                    }, 30 * 1000);
+                },
+
+                stopCurrentTimeTicker: function() {
+                    if (this._currentTimeIntervalId) {
+                        clearInterval(this._currentTimeIntervalId);
+                        this._currentTimeIntervalId = null;
+                    }
+                },
+
+                updateCurrentTimeIndicator: async function() {
+                    // Only for Employee + Room views
+                    if (!(this.viewMode === 'employee' || this.viewMode === 'room')) return;
+
+                    const container = document.getElementById('calendar');
+                    if (!container) return;
+
+                    const grid = container.querySelector('.time-grid.resource-grid');
+                    if (!grid) return;
+
+                    const slotsContainer = grid.querySelector('.time-slots-container.resource-slots');
+                    const header = grid.querySelector('.time-grid-header.resource-header');
+                    if (!slotsContainer || !header) return;
+
+                    const tz = await this.ensureTimeZone();
+                    const now = this.getNowInTimeZoneParts(tz);
+                    const todayStr = now.dateStr;
+
+                    // Determine if today is visible
+                    const dayHeader = header.querySelector(`div[data-date="${todayStr}"]`);
+                    if (!dayHeader) {
+                        // Not viewing today's date range
+                        const existing = slotsContainer.querySelector('.current-time-line');
+                        if (existing) existing.style.display = 'none';
+                        return;
+                    }
+
+                    // Grid visible hours (matches creation loops)
+                    const startHour = 7;
+                    const endHour = 23;
+                    const totalMinutes = now.hour * 60 + now.minute + (now.second / 60);
+                    const startMinutes = startHour * 60;
+                    const endMinutes = endHour * 60;
+                    if (totalMinutes < startMinutes || totalMinutes > endMinutes) {
+                        const existing = slotsContainer.querySelector('.current-time-line');
+                        if (existing) existing.style.display = 'none';
+                        return;
+                    }
+
+                    // Measure pixels-per-minute from first 30-min row
+                    let pxPerMinute = 1;
+                    const firstRow = slotsContainer.querySelector('.time-slot-row');
+                    if (firstRow) {
+                        const rowH = firstRow.getBoundingClientRect().height || 30;
+                        pxPerMinute = rowH / 30;
+                    }
+
+                    const y = (totalMinutes - startMinutes) * pxPerMinute;
+
+                    let line = slotsContainer.querySelector('.current-time-line');
+                    if (!line) {
+                        line = document.createElement('div');
+                        line.className = 'current-time-line';
+                        const label = document.createElement('span');
+                        label.className = 'current-time-label';
+                        label.textContent = 'Now';
+                        line.appendChild(label);
+                        slotsContainer.appendChild(line);
+                    }
+
+                    // Align to today's day columns only
+                    const slotsRect = slotsContainer.getBoundingClientRect();
+                    const dayRect = dayHeader.getBoundingClientRect();
+                    const left = Math.max(0, dayRect.left - slotsRect.left);
+                    const width = Math.max(0, dayRect.width);
+
+                    line.style.display = 'block';
+                    line.style.top = `${Math.max(0, y)}px`;
+                    line.style.left = `${left}px`;
+                    line.style.width = `${width}px`;
                 },
                 
                 handleSlotClick: function(date, hour, minute = 0) {
