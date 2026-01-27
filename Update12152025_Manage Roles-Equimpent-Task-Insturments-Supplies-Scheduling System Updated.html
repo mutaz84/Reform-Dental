@@ -25515,8 +25515,13 @@
             dropzone.addEventListener('dragleave', () => {
                 dropzone.classList.remove('drag-over');
             });
-            dropzone.addEventListener('drop', () => {
+            dropzone.addEventListener('drop', (e) => {
                 dropzone.classList.remove('drag-over');
+                const taskIdRaw = e.dataTransfer?.getData('application/x-task-id') || e.dataTransfer?.getData('text/plain') || '';
+                const taskId = String(taskIdRaw).replace(/^task:/, '').replace(/^event:/, '');
+                if (taskId) {
+                    unassignTask(taskId);
+                }
             });
         }
 
@@ -27370,6 +27375,18 @@
                             e.preventDefault();
                             this.showEventContextMenu(e, event);
                         };
+
+                        // Hover tooltip with task details
+                        if (isTask) {
+                            const tooltipParts = [];
+                            if (event.title) tooltipParts.push(event.title.replace(/^\s*[\p{Emoji_Presentation}\p{Extended_Pictographic}]\s*/u, ''));
+                            if (event.description) tooltipParts.push(event.description);
+                            if (event.taskStatus) tooltipParts.push(`Status: ${event.taskStatus}`);
+                            if (event.priority) tooltipParts.push(`Priority: ${event.priority}`);
+                            if (event.location) tooltipParts.push(`Room: ${event.location}`);
+                            if (event.employee) tooltipParts.push(`Employee: ${event.employee}`);
+                            eventEl.title = tooltipParts.filter(Boolean).join('\n');
+                        }
                     } else {
                         // Working hours blocks are clickable to show shift details
                         eventEl.style.cursor = 'pointer';
@@ -27469,6 +27486,12 @@
                     this.draggedElement = e.target;
                     e.dataTransfer.effectAllowed = 'move';
                     e.dataTransfer.setData('text/html', e.target.innerHTML);
+                    if (e.dataTransfer && event && event.id) {
+                        e.dataTransfer.setData('text/plain', `event:${event.id}`);
+                        if (event.isTask) {
+                            e.dataTransfer.setData('application/x-task-id', event.id);
+                        }
+                    }
                     
                     // Use requestAnimationFrame to apply styles after drag image is captured
                     requestAnimationFrame(() => {
@@ -27514,6 +27537,25 @@
                         
                         eventDatabase[eventIndex].start = newStart;
                         eventDatabase[eventIndex].end = newEnd;
+
+                        if (eventDatabase[eventIndex].isTask) {
+                            const taskId = eventDatabase[eventIndex].id;
+                            const task = Array.isArray(window.tasksData) ? window.tasksData.find(t => t.id == taskId) : null;
+                            if (task) {
+                                task.dueDate = dateStr;
+                                task.dueTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                                if (typeof updateTaskViaAPI === 'function') {
+                                    const apiId = String(taskId).startsWith('task-') ? String(taskId).replace('task-', '') : taskId;
+                                    updateTaskViaAPI(apiId, {
+                                        dueDate: task.dueDate || null,
+                                        dueTime: task.dueTime || null,
+                                        assignee: task.assignee || null,
+                                        assignedTo: task.assignedTo || null,
+                                        location: task.location || null
+                                    });
+                                }
+                            }
+                        }
                     }
                     
                     this.draggedEvent = null;
@@ -27590,6 +27632,31 @@
                             const resource = roomResources.find(r => r.id === resourceId);
                             if (resource) {
                                 eventDatabase[eventIndex].location = resource.title;
+                            }
+                        }
+
+                        if (eventDatabase[eventIndex].isTask) {
+                            const taskId = eventDatabase[eventIndex].id;
+                            const task = Array.isArray(window.tasksData) ? window.tasksData.find(t => t.id == taskId) : null;
+                            if (task) {
+                                task.dueDate = dateStr;
+                                task.dueTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                                if (this.viewMode === 'employee' || this.viewMode === 'provider') {
+                                    task.assignee = resourceId;
+                                    task.assignedTo = resourceId;
+                                } else if (this.viewMode === 'room') {
+                                    task.location = resourceId === 'room-unassigned' ? '' : (roomResources.find(r => r.id === resourceId)?.title || resourceId);
+                                }
+                                if (typeof updateTaskViaAPI === 'function') {
+                                    const apiId = String(taskId).startsWith('task-') ? String(taskId).replace('task-', '') : taskId;
+                                    updateTaskViaAPI(apiId, {
+                                        dueDate: task.dueDate || null,
+                                        dueTime: task.dueTime || null,
+                                        assignee: task.assignee || null,
+                                        assignedTo: task.assignedTo || null,
+                                        location: task.location || null
+                                    });
+                                }
                             }
                         }
                     }
