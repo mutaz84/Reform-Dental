@@ -25194,7 +25194,8 @@
                     }
                     
                     // Determine employee/resource for task
-                    let resourceId = task.assignee || task.assignedTo || task.claimedBy || null;
+                    const claimInfo = (typeof getTaskClaimInfo === 'function') ? getTaskClaimInfo(task) : { claimedBy: task.claimedBy || null };
+                    let resourceId = task.assignee || task.assignedTo || claimInfo.claimedBy || null;
                     
                     // Parse the date - handle various formats
                     let taskDate = '';
@@ -25237,13 +25238,19 @@
                     let taskIcon = '📋';
                     if (task.taskType === 'Floating') taskIcon = '🎯';
                     if (task.taskType === 'Bonus') taskIcon = '⭐';
+
+                    const isClaimed = (task.taskType === 'Floating' || task.taskType === 'Bonus') && !!claimInfo.claimedBy;
+                    const claimedFlag = isClaimed ? '🚩 ' : '';
+                    const claimedByText = isClaimed && (typeof getClaimedByDisplay === 'function')
+                        ? ` | Claimed by: ${getClaimedByDisplay(claimInfo.claimedBy)}`
+                        : (isClaimed ? ' | Claimed' : '');
                     
                     // Generate room ID from location for room view matching
                     const roomId = task.location ? 'room-' + task.location.toLowerCase().replace(/\s+/g, '-') : null;
                     
                     const taskEvent = {
                         id: task.id,
-                        title: `${taskIcon} ${task.title}`,
+                        title: `${taskIcon} ${claimedFlag}${task.title}`,
                         start: `${taskDate}T${taskTime}:00`,
                         end: `${taskDate}T${taskTime}:00`,
                         resourceId: resourceId,
@@ -25251,7 +25258,7 @@
                         employee: resourceId,
                         priority: task.priority,
                         description: task.description,
-                        notes: `Type: ${task.taskType} | Status: ${task.status}${task.isPaid ? ' | Paid: $' + task.payAmount : ''}`,
+                        notes: `Type: ${task.taskType} | Status: ${task.status}${task.isPaid ? ' | Paid: $' + task.payAmount : ''}${claimedByText}`,
                         paid: task.isPaid || false,
                         overdue: task.status === 'Overdue',
                         type: 'task',
