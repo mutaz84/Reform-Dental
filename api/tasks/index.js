@@ -67,7 +67,9 @@ module.exports = async function (context, req) {
                 .input('priority', sql.NVarChar, body.priority || 'Medium')
                 .input('status', sql.NVarChar, body.status || 'Pending')
                 .input('dueDate', sql.Date, body.dueDate || null)
+                .input('dueTime', sql.NVarChar, body.dueTime || null)
                 .input('assignedToId', sql.Int, body.assignedToId || null)
+                .input('assignedById', sql.Int, body.assignedById || null)
                 .input('clinicId', sql.Int, body.clinicId || null)
                 .input('taskType', sql.NVarChar, body.taskType || 'Regular')
                 .input('isPaid', sql.Bit, body.isPaid || false)
@@ -75,8 +77,8 @@ module.exports = async function (context, req) {
                 .input('location', sql.NVarChar, body.location || null)
                 .input('timeEstimate', sql.NVarChar, body.timeEstimate || null)
                 .input('assignee', sql.NVarChar, body.assignee || null)
-                .query(`INSERT INTO Tasks (Title, Description, Category, Priority, Status, DueDate, AssignedToId, ClinicId, TaskType, IsPaid, PayAmount, Location, TimeEstimate, Assignee) 
-                        OUTPUT INSERTED.Id VALUES (@title, @description, @category, @priority, @status, @dueDate, @assignedToId, @clinicId, @taskType, @isPaid, @payAmount, @location, @timeEstimate, @assignee)`);
+                .query(`INSERT INTO Tasks (Title, Description, Category, Priority, Status, DueDate, DueTime, AssignedToId, AssignedById, ClinicId, TaskType, IsPaid, PayAmount, Location, TimeEstimate, Assignee) 
+                        OUTPUT INSERTED.Id VALUES (@title, @description, @category, @priority, @status, @dueDate, @dueTime, @assignedToId, @assignedById, @clinicId, @taskType, @isPaid, @payAmount, @location, @timeEstimate, @assignee)`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
@@ -88,6 +90,9 @@ module.exports = async function (context, req) {
                 .input('priority', sql.NVarChar, body.priority)
                 .input('status', sql.NVarChar, body.status)
                 .input('dueDate', sql.Date, body.dueDate || null)
+                .input('dueTime', sql.NVarChar, body.dueTime || null)
+                .input('assignedToId', sql.Int, body.assignedToId || null)
+                .input('assignedById', sql.Int, body.assignedById || null)
                 .input('taskType', sql.NVarChar, body.taskType || 'Regular')
                 .input('isPaid', sql.Bit, body.isPaid || false)
                 .input('payAmount', sql.Decimal(10,2), body.payAmount || null)
@@ -96,7 +101,7 @@ module.exports = async function (context, req) {
                 .input('assignee', sql.NVarChar, body.assignee || null)
                 .input('claimedBy', sql.NVarChar, body.claimedBy || null)
                 .input('claimedAt', sql.DateTime, body.claimedAt || null)
-                .query(`UPDATE Tasks SET Title=@title, Description=@description, Category=@category, Priority=@priority, Status=@status, DueDate=@dueDate, TaskType=@taskType, IsPaid=@isPaid, PayAmount=@payAmount, Location=@location, TimeEstimate=@timeEstimate, Assignee=@assignee, ClaimedBy=@claimedBy, ClaimedAt=@claimedAt, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+                .query(`UPDATE Tasks SET Title=@title, Description=@description, Category=@category, Priority=@priority, Status=@status, DueDate=@dueDate, DueTime=@dueTime, AssignedToId=@assignedToId, AssignedById=@assignedById, TaskType=@taskType, IsPaid=@isPaid, PayAmount=@payAmount, Location=@location, TimeEstimate=@timeEstimate, Assignee=@assignee, ClaimedBy=@claimedBy, ClaimedAt=@claimedAt, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Task updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()
