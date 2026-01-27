@@ -30611,6 +30611,7 @@ function getCurrentUserKeys() {
         localStorage.getItem('loggedInUser'),
         currentUser?.username,
         currentUser?.email,
+        currentUser?.dbId,
         currentUser?.id,
         currentUser?.name
     ].filter(Boolean);
@@ -30627,8 +30628,12 @@ function canEditTask(task) {
     const keys = getCurrentUserKeys();
     if (!keys.length) return false;
     const creator = getTaskCreator(task);
-    if (!creator) return false;
-    return keys.includes(creator);
+    const assignedById = task.assignedById || task.AssignedById || null;
+    if (creator && keys.includes(creator)) return true;
+    if (assignedById !== null && assignedById !== undefined) {
+        return keys.includes(assignedById) || keys.includes(String(assignedById));
+    }
+    return false;
 }
 
 function loadTaskCreatorCache() {
