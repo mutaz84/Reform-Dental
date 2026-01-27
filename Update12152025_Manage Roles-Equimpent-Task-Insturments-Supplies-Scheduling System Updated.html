@@ -32784,7 +32784,39 @@ window.addEventListener('load', function() {
                 console.log('📥 Loading tasks from API...');
                 const response = await fetch('/api/tasks');
                 if (response.ok) {
-                    window.tasksData = await response.json();
+                    const apiTasks = await response.json();
+                    const localTasks = (apiTasks || []).map(t => ({
+                        id: `task-${t.Id || t.id}`,
+                        title: t.Title || t.title,
+                        description: t.Description || t.description || '',
+                        assignee: t.Assignee || t.assignee || t.AssignedUserId || t.assignedUserId || '',
+                        secondaryAssignee: t.SecondaryAssignee || t.secondaryAssignee || '',
+                        clinic: t.ClinicId || t.clinicId || '',
+                        dueDate: t.DueDate || t.dueDate || '',
+                        dueTime: t.DueTime || t.dueTime || '',
+                        priority: t.Priority || t.priority || 'Medium',
+                        status: t.Status || t.status || 'Pending',
+                        category: t.Category || t.category || '',
+                        taskType: t.TaskType || t.taskType || 'general',
+                        location: t.Location || t.location || '',
+                        recurrence: t.Recurrence || t.recurrence || 'One-time',
+                        complianceFlag: t.ComplianceFlag || t.complianceFlag || false,
+                        isPaid: t.IsPaid || t.isPaid || false,
+                        payAmount: t.PayAmount || t.payAmount || 0,
+                        timeEstimate: t.TimeEstimate || t.timeEstimate || '',
+                        createdAt: t.CreatedAt || t.createdAt || new Date().toISOString(),
+                        createdBy: t.CreatedBy || t.createdBy || t.AssignedById || t.assignedById || '',
+                        assignedById: t.AssignedById || t.assignedById || null,
+                        assignedToId: t.AssignedToId || t.assignedToId || null,
+                        claimedBy: t.ClaimedBy || t.claimedBy || null,
+                        claimedAt: t.ClaimedAt || t.claimedAt || null,
+                        completedAt: t.CompletedAt || t.completedAt || null,
+                        completedBy: t.CompletedBy || t.completedBy || null,
+                        notes: t.Notes || t.notes || ''
+                    }));
+
+                    window.tasksData = localTasks;
+                    localStorage.setItem('tasksData', JSON.stringify(localTasks));
                     console.log('✅ Loaded', window.tasksData.length, 'tasks from API');
                     applyClaimCacheToTasks();
                     applyCreatorCacheToTasks();
@@ -32800,6 +32832,9 @@ window.addEventListener('load', function() {
                     // Render task lists
                     if (typeof renderTasksList === 'function') {
                         renderTasksList();
+                    }
+                    if (typeof renderThisWeekTasks === 'function') {
+                        renderThisWeekTasks();
                     }
                     renderUnassignedTasksSidebar();
                 } else {
@@ -38417,8 +38452,15 @@ window.addEventListener('load', function() {
         };
         
         // Open edit task modal
-        window.openEditTaskModal = function(taskId) {
+        window.openEditTaskModal = async function(taskId) {
             console.log('openEditTaskModal called for:', taskId);
+            if (typeof loadTasksFromAPI === 'function') {
+                try {
+                    await loadTasksFromAPI();
+                } catch (e) {
+                    console.warn('Failed to refresh tasks before edit:', e);
+                }
+            }
             const task = window.tasksData?.find(t => t.id === taskId);
             if (task && !canEditTask(task)) {
                 if (typeof showNotification === 'function') {
