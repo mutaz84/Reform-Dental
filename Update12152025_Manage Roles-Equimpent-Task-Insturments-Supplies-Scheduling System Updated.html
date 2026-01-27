@@ -25275,6 +25275,18 @@
         // This happens AFTER all databases are defined but BEFORE the calendar initializes
         function convertTasksToEvents() {
             console.log('Converting tasks to calendar events...');
+
+            const normalizeTimeHHMM = (value) => {
+                if (value === null || value === undefined) return '';
+                const raw = String(value).trim();
+                if (!raw) return '';
+                // Accept HH:MM, HH:MM:SS, ISO datetime, etc.
+                const m = raw.match(/(\d{1,2}):(\d{2})/);
+                if (!m) return '';
+                const hh = String(Math.max(0, Math.min(23, parseInt(m[1], 10) || 0))).padStart(2, '0');
+                const mm = String(Math.max(0, Math.min(59, parseInt(m[2], 10) || 0))).padStart(2, '0');
+                return `${hh}:${mm}`;
+            };
             
             // First, process employeeTasksDatabase (legacy tasks)
             employeeTasksDatabase.forEach(task => {
@@ -25325,7 +25337,8 @@
                         return;
                     }
 
-                    const hasDueTime = !!(task.dueTime && String(task.dueTime).trim() && task.dueTime !== '00:00');
+                    const dueTimeHHMM = normalizeTimeHHMM(task.dueTime);
+                    const hasDueTime = !!(dueTimeHHMM && dueTimeHHMM !== '00:00');
                     if (!hasDueTime) {
                         const existingIndex = eventDatabase.findIndex(e => e.id === task.id);
                         if (existingIndex !== -1) {
@@ -25361,8 +25374,8 @@
                     }
                     
                     // Override with explicit dueTime if provided
-                    if (task.dueTime && task.dueTime.trim() && task.dueTime !== '00:00') {
-                        taskTime = task.dueTime;
+                    if (dueTimeHHMM && dueTimeHHMM !== '00:00') {
+                        taskTime = dueTimeHHMM;
                     }
                     
                     console.log('📅 Task date/time:', taskDate, taskTime, 'Location:', task.location);
@@ -27132,6 +27145,13 @@
                 getUnscheduledItemsForResource: function(resourceId, date = null) {
                     let allItems = [];
                     const dateStr = date ? date.toISOString().split('T')[0] : null;
+                    const isNoTime = (t) => {
+                        if (!t) return true;
+                        const s = String(t).trim();
+                        if (!s) return true;
+                        const hhmm = (s.match(/(\d{1,2}):(\d{2})/) || [])[0] || '';
+                        return hhmm === '00:00';
+                    };
                     
                     // Get duties without time/date
                     if (currentEmployeeDataType === 'duties') {
@@ -27146,7 +27166,7 @@
                             allItems = (window.tasksData || []).filter(task => {
                                 const taskDate = (task.dueDate || '').toString().split('T')[0];
                                 const dateMatch = dateStr ? taskDate === dateStr : !!taskDate;
-                                const lacksTime = !task.dueTime || task.dueTime === '00:00';
+                                const lacksTime = isNoTime(task.dueTime);
                                 if (!dateMatch || !lacksTime) return false;
                                 if (resourceId === 'room-unassigned') return !task.location;
                                 return roomName && task.location && task.location.toLowerCase() === roomName.toLowerCase();
@@ -27155,7 +27175,7 @@
                             allItems = (window.tasksData || []).filter(task => {
                                 const taskDate = (task.dueDate || '').toString().split('T')[0];
                                 const dateMatch = dateStr ? taskDate === dateStr : !!taskDate;
-                                const lacksTime = !task.dueTime || task.dueTime === '00:00';
+                                const lacksTime = isNoTime(task.dueTime);
                                 if (!dateMatch || !lacksTime) return false;
                                 const assignedKey = resolveEmployeeResourceId(task.assignee || task.assignedTo || task.claimedBy || null);
                                 return assignedKey && assignedKey === resourceId;
