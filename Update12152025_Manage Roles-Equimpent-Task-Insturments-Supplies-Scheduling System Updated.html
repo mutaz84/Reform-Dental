@@ -30608,11 +30608,11 @@ function getClaimedByDisplay(claimedBy) {
 function getCurrentUserKeys() {
     const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
     const keys = [
+        localStorage.getItem('loggedInUser'),
         currentUser?.username,
         currentUser?.email,
         currentUser?.id,
-        currentUser?.name,
-        localStorage.getItem('loggedInUser')
+        currentUser?.name
     ].filter(Boolean);
     return Array.from(new Set(keys));
 }
@@ -30654,27 +30654,57 @@ function saveTaskCreatorCache() {
     }
 }
 
+function getTaskCacheKeys(taskId) {
+    if (!taskId) return [];
+    const keys = [String(taskId)];
+    if (String(taskId).startsWith('task-')) {
+        keys.push(String(taskId).replace('task-', ''));
+    }
+    return Array.from(new Set(keys));
+}
+
 function recordTaskCreator(taskId, creator) {
     if (!taskId || !creator) return;
     if (!window.__taskCreatorCache) loadTaskCreatorCache();
-    window.__taskCreatorCache[taskId] = creator;
+    const keys = getTaskCacheKeys(taskId);
+    keys.forEach(k => { window.__taskCreatorCache[k] = creator; });
     saveTaskCreatorCache();
+}
+
+function normalizeTaskCreatorFields(task) {
+    if (!task) return null;
+    const creator = task.createdBy || task.CreatedBy || task.created_by || task.createdByUser || task.createdByUserId || task.createdByUsername;
+    if (creator) task.createdBy = creator;
+    return task.createdBy || null;
 }
 
 function getTaskCreator(task) {
     if (!task) return null;
-    if (task.createdBy) return task.createdBy;
+    const normalized = normalizeTaskCreatorFields(task);
+    if (normalized) return normalized;
     const cache = window.__taskCreatorCache || {};
-    return cache[task.id] || null;
+    const keys = getTaskCacheKeys(task.id);
+    for (const key of keys) {
+        if (cache[key]) return cache[key];
+    }
+    return null;
 }
 
 function applyCreatorCacheToTasks() {
     if (!Array.isArray(window.tasksData)) return;
     if (!window.__taskCreatorCache) loadTaskCreatorCache();
     window.tasksData.forEach(t => {
-        if (!t || t.createdBy) return;
-        const cached = window.__taskCreatorCache[t.id];
-        if (cached) t.createdBy = cached;
+        if (!t) return;
+        normalizeTaskCreatorFields(t);
+        if (t.createdBy) return;
+        const keys = getTaskCacheKeys(t.id);
+        for (const key of keys) {
+            const cached = window.__taskCreatorCache[key];
+            if (cached) {
+                t.createdBy = cached;
+                break;
+            }
+        }
     });
 }
 
@@ -39558,7 +39588,7 @@ window.addEventListener('load', function() {
                 visibleTo: visibleTo,
                 // Timestamps
                 createdAt: new Date().toISOString(),
-                createdBy: getCurrentUserKey() || 'Unknown',
+                createdBy: getCurrentUserKeys()[0] || 'Unknown',
                 completedAt: null,
                 completedBy: null,
                 completedTime: null,
