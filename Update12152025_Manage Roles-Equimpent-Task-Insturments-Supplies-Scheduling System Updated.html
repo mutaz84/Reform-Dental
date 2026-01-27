@@ -25240,6 +25240,20 @@
         // Initialize duties from localStorage
         loadEmployeeDuties();
 
+        function resolveEmployeeResourceId(raw) {
+            if (!raw) return null;
+            const key = String(raw).trim();
+            if (!key) return null;
+            if (typeof employeeResources !== 'undefined' && Array.isArray(employeeResources)) {
+                const direct = employeeResources.find(e => e.id === key);
+                if (direct) return direct.id;
+                const lower = key.toLowerCase();
+                const byTitle = employeeResources.find(e => (e.title || '').toLowerCase() === lower);
+                if (byTitle) return byTitle.id;
+            }
+            return key;
+        }
+
         // Automatically convert tasks from employeeTasksDatabase and window.tasksData to calendar events
         // This happens AFTER all databases are defined but BEFORE the calendar initializes
         function convertTasksToEvents() {
@@ -25306,7 +25320,7 @@
                     
                     // Determine employee/resource for task
                     const claimInfo = (typeof getTaskClaimInfo === 'function') ? getTaskClaimInfo(task) : { claimedBy: task.claimedBy || null };
-                    let resourceId = task.assignee || task.assignedTo || claimInfo.claimedBy || null;
+                    let resourceId = resolveEmployeeResourceId(task.assignee || task.assignedTo || claimInfo.claimedBy || null);
                     
                     // Parse the date - handle various formats
                     let taskDate = '';
