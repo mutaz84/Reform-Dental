@@ -7893,6 +7893,14 @@
             pointer-events: none;
             white-space: nowrap;
         }
+
+        /* Overdue tasks that follow the current-time line (visual only) */
+        .calendar-event.overdue-follow-now {
+            box-shadow: 0 6px 18px rgba(239, 68, 68, 0.18) !important;
+            border-left-color: rgba(239, 68, 68, 0.85) !important;
+            outline: 1px dashed rgba(239, 68, 68, 0.35);
+            z-index: 60 !important;
+        }
         
         .calendar-event .event-badge {
             display: inline-flex;
@@ -28097,6 +28105,44 @@
                     }
                 },
 
+                isCompletedTaskStatus: function(status) {
+                    const s = String(status || '').trim().toLowerCase();
+                    if (!s) return false;
+                    return s === 'done' || s === 'complete' || s === 'completed' || s.includes('complete');
+                },
+
+                normalizeTimeFromIso: function(isoOrTime) {
+                    if (!isoOrTime) return '';
+                    const raw = String(isoOrTime);
+                    const timePart = raw.includes('T') ? (raw.split('T')[1] || '') : raw;
+                    const m = timePart.match(/(\d{1,2}):(\d{2})/);
+                    if (!m) return '';
+                    const hh = String(Math.max(0, Math.min(23, parseInt(m[1], 10) || 0))).padStart(2, '0');
+                    const mm = String(Math.max(0, Math.min(59, parseInt(m[2], 10) || 0))).padStart(2, '0');
+                    return `${hh}:${mm}`;
+                },
+
+                shouldOverdueTaskFollowNow: function(event) {
+                    if (!event || !event.isTask) return false;
+                    if (this.isCompletedTaskStatus(event.taskStatus)) return false;
+                    if (!event.start) return false;
+
+                    // Only follow on the task's due date (today)
+                    const tz = this._resolvedTimeZone || (() => {
+                        try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (_) { return 'UTC'; }
+                    })();
+                    const now = this.getNowInTimeZoneParts(tz);
+                    const eventDateStr = String(event.start).split('T')[0];
+                    if (eventDateStr !== now.dateStr) return false;
+
+                    const hhmm = this.normalizeTimeFromIso(event.start);
+                    if (!hhmm) return false;
+                    const [h, m] = hhmm.split(':').map(n => parseInt(n, 10));
+                    const eventMinutes = (h * 60) + (m || 0);
+                    const nowMinutes = (now.hour * 60) + now.minute + (now.second / 60);
+                    return nowMinutes > eventMinutes;
+                },
+
                 startCurrentTimeTicker: function() {
                     if (this._currentTimeIntervalId) return;
                     this._currentTimeIntervalId = setInterval(() => {
@@ -28160,6 +28206,12 @@
 
                     const y = (totalMinutes - startMinutes) * pxPerMinute;
 
+                    // Cache current-time layout for overdue-following tasks
+                    this._currentTimeLayout = {
+                        dateStr: todayStr,
+                        y: Math.max(0, y)
+                    };
+
                     let line = slotsContainer.querySelector('.current-time-line');
                     if (!line) {
                         line = document.createElement('div');
@@ -28181,6 +28233,61 @@
                     line.style.top = `${Math.max(0, y)}px`;
                     line.style.left = `${left}px`;
                     line.style.width = `${width}px`;
+
+                    // Move overdue tasks to follow the line (visual only)
+                    try { this.updateOverdueFollowPositions(); } catch (_) {}
+                },
+
+                updateOverdueFollowPositions: function() {
+                    if (!(this.viewMode === 'employee' || this.viewMode === 'room')) return;
+                    const layout = this._currentTimeLayout;
+                    if (!layout) return;
+
+                    const container = document.getElementById('calendar');
+                    if (!container) return;
+                    const grid = container.querySelector('.time-grid.resource-grid');
+                    if (!grid) return;
+                    const slotsContainer = grid.querySelector('.time-slots-container.resource-slots');
+                    const header = grid.querySelector('.time-grid-header.resource-header');
+                    if (!slotsContainer || !header) return;
+
+                    const slotsRect = slotsContainer.getBoundingClientRect();
+                    const dayHeader = header.querySelector(`div[data-date="${layout.dateStr}"]`);
+                    if (!dayHeader) return;
+                    const dayRect = dayHeader.getBoundingClientRect();
+                    const dayLeft = Math.max(0, dayRect.left - slotsRect.left);
+                    const dayRight = dayLeft + Math.max(0, dayRect.width);
+
+                    const nowY = layout.y;
+                    const els = slotsContainer.querySelectorAll('.calendar-event[data-type="task"]');
+                    els.forEach(el => {
+                        // Determine whether this specific event should follow now
+                        const eventId = el.getAttribute('data-event-id');
+                        const ev = eventDatabase && eventId ? eventDatabase.find(e => String(e.id) === String(eventId)) : null;
+                        const shouldFollow = !!(ev && this.shouldOverdueTaskFollowNow(ev));
+                        
+                        if (!shouldFollow) {
+                            el.classList.remove('overdue-follow-now');
+                            el.style.transform = '';
+                            return;
+                        }
+
+                        // Only affect items in today's day columns
+                        const elRect = el.getBoundingClientRect();
+                        const elLeft = elRect.left - slotsRect.left;
+                        const elRight = elLeft + elRect.width;
+                        const overlapsToday = (elRight > dayLeft + 1) && (elLeft < dayRight - 1);
+                        if (!overlapsToday) {
+                            el.classList.remove('overdue-follow-now');
+                            el.style.transform = '';
+                            return;
+                        }
+
+                        el.classList.add('overdue-follow-now');
+                        const currentTop = (elRect.top - slotsRect.top);
+                        const delta = nowY - currentTop;
+                        el.style.transform = `translateY(${delta}px)`;
+                    });
                 },
                 
                 handleSlotClick: function(date, hour, minute = 0) {
