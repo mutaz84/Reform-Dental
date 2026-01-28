@@ -7901,6 +7901,28 @@
             outline: 1px dashed rgba(239, 68, 68, 0.35);
             z-index: 60 !important;
         }
+
+        /* A lightweight “follow now” proxy chip so tasks never disappear from their original slot */
+        .overdue-follow-proxy {
+            position: absolute;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0 6px;
+            border-radius: 999px;
+            background: rgba(239, 68, 68, 0.10);
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            border-left: 3px solid rgba(239, 68, 68, 0.75);
+            color: rgba(127, 29, 29, 0.95);
+            font-size: 11px;
+            font-weight: 600;
+            pointer-events: none;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            z-index: 55;
+        }
         
         .calendar-event .event-badge {
             display: inline-flex;
@@ -28176,7 +28198,14 @@
                     const todayStr = now.dateStr;
 
                     // Determine if today is visible
-                    const dayHeader = header.querySelector(`div[data-date="${todayStr}"]`);
+                    // Determine if today is visible (fallback to local date if TZ date differs from the rendered range)
+                    let dayHeader = header.querySelector(`div[data-date="${todayStr}"]`);
+                    if (!dayHeader) {
+                        try {
+                            const localTodayStr = new Date().toISOString().split('T')[0];
+                            dayHeader = header.querySelector(`div[data-date="${localTodayStr}"]`);
+                        } catch (_) {}
+                    }
                     if (!dayHeader) {
                         // Not viewing today's date range
                         const existing = slotsContainer.querySelector('.current-time-line');
@@ -28206,9 +28235,11 @@
 
                     const y = (totalMinutes - startMinutes) * pxPerMinute;
 
+                    const visibleDateStr = (dayHeader && dayHeader.dataset && dayHeader.dataset.date) ? dayHeader.dataset.date : todayStr;
+
                     // Cache current-time layout for overdue-following tasks
                     this._currentTimeLayout = {
-                        dateStr: todayStr,
+                        dateStr: visibleDateStr,
                         y: Math.max(0, y)
                     };
 
@@ -28260,6 +28291,11 @@
 
                     const nowY = layout.y;
                     const els = slotsContainer.querySelectorAll('.calendar-event[data-type="task"]');
+
+                    // Clear existing proxies; we rebuild them each tick for correctness.
+                    slotsContainer.querySelectorAll('.overdue-follow-proxy').forEach(p => p.remove());
+
+                    const proxyStackByColumn = new Map();
                     els.forEach(el => {
                         // Determine whether this specific event should follow now
                         const eventId = el.getAttribute('data-event-id');
@@ -28268,7 +28304,6 @@
                         
                         if (!shouldFollow) {
                             el.classList.remove('overdue-follow-now');
-                            el.style.transform = '';
                             return;
                         }
 
@@ -28279,14 +28314,26 @@
                         const overlapsToday = (elRight > dayLeft + 1) && (elLeft < dayRight - 1);
                         if (!overlapsToday) {
                             el.classList.remove('overdue-follow-now');
-                            el.style.transform = '';
                             return;
                         }
 
                         el.classList.add('overdue-follow-now');
-                        const currentTop = (elRect.top - slotsRect.top);
-                        const delta = nowY - currentTop;
-                        el.style.transform = `translateY(${delta}px)`;
+
+                        // Render a lightweight proxy at the current-time line so the original task stays visible.
+                        const colKey = `${Math.round(elLeft)}|${Math.round(elRect.width)}`;
+                        const stackIndex = proxyStackByColumn.get(colKey) || 0;
+                        proxyStackByColumn.set(colKey, stackIndex + 1);
+
+                        const proxy = document.createElement('div');
+                        proxy.className = 'overdue-follow-proxy';
+                        proxy.setAttribute('data-for-event-id', String(eventId || ''));
+                        const rawTitle = (ev && ev.title) ? String(ev.title) : (el.querySelector && el.querySelector('.event-text') ? (el.querySelector('.event-text').textContent || '') : (el.textContent || ''));
+                        const cleanedTitle = String(rawTitle || '').replace(/^[^A-Za-z0-9]+/, '').trim();
+                        proxy.textContent = `Overdue: ${cleanedTitle || 'Task'}`;
+                        proxy.style.left = `${Math.max(0, elLeft)}px`;
+                        proxy.style.width = `${Math.max(80, Math.min(elRect.width, 320))}px`;
+                        proxy.style.top = `${Math.max(0, nowY + (stackIndex * 20) - 9)}px`;
+                        slotsContainer.appendChild(proxy);
                     });
                 },
                 
