@@ -47536,6 +47536,55 @@ let currentOfficePlan = {
     uploadDate: null
 };
 
+async function fetchSettingsViaAPI() {
+    try {
+        const res = await fetch('/api/settings', { method: 'GET' });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch (e) {
+        return null;
+    }
+}
+
+async function saveOfficePlanViaAPI(plan) {
+    try {
+        const payload = {
+            officePlanTitle: plan?.title ?? '',
+            officePlanDescription: plan?.description ?? '',
+            officePlanImageUrl: plan?.imageUrl ?? '',
+            officePlanUploadDate: plan?.uploadDate ?? null
+        };
+
+        const res = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        return res.ok;
+    } catch (e) {
+        return false;
+    }
+}
+
+function applyOfficePlanToUI(plan) {
+    const img = document.getElementById('officePlanImage');
+    if (!img) return;
+
+    if (plan && plan.imageUrl) {
+        img.src = plan.imageUrl;
+        img.style.display = 'block';
+        document.getElementById('noOfficePlanPlaceholder').style.display = 'none';
+        document.getElementById('officePlanInfo').style.display = 'block';
+        document.getElementById('officePlanTitleDisplay').textContent = plan.title || 'Office Plan';
+        document.getElementById('officePlanDescDisplay').textContent = plan.description || 'Click image to view full screen';
+    } else {
+        img.style.display = 'none';
+        document.getElementById('noOfficePlanPlaceholder').style.display = 'block';
+        document.getElementById('officePlanInfo').style.display = 'none';
+    }
+}
+
 function showOfficePlan() {
     const modal = document.getElementById('officePlanModal');
     if (modal) {
@@ -47882,7 +47931,7 @@ function generateLargePracticeSVG() {
     return 'data:image/svg+xml;base64,' + btoa(svg);
 }
 
-function saveOfficePlan(event) {
+async function saveOfficePlan(event) {
     event.preventDefault();
     
     const title = document.getElementById('officePlanTitle').value || 'Office Plan';
@@ -47914,16 +47963,19 @@ function saveOfficePlan(event) {
     
     // Save to localStorage
     localStorage.setItem('officePlan', JSON.stringify(currentOfficePlan));
+
+    // Best-effort: also save to database via Settings API
+    const savedToDb = await saveOfficePlanViaAPI(currentOfficePlan);
     
     // Update display
-    document.getElementById('officePlanTitleDisplay').textContent = title;
-    document.getElementById('officePlanDescDisplay').textContent = description;
-    img.style.display = 'block';
-    document.getElementById('noOfficePlanPlaceholder').style.display = 'none';
-    document.getElementById('officePlanInfo').style.display = 'block';
+    applyOfficePlanToUI(currentOfficePlan);
     
     // Show success message
-    showNotification('Office plan saved successfully!', 'success');
+    if (savedToDb) {
+        showNotification('Office plan saved to database!', 'success');
+    } else {
+        showNotification('Office plan saved locally (database unavailable)', 'warning');
+    }
     
     // Clear form
     document.getElementById('officePlanForm').reset();
@@ -47935,30 +47987,34 @@ function clearOfficePlan() {
     document.getElementById('officePlanUrl').value = '';
 }
 
-function loadCurrentOfficePlan() {
-    // Load from localStorage if available
+async function loadCurrentOfficePlan() {
+    // Prefer database-backed settings if available
+    const settings = await fetchSettingsViaAPI();
+    if (settings && (settings.officePlanImageUrl || settings.officePlanTitle || settings.officePlanDescription)) {
+        currentOfficePlan = {
+            title: settings.officePlanTitle || 'Office Plan',
+            description: settings.officePlanDescription || 'Click image to view full screen',
+            imageUrl: settings.officePlanImageUrl || '',
+            uploadDate: settings.officePlanUploadDate || null
+        };
+        // Keep localStorage in sync for offline usage
+        localStorage.setItem('officePlan', JSON.stringify(currentOfficePlan));
+        applyOfficePlanToUI(currentOfficePlan);
+        return;
+    }
+
+    // Fallback: load from localStorage
     const savedPlan = localStorage.getItem('officePlan');
     if (savedPlan) {
-        currentOfficePlan = JSON.parse(savedPlan);
-        const img = document.getElementById('officePlanImage');
-        
-        if (currentOfficePlan.imageUrl) {
-            img.src = currentOfficePlan.imageUrl;
-            img.style.display = 'block';
-            document.getElementById('noOfficePlanPlaceholder').style.display = 'none';
-            document.getElementById('officePlanInfo').style.display = 'block';
-            document.getElementById('officePlanTitleDisplay').textContent = currentOfficePlan.title;
-            document.getElementById('officePlanDescDisplay').textContent = currentOfficePlan.description;
-        } else {
-            img.style.display = 'none';
-            document.getElementById('noOfficePlanPlaceholder').style.display = 'block';
-            document.getElementById('officePlanInfo').style.display = 'none';
+        try {
+            currentOfficePlan = JSON.parse(savedPlan);
+        } catch (e) {
+            currentOfficePlan = { title: '', description: '', imageUrl: '', uploadDate: null };
         }
+        applyOfficePlanToUI(currentOfficePlan);
     } else {
-        // No saved plan - show placeholder
-        document.getElementById('officePlanImage').style.display = 'none';
-        document.getElementById('noOfficePlanPlaceholder').style.display = 'block';
-        document.getElementById('officePlanInfo').style.display = 'none';
+        currentOfficePlan = { title: '', description: '', imageUrl: '', uploadDate: null };
+        applyOfficePlanToUI(currentOfficePlan);
     }
 }
 

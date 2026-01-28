@@ -1,5 +1,18 @@
 const sql = require('mssql');
 
+async function upsertSetting(pool, key, value, useMax = false) {
+    const inputType = useMax ? sql.NVarChar(sql.MAX) : sql.NVarChar;
+    await pool.request()
+        .input('key', sql.NVarChar, key)
+        .input('value', inputType, value)
+        .query(`
+            IF EXISTS (SELECT 1 FROM Settings WHERE SettingKey = @key)
+                UPDATE Settings SET SettingValue = @value, ModifiedDate = GETUTCDATE() WHERE SettingKey = @key
+            ELSE
+                INSERT INTO Settings (SettingKey, SettingValue) VALUES (@key, @value)
+        `);
+}
+
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
     if (connStr) {
@@ -54,39 +67,30 @@ module.exports = async function (context, req) {
             
             // Upsert each setting
             if (body.companyName !== undefined) {
-                await pool.request()
-                    .input('key', sql.NVarChar, 'companyName')
-                    .input('value', sql.NVarChar, body.companyName)
-                    .query(`
-                        IF EXISTS (SELECT 1 FROM Settings WHERE SettingKey = @key)
-                            UPDATE Settings SET SettingValue = @value, ModifiedDate = GETUTCDATE() WHERE SettingKey = @key
-                        ELSE
-                            INSERT INTO Settings (SettingKey, SettingValue) VALUES (@key, @value)
-                    `);
+                await upsertSetting(pool, 'companyName', body.companyName);
             }
             
             if (body.tagline !== undefined) {
-                await pool.request()
-                    .input('key', sql.NVarChar, 'tagline')
-                    .input('value', sql.NVarChar, body.tagline)
-                    .query(`
-                        IF EXISTS (SELECT 1 FROM Settings WHERE SettingKey = @key)
-                            UPDATE Settings SET SettingValue = @value, ModifiedDate = GETUTCDATE() WHERE SettingKey = @key
-                        ELSE
-                            INSERT INTO Settings (SettingKey, SettingValue) VALUES (@key, @value)
-                    `);
+                await upsertSetting(pool, 'tagline', body.tagline);
             }
             
             if (body.logoData !== undefined) {
-                await pool.request()
-                    .input('key', sql.NVarChar, 'logoData')
-                    .input('value', sql.NVarChar(sql.MAX), body.logoData)
-                    .query(`
-                        IF EXISTS (SELECT 1 FROM Settings WHERE SettingKey = @key)
-                            UPDATE Settings SET SettingValue = @value, ModifiedDate = GETUTCDATE() WHERE SettingKey = @key
-                        ELSE
-                            INSERT INTO Settings (SettingKey, SettingValue) VALUES (@key, @value)
-                    `);
+                await upsertSetting(pool, 'logoData', body.logoData, true);
+            }
+
+            // Office Plan settings (used by Office Plan viewer/management UI)
+            if (body.officePlanTitle !== undefined) {
+                await upsertSetting(pool, 'officePlanTitle', body.officePlanTitle);
+            }
+            if (body.officePlanDescription !== undefined) {
+                await upsertSetting(pool, 'officePlanDescription', body.officePlanDescription, true);
+            }
+            if (body.officePlanImageUrl !== undefined) {
+                // Can be a URL or a data URL (base64) if user uploaded a file
+                await upsertSetting(pool, 'officePlanImageUrl', body.officePlanImageUrl, true);
+            }
+            if (body.officePlanUploadDate !== undefined) {
+                await upsertSetting(pool, 'officePlanUploadDate', body.officePlanUploadDate);
             }
             
             context.res = { status: 200, headers, body: { message: 'Settings saved successfully' } };
