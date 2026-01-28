@@ -5191,6 +5191,19 @@
             box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
         }
 
+        .task-action-btn.unclaim {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            border: none;
+            font-weight: 600;
+            padding: 0.5rem 1rem;
+        }
+
+        .task-action-btn.unclaim:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
+        }
+
         .task-action-btn.complete {
             background: #10b981;
             color: white;
@@ -10016,6 +10029,28 @@
     background: var(--accent-secondary);
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.unclaim-task-btn {
+    flex: 1;
+    padding: 0.625rem;
+    background: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.unclaim-task-btn:hover {
+    background: #dc2626;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
 }
 
 .dismiss-task-btn {
@@ -31620,6 +31655,40 @@ function recordTaskClaim(taskId, claimedBy, claimedAt) {
     saveTaskClaimCache();
 }
 
+function clearTaskClaim(taskId) {
+    if (!taskId) return;
+    if (!window.__taskClaimCache) loadTaskClaimCache();
+    if (window.__taskClaimCache && Object.prototype.hasOwnProperty.call(window.__taskClaimCache, taskId)) {
+        delete window.__taskClaimCache[taskId];
+        saveTaskClaimCache();
+    }
+}
+
+function getCurrentUserClaimKey() {
+    const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
+    return currentUser?.email || currentUser?.id || currentUser?.name || null;
+}
+
+function canCurrentUserUnclaim(claimedBy) {
+    if (!claimedBy) return false;
+    const userRole = (localStorage.getItem('userRole') || '').toLowerCase();
+    if (userRole === 'admin' || userRole === 'owner' || userRole === 'manager') return true;
+    const currentKey = getCurrentUserClaimKey();
+    return !!currentKey && String(claimedBy) === String(currentKey);
+}
+
+function removeClaimedCalendarEvent(taskId) {
+    try {
+        const claimEventId = 'claimed-' + taskId;
+        if (Array.isArray(window.eventDatabase)) {
+            const idx = window.eventDatabase.findIndex(e => e && String(e.id) === String(claimEventId));
+            if (idx !== -1) window.eventDatabase.splice(idx, 1);
+        }
+    } catch (e) {
+        // ignore
+    }
+}
+
 function applyClaimCacheToTasks() {
     if (!Array.isArray(window.tasksData)) return;
     if (!window.__taskClaimCache) loadTaskClaimCache();
@@ -31654,6 +31723,7 @@ function renderFloatingTasks() {
     floatingTasks.forEach(task => {
         const claimInfo = getTaskClaimInfo(task);
         const isClaimed = !!claimInfo.claimedBy;
+        const canUnclaim = isClaimed && canCurrentUserUnclaim(claimInfo.claimedBy);
         const claimedByLabel = isClaimed ? getClaimedByDisplay(claimInfo.claimedBy) : '';
         html += `
             <div class="floating-task-item" ${isClaimed ? `title="Claimed by ${claimedByLabel}"` : ''}>
@@ -31673,12 +31743,17 @@ function renderFloatingTasks() {
                     ${task.isPaid && task.payAmount ? `<span style="color: #10b981; font-weight: 600;"><i class="fas fa-dollar-sign"></i>$${task.payAmount}</span>` : ''}
                 </div>
                 <div class="floating-task-actions">
-                    ${isClaimed ? `
+                    ${isClaimed ? (canUnclaim ? `
+                        <button class="unclaim-task-btn" onclick="unclaimFloatingTask('${task.id}')" title="Unclaim this task">
+                            <i class="fas fa-undo"></i>
+                            Unclaim
+                        </button>
+                    ` : `
                         <button class="claim-task-btn" disabled title="Claimed by ${claimedByLabel}" style="opacity: 0.6; cursor: not-allowed;">
                             <i class="fas fa-user-check"></i>
                             Claimed
                         </button>
-                    ` : `
+                    `) : `
                         <button class="claim-task-btn" onclick="claimFloatingTask('${task.id}')">
                             <i class="fas fa-hand-pointer"></i>
                             Claim This Task
@@ -31705,8 +31780,9 @@ async function claimFloatingTask(taskId) {
     const task = window.tasksData[taskIndex];
     const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
     const currentUserKey = currentUser?.email || currentUser?.id || currentUser?.name;
+    const claimKey = currentUser?.email || currentUserKey || 'Unknown';
     const existingClaim = getTaskClaimInfo(task).claimedBy;
-    if (existingClaim && existingClaim !== currentUserKey) {
+    if (existingClaim && String(existingClaim) !== String(claimKey)) {
         showNotification(`Task already claimed by ${getClaimedByDisplay(existingClaim)}`, 'warning');
         return;
     }
@@ -31718,7 +31794,7 @@ async function claimFloatingTask(taskId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 ...task,
-                claimedBy: currentUser ? currentUser.email : 'Unknown',
+                claimedBy: claimKey,
                 claimedAt: new Date().toISOString(),
                 status: 'In Progress'
             })
@@ -31726,7 +31802,7 @@ async function claimFloatingTask(taskId) {
         
         if (response.ok) {
             // Update local data
-            const claimedByValue = currentUserKey || (currentUser ? currentUser.email : 'Unknown');
+            const claimedByValue = claimKey;
             const claimedAtValue = new Date().toISOString();
             window.tasksData[taskIndex].claimedBy = claimedByValue;
             window.tasksData[taskIndex].claimedAt = claimedAtValue;
@@ -31769,6 +31845,51 @@ async function claimFloatingTask(taskId) {
     } catch (error) {
         console.error('Error claiming floating task:', error);
         showNotification('Failed to claim task', 'error');
+    }
+}
+
+async function unclaimFloatingTask(taskId) {
+    const taskIndex = window.tasksData.findIndex(t => t.id == taskId);
+    if (taskIndex === -1) return;
+
+    const task = window.tasksData[taskIndex];
+    const claimInfo = getTaskClaimInfo(task);
+    if (!claimInfo.claimedBy) return;
+    if (!canCurrentUserUnclaim(claimInfo.claimedBy)) {
+        showNotification('You can only unclaim tasks you claimed (unless admin/manager).', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/tasks/${taskId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...task,
+                claimedBy: null,
+                claimedAt: null,
+                status: 'Pending'
+            })
+        });
+
+        if (!response.ok) throw new Error('Failed to unclaim task');
+
+        window.tasksData[taskIndex].claimedBy = null;
+        window.tasksData[taskIndex].claimedAt = null;
+        window.tasksData[taskIndex].status = 'Pending';
+
+        clearTaskClaim(taskId);
+        removeClaimedCalendarEvent(taskId);
+
+        renderFloatingTasks();
+        updateFloatingTasksCount();
+        if (typeof initTaskHub === 'function') initTaskHub();
+        if (typeof calendar !== 'undefined' && calendar) calendar.refetchEvents();
+
+        showNotification(`Task "${task.title}" unclaimed.`, 'info');
+    } catch (error) {
+        console.error('Error unclaiming floating task:', error);
+        showNotification('Failed to unclaim task', 'error');
     }
 }
 
@@ -31839,8 +31960,9 @@ async function claimBonusTask(taskId) {
     const task = window.tasksData[taskIndex];
     const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
     const currentUserKey = currentUser?.email || currentUser?.id || currentUser?.name;
+    const claimKey = currentUser?.email || currentUserKey || 'Unknown';
     const existingClaim = getTaskClaimInfo(task).claimedBy;
-    if (existingClaim && existingClaim !== currentUserKey) {
+    if (existingClaim && String(existingClaim) !== String(claimKey)) {
         showNotification(`Task already claimed by ${getClaimedByDisplay(existingClaim)}`, 'warning');
         return;
     }
@@ -31852,7 +31974,7 @@ async function claimBonusTask(taskId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 ...task,
-                claimedBy: currentUser ? currentUser.email : 'Unknown',
+                claimedBy: claimKey,
                 claimedAt: new Date().toISOString(),
                 status: 'In Progress'
             })
@@ -31860,7 +31982,7 @@ async function claimBonusTask(taskId) {
         
         if (response.ok) {
             // Update local data
-            const claimedByValue = currentUserKey || (currentUser ? currentUser.email : 'Unknown');
+            const claimedByValue = claimKey;
             const claimedAtValue = new Date().toISOString();
             window.tasksData[taskIndex].claimedBy = claimedByValue;
             window.tasksData[taskIndex].claimedAt = claimedAtValue;
@@ -31881,6 +32003,49 @@ async function claimBonusTask(taskId) {
     } catch (error) {
         console.error('Error claiming bonus task:', error);
         showNotification('Failed to claim bonus task', 'error');
+    }
+}
+
+async function unclaimBonusTask(taskId) {
+    const taskIndex = window.tasksData.findIndex(t => t.id == taskId);
+    if (taskIndex === -1) return;
+
+    const task = window.tasksData[taskIndex];
+    const claimInfo = getTaskClaimInfo(task);
+    if (!claimInfo.claimedBy) return;
+    if (!canCurrentUserUnclaim(claimInfo.claimedBy)) {
+        showNotification('You can only unclaim tasks you claimed (unless admin/manager).', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/tasks/${taskId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...task,
+                claimedBy: null,
+                claimedAt: null,
+                status: 'Pending'
+            })
+        });
+
+        if (!response.ok) throw new Error('Failed to unclaim task');
+
+        window.tasksData[taskIndex].claimedBy = null;
+        window.tasksData[taskIndex].claimedAt = null;
+        window.tasksData[taskIndex].status = 'Pending';
+
+        clearTaskClaim(taskId);
+
+        renderBonusTasks();
+        updateBonusTasksCount();
+        if (typeof initTaskHub === 'function') initTaskHub();
+
+        showNotification(`Bonus task "${task.title}" unclaimed.`, 'info');
+    } catch (error) {
+        console.error('Error unclaiming bonus task:', error);
+        showNotification('Failed to unclaim bonus task', 'error');
     }
 }
 
@@ -32455,6 +32620,7 @@ function renderBonusTasks() {
     bonusTasks.forEach(task => {
         const claimInfo = getTaskClaimInfo(task);
         const isClaimed = !!claimInfo.claimedBy;
+        const canUnclaim = isClaimed && canCurrentUserUnclaim(claimInfo.claimedBy);
         const claimedByLabel = isClaimed ? getClaimedByDisplay(claimInfo.claimedBy) : '';
         html += `
             <div class="floating-task-item" ${isClaimed ? `title="Claimed by ${claimedByLabel}"` : ''}>
@@ -32473,12 +32639,17 @@ function renderBonusTasks() {
                     <span style="color: #eab308; font-weight: 600;"><i class="fas fa-star"></i>$${task.payAmount || '0'}</span>
                 </div>
                 <div class="floating-task-actions">
-                    ${isClaimed ? `
+                    ${isClaimed ? (canUnclaim ? `
+                        <button class="unclaim-task-btn" onclick="unclaimBonusTask('${task.id}')" title="Unclaim this task">
+                            <i class="fas fa-undo"></i>
+                            Unclaim
+                        </button>
+                    ` : `
                         <button class="claim-task-btn" disabled title="Claimed by ${claimedByLabel}" style="opacity: 0.6; cursor: not-allowed;">
                             <i class="fas fa-user-check"></i>
                             Claimed
                         </button>
-                    ` : `
+                    `) : `
                         <button class="claim-task-btn" onclick="claimBonusTask('${task.id}')">
                             <i class="fas fa-hand-pointer"></i>
                             Claim This Bonus
@@ -36862,10 +37033,11 @@ window.addEventListener('load', function() {
             
             const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
             const userId = currentUser?.id || currentUser?.name;
+            const userClaimKey = getCurrentUserClaimKey();
             
             // Get user's assigned and claimed tasks
             let myTasks = window.tasksData.filter(t => 
-                (t.assignedTo === userId || t.claimedBy === userId) && t.status !== 'Completed'
+                ((t.assignedTo === userId) || (userClaimKey && String(getTaskClaimInfo(t).claimedBy) === String(userClaimKey))) && t.status !== 'Completed'
             );
             
             // Apply filters
@@ -37315,7 +37487,11 @@ window.addEventListener('load', function() {
                 const claimInfo = getTaskClaimInfo(task);
                 if (claimInfo.claimedBy) {
                     const claimedByLabel = getClaimedByDisplay(claimInfo.claimedBy);
-                    actionButtons = `
+                    actionButtons = canCurrentUserUnclaim(claimInfo.claimedBy) ? `
+                        <button class="task-action-btn unclaim" onclick="unclaimTaskFromHub('${task.id}')" title="Unclaim this task">
+                            <i class="fas fa-undo"></i> Unclaim
+                        </button>
+                    ` : `
                         <span class="task-completed-badge" title="Claimed by ${claimedByLabel}" style="background: #e5e7eb; color: #374151;">
                             <i class="fas fa-user-check"></i> Claimed
                         </span>
@@ -37441,27 +37617,45 @@ window.addEventListener('load', function() {
         }
         
         // Task Actions
-        function claimTaskFromHub(taskId) {
+        async function claimTaskFromHub(taskId) {
             const taskIndex = window.tasksData.findIndex(t => t.id == taskId);
             if (taskIndex === -1) return;
-            
-            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
-            const currentUserKey = currentUser?.email || currentUser?.id || currentUser?.name;
-            const existingClaim = getTaskClaimInfo(window.tasksData[taskIndex]).claimedBy;
-            if (existingClaim && existingClaim !== currentUserKey) {
-                showNotification(`Task already claimed by ${getClaimedByDisplay(existingClaim)}`, 'warning');
-                return;
+            const task = window.tasksData[taskIndex];
+
+            try {
+                if (task.taskType === 'Floating') {
+                    await claimFloatingTask(taskId);
+                } else if (task.taskType === 'Bonus') {
+                    await claimBonusTask(taskId);
+                } else {
+                    showNotification('Only Floating/Bonus tasks can be claimed here.', 'info');
+                    return;
+                }
+                initTaskHub();
+                switchTaskHubTab('my-tasks');
+            } catch (e) {
+                // claimFloatingTask/claimBonusTask already notify
             }
-            const claimedByValue = currentUserKey || currentUser?.id || currentUser?.name;
-            const claimedAtValue = new Date().toISOString();
-            window.tasksData[taskIndex].claimedBy = claimedByValue;
-            window.tasksData[taskIndex].claimedAt = claimedAtValue;
-            window.tasksData[taskIndex].status = 'In Progress';
-            recordTaskClaim(taskId, claimedByValue, claimedAtValue);
-            
-            showNotification('Task claimed successfully!', 'success');
-            initTaskHub();
-            switchTaskHubTab('my-tasks');
+        }
+
+        async function unclaimTaskFromHub(taskId) {
+            const taskIndex = window.tasksData.findIndex(t => t.id == taskId);
+            if (taskIndex === -1) return;
+            const task = window.tasksData[taskIndex];
+
+            try {
+                if (task.taskType === 'Floating') {
+                    await unclaimFloatingTask(taskId);
+                } else if (task.taskType === 'Bonus') {
+                    await unclaimBonusTask(taskId);
+                } else {
+                    return;
+                }
+                initTaskHub();
+                switchTaskHubTab('my-tasks');
+            } catch (e) {
+                // unclaim functions already notify
+            }
         }
         
         function completeTaskFromHub(taskId) {
