@@ -31675,6 +31675,15 @@ function canCurrentUserUnclaim(claimedBy) {
     return !!currentKey && String(claimedBy) === String(currentKey);
 }
 
+function getApiTaskIdFromTask(task) {
+    const candidate = task?.dbId ?? task?.Id ?? task?.id;
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric) && Number.isInteger(numeric)) return numeric;
+    const idStr = String(task?.id ?? '').trim();
+    const m = idStr.match(/(\d+)\s*$/);
+    return m ? Number(m[1]) : null;
+}
+
 function removeClaimedCalendarEvent(taskId) {
     try {
         const claimEventId = 'claimed-' + taskId;
@@ -31776,6 +31785,11 @@ async function claimFloatingTask(taskId) {
     if (taskIndex === -1) return;
     
     const task = window.tasksData[taskIndex];
+    const apiTaskId = getApiTaskIdFromTask(task);
+    if (!apiTaskId) {
+        showNotification('Cannot claim this task (missing database id).', 'error');
+        return;
+    }
     const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
     const currentUserKey = currentUser?.email || currentUser?.id || currentUser?.name;
     const claimKey = currentUser?.email || currentUserKey || 'Unknown';
@@ -31787,7 +31801,7 @@ async function claimFloatingTask(taskId) {
     
     try {
         // Update task in database
-        const response = await fetch(`/api/tasks/${taskId}`, {
+        const response = await fetch(`/api/tasks/${apiTaskId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -31851,15 +31865,20 @@ async function unclaimFloatingTask(taskId) {
     if (taskIndex === -1) return;
 
     const task = window.tasksData[taskIndex];
+    const apiTaskId = getApiTaskIdFromTask(task);
+    if (!apiTaskId) {
+        showNotification('Cannot unclaim this task (missing database id).', 'error');
+        return;
+    }
     const claimInfo = getTaskClaimInfo(task);
     if (!claimInfo.claimedBy) return;
     if (!canCurrentUserUnclaim(claimInfo.claimedBy)) {
-        showNotification('You can only unclaim tasks you claimed (unless admin/manager).', 'warning');
+        showNotification('You can only unclaim tasks you claimed.', 'warning');
         return;
     }
 
     try {
-        const response = await fetch(`/api/tasks/${taskId}`, {
+        const response = await fetch(`/api/tasks/${apiTaskId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -31896,7 +31915,12 @@ async function dismissFloatingTask(taskId) {
     if (taskIndex !== -1) {
         try {
             const task = window.tasksData[taskIndex];
-            const response = await fetch(`/api/tasks/${taskId}`, {
+            const apiTaskId = getApiTaskIdFromTask(task);
+            if (!apiTaskId) {
+                showNotification('Cannot update this task (missing database id).', 'error');
+                return;
+            }
+            const response = await fetch(`/api/tasks/${apiTaskId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -31956,6 +31980,11 @@ async function claimBonusTask(taskId) {
     if (taskIndex === -1) return;
     
     const task = window.tasksData[taskIndex];
+    const apiTaskId = getApiTaskIdFromTask(task);
+    if (!apiTaskId) {
+        showNotification('Cannot claim this task (missing database id).', 'error');
+        return;
+    }
     const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
     const currentUserKey = currentUser?.email || currentUser?.id || currentUser?.name;
     const claimKey = currentUser?.email || currentUserKey || 'Unknown';
@@ -31967,7 +31996,7 @@ async function claimBonusTask(taskId) {
     
     try {
         // Update task in database
-        const response = await fetch(`/api/tasks/${taskId}`, {
+        const response = await fetch(`/api/tasks/${apiTaskId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -32009,15 +32038,20 @@ async function unclaimBonusTask(taskId) {
     if (taskIndex === -1) return;
 
     const task = window.tasksData[taskIndex];
+    const apiTaskId = getApiTaskIdFromTask(task);
+    if (!apiTaskId) {
+        showNotification('Cannot unclaim this task (missing database id).', 'error');
+        return;
+    }
     const claimInfo = getTaskClaimInfo(task);
     if (!claimInfo.claimedBy) return;
     if (!canCurrentUserUnclaim(claimInfo.claimedBy)) {
-        showNotification('You can only unclaim tasks you claimed (unless admin/manager).', 'warning');
+        showNotification('You can only unclaim tasks you claimed.', 'warning');
         return;
     }
 
     try {
-        const response = await fetch(`/api/tasks/${taskId}`, {
+        const response = await fetch(`/api/tasks/${apiTaskId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -32053,7 +32087,12 @@ async function dismissBonusTask(taskId) {
         try {
             // Update task status to dismissed in database
             const task = window.tasksData[taskIndex];
-            const response = await fetch(`/api/tasks/${taskId}`, {
+            const apiTaskId = getApiTaskIdFromTask(task);
+            if (!apiTaskId) {
+                showNotification('Cannot update this task (missing database id).', 'error');
+                return;
+            }
+            const response = await fetch(`/api/tasks/${apiTaskId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -33826,6 +33865,7 @@ window.addEventListener('load', function() {
                 if (response.ok) {
                     const apiTasks = await response.json();
                     const localTasks = (apiTasks || []).map(t => ({
+                        dbId: (t.Id ?? t.id ?? null),
                         id: `task-${t.Id || t.id}`,
                         title: t.Title || t.title,
                         description: t.Description || t.description || '',
