@@ -45188,110 +45188,155 @@ document.addEventListener('keydown', function(e) {
 </div>
 
 <!-- Office Plan Management Modal -->
+<style>
+    /* Office Plan: image-first viewer with optional management panel */
+    #officePlanModal.office-plan-view-only #officePlanManagePanel {
+        display: none !important;
+    }
+    #officePlanModal.office-plan-view-only #officePlanPreview {
+        padding: 1rem !important;
+    }
+    #officePlanModal.office-plan-view-only #officePlanImage {
+        max-height: 78vh !important;
+    }
+    #officePlanModal:not(.office-plan-view-only) #officePlanImage {
+        max-height: 60vh;
+    }
+    #officePlanManageToggleBtn {
+        padding: 0.5rem 0.75rem;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.85rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: background 0.2s, transform 0.2s;
+    }
+    #officePlanManageToggleBtn:hover {
+        background: var(--bg-tertiary);
+        transform: translateY(-1px);
+    }
+</style>
 <div id="officePlanModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 10000; align-items: center; justify-content: center;">
     <div class="login-card" style="width: 90vw; max-width: 1200px; max-height: 90vh; overflow-y: auto; background: var(--bg-primary);">
         <div class="login-header" style="display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 1.5rem;">
             <h3 style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
                 <i class="fas fa-map-marked-alt" style="color: var(--accent-primary);"></i>
-                Office Plan Management
+                Office Plan
             </h3>
-            <button class="close-btn" onclick="closeOfficePlan()">&times;</button>
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <button id="officePlanManageToggleBtn" type="button" onclick="toggleOfficePlanManagement()" title="Show/Hide management">
+                    <i class="fas fa-cog"></i>
+                    Manage
+                </button>
+                <button class="close-btn" onclick="closeOfficePlan()">&times;</button>
+            </div>
         </div>
         
         <div class="modal-body" style="padding: 2rem;">
-            <!-- Upload/Change Office Plan Form -->
-            <div style="background: var(--bg-secondary); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
-                <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Upload or Change Office Plan</h4>
-                <form id="officePlanForm" onsubmit="saveOfficePlan(event)">
-                    <div class="form-group" style="margin-bottom: 1rem;">
-                        <label for="officePlanTitle">Plan Title</label>
-                        <input type="text" id="officePlanTitle" placeholder="e.g., Main Office Floor Plan" maxlength="100" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                    </div>
-                    
-                    <div class="form-group" style="margin-bottom: 1rem;">
-                        <label>Upload Method</label>
-                        <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
-                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                <input type="radio" name="uploadMethod" value="file" checked onchange="toggleUploadMethod()" style="width: 18px; height: 18px; cursor: pointer;">
-                                <span>Upload File</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                <input type="radio" name="uploadMethod" value="url" onchange="toggleUploadMethod()" style="width: 18px; height: 18px; cursor: pointer;">
-                                <span>Image URL</span>
-                            </label>
-                        </div>
-                        
-                        <div id="fileUploadSection">
-                            <input type="file" id="officePlanFile" accept="image/*" onchange="previewOfficePlan(event)" style="width: 100%; padding: 0.75rem; border: 2px dashed var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); cursor: pointer;">
-                            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem;">Supported formats: JPG, PNG, GIF, SVG</p>
-                        </div>
-                        
-                        <div id="urlUploadSection" style="display: none;">
-                            <input type="text" id="officePlanUrl" placeholder="Enter image URL or file path" onchange="previewOfficePlanUrl()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                        </div>
-                    </div>
-                    
-                    <div class="form-group" style="margin-bottom: 1rem;">
-                        <label for="officePlanDescription">Description</label>
-                        <textarea id="officePlanDescription" placeholder="Additional notes about the office plan..." style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); min-height: 80px; resize: vertical;"></textarea>
-                    </div>
-                    
-                    <div id="officePlanError" class="login-error" style="display: none;"></div>
-                    <div style="display: flex; gap: 1rem;">
-                        <button type="submit" class="login-btn" style="width: auto; padding: 0.75rem 2rem;">
-                            <i class="fas fa-save" style="margin-right: 0.5rem;"></i>
-                            Save Office Plan
-                        </button>
-                        <button type="button" onclick="clearOfficePlan()" style="padding: 0.75rem 2rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-weight: 600; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
-                            <i class="fas fa-eraser" style="margin-right: 0.5rem;"></i>
-                            Clear
-                        </button>
-                    </div>
-                </form>
-            </div>
-
-            <!-- Current Office Plan Preview -->
+            <!-- Current Office Plan Preview (default view) -->
             <div>
-                <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Current Office Plan</h4>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin: 0 0 1rem 0; gap: 1rem;">
+                    <h4 style="margin: 0; color: var(--text-primary);">Office Plan</h4>
+                    <div style="color: var(--text-tertiary); font-size: 0.85rem;">Click image to view full screen</div>
+                </div>
                 <div id="officePlanPreview" style="background: var(--card-bg); padding: 2rem; border-radius: 8px; text-align: center; border: 2px solid var(--border-color);">
                     <img id="officePlanImage" src="" alt="Office Plan" style="max-width: 100%; max-height: 60vh; object-fit: contain; border-radius: 8px; cursor: pointer; display: none;" onclick="viewFullScreen()">
                     <div id="noOfficePlanPlaceholder" style="padding: 3rem; color: var(--text-tertiary);">
                         <i class="fas fa-map-marked-alt" style="font-size: 4rem; margin-bottom: 1rem; opacity: 0.3;"></i>
                         <p style="margin: 0; font-size: 1.1rem;">No office plan uploaded yet</p>
-                        <p style="font-size: 0.9rem; margin-top: 0.5rem;">Upload a floor plan or office layout image above</p>
+                        <p style="font-size: 0.9rem; margin-top: 0.5rem;">Use the Manage button to upload one</p>
                     </div>
                     <div id="officePlanInfo" style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px; display: none;">
                         <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;" id="officePlanTitleDisplay">Office Plan</div>
                         <div style="font-size: 0.85rem; color: var(--text-secondary);" id="officePlanDescDisplay">Click image to view full screen</div>
                     </div>
                 </div>
-                
-                <!-- Sample Layout Templates -->
-                <div style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
-                    <h5 style="margin: 0 0 1rem 0; color: var(--text-primary); font-size: 0.95rem;">
-                        <i class="fas fa-th-large" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
-                        Quick Templates (Click to use)
-                    </h5>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem;">
-                        <div onclick="useOfficePlanTemplate('dental')" style="cursor: pointer; padding: 1rem; background: var(--card-bg); border-radius: 8px; text-align: center; border: 2px solid transparent; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-primary)'" onmouseout="this.style.borderColor='transparent'">
-                            <i class="fas fa-tooth" style="font-size: 2rem; color: #06b6d4; margin-bottom: 0.5rem;"></i>
-                            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Dental Office</div>
-                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">4 Operatories</div>
-                        </div>
-                        <div onclick="useOfficePlanTemplate('small')" style="cursor: pointer; padding: 1rem; background: var(--card-bg); border-radius: 8px; text-align: center; border: 2px solid transparent; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-primary)'" onmouseout="this.style.borderColor='transparent'">
-                            <i class="fas fa-clinic-medical" style="font-size: 2rem; color: #10b981; margin-bottom: 0.5rem;"></i>
-                            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Small Clinic</div>
-                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">2 Rooms</div>
-                        </div>
-                        <div onclick="useOfficePlanTemplate('large')" style="cursor: pointer; padding: 1rem; background: var(--card-bg); border-radius: 8px; text-align: center; border: 2px solid transparent; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-primary)'" onmouseout="this.style.borderColor='transparent'">
-                            <i class="fas fa-hospital" style="font-size: 2rem; color: #3b82f6; margin-bottom: 0.5rem;"></i>
-                            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Large Practice</div>
-                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">8+ Rooms</div>
-                        </div>
-                        <div onclick="useOfficePlanTemplate('custom')" style="cursor: pointer; padding: 1rem; background: var(--card-bg); border-radius: 8px; text-align: center; border: 2px solid transparent; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-primary)'" onmouseout="this.style.borderColor='transparent'">
-                            <i class="fas fa-edit" style="font-size: 2rem; color: #8b5cf6; margin-bottom: 0.5rem;"></i>
-                            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Custom</div>
-                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">Draw Your Own</div>
+
+                <!-- Management panel (hidden by default; toggled via Manage button) -->
+                <div id="officePlanManagePanel" style="margin-top: 1.5rem;">
+                    <!-- Upload/Change Office Plan Form -->
+                    <div style="background: var(--bg-secondary); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                        <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Upload or Change Office Plan</h4>
+                        <form id="officePlanForm" onsubmit="saveOfficePlan(event)">
+                            <div class="form-group" style="margin-bottom: 1rem;">
+                                <label for="officePlanTitle">Plan Title</label>
+                                <input type="text" id="officePlanTitle" placeholder="e.g., Main Office Floor Plan" maxlength="100" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            </div>
+                            
+                            <div class="form-group" style="margin-bottom: 1rem;">
+                                <label>Upload Method</label>
+                                <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                        <input type="radio" name="uploadMethod" value="file" checked onchange="toggleUploadMethod()" style="width: 18px; height: 18px; cursor: pointer;">
+                                        <span>Upload File</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                        <input type="radio" name="uploadMethod" value="url" onchange="toggleUploadMethod()" style="width: 18px; height: 18px; cursor: pointer;">
+                                        <span>Image URL</span>
+                                    </label>
+                                </div>
+                                
+                                <div id="fileUploadSection">
+                                    <input type="file" id="officePlanFile" accept="image/*" onchange="previewOfficePlan(event)" style="width: 100%; padding: 0.75rem; border: 2px dashed var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); cursor: pointer;">
+                                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem;">Supported formats: JPG, PNG, GIF, SVG</p>
+                                </div>
+                                
+                                <div id="urlUploadSection" style="display: none;">
+                                    <input type="text" id="officePlanUrl" placeholder="Enter image URL or file path" onchange="previewOfficePlanUrl()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                </div>
+                            </div>
+                            
+                            <div class="form-group" style="margin-bottom: 1rem;">
+                                <label for="officePlanDescription">Description</label>
+                                <textarea id="officePlanDescription" placeholder="Additional notes about the office plan..." style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); min-height: 80px; resize: vertical;"></textarea>
+                            </div>
+                            
+                            <div id="officePlanError" class="login-error" style="display: none;"></div>
+                            <div style="display: flex; gap: 1rem;">
+                                <button type="submit" class="login-btn" style="width: auto; padding: 0.75rem 2rem;">
+                                    <i class="fas fa-save" style="margin-right: 0.5rem;"></i>
+                                    Save Office Plan
+                                </button>
+                                <button type="button" onclick="clearOfficePlan()" style="padding: 0.75rem 2rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-weight: 600; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                                    <i class="fas fa-eraser" style="margin-right: 0.5rem;"></i>
+                                    Clear
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Sample Layout Templates -->
+                    <div style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
+                        <h5 style="margin: 0 0 1rem 0; color: var(--text-primary); font-size: 0.95rem;">
+                            <i class="fas fa-th-large" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+                            Quick Templates (Click to use)
+                        </h5>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem;">
+                            <div onclick="useOfficePlanTemplate('dental')" style="cursor: pointer; padding: 1rem; background: var(--card-bg); border-radius: 8px; text-align: center; border: 2px solid transparent; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-primary)'" onmouseout="this.style.borderColor='transparent'">
+                                <i class="fas fa-tooth" style="font-size: 2rem; color: #06b6d4; margin-bottom: 0.5rem;"></i>
+                                <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Dental Office</div>
+                                <div style="font-size: 0.75rem; color: var(--text-tertiary);">4 Operatories</div>
+                            </div>
+                            <div onclick="useOfficePlanTemplate('small')" style="cursor: pointer; padding: 1rem; background: var(--card-bg); border-radius: 8px; text-align: center; border: 2px solid transparent; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-primary)'" onmouseout="this.style.borderColor='transparent'">
+                                <i class="fas fa-clinic-medical" style="font-size: 2rem; color: #10b981; margin-bottom: 0.5rem;"></i>
+                                <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Small Clinic</div>
+                                <div style="font-size: 0.75rem; color: var(--text-tertiary);">2 Rooms</div>
+                            </div>
+                            <div onclick="useOfficePlanTemplate('large')" style="cursor: pointer; padding: 1rem; background: var(--card-bg); border-radius: 8px; text-align: center; border: 2px solid transparent; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-primary)'" onmouseout="this.style.borderColor='transparent'">
+                                <i class="fas fa-hospital" style="font-size: 2rem; color: #3b82f6; margin-bottom: 0.5rem;"></i>
+                                <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Large Practice</div>
+                                <div style="font-size: 0.75rem; color: var(--text-tertiary);">8+ Rooms</div>
+                            </div>
+                            <div onclick="useOfficePlanTemplate('custom')" style="cursor: pointer; padding: 1rem; background: var(--card-bg); border-radius: 8px; text-align: center; border: 2px solid transparent; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent-primary)'" onmouseout="this.style.borderColor='transparent'">
+                                <i class="fas fa-edit" style="font-size: 2rem; color: #8b5cf6; margin-bottom: 0.5rem;"></i>
+                                <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Custom</div>
+                                <div style="font-size: 0.75rem; color: var(--text-tertiary);">Draw Your Own</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -47495,6 +47540,8 @@ function showOfficePlan() {
     const modal = document.getElementById('officePlanModal');
     if (modal) {
         modal.style.display = 'flex';
+        // Default: show only the image (management hidden behind the small Manage button)
+        setOfficePlanManagementOpen(false);
         loadCurrentOfficePlan();
     }
 }
@@ -47503,7 +47550,37 @@ function closeOfficePlan() {
     const modal = document.getElementById('officePlanModal');
     if (modal) {
         modal.style.display = 'none';
+        // Reset to view-only so next open is image-first
+        setOfficePlanManagementOpen(false);
     }
+}
+
+function setOfficePlanManagementOpen(isOpen) {
+    const modal = document.getElementById('officePlanModal');
+    const toggleBtn = document.getElementById('officePlanManageToggleBtn');
+    if (!modal) return;
+
+    const viewOnly = !isOpen;
+    modal.classList.toggle('office-plan-view-only', viewOnly);
+
+    if (toggleBtn) {
+        if (viewOnly) {
+            toggleBtn.innerHTML = '<i class="fas fa-cog"></i> Manage';
+            toggleBtn.title = 'Show management';
+        } else {
+            toggleBtn.innerHTML = '<i class="fas fa-eye"></i> View';
+            toggleBtn.title = 'Hide management';
+        }
+    }
+}
+
+function toggleOfficePlanManagement(forceOpen) {
+    const modal = document.getElementById('officePlanModal');
+    if (!modal) return;
+
+    const currentlyViewOnly = modal.classList.contains('office-plan-view-only');
+    const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : currentlyViewOnly;
+    setOfficePlanManagementOpen(nextOpen);
 }
 
 function toggleUploadMethod() {
