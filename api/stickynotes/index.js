@@ -106,9 +106,9 @@ module.exports = async function (context, req) {
                 .input('color', sql.NVarChar(50), color || 'yellow')
                 .input('userId', sql.Int, userId)
                 .query(`
-                    INSERT INTO StickyNotes (Content, Color, UserId)
+                    INSERT INTO StickyNotes (Content, Color, UserId, CreatedDate, ModifiedDate)
                     OUTPUT INSERTED.*
-                    VALUES (@content, @color, @userId)
+                    VALUES (@content, @color, @userId, SYSUTCDATETIME(), SYSUTCDATETIME())
                 `);
 
             const note = result.recordset[0];
@@ -156,7 +156,8 @@ module.exports = async function (context, req) {
                 .query(`
                     UPDATE StickyNotes
                     SET Content = COALESCE(@content, Content),
-                        Color = COALESCE(@color, Color)
+                        Color = COALESCE(@color, Color),
+                        ModifiedDate = SYSUTCDATETIME()
                     OUTPUT INSERTED.*
                     WHERE Id = @id AND UserId = @userId
                 `);

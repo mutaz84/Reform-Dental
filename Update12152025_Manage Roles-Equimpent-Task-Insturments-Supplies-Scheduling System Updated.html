@@ -14000,6 +14000,11 @@
                         Clear
                     </button>
 
+                    <button id="stickyRefreshBtn" class="sticky-note-btn-professional" style="background: linear-gradient(135deg, #2563eb, #1d4ed8); color: white;">
+                        <i class="fas fa-rotate-right"></i>
+                        Refresh
+                    </button>
+
                     <button id="stickyPrintBtn" class="sticky-note-btn-professional btn-print-professional">
                         <i class="fas fa-print"></i>
                         Print
@@ -29444,6 +29449,7 @@
         function initStickyNotesBoard() {
             const board = document.getElementById('stickyBoard');
             const clearBtn = document.getElementById('stickyClearBtn');
+            const refreshBtn = document.getElementById('stickyRefreshBtn');
             const printBtn = document.getElementById('stickyPrintBtn');
             const pdfBtn = document.getElementById('stickySaveBtn');
             const colorOptions = document.querySelectorAll('.sticky-color-option');
@@ -29511,6 +29517,17 @@
                 }
             });
 
+            // Manual refresh button
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', async () => {
+                    try {
+                        await loadStickyNotes({ force: true, reason: 'manual' });
+                    } catch (e) {
+                        console.error('Sticky notes refresh failed:', e);
+                    }
+                });
+            }
+
             // Print button
             if (printBtn) {
                 printBtn.addEventListener('click', printStickyNotes);
@@ -29522,8 +29539,21 @@
             }
 
             // Load saved notes and recycle bin
-            loadStickyNotes();
+            loadStickyNotes({ force: false, reason: 'init' });
             loadStickyRecycleBin();
+
+            // Light polling to reflect cross-device updates without requiring a full page refresh.
+            // Only refresh when the Sticky Notes view is visible and the user is not actively typing.
+            setInterval(async () => {
+                try {
+                    const view = document.getElementById('view-sticky-notes');
+                    if (!view || view.style.display === 'none' || view.classList.contains('hidden')) return;
+                    if (saveInProgress || stickyApiLoadInProgress) return;
+                    const active = document.activeElement;
+                    if (active && active.classList && active.classList.contains('sticky-note-content-item')) return;
+                    await loadStickyNotes({ force: true, reason: 'poll' });
+                } catch (_) {}
+            }, 12000);
         }
 
         function createStickyNote(text = '', x = null, y = null, color = null) {
@@ -30058,6 +30088,7 @@
         let stickySuppressAutoSave = false;
         let stickyApiFailureCount = 0;
         let stickyApiNextRetryAt = 0;
+        let stickyLastApiSnapshot = '';
 
         function setStickySyncStatus(message) {
             const el = document.getElementById('stickySyncStatus');
@@ -30205,10 +30236,11 @@
             }
         }
 
-        async function loadStickyNotes() {
+        async function loadStickyNotes(options = {}) {
+            const force = !!options.force;
             try {
                 // Try to load from database first
-                if (stickyNotesApiDisabled || stickyApiLoadInProgress || stickyLoadedFromApi) {
+                if (stickyNotesApiDisabled || stickyApiLoadInProgress || (!force && stickyLoadedFromApi)) {
                     // If API is disabled or already loaded, don't spam the server.
                 } else {
                     stickyApiLoadInProgress = true;
@@ -30223,6 +30255,22 @@
                     const response = await fetch(`/api/stickynotes?userId=${encodeURIComponent(userId)}`);
                     if (response.ok) {
                         const notesData = await response.json();
+
+                        // Compare snapshot so polling doesn't constantly rebuild the board.
+                        const snapshot = Array.isArray(notesData)
+                            ? notesData
+                                .slice()
+                                .sort((a, b) => (a.Id || 0) - (b.Id || 0))
+                                .map(n => `${n.Id}|${(n.Text || '').trim()}|${n.Color || ''}|${n.PositionX || ''}|${n.PositionY || ''}`)
+                                .join('~')
+                            : '';
+
+                        if (force && snapshot && snapshot === stickyLastApiSnapshot) {
+                            stickyLoadedFromApi = true;
+                            setStickySyncStatus('Sync: ok');
+                            return;
+                        }
+
                         if (notesData && notesData.length > 0) {
                             // Clear current board before loading from API to avoid duplicates.
                             try {
@@ -30247,12 +30295,18 @@
 
                             stickySuppressAutoSave = false;
                             stickyLoadedFromApi = true;
+                            stickyLastApiSnapshot = snapshot;
                             // If we had pending local changes while userId was unknown, sync now.
                             if (stickyPendingApiSync) {
                                 setTimeout(() => saveStickyNotes(), 250);
                             }
                             return;
                         }
+
+                        // If API returned empty, still record snapshot and mark loaded.
+                        stickyLastApiSnapshot = snapshot;
+                        stickyLoadedFromApi = true;
+                        setStickySyncStatus('Sync: ok');
                     } else {
                         // Transient error; fall back to localStorage and retry later.
                         scheduleStickyApiRetry(5000);
