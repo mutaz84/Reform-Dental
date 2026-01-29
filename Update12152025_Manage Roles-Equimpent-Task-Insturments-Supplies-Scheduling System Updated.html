@@ -31772,14 +31772,36 @@ function startTaskClaimSync() {
         if (window.__taskClaimSyncStarted) return;
         window.__taskClaimSyncStarted = true;
 
-        const intervalMs = 8000;
-        const tick = async () => {
-            if (document.hidden) return;
-            await refreshTasksFromServer({ silent: true });
+        const getNextIntervalMs = () => {
+            try {
+                // Faster sync when users are actively looking at claimable tasks.
+                const isFloatingPanelOpen = !!document.getElementById('floatingTasksPanel')?.classList?.contains('open');
+                const isBonusPanelOpen = !!document.getElementById('bonusTasksPanel')?.classList?.contains('open');
+                if (isTaskHubViewActive() || isFloatingPanelOpen || isBonusPanelOpen) return 2000;
+            } catch (e) {
+                // ignore
+            }
+            return 15000;
         };
 
-        // Poll periodically so claim buttons update quickly across users.
-        window.__taskClaimSyncTimer = setInterval(tick, intervalMs);
+        const tick = async () => {
+            if (document.hidden) return;
+            if (window.__taskClaimSyncInFlight) return;
+            window.__taskClaimSyncInFlight = true;
+            try {
+                await refreshTasksFromServer({ silent: true });
+            } finally {
+                window.__taskClaimSyncInFlight = false;
+            }
+        };
+
+        const scheduleNext = async () => {
+            await tick();
+            window.__taskClaimSyncTimer = setTimeout(scheduleNext, getNextIntervalMs());
+        };
+
+        // Start the adaptive polling loop.
+        window.__taskClaimSyncTimer = setTimeout(scheduleNext, 1500);
 
         // Also refresh when the user returns to the tab/window.
         window.addEventListener('focus', () => { tick(); });
@@ -31787,8 +31809,8 @@ function startTaskClaimSync() {
             if (!document.hidden) tick();
         });
 
-        // One early refresh to warm things up.
-        setTimeout(tick, 1500);
+        // Also do an immediate refresh on startup.
+        setTimeout(tick, 0);
     } catch (e) {
         // ignore
     }
@@ -31919,8 +31941,13 @@ async function claimFloatingTask(taskId) {
 
         if (response.status === 409) {
             const data = await response.json().catch(() => null);
+            if (data?.claimedBy) {
+                window.tasksData[taskIndex].claimedBy = data.claimedBy;
+                window.tasksData[taskIndex].claimedAt = window.tasksData[taskIndex].claimedAt || new Date().toISOString();
+            }
             const who = data?.claimedBy ? getClaimedByDisplay(data.claimedBy) : null;
             showNotification(who ? `Task already claimed by ${who}` : (data?.error || 'Task already claimed'), 'warning');
+            if (typeof renderFloatingTasks === 'function') renderFloatingTasks();
             refreshTasksAfterMutation();
             return;
         }
@@ -32172,8 +32199,13 @@ async function claimBonusTask(taskId) {
 
         if (response.status === 409) {
             const data = await response.json().catch(() => null);
+            if (data?.claimedBy) {
+                window.tasksData[taskIndex].claimedBy = data.claimedBy;
+                window.tasksData[taskIndex].claimedAt = window.tasksData[taskIndex].claimedAt || new Date().toISOString();
+            }
             const who = data?.claimedBy ? getClaimedByDisplay(data.claimedBy) : null;
             showNotification(who ? `Task already claimed by ${who}` : (data?.error || 'Task already claimed'), 'warning');
+            if (typeof renderBonusTasks === 'function') renderBonusTasks();
             refreshTasksAfterMutation();
             return;
         }
