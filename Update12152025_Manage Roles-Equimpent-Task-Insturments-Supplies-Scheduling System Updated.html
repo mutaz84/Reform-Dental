@@ -31831,12 +31831,20 @@ async function claimFloatingTask(taskId) {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                ...task,
-                claimedBy: claimKey,
+                claimAction: 'claim',
+                actorKey: claimKey,
                 claimedAt: new Date().toISOString(),
                 status: 'In Progress'
             })
         });
+
+        if (response.status === 409) {
+            const data = await response.json().catch(() => null);
+            const who = data?.claimedBy ? getClaimedByDisplay(data.claimedBy) : null;
+            showNotification(who ? `Task already claimed by ${who}` : (data?.error || 'Task already claimed'), 'warning');
+            refreshTasksAfterMutation();
+            return;
+        }
         
         if (response.ok) {
             // Update local data
@@ -31936,12 +31944,25 @@ async function unclaimFloatingTask(taskId) {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                ...task,
-                claimedBy: null,
-                claimedAt: null,
+                claimAction: 'unclaim',
+                actorKey: getCurrentUserClaimKey(),
                 status: 'Pending'
             })
         });
+
+        if (response.status === 403) {
+            const data = await response.json().catch(() => null);
+            const who = data?.claimedBy ? getClaimedByDisplay(data.claimedBy) : null;
+            showNotification(who ? `Only ${who} can unclaim this task` : (data?.error || 'You cannot unclaim this task'), 'warning');
+            refreshTasksAfterMutation();
+            return;
+        }
+        if (response.status === 409) {
+            const data = await response.json().catch(() => null);
+            showNotification(data?.error || 'Task is not claimed', 'info');
+            refreshTasksAfterMutation();
+            return;
+        }
 
         if (!response.ok) throw new Error('Failed to unclaim task');
 
@@ -32059,12 +32080,20 @@ async function claimBonusTask(taskId) {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                ...task,
-                claimedBy: claimKey,
+                claimAction: 'claim',
+                actorKey: claimKey,
                 claimedAt: new Date().toISOString(),
                 status: 'In Progress'
             })
         });
+
+        if (response.status === 409) {
+            const data = await response.json().catch(() => null);
+            const who = data?.claimedBy ? getClaimedByDisplay(data.claimedBy) : null;
+            showNotification(who ? `Task already claimed by ${who}` : (data?.error || 'Task already claimed'), 'warning');
+            refreshTasksAfterMutation();
+            return;
+        }
         
         if (response.ok) {
             // Update local data
@@ -32116,12 +32145,25 @@ async function unclaimBonusTask(taskId) {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                ...task,
-                claimedBy: null,
-                claimedAt: null,
+                claimAction: 'unclaim',
+                actorKey: getCurrentUserClaimKey(),
                 status: 'Pending'
             })
         });
+
+        if (response.status === 403) {
+            const data = await response.json().catch(() => null);
+            const who = data?.claimedBy ? getClaimedByDisplay(data.claimedBy) : null;
+            showNotification(who ? `Only ${who} can unclaim this task` : (data?.error || 'You cannot unclaim this task'), 'warning');
+            refreshTasksAfterMutation();
+            return;
+        }
+        if (response.status === 409) {
+            const data = await response.json().catch(() => null);
+            showNotification(data?.error || 'Task is not claimed', 'info');
+            refreshTasksAfterMutation();
+            return;
+        }
 
         if (!response.ok) throw new Error('Failed to unclaim task');
 

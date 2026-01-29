@@ -107,6 +107,81 @@ module.exports = async function (context, req) {
             const providedAssignedById = Number.isFinite(Number(body.assignedById)) ? Number(body.assignedById) : null;
             const assignedByKey = body.assignedBy || body.createdBy || body.createdByUsername || body.createdByUser || body.assignedByName || body.assignedByEmail || null;
             const resolvedAssignedById = providedAssignedById || await resolveUserId(pool, assignedByKey);
+
+            // Atomic claim/unclaim to prevent races across users.
+            const claimAction = body?.claimAction;
+            const actorKey = body?.actorKey;
+            if (claimAction === 'claim') {
+                if (!actorKey || typeof actorKey !== 'string') {
+                    context.res = { status: 400, headers, body: { error: 'actorKey is required' } };
+                    return;
+                }
+
+                const claimResult = await pool.request()
+                    .input('id', sql.Int, id)
+                    .input('actorKey', sql.NVarChar, actorKey)
+                    .input('claimedAt', sql.DateTime, body.claimedAt ? new Date(body.claimedAt) : new Date())
+                    .input('status', sql.NVarChar, body.status || null)
+                    .query(`
+                        UPDATE Tasks
+                        SET ClaimedBy = @actorKey,
+                            ClaimedAt = @claimedAt,
+                            Status = COALESCE(@status, Status),
+                            ModifiedDate = GETUTCDATE()
+                        WHERE Id = @id
+                          AND (ClaimedBy IS NULL OR LTRIM(RTRIM(ClaimedBy)) = '');
+
+                        SELECT ClaimedBy FROM Tasks WHERE Id = @id;
+                    `);
+
+                const rowsAffected = claimResult?.rowsAffected?.[0] || 0;
+                const existingClaimedBy = claimResult?.recordset?.[0]?.ClaimedBy || null;
+                if (rowsAffected === 0) {
+                    context.res = { status: 409, headers, body: { error: 'Task already claimed', claimedBy: existingClaimedBy } };
+                    return;
+                }
+
+                context.res = { status: 200, headers, body: { message: 'Task claimed', claimedBy: actorKey } };
+                return;
+            }
+
+            if (claimAction === 'unclaim') {
+                if (!actorKey || typeof actorKey !== 'string') {
+                    context.res = { status: 400, headers, body: { error: 'actorKey is required' } };
+                    return;
+                }
+
+                const unclaimResult = await pool.request()
+                    .input('id', sql.Int, id)
+                    .input('actorKey', sql.NVarChar, actorKey)
+                    .input('status', sql.NVarChar, body.status || null)
+                    .query(`
+                        UPDATE Tasks
+                        SET ClaimedBy = NULL,
+                            ClaimedAt = NULL,
+                            Status = COALESCE(@status, Status),
+                            ModifiedDate = GETUTCDATE()
+                        WHERE Id = @id
+                          AND ClaimedBy = @actorKey;
+
+                        SELECT ClaimedBy FROM Tasks WHERE Id = @id;
+                    `);
+
+                const rowsAffected = unclaimResult?.rowsAffected?.[0] || 0;
+                const currentClaimedBy = unclaimResult?.recordset?.[0]?.ClaimedBy || null;
+                if (rowsAffected === 0) {
+                    if (!currentClaimedBy || String(currentClaimedBy).trim() === '') {
+                        context.res = { status: 409, headers, body: { error: 'Task is not claimed' } };
+                        return;
+                    }
+                    context.res = { status: 403, headers, body: { error: 'Only the claimer can unclaim', claimedBy: currentClaimedBy } };
+                    return;
+                }
+
+                context.res = { status: 200, headers, body: { message: 'Task unclaimed' } };
+                return;
+            }
+
             await pool.request()
                 .input('id', sql.Int, id)
                 .input('title', sql.NVarChar, body.title)
