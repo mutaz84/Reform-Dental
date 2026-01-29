@@ -104,11 +104,13 @@ module.exports = async function (context, req) {
             const result = await new sql.Request()
                 .input('content', sql.NVarChar(sql.MAX), text || '')
                 .input('color', sql.NVarChar(50), color || 'yellow')
+                .input('positionX', sql.Int, Number.isFinite(positionX) ? positionX : null)
+                .input('positionY', sql.Int, Number.isFinite(positionY) ? positionY : null)
                 .input('userId', sql.Int, userId)
                 .query(`
-                    INSERT INTO StickyNotes (Content, Color, UserId, CreatedDate, ModifiedDate)
+                    INSERT INTO StickyNotes (Content, Color, UserId, PositionX, PositionY, CreatedDate, ModifiedDate)
                     OUTPUT INSERTED.*
-                    VALUES (@content, @color, @userId, SYSUTCDATETIME(), SYSUTCDATETIME())
+                    VALUES (@content, @color, @userId, @positionX, @positionY, SYSUTCDATETIME(), SYSUTCDATETIME())
                 `);
 
             const note = result.recordset[0];
@@ -118,8 +120,8 @@ module.exports = async function (context, req) {
                 body: {
                     Id: note.Id,
                     Text: note.Content,
-                    PositionX: positionX || 100,
-                    PositionY: positionY || 100,
+                    PositionX: note.PositionX || 100,
+                    PositionY: note.PositionY || 100,
                     Color: note.Color,
                     UserId: note.UserId
                 }
@@ -128,7 +130,7 @@ module.exports = async function (context, req) {
         } else if (req.method === 'PUT') {
             // Update an existing sticky note
             const id = req.query.id || req.body.id;
-            const { text, color } = req.body;
+            const { text, color, positionX, positionY } = req.body;
 
             if (!Number.isInteger(userId)) {
                 context.res = {
@@ -153,10 +155,14 @@ module.exports = async function (context, req) {
                 .input('userId', sql.Int, userId)
                 .input('content', sql.NVarChar(sql.MAX), text)
                 .input('color', sql.NVarChar(50), color)
+                .input('positionX', sql.Int, Number.isFinite(positionX) ? positionX : null)
+                .input('positionY', sql.Int, Number.isFinite(positionY) ? positionY : null)
                 .query(`
                     UPDATE StickyNotes
                     SET Content = COALESCE(@content, Content),
                         Color = COALESCE(@color, Color),
+                        PositionX = COALESCE(@positionX, PositionX),
+                        PositionY = COALESCE(@positionY, PositionY),
                         ModifiedDate = SYSUTCDATETIME()
                     OUTPUT INSERTED.*
                     WHERE Id = @id AND UserId = @userId
@@ -178,6 +184,8 @@ module.exports = async function (context, req) {
                 body: {
                     Id: note.Id,
                     Text: note.Content,
+                    PositionX: note.PositionX || 100,
+                    PositionY: note.PositionY || 100,
                     Color: note.Color,
                     UserId: note.UserId
                 }

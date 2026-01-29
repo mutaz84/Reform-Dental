@@ -29561,7 +29561,7 @@
             if (!board) return;
 
             const noteDiv = document.createElement('div');
-            const noteId = Date.now() + Math.random();
+            const noteId = Date.now() + Math.floor(Math.random() * 1000000);
             const noteColor = color || stickySelectedColor;
 
             // Random position if not specified
@@ -29616,7 +29616,23 @@
             });
 
             // Auto-save on change
-            textarea.addEventListener('change', saveStickyNotes);
+            let stickyInputDebounceTimer = null;
+            textarea.addEventListener('input', () => {
+                if (stickySuppressAutoSave) return;
+                if (stickyInputDebounceTimer) clearTimeout(stickyInputDebounceTimer);
+                stickyInputDebounceTimer = setTimeout(() => {
+                    stickyInputDebounceTimer = null;
+                    saveStickyNotes();
+                }, 450);
+            });
+            textarea.addEventListener('blur', () => {
+                if (stickySuppressAutoSave) return;
+                if (stickyInputDebounceTimer) {
+                    clearTimeout(stickyInputDebounceTimer);
+                    stickyInputDebounceTimer = null;
+                }
+                saveStickyNotes();
+            });
 
             const noteObj = {
                 id: noteId,
