@@ -14204,6 +14204,11 @@
                     
                     if (response.ok && result.success) {
                         console.log('✅ API login successful');
+
+                        const dbUserId = result.user?.Id ?? result.user?.id;
+                        if (dbUserId) {
+                            window.currentDbUserId = dbUserId;
+                        }
                         
                         // Store session
                         localStorage.setItem('loggedInUser', username);
@@ -14215,6 +14220,7 @@
                             name: `${result.user.firstName} ${result.user.lastName}`,
                             firstName: result.user.firstName,
                             lastName: result.user.lastName,
+                            dbId: dbUserId,
                             permissions: getDefaultPermissions(result.user.role)
                         }));
                         
@@ -14251,12 +14257,18 @@
                 localStorage.setItem('loggedInUser', username);
                 localStorage.setItem('userRole', user.role);
                 localStorage.setItem('userName', user.name);
+
+                const dbUserId = user.id || user.dbId || user.Id;
+                if (dbUserId) {
+                    window.currentDbUserId = dbUserId;
+                }
                 localStorage.setItem('currentUser', JSON.stringify({
                     username: username,
                     role: user.role,
                     name: user.name,
                     firstName: user.firstName,
                     lastName: user.lastName,
+                    dbId: dbUserId,
                     permissions: user.permissions
                 }));
                 
@@ -30043,6 +30055,19 @@
         let stickyApiLoadInProgress = false;
         let stickyLoadedFromApi = false;
         let stickyPendingApiSync = false;
+        let stickySuppressAutoSave = false;
+        let stickyApiFailureCount = 0;
+        let stickyApiNextRetryAt = 0;
+
+        function scheduleStickyApiRetry(delayMs = 2000) {
+            stickyPendingApiSync = true;
+            const now = Date.now();
+            const delay = Math.max(1000, delayMs);
+            stickyApiNextRetryAt = Math.max(stickyApiNextRetryAt || 0, now + delay);
+            setTimeout(() => {
+                if (!stickyNotesApiDisabled) saveStickyNotes();
+            }, delay);
+        }
         
         async function saveStickyNotes() {
             // If save is already in progress, queue another save
@@ -30070,13 +30095,19 @@
                     return;
                 }
 
+                if (stickySuppressAutoSave) {
+                    return;
+                }
+
+                if (stickyApiNextRetryAt && Date.now() < stickyApiNextRetryAt) {
+                    return;
+                }
+
                 const userId = await getStickyUserIdAsync();
                 if (!userId) {
                     // userId may not be available yet on early page load; retry later.
                     stickyPendingApiSync = true;
-                    setTimeout(() => {
-                        if (!stickyNotesApiDisabled) saveStickyNotes();
-                    }, 1500);
+                    scheduleStickyApiRetry(1500);
                     return;
                 }
 
@@ -30094,11 +30125,20 @@
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ text, positionX, positionY, color, userId })
                             });
+
                             if (!updateResponse.ok) {
-                                stickyNotesApiDisabled = true;
-                                console.warn('Sticky notes API disabled due to error response. Using localStorage only.');
+                                // If the note no longer exists server-side, recreate it.
+                                if (updateResponse.status === 404) {
+                                    note.dbId = null;
+                                    throw new Error('Sticky note missing on server; will recreate');
+                                }
+                                stickyApiFailureCount++;
+                                console.warn('Sticky notes API update failed:', updateResponse.status);
+                                scheduleStickyApiRetry(stickyApiFailureCount >= 3 ? 10000 : 2500);
                                 return;
                             }
+
+                            stickyApiFailureCount = 0;
                         } else {
                             // Create new note
                             const response = await fetch(`/api/stickynotes?userId=${encodeURIComponent(userId)}`, {
@@ -30110,15 +30150,19 @@
                                 const newNote = await response.json();
                                 note.dbId = newNote.Id;
                                 console.log('Saved new sticky note with ID:', newNote.Id);
+                                stickyApiFailureCount = 0;
                             } else {
-                                stickyNotesApiDisabled = true;
-                                console.warn('Sticky notes API disabled due to error response. Using localStorage only.');
+                                stickyApiFailureCount++;
+                                console.warn('Sticky notes API create failed:', response.status);
+                                scheduleStickyApiRetry(stickyApiFailureCount >= 3 ? 10000 : 2500);
                                 return;
                             }
                         }
                     } catch (error) {
                         console.error('Error saving sticky note to database:', error);
-                        stickyNotesApiDisabled = true;
+                        stickyApiFailureCount++;
+                        scheduleStickyApiRetry(stickyApiFailureCount >= 3 ? 10000 : 2500);
+                        return;
                     }
                 }
 
@@ -30159,6 +30203,8 @@
                             } catch (_) {}
                             stickyNotes = [];
 
+                            stickySuppressAutoSave = true;
+
                             notesData.forEach(noteData => {
                                 const noteObj = createStickyNote(
                                     noteData.Text || '',
@@ -30171,6 +30217,8 @@
                                     noteObj.dbId = noteData.Id;
                                 }
                             });
+
+                            stickySuppressAutoSave = false;
                             stickyLoadedFromApi = true;
                             // If we had pending local changes while userId was unknown, sync now.
                             if (stickyPendingApiSync) {
@@ -30179,14 +30227,15 @@
                             return;
                         }
                     } else {
-                        stickyNotesApiDisabled = true;
+                        // Transient error; fall back to localStorage and retry later.
+                        scheduleStickyApiRetry(5000);
                     }
 
                     stickyApiLoadInProgress = false;
                 }
             } catch (error) {
                 console.error('Error loading from database, falling back to localStorage:', error);
-                stickyNotesApiDisabled = true;
+                scheduleStickyApiRetry(5000);
             } finally {
                 stickyApiLoadInProgress = false;
             }
@@ -30196,9 +30245,12 @@
             if (saved) {
                 try {
                     const notesData = JSON.parse(saved);
+                    stickySuppressAutoSave = true;
                     notesData.forEach(noteData => {
-                        createStickyNote(noteData.text, noteData.x, noteData.y, noteData.color);
+                        const obj = createStickyNote(noteData.text, noteData.x, noteData.y, noteData.color);
+                        if (obj && noteData.dbId) obj.dbId = noteData.dbId;
                     });
+                    stickySuppressAutoSave = false;
                 } catch (e) {
                     console.error('Error loading sticky notes:', e);
                 }
