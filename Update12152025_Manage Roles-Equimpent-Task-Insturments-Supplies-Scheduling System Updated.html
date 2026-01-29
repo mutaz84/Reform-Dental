@@ -31639,6 +31639,10 @@ function saveTaskClaimCache() {
 
 function getTaskClaimInfo(task) {
     if (!task) return { claimedBy: null, claimedAt: null };
+    // If task is database-backed, treat DB as source of truth (do not override with local cache)
+    if (task.dbId || task.Id) {
+        return { claimedBy: task.claimedBy || null, claimedAt: task.claimedAt || null };
+    }
     if (task.claimedBy) return { claimedBy: task.claimedBy, claimedAt: task.claimedAt || null };
     const cache = window.__taskClaimCache || {};
     const cached = cache[task.id];
@@ -31696,11 +31700,33 @@ function removeClaimedCalendarEvent(taskId) {
     }
 }
 
+async function refreshTasksAfterMutation() {
+    try {
+        if (typeof loadTasksFromAPI === 'function') {
+            await loadTasksFromAPI();
+        }
+    } catch (e) {
+        // ignore; UI will still update from local state
+    }
+
+    try {
+        if (typeof renderFloatingTasks === 'function') renderFloatingTasks();
+        if (typeof updateFloatingTasksCount === 'function') updateFloatingTasksCount();
+        if (typeof renderBonusTasks === 'function') renderBonusTasks();
+        if (typeof updateBonusTasksCount === 'function') updateBonusTasksCount();
+        if (typeof initTaskHub === 'function') initTaskHub();
+    } catch (e) {
+        // ignore
+    }
+}
+
 function applyClaimCacheToTasks() {
     if (!Array.isArray(window.tasksData)) return;
     if (!window.__taskClaimCache) loadTaskClaimCache();
     window.tasksData.forEach(t => {
         if (!t || t.claimedBy) return;
+        // Do not apply local claim cache to DB-backed tasks
+        if (t.dbId || t.Id) return;
         const cached = window.__taskClaimCache[t.id];
         if (cached && cached.claimedBy) {
             t.claimedBy = cached.claimedBy;
@@ -31846,6 +31872,9 @@ async function claimFloatingTask(taskId) {
             updateFloatingTasksCount();
             if (calendar) calendar.refetchEvents();
             showNotification(`Task "${task.title}" claimed successfully!`, 'success');
+
+            // Re-sync from DB so other clients converge
+            refreshTasksAfterMutation();
             
             const remainingFloating = window.tasksData.filter(t => t.taskType === 'Floating' && t.status !== 'Completed' && !t.claimedBy).length;
             if (remainingFloating === 0) {
@@ -31904,6 +31933,9 @@ async function unclaimFloatingTask(taskId) {
         if (typeof calendar !== 'undefined' && calendar) calendar.refetchEvents();
 
         showNotification(`Task "${task.title}" unclaimed.`, 'info');
+
+        // Re-sync from DB so other clients converge
+        refreshTasksAfterMutation();
     } catch (error) {
         console.error('Error unclaiming floating task:', error);
         showNotification('Failed to unclaim task', 'error');
@@ -31934,6 +31966,8 @@ async function dismissFloatingTask(taskId) {
                 renderFloatingTasks();
                 updateFloatingTasksCount();
                 showNotification('Task dismissed', 'info');
+
+                refreshTasksAfterMutation();
                 
                 const remainingFloating = window.tasksData.filter(t => t.taskType === 'Floating' && t.status !== 'Completed' && !t.claimedBy).length;
                 if (remainingFloating === 0) {
@@ -32019,6 +32053,8 @@ async function claimBonusTask(taskId) {
             renderBonusTasks();
             updateBonusTasksCount();
             showNotification(`Bonus task "${task.title}" claimed! Earned $${task.payAmount || '0'}`, 'success');
+
+            refreshTasksAfterMutation();
             
             const remainingBonus = window.tasksData.filter(t => t.taskType === 'Bonus' && t.status !== 'Completed' && !t.claimedBy).length;
             if (remainingBonus === 0) {
@@ -32075,6 +32111,8 @@ async function unclaimBonusTask(taskId) {
         if (typeof initTaskHub === 'function') initTaskHub();
 
         showNotification(`Bonus task "${task.title}" unclaimed.`, 'info');
+
+        refreshTasksAfterMutation();
     } catch (error) {
         console.error('Error unclaiming bonus task:', error);
         showNotification('Failed to unclaim bonus task', 'error');
@@ -32106,6 +32144,8 @@ async function dismissBonusTask(taskId) {
                 renderBonusTasks();
                 updateBonusTasksCount();
                 showNotification('Bonus task dismissed', 'info');
+
+                refreshTasksAfterMutation();
                 
                 const remainingBonus = window.tasksData.filter(t => t.taskType === 'Bonus' && t.status !== 'Completed' && !t.claimedBy).length;
                 if (remainingBonus === 0) {
