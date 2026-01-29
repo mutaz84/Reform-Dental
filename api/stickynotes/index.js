@@ -11,6 +11,14 @@ const config = {
     }
 };
 
+function getMissingSqlEnvVars() {
+    const required = ['SQL_SERVER', 'SQL_DATABASE', 'SQL_USER', 'SQL_PASSWORD'];
+    return required.filter((key) => {
+        const v = process.env[key];
+        return v === undefined || v === null || String(v).trim() === '';
+    });
+}
+
 module.exports = async function (context, req) {
     context.log('Sticky Notes API triggered');
 
@@ -28,6 +36,20 @@ module.exports = async function (context, req) {
     }
 
     try {
+        const missingEnv = getMissingSqlEnvVars();
+        if (missingEnv.length > 0) {
+            context.log.error('Sticky Notes API misconfigured. Missing env vars:', missingEnv);
+            context.res = {
+                status: 500,
+                headers,
+                body: {
+                    error: 'Server misconfiguration',
+                    details: `Missing required environment variables: ${missingEnv.join(', ')}`
+                }
+            };
+            return;
+        }
+
         await sql.connect(config);
 
         const rawUserId = (req.query && req.query.userId) || (req.body && req.body.userId);
