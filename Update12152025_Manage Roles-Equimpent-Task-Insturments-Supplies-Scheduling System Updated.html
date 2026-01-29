@@ -13955,7 +13955,7 @@
                         </div>
                         <div class="stat-item-professional">
                             <i class="fas fa-save"></i>
-                            <span>Auto-saved</span>
+                            <span>Auto-saved • <span id="stickySyncStatus">Sync: …</span> • <span id="stickyBuildVersion">v?</span></span>
                         </div>
                     </div>
                 </div>
@@ -30059,11 +30059,25 @@
         let stickyApiFailureCount = 0;
         let stickyApiNextRetryAt = 0;
 
+        function setStickySyncStatus(message) {
+            const el = document.getElementById('stickySyncStatus');
+            if (el) el.textContent = message;
+        }
+
+        (function initStickyBuildStamp() {
+            const version = '2026-01-29-8647efb+sync2';
+            window.REFORM_DENTAL_STICKY_VERSION = version;
+            const el = document.getElementById('stickyBuildVersion');
+            if (el) el.textContent = version;
+            console.log('🧾 Sticky Notes build:', version);
+        })();
+
         function scheduleStickyApiRetry(delayMs = 2000) {
             stickyPendingApiSync = true;
             const now = Date.now();
             const delay = Math.max(1000, delayMs);
             stickyApiNextRetryAt = Math.max(stickyApiNextRetryAt || 0, now + delay);
+            setStickySyncStatus(`Sync: retrying in ${Math.ceil(delay / 1000)}s`);
             setTimeout(() => {
                 if (!stickyNotesApiDisabled) saveStickyNotes();
             }, delay);
@@ -30092,14 +30106,17 @@
                 
                 // Sync to database - save all notes that don't have dbId
                 if (stickyNotesApiDisabled) {
+                    setStickySyncStatus('Sync: disabled');
                     return;
                 }
 
                 if (stickySuppressAutoSave) {
+                    setStickySyncStatus('Sync: loading');
                     return;
                 }
 
                 if (stickyApiNextRetryAt && Date.now() < stickyApiNextRetryAt) {
+                    setStickySyncStatus('Sync: waiting to retry');
                     return;
                 }
 
@@ -30107,9 +30124,12 @@
                 if (!userId) {
                     // userId may not be available yet on early page load; retry later.
                     stickyPendingApiSync = true;
+                    setStickySyncStatus('Sync: waiting for user');
                     scheduleStickyApiRetry(1500);
                     return;
                 }
+
+                setStickySyncStatus('Sync: saving…');
 
                 for (const note of stickyNotes) {
                     const text = note.element.querySelector('.sticky-note-content-item').value;
@@ -30133,12 +30153,15 @@
                                     throw new Error('Sticky note missing on server; will recreate');
                                 }
                                 stickyApiFailureCount++;
-                                console.warn('Sticky notes API update failed:', updateResponse.status);
+                                let details = '';
+                                try { details = await updateResponse.text(); } catch (_) {}
+                                console.warn('Sticky notes API update failed:', updateResponse.status, details);
                                 scheduleStickyApiRetry(stickyApiFailureCount >= 3 ? 10000 : 2500);
                                 return;
                             }
 
                             stickyApiFailureCount = 0;
+                            setStickySyncStatus('Sync: ok');
                         } else {
                             // Create new note
                             const response = await fetch(`/api/stickynotes?userId=${encodeURIComponent(userId)}`, {
@@ -30151,9 +30174,12 @@
                                 note.dbId = newNote.Id;
                                 console.log('Saved new sticky note with ID:', newNote.Id);
                                 stickyApiFailureCount = 0;
+                                setStickySyncStatus('Sync: ok');
                             } else {
                                 stickyApiFailureCount++;
-                                console.warn('Sticky notes API create failed:', response.status);
+                                let details = '';
+                                try { details = await response.text(); } catch (_) {}
+                                console.warn('Sticky notes API create failed:', response.status, details);
                                 scheduleStickyApiRetry(stickyApiFailureCount >= 3 ? 10000 : 2500);
                                 return;
                             }
@@ -30167,6 +30193,7 @@
                 }
 
                 stickyPendingApiSync = false;
+                setStickySyncStatus('Sync: ok');
             } finally {
                 saveInProgress = false;
                 
