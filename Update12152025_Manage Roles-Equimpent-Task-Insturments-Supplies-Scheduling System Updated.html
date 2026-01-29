@@ -29403,6 +29403,22 @@
             }
         }
 
+        async function getStickyUserIdAsync() {
+            const ctx = getStickyUserContext();
+            if (ctx.userId) return ctx.userId;
+
+            // Try to resolve DB user id via existing helper (async)
+            try {
+                if (typeof getCurrentUserId === 'function') {
+                    const id = await getCurrentUserId();
+                    const parsed = id !== undefined && id !== null && id !== '' ? parseInt(id, 10) : null;
+                    if (Number.isInteger(parsed)) return parsed;
+                }
+            } catch (_) {}
+
+            return null;
+        }
+
         function getStickyNotesStorageKey() {
             const { userKey } = getStickyUserContext();
             return `reformdentalStickyNotes:${userKey}`;
@@ -30024,6 +30040,9 @@
         let saveInProgress = false;
         let saveQueued = false;
         let stickyNotesApiDisabled = false;
+        let stickyApiLoadInProgress = false;
+        let stickyLoadedFromApi = false;
+        let stickyPendingApiSync = false;
         
         async function saveStickyNotes() {
             // If save is already in progress, queue another save
@@ -30051,10 +30070,13 @@
                     return;
                 }
 
-                const { userId } = getStickyUserContext();
+                const userId = await getStickyUserIdAsync();
                 if (!userId) {
-                    stickyNotesApiDisabled = true;
-                    console.warn('Sticky notes API disabled (no userId available). Using localStorage only.');
+                    // userId may not be available yet on early page load; retry later.
+                    stickyPendingApiSync = true;
+                    setTimeout(() => {
+                        if (!stickyNotesApiDisabled) saveStickyNotes();
+                    }, 1500);
                     return;
                 }
 
@@ -30099,6 +30121,8 @@
                         stickyNotesApiDisabled = true;
                     }
                 }
+
+                stickyPendingApiSync = false;
             } finally {
                 saveInProgress = false;
                 
@@ -30113,17 +30137,28 @@
         async function loadStickyNotes() {
             try {
                 // Try to load from database first
-                const { userId } = getStickyUserContext();
+                if (stickyNotesApiDisabled || stickyApiLoadInProgress || stickyLoadedFromApi) {
+                    // If API is disabled or already loaded, don't spam the server.
+                } else {
+                    stickyApiLoadInProgress = true;
 
-                if (!userId) {
-                    stickyNotesApiDisabled = true;
-                }
+                    const userId = await getStickyUserIdAsync();
+                    if (!userId) {
+                        // userId not ready yet; retry later (do not disable API).
+                        setTimeout(loadStickyNotes, 1500);
+                        return;
+                    }
 
-                if (!stickyNotesApiDisabled) {
                     const response = await fetch(`/api/stickynotes?userId=${encodeURIComponent(userId)}`);
                     if (response.ok) {
                         const notesData = await response.json();
                         if (notesData && notesData.length > 0) {
+                            // Clear current board before loading from API to avoid duplicates.
+                            try {
+                                stickyNotes.forEach(n => n.element && n.element.remove());
+                            } catch (_) {}
+                            stickyNotes = [];
+
                             notesData.forEach(noteData => {
                                 const noteObj = createStickyNote(
                                     noteData.Text || '',
@@ -30136,15 +30171,24 @@
                                     noteObj.dbId = noteData.Id;
                                 }
                             });
+                            stickyLoadedFromApi = true;
+                            // If we had pending local changes while userId was unknown, sync now.
+                            if (stickyPendingApiSync) {
+                                setTimeout(() => saveStickyNotes(), 250);
+                            }
                             return;
                         }
                     } else {
                         stickyNotesApiDisabled = true;
                     }
+
+                    stickyApiLoadInProgress = false;
                 }
             } catch (error) {
                 console.error('Error loading from database, falling back to localStorage:', error);
                 stickyNotesApiDisabled = true;
+            } finally {
+                stickyApiLoadInProgress = false;
             }
             
             // Fallback to localStorage
