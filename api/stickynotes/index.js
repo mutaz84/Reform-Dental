@@ -30,22 +30,23 @@ module.exports = async function (context, req) {
     try {
         await sql.connect(config);
 
-        if (req.method === 'GET') {
-            // Get all sticky notes for the current user (or all if userId not specified)
-            const userId = req.query.userId || null;
-            
-            let query = 'SELECT * FROM StickyNotes';
-            if (userId) {
-                query += ' WHERE UserId = @userId';
-            }
-            query += ' ORDER BY Id DESC';
+        const rawUserId = (req.query && req.query.userId) || (req.body && req.body.userId);
+        const userId = rawUserId !== undefined && rawUserId !== null && rawUserId !== '' ? parseInt(rawUserId, 10) : null;
 
-            const request = new sql.Request();
-            if (userId) {
-                request.input('userId', sql.Int, userId);
+        if (req.method === 'GET') {
+            // Get all sticky notes for a specific user
+            if (!Number.isInteger(userId)) {
+                context.res = {
+                    status: 400,
+                    headers,
+                    body: { error: 'userId is required' }
+                };
+                return;
             }
-            
-            const result = await request.query(query);
+
+            const result = await new sql.Request()
+                .input('userId', sql.Int, userId)
+                .query('SELECT * FROM StickyNotes WHERE UserId = @userId ORDER BY Id DESC');
             
             // Map Content to Text for frontend compatibility
             const notes = result.recordset.map(note => ({
@@ -67,12 +68,21 @@ module.exports = async function (context, req) {
 
         } else if (req.method === 'POST') {
             // Create a new sticky note
-            const { text, positionX, positionY, color, userId } = req.body;
+            const { text, positionX, positionY, color } = req.body;
+
+            if (!Number.isInteger(userId)) {
+                context.res = {
+                    status: 400,
+                    headers,
+                    body: { error: 'userId is required' }
+                };
+                return;
+            }
 
             const result = await new sql.Request()
                 .input('content', sql.NVarChar(sql.MAX), text || '')
                 .input('color', sql.NVarChar(50), color || 'yellow')
-                .input('userId', sql.Int, userId || null)
+                .input('userId', sql.Int, userId)
                 .query(`
                     INSERT INTO StickyNotes (Content, Color, UserId)
                     OUTPUT INSERTED.*
@@ -98,6 +108,15 @@ module.exports = async function (context, req) {
             const id = req.query.id || req.body.id;
             const { text, color } = req.body;
 
+            if (!Number.isInteger(userId)) {
+                context.res = {
+                    status: 400,
+                    headers,
+                    body: { error: 'userId is required' }
+                };
+                return;
+            }
+
             if (!id) {
                 context.res = {
                     status: 400,
@@ -109,14 +128,15 @@ module.exports = async function (context, req) {
 
             const result = await new sql.Request()
                 .input('id', sql.Int, id)
+                .input('userId', sql.Int, userId)
                 .input('content', sql.NVarChar(sql.MAX), text)
                 .input('color', sql.NVarChar(50), color)
                 .query(`
-                    UPDATE StickyNotes 
+                    UPDATE StickyNotes
                     SET Content = COALESCE(@content, Content),
                         Color = COALESCE(@color, Color)
                     OUTPUT INSERTED.*
-                    WHERE Id = @id
+                    WHERE Id = @id AND UserId = @userId
                 `);
 
             if (result.recordset.length === 0) {
@@ -144,18 +164,41 @@ module.exports = async function (context, req) {
             // Delete a sticky note
             const id = req.query.id;
 
-            if (!id) {
+            if (!Number.isInteger(userId)) {
                 context.res = {
                     status: 400,
                     headers,
-                    body: { error: 'Sticky note ID is required' }
+                    body: { error: 'userId is required' }
                 };
                 return;
             }
 
-            await new sql.Request()
+            if (!id) {
+                const deleteAllResult = await new sql.Request()
+                    .input('userId', sql.Int, userId)
+                    .query('DELETE FROM StickyNotes WHERE UserId = @userId');
+
+                context.res = {
+                    status: 200,
+                    headers,
+                    body: { message: 'All sticky notes deleted successfully', deletedCount: deleteAllResult.rowsAffected?.[0] || 0 }
+                };
+                return;
+            }
+
+            const deleteResult = await new sql.Request()
                 .input('id', sql.Int, id)
-                .query('DELETE FROM StickyNotes WHERE Id = @id');
+                .input('userId', sql.Int, userId)
+                .query('DELETE FROM StickyNotes WHERE Id = @id AND UserId = @userId');
+
+            if (!deleteResult.rowsAffected || deleteResult.rowsAffected[0] === 0) {
+                context.res = {
+                    status: 404,
+                    headers,
+                    body: { error: 'Sticky note not found' }
+                };
+                return;
+            }
 
             context.res = {
                 status: 200,

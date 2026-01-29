@@ -29375,6 +29375,24 @@
         let stickyResizeStartWidth = 0;
         let stickyResizeStartHeight = 0;
 
+        function getStickyNotesStorageKey() {
+            try {
+                const userKey = (typeof getCurrentUserKey === 'function' && getCurrentUserKey()) || localStorage.getItem('loggedInUser') || 'anonymous';
+                return `reformdentalStickyNotes:${userKey}`;
+            } catch (_) {
+                return 'reformdentalStickyNotes:anonymous';
+            }
+        }
+
+        function getStickyRecycleBinStorageKey() {
+            try {
+                const userKey = (typeof getCurrentUserKey === 'function' && getCurrentUserKey()) || localStorage.getItem('loggedInUser') || 'anonymous';
+                return `reformdentalStickyRecycleBin:${userKey}`;
+            } catch (_) {
+                return 'reformdentalStickyRecycleBin:anonymous';
+            }
+        }
+
         function initStickyNotesBoard() {
             const board = document.getElementById('stickyBoard');
             const clearBtn = document.getElementById('stickyClearBtn');
@@ -29427,8 +29445,17 @@
             });
 
             // Clear all button
-            clearBtn.addEventListener('click', () => {
+            clearBtn.addEventListener('click', async () => {
                 if (stickyNotes.length > 0 && confirm('Are you sure you want to delete all notes?')) {
+                    try {
+                        const userId = (typeof getCurrentUserId === 'function') ? await getCurrentUserId() : null;
+                        if (userId && !stickyNotesApiDisabled) {
+                            await fetch(`/api/stickynotes?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' });
+                        }
+                    } catch (e) {
+                        console.error('Error deleting all sticky notes from database:', e);
+                    }
+
                     stickyNotes.forEach(note => note.element.remove());
                     stickyNotes = [];
                     updateStickyStats();
@@ -29701,7 +29728,7 @@
         
         // Load recycle bin from localStorage
         function loadStickyRecycleBin() {
-            const saved = localStorage.getItem('reformdentalStickyRecycleBin');
+            const saved = localStorage.getItem(getStickyRecycleBinStorageKey());
             if (saved) {
                 try {
                     stickyRecycleBin = JSON.parse(saved);
@@ -29714,7 +29741,7 @@
         
         // Save recycle bin to localStorage
         function saveStickyRecycleBin() {
-            localStorage.setItem('reformdentalStickyRecycleBin', JSON.stringify(stickyRecycleBin));
+            localStorage.setItem(getStickyRecycleBinStorageKey(), JSON.stringify(stickyRecycleBin));
             updateRecycleBinCount();
         }
         
@@ -29811,7 +29838,10 @@
                 // Delete from database
                 if (note.dbId) {
                     try {
-                        await fetch(`/api/stickynotes?id=${note.dbId}`, { method: 'DELETE' });
+                        const userId = (typeof getCurrentUserId === 'function') ? await getCurrentUserId() : null;
+                        if (userId) {
+                            await fetch(`/api/stickynotes?id=${note.dbId}&userId=${encodeURIComponent(userId)}`, { method: 'DELETE' });
+                        }
                     } catch (error) {
                         console.error('Error deleting sticky note from database:', error);
                     }
@@ -29994,12 +30024,20 @@
                     y: parseInt(note.element.style.top),
                     color: note.color
                 }));
-                localStorage.setItem('reformdentalStickyNotes', JSON.stringify(notesData));
+                localStorage.setItem(getStickyNotesStorageKey(), JSON.stringify(notesData));
                 
                 // Sync to database - save all notes that don't have dbId
                 if (stickyNotesApiDisabled) {
                     return;
                 }
+
+                const userId = (typeof getCurrentUserId === 'function') ? await getCurrentUserId() : null;
+                if (!userId) {
+                    stickyNotesApiDisabled = true;
+                    console.warn('Sticky notes API disabled (no userId available). Using localStorage only.');
+                    return;
+                }
+
                 for (const note of stickyNotes) {
                     const text = note.element.querySelector('.sticky-note-content-item').value;
                     const positionX = parseInt(note.element.style.left) || 100;
@@ -30009,10 +30047,10 @@
                     try {
                         if (note.dbId) {
                             // Update existing note
-                            const updateResponse = await fetch(`/api/stickynotes?id=${note.dbId}`, {
+                            const updateResponse = await fetch(`/api/stickynotes?id=${note.dbId}&userId=${encodeURIComponent(userId)}`, {
                                 method: 'PUT',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ text, positionX, positionY, color })
+                                body: JSON.stringify({ text, positionX, positionY, color, userId })
                             });
                             if (!updateResponse.ok) {
                                 stickyNotesApiDisabled = true;
@@ -30021,10 +30059,10 @@
                             }
                         } else {
                             // Create new note
-                            const response = await fetch('/api/stickynotes', {
+                            const response = await fetch(`/api/stickynotes?userId=${encodeURIComponent(userId)}`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ text, positionX, positionY, color })
+                                body: JSON.stringify({ text, positionX, positionY, color, userId })
                             });
                             if (response.ok) {
                                 const newNote = await response.json();
@@ -30055,32 +30093,33 @@
         async function loadStickyNotes() {
             try {
                 // Try to load from database first
-                if (!stickyNotesApiDisabled) {
-                    const response = await fetch('/api/stickynotes');
-                    if (!response.ok) {
-                        stickyNotesApiDisabled = true;
-                    }
+                const userId = (typeof getCurrentUserId === 'function') ? await getCurrentUserId() : null;
+
+                if (!userId) {
+                    stickyNotesApiDisabled = true;
                 }
+
                 if (!stickyNotesApiDisabled) {
-                    const response = await fetch('/api/stickynotes');
+                    const response = await fetch(`/api/stickynotes?userId=${encodeURIComponent(userId)}`);
                     if (response.ok) {
-                    const notesData = await response.json();
-                    if (notesData && notesData.length > 0) {
-                        notesData.forEach(noteData => {
-                            const noteObj = createStickyNote(
-                                noteData.Text || '', 
-                                noteData.PositionX || 100, 
-                                noteData.PositionY || 100, 
-                                noteData.Color || 'yellow'
-                            );
-                            // Store database ID directly on the returned object
-                            if (noteObj && noteData.Id) {
-                                noteObj.dbId = noteData.Id;
-                                console.log('Loaded sticky note with dbId:', noteData.Id);
-                            }
-                        });
-                        return;
-                    }
+                        const notesData = await response.json();
+                        if (notesData && notesData.length > 0) {
+                            notesData.forEach(noteData => {
+                                const noteObj = createStickyNote(
+                                    noteData.Text || '',
+                                    noteData.PositionX || 100,
+                                    noteData.PositionY || 100,
+                                    noteData.Color || 'yellow'
+                                );
+                                // Store database ID directly on the returned object
+                                if (noteObj && noteData.Id) {
+                                    noteObj.dbId = noteData.Id;
+                                }
+                            });
+                            return;
+                        }
+                    } else {
+                        stickyNotesApiDisabled = true;
                     }
                 }
             } catch (error) {
@@ -30089,7 +30128,7 @@
             }
             
             // Fallback to localStorage
-            const saved = localStorage.getItem('reformdentalStickyNotes');
+            const saved = localStorage.getItem(getStickyNotesStorageKey());
             if (saved) {
                 try {
                     const notesData = JSON.parse(saved);
