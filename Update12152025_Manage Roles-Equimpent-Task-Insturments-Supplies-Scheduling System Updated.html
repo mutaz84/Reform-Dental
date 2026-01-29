@@ -31848,24 +31848,49 @@ async function claimFloatingTask(taskId) {
             recordTaskClaim(taskId, claimedByValue, claimedAtValue);
             
             // Add to event database for calendar display
-            const newEvent = {
-                id: 'claimed-' + taskId,
-                title: task.title,
-                start: new Date(task.dueDate + 'T09:00:00').toISOString(),
-                end: new Date(task.dueDate + 'T' + (9 + parseInt(task.timeEstimate || '1')) + ':00:00').toISOString(),
-                resourceId: currentUser ? currentUser.id : 'john-smith',
-                employee: currentUser ? currentUser.id : 'john-smith',
-                location: task.location || 'Any Location',
-                priority: task.priority,
-                description: task.description,
-                notes: task.isPaid ? `Paid task: $${task.payAmount}` : '',
-                paid: task.isPaid,
-                overdue: false,
-                completed: false,
-                type: 'floating'
-            };
-            
-            eventDatabase.push(newEvent);
+            try {
+                const dueDateStr = (task.dueDate || '').toString().trim();
+                const startCandidate = dueDateStr ? new Date(`${dueDateStr}T09:00:00`) : null;
+                const hasValidStart = startCandidate && !isNaN(startCandidate.getTime());
+
+                if (hasValidStart && Array.isArray(window.eventDatabase)) {
+                    let durationMinutes = 60;
+                    const estimatedMinutes = Number(task.estimatedTime);
+                    if (Number.isFinite(estimatedMinutes) && estimatedMinutes > 0) {
+                        durationMinutes = estimatedMinutes;
+                    } else {
+                        const raw = (task.timeEstimate ?? '').toString().toLowerCase();
+                        const n = parseInt(raw, 10);
+                        if (Number.isFinite(n) && n > 0) {
+                            if (raw.includes('min')) durationMinutes = n;
+                            else if (raw.includes('hour') || raw.includes('hr')) durationMinutes = n * 60;
+                            else durationMinutes = (n <= 8) ? (n * 60) : n;
+                        }
+                    }
+
+                    const endCandidate = new Date(startCandidate.getTime() + durationMinutes * 60 * 1000);
+                    const newEvent = {
+                        id: 'claimed-' + taskId,
+                        title: task.title,
+                        start: startCandidate.toISOString(),
+                        end: endCandidate.toISOString(),
+                        resourceId: currentUser ? currentUser.id : 'john-smith',
+                        employee: currentUser ? currentUser.id : 'john-smith',
+                        location: task.location || 'Any Location',
+                        priority: task.priority,
+                        description: task.description,
+                        notes: task.isPaid ? `Paid task: $${task.payAmount}` : '',
+                        paid: task.isPaid,
+                        overdue: false,
+                        completed: false,
+                        type: 'floating'
+                    };
+
+                    window.eventDatabase.push(newEvent);
+                }
+            } catch (e) {
+                // If calendar event creation fails, don't block claiming.
+            }
             
             // Update UI
             renderFloatingTasks();
