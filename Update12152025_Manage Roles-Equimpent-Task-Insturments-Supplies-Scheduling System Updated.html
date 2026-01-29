@@ -31720,6 +31720,80 @@ async function refreshTasksAfterMutation() {
     }
 }
 
+function isTaskHubViewActive() {
+    try {
+        const view = document.getElementById('view-task-hub');
+        return !!(view && view.classList && view.classList.contains('active'));
+    } catch (e) {
+        return false;
+    }
+}
+
+async function refreshTasksFromServer(options = {}) {
+    const { silent = true } = options;
+
+    if (typeof loadTasksFromAPI !== 'function') return false;
+
+    try {
+        await loadTasksFromAPI();
+    } catch (e) {
+        if (!silent) console.warn('Task refresh failed:', e);
+        return false;
+    }
+
+    try {
+        if (typeof renderFloatingTasks === 'function') renderFloatingTasks();
+        if (typeof updateFloatingTasksCount === 'function') updateFloatingTasksCount();
+        if (typeof renderBonusTasks === 'function') renderBonusTasks();
+        if (typeof updateBonusTasksCount === 'function') updateBonusTasksCount();
+
+        // Only refresh the Task Hub UI if it's currently open/active,
+        // so we don't disrupt the user's current tab/view.
+        if (isTaskHubViewActive()) {
+            const tab = window.taskHubState?.currentTab || 'my-tasks';
+            if (tab === 'my-tasks' && typeof renderTaskHubMyTasks === 'function') renderTaskHubMyTasks();
+            if (tab === 'floating' && typeof renderTaskHubFloating === 'function') renderTaskHubFloating();
+            if (tab === 'bonus' && typeof renderTaskHubBonus === 'function') renderTaskHubBonus();
+            if (tab === 'completed' && typeof renderTaskHubCompleted === 'function') renderTaskHubCompleted();
+            if (tab === 'assignment-board' && typeof renderAssignmentBoard === 'function') renderAssignmentBoard();
+
+            if (typeof updateTaskHubStats === 'function') updateTaskHubStats();
+            if (typeof updateTaskHubBadges === 'function') updateTaskHubBadges();
+        }
+    } catch (e) {
+        // ignore UI refresh failures
+    }
+
+    return true;
+}
+
+function startTaskClaimSync() {
+    try {
+        if (window.__taskClaimSyncStarted) return;
+        window.__taskClaimSyncStarted = true;
+
+        const intervalMs = 8000;
+        const tick = async () => {
+            if (document.hidden) return;
+            await refreshTasksFromServer({ silent: true });
+        };
+
+        // Poll periodically so claim buttons update quickly across users.
+        window.__taskClaimSyncTimer = setInterval(tick, intervalMs);
+
+        // Also refresh when the user returns to the tab/window.
+        window.addEventListener('focus', () => { tick(); });
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) tick();
+        });
+
+        // One early refresh to warm things up.
+        setTimeout(tick, 1500);
+    } catch (e) {
+        // ignore
+    }
+}
+
 function applyClaimCacheToTasks() {
     if (!Array.isArray(window.tasksData)) return;
     if (!window.__taskClaimCache) loadTaskClaimCache();
@@ -31807,7 +31881,10 @@ function renderFloatingTasks() {
 }
 
 async function claimFloatingTask(taskId) {
-    const taskIndex = window.tasksData.findIndex(t => t.id == taskId);
+    // Refresh first so the UI doesn't offer stale "Claim" actions.
+    await refreshTasksFromServer({ silent: true });
+
+    let taskIndex = window.tasksData.findIndex(t => t.id == taskId);
     if (taskIndex === -1) return;
     
     const task = window.tasksData[taskIndex];
@@ -31821,7 +31898,9 @@ async function claimFloatingTask(taskId) {
     const claimKey = currentUser?.email || currentUserKey || 'Unknown';
     const existingClaim = getTaskClaimInfo(task).claimedBy;
     if (existingClaim && String(existingClaim) !== String(claimKey)) {
-        showNotification(`Task already claimed by ${getClaimedByDisplay(existingClaim)}`, 'warning');
+        // Prefer updating the UI over a "you wasted time" prompt.
+        renderFloatingTasks();
+        showNotification(`Claimed by ${getClaimedByDisplay(existingClaim)}`, 'info');
         return;
     }
     
@@ -32056,7 +32135,10 @@ function updateFloatingTasksCount() {
 
 // Bonus Tasks Functions
 async function claimBonusTask(taskId) {
-    const taskIndex = window.tasksData.findIndex(t => t.id == taskId);
+    // Refresh first so the UI doesn't offer stale "Claim" actions.
+    await refreshTasksFromServer({ silent: true });
+
+    let taskIndex = window.tasksData.findIndex(t => t.id == taskId);
     if (taskIndex === -1) return;
     
     const task = window.tasksData[taskIndex];
@@ -32070,7 +32152,8 @@ async function claimBonusTask(taskId) {
     const claimKey = currentUser?.email || currentUserKey || 'Unknown';
     const existingClaim = getTaskClaimInfo(task).claimedBy;
     if (existingClaim && String(existingClaim) !== String(claimKey)) {
-        showNotification(`Task already claimed by ${getClaimedByDisplay(existingClaim)}`, 'warning');
+        renderBonusTasks();
+        showNotification(`Claimed by ${getClaimedByDisplay(existingClaim)}`, 'info');
         return;
     }
     
@@ -49435,6 +49518,9 @@ async function initializeApp() {
     if (typeof initializeSupplyRequestForm === 'function') initializeSupplyRequestForm();
     if (typeof initializeInstrumentRequestForm === 'function') initializeInstrumentRequestForm();
     if (typeof initializeEquipmentRequestForm === 'function') initializeEquipmentRequestForm();
+
+    // Keep Floating/Bonus claim buttons in sync across users.
+    if (typeof startTaskClaimSync === 'function') startTaskClaimSync();
     
     // Hide the global loading indicator
     // e.g., document.getElementById('global-loader').style.display = 'none';
