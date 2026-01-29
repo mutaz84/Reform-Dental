@@ -29375,22 +29375,42 @@
         let stickyResizeStartWidth = 0;
         let stickyResizeStartHeight = 0;
 
-        function getStickyNotesStorageKey() {
+        function getStickyUserContext() {
+            // IMPORTANT: Sticky Notes initializes very early on page load.
+            // We need a stable user identity even before any async user-sync finishes,
+            // so read directly from localStorage.
             try {
-                const userKey = (typeof getCurrentUserKey === 'function' && getCurrentUserKey()) || localStorage.getItem('loggedInUser') || 'anonymous';
-                return `reformdentalStickyNotes:${userKey}`;
+                const raw = localStorage.getItem('currentUser');
+                const user = raw ? JSON.parse(raw) : null;
+
+                const userIdCandidate = user?.dbId ?? user?.Id ?? user?.id;
+                const userId = userIdCandidate !== undefined && userIdCandidate !== null && userIdCandidate !== ''
+                    ? parseInt(userIdCandidate, 10)
+                    : null;
+
+                const userKey = (
+                    (Number.isInteger(userId) ? `db:${userId}` : null) ||
+                    user?.username ||
+                    user?.email ||
+                    user?.name ||
+                    localStorage.getItem('loggedInUser') ||
+                    'anonymous'
+                );
+
+                return { userId: Number.isInteger(userId) ? userId : null, userKey };
             } catch (_) {
-                return 'reformdentalStickyNotes:anonymous';
+                return { userId: null, userKey: localStorage.getItem('loggedInUser') || 'anonymous' };
             }
         }
 
+        function getStickyNotesStorageKey() {
+            const { userKey } = getStickyUserContext();
+            return `reformdentalStickyNotes:${userKey}`;
+        }
+
         function getStickyRecycleBinStorageKey() {
-            try {
-                const userKey = (typeof getCurrentUserKey === 'function' && getCurrentUserKey()) || localStorage.getItem('loggedInUser') || 'anonymous';
-                return `reformdentalStickyRecycleBin:${userKey}`;
-            } catch (_) {
-                return 'reformdentalStickyRecycleBin:anonymous';
-            }
+            const { userKey } = getStickyUserContext();
+            return `reformdentalStickyRecycleBin:${userKey}`;
         }
 
         function initStickyNotesBoard() {
@@ -29448,7 +29468,7 @@
             clearBtn.addEventListener('click', async () => {
                 if (stickyNotes.length > 0 && confirm('Are you sure you want to delete all notes?')) {
                     try {
-                        const userId = (typeof getCurrentUserId === 'function') ? await getCurrentUserId() : null;
+                        const { userId } = getStickyUserContext();
                         if (userId && !stickyNotesApiDisabled) {
                             await fetch(`/api/stickynotes?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' });
                         }
@@ -29838,7 +29858,7 @@
                 // Delete from database
                 if (note.dbId) {
                     try {
-                        const userId = (typeof getCurrentUserId === 'function') ? await getCurrentUserId() : null;
+                        const { userId } = getStickyUserContext();
                         if (userId) {
                             await fetch(`/api/stickynotes?id=${note.dbId}&userId=${encodeURIComponent(userId)}`, { method: 'DELETE' });
                         }
@@ -30031,7 +30051,7 @@
                     return;
                 }
 
-                const userId = (typeof getCurrentUserId === 'function') ? await getCurrentUserId() : null;
+                const { userId } = getStickyUserContext();
                 if (!userId) {
                     stickyNotesApiDisabled = true;
                     console.warn('Sticky notes API disabled (no userId available). Using localStorage only.');
@@ -30093,7 +30113,7 @@
         async function loadStickyNotes() {
             try {
                 // Try to load from database first
-                const userId = (typeof getCurrentUserId === 'function') ? await getCurrentUserId() : null;
+                const { userId } = getStickyUserContext();
 
                 if (!userId) {
                     stickyNotesApiDisabled = true;
