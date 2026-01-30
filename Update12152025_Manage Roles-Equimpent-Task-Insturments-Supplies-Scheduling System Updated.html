@@ -29821,21 +29821,69 @@
         let stickyRecycleBin = [];
         
         // Load recycle bin from localStorage
-        function loadStickyRecycleBin() {
-            const saved = localStorage.getItem(getStickyRecycleBinStorageKey());
-            if (saved) {
-                try {
-                    stickyRecycleBin = JSON.parse(saved);
+        async function loadStickyRecycleBin() {
+            const { userId } = getStickyUserContext();
+            if (!userId) {
+                console.warn('[Recycle Bin] No userId, loading from localStorage fallback');
+                const saved = localStorage.getItem(getStickyRecycleBinStorageKey());
+                if (saved) {
+                    try {
+                        stickyRecycleBin = JSON.parse(saved);
+                        updateRecycleBinCount();
+                    } catch (e) {
+                        stickyRecycleBin = [];
+                    }
+                }
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/stickynotes?userId=${userId}&deletedOnly=true`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (response.ok) {
+                    const deletedNotes = await response.json();
+                    stickyRecycleBin = deletedNotes.map(note => ({
+                        id: note.id,
+                        dbId: note.id,
+                        text: note.text || '',
+                        x: note.positionX || 100,
+                        y: note.positionY || 100,
+                        color: note.color || 'yellow',
+                        deletedAt: note.modifiedDate || note.createdDate
+                    }));
                     updateRecycleBinCount();
-                } catch (e) {
-                    stickyRecycleBin = [];
+                } else {
+                    console.warn('[Recycle Bin] API fetch failed, using localStorage');
+                    const saved = localStorage.getItem(getStickyRecycleBinStorageKey());
+                    if (saved) {
+                        try {
+                            stickyRecycleBin = JSON.parse(saved);
+                            updateRecycleBinCount();
+                        } catch (e) {
+                            stickyRecycleBin = [];
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('[Recycle Bin] Load error, using localStorage:', error);
+                const saved = localStorage.getItem(getStickyRecycleBinStorageKey());
+                if (saved) {
+                    try {
+                        stickyRecycleBin = JSON.parse(saved);
+                        updateRecycleBinCount();
+                    } catch (e) {
+                        stickyRecycleBin = [];
+                    }
                 }
             }
         }
         
-        // Save recycle bin to localStorage
+        // Save recycle bin (no-op since API is source of truth, just update badge)
         function saveStickyRecycleBin() {
-            localStorage.setItem(getStickyRecycleBinStorageKey(), JSON.stringify(stickyRecycleBin));
+            // Recycle bin is now API-backed; this just updates the count badge
             updateRecycleBinCount();
         }
         
@@ -29909,36 +29957,32 @@
         async function deleteStickyNote(noteId) {
             const note = stickyNotes.find(n => n.id === noteId);
             if (note) {
-                // Get note data before deleting
-                const textarea = note.element.querySelector('.sticky-note-content-item');
-                const noteData = {
-                    id: note.id,
-                    dbId: note.dbId,
-                    text: textarea ? textarea.value : '',
-                    x: parseInt(note.element.style.left),
-                    y: parseInt(note.element.style.top),
-                    color: note.color,
-                    deletedAt: new Date().toISOString()
-                };
-                
-                // Add to recycle bin
-                stickyRecycleBin.unshift(noteData);
-                // Keep only last 20 deleted notes
-                if (stickyRecycleBin.length > 20) {
-                    stickyRecycleBin = stickyRecycleBin.slice(0, 20);
-                }
-                saveStickyRecycleBin();
-                
-                // Delete from database
+                // Delete from database (soft delete = move to recycle bin)
                 if (note.dbId) {
                     try {
                         const { userId } = getStickyUserContext();
                         if (userId) {
                             await fetch(`/api/stickynotes?id=${note.dbId}&userId=${encodeURIComponent(userId)}`, { method: 'DELETE' });
+                            // Reload recycle bin from API to reflect the deletion
+                            await loadStickyRecycleBin();
                         }
                     } catch (error) {
                         console.error('Error deleting sticky note from database:', error);
                     }
+                } else {
+                    // For local-only notes (no dbId), add to localStorage recycle bin as fallback
+                    const textarea = note.element.querySelector('.sticky-note-content-item');
+                    const noteData = {
+                        id: note.id,
+                        dbId: null,
+                        text: textarea ? textarea.value : '',
+                        x: parseInt(note.element.style.left),
+                        y: parseInt(note.element.style.top),
+                        color: note.color,
+                        deletedAt: new Date().toISOString()
+                    };
+                    stickyRecycleBin.unshift(noteData);
+                    saveStickyRecycleBin();
                 }
                 
                 // Play shredding animation
@@ -29955,7 +29999,8 @@
         }
         
         // Open Recycle Bin Modal
-        window.openStickyRecycleBin = function() {
+        window.openStickyRecycleBin = async function() {
+            await loadStickyRecycleBin();
             let itemsHtml = '';
             
             if (stickyRecycleBin.length === 0) {
@@ -30049,41 +30094,156 @@
         }
         
         // Restore a single note
-        window.restoreStickyNote = function(index) {
+        window.restoreStickyNote = async function(index) {
             const noteData = stickyRecycleBin[index];
-            if (noteData) {
+            if (!noteData) return;
+
+            const { userId } = getStickyUserContext();
+            if (!userId || !noteData.dbId) {
+                // Fallback: restore locally if no API
                 createStickyNote(noteData.text, noteData.x, noteData.y, noteData.color);
                 stickyRecycleBin.splice(index, 1);
                 saveStickyRecycleBin();
-                document.getElementById('stickyRecycleBinModal').remove();
-                openStickyRecycleBin(); // Refresh modal
+                document.getElementById('stickyRecycleBinModal')?.remove();
+                openStickyRecycleBin();
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/stickynotes?id=${noteData.dbId}&userId=${userId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: noteData.text,
+                        color: noteData.color,
+                        positionX: noteData.x,
+                        positionY: noteData.y,
+                        isDeleted: false
+                    })
+                });
+
+                if (response.ok) {
+                    stickyRecycleBin.splice(index, 1);
+                    saveStickyRecycleBin();
+                    await loadStickyNotes({ force: true });
+                    document.getElementById('stickyRecycleBinModal')?.remove();
+                    openStickyRecycleBin();
+                } else {
+                    alert('Failed to restore note. Please try again.');
+                }
+            } catch (error) {
+                console.error('[Recycle Bin] Restore error:', error);
+                alert('Failed to restore note. Please try again.');
             }
         };
         
         // Permanently delete a note
-        window.permanentlyDeleteStickyNote = function(index) {
-            stickyRecycleBin.splice(index, 1);
-            saveStickyRecycleBin();
-            document.getElementById('stickyRecycleBinModal').remove();
-            openStickyRecycleBin(); // Refresh modal
+        window.permanentlyDeleteStickyNote = async function(index) {
+            const noteData = stickyRecycleBin[index];
+            if (!noteData) return;
+
+            if (!confirm('Permanently delete this note? This cannot be undone!')) return;
+
+            const { userId } = getStickyUserContext();
+            if (!userId || !noteData.dbId) {
+                // Fallback: delete locally
+                stickyRecycleBin.splice(index, 1);
+                saveStickyRecycleBin();
+                document.getElementById('stickyRecycleBinModal')?.remove();
+                openStickyRecycleBin();
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/stickynotes?id=${noteData.dbId}&userId=${userId}&permanent=true`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (response.ok) {
+                    stickyRecycleBin.splice(index, 1);
+                    saveStickyRecycleBin();
+                    document.getElementById('stickyRecycleBinModal')?.remove();
+                    openStickyRecycleBin();
+                } else {
+                    alert('Failed to delete note. Please try again.');
+                }
+            } catch (error) {
+                console.error('[Recycle Bin] Delete error:', error);
+                alert('Failed to delete note. Please try again.');
+            }
         };
         
         // Restore all notes
-        window.restoreAllStickyNotes = function() {
-            stickyRecycleBin.forEach(noteData => {
-                createStickyNote(noteData.text, noteData.x, noteData.y, noteData.color);
-            });
-            stickyRecycleBin = [];
-            saveStickyRecycleBin();
-            document.getElementById('stickyRecycleBinModal').remove();
+        window.restoreAllStickyNotes = async function() {
+            const { userId } = getStickyUserContext();
+            if (!userId) {
+                // Fallback: restore locally
+                stickyRecycleBin.forEach(noteData => {
+                    createStickyNote(noteData.text, noteData.x, noteData.y, noteData.color);
+                });
+                stickyRecycleBin = [];
+                saveStickyRecycleBin();
+                document.getElementById('stickyRecycleBinModal')?.remove();
+                return;
+            }
+
+            try {
+                const restorePromises = stickyRecycleBin.map(noteData => {
+                    if (!noteData.dbId) return Promise.resolve();
+                    return fetch(`/api/stickynotes?id=${noteData.dbId}&userId=${userId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            text: noteData.text,
+                            color: noteData.color,
+                            positionX: noteData.x,
+                            positionY: noteData.y,
+                            isDeleted: false
+                        })
+                    });
+                });
+
+                await Promise.all(restorePromises);
+                stickyRecycleBin = [];
+                saveStickyRecycleBin();
+                await loadStickyNotes({ force: true });
+                document.getElementById('stickyRecycleBinModal')?.remove();
+            } catch (error) {
+                console.error('[Recycle Bin] Restore all error:', error);
+                alert('Failed to restore some notes. Please try again.');
+            }
         };
         
         // Empty recycle bin
-        window.emptyRecycleBin = function() {
-            if (confirm('Permanently delete all notes in the recycle bin? This cannot be undone!')) {
+        window.emptyRecycleBin = async function() {
+            if (!confirm('Permanently delete all notes in the recycle bin? This cannot be undone!')) return;
+
+            const { userId } = getStickyUserContext();
+            if (!userId) {
+                // Fallback: clear locally
                 stickyRecycleBin = [];
                 saveStickyRecycleBin();
-                document.getElementById('stickyRecycleBinModal').remove();
+                document.getElementById('stickyRecycleBinModal')?.remove();
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/stickynotes?userId=${userId}&permanent=true&deletedOnly=true`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (response.ok) {
+                    stickyRecycleBin = [];
+                    saveStickyRecycleBin();
+                    document.getElementById('stickyRecycleBinModal')?.remove();
+                } else {
+                    alert('Failed to empty recycle bin. Please try again.');
+                }
+            } catch (error) {
+                console.error('[Recycle Bin] Empty bin error:', error);
+                alert('Failed to empty recycle bin. Please try again.');
             }
         };
 
