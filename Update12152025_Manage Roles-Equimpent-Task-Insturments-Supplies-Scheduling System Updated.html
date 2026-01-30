@@ -29962,11 +29962,13 @@
                 // Delete from database (soft delete = move to recycle bin)
                 if (note.dbId) {
                     try {
-                        const { userId } = getStickyUserContext();
+                        const userId = await getStickyUserIdAsync();
                         if (userId) {
                             await fetch(`/api/stickynotes?id=${note.dbId}&userId=${encodeURIComponent(userId)}`, { method: 'DELETE' });
                             // Reload recycle bin from API to reflect the deletion
                             await loadStickyRecycleBin();
+                        } else {
+                            console.warn('[Sticky Notes] Delete skipped: userId unavailable');
                         }
                     } catch (error) {
                         console.error('Error deleting sticky note from database:', error);
