@@ -7309,6 +7309,58 @@
             display: flex;
             gap: 0.25rem;
         }
+
+        /* Icon-only view mode tabs (By Date/Employee/Room/Table) */
+        .calendar-mode-tabs {
+            display: inline-flex;
+            align-items: center;
+            gap: 0;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            overflow: hidden;
+            margin-right: 0.2rem;
+        }
+
+        .calendar-mode-tabs .calendar-mode-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            width: 28px;
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+
+        .calendar-mode-tabs .calendar-mode-btn:hover {
+            background: rgba(59, 130, 246, 0.10);
+        }
+
+        .calendar-mode-tabs .calendar-mode-btn.active {
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            color: white;
+            position: relative;
+            border-radius: 6px 6px 0 0;
+        }
+
+        /* Visually attach the active tab to the calendar by covering the header bottom border */
+        .calendar-mode-tabs .calendar-mode-btn.active::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: -2px;
+            height: 2px;
+            background: var(--card-bg);
+        }
+
+        .calendar-mode-tabs .calendar-mode-btn i {
+            font-size: 0.75rem;
+            line-height: 1;
+        }
         
         .calendar-body {
             flex: 1;
@@ -10642,6 +10694,26 @@
             font-size: 0.75rem;
         }
 
+        #calendarSection .calendar-mode-tabs {
+            margin-right: 0.15rem;
+            border-radius: 6px;
+        }
+
+        #calendarSection .calendar-mode-tabs .calendar-mode-btn {
+            width: 26px;
+            height: 22px;
+            padding: 0;
+        }
+
+        #calendarSection .calendar-mode-tabs .calendar-mode-btn i {
+            font-size: 0.68rem;
+        }
+
+        #calendarSection .calendar-mode-tabs .calendar-mode-btn.active::after {
+            bottom: -2px;
+            height: 2px;
+        }
+
         #calendarSection .calendar-title {
             font-size: 0.95rem;
             margin: 0;
@@ -12768,32 +12840,6 @@
                         </h2>
                         <div class="header-actions">                
 
-                        </div>
-                    </div>
-
-                    <!-- View Mode Switcher - Admin Only -->
-                    <div class="view-mode-switcher admin-only">
-                        <div class="view-mode-label">
-                            <i class="fas fa-exchange-alt"></i>
-                            <span>Calendar View Mode</span>
-                        </div>
-                        <div class="view-mode-toggle">
-                            <button class="view-mode-btn active" data-view-mode="date" onclick="switchViewMode('date')">
-                                <i class="fas fa-calendar-day"></i>
-                                <span>By Date</span>
-                            </button>
-                            <button class="view-mode-btn" data-view-mode="employee" onclick="switchViewMode('employee')">
-                                <i class="fas fa-users"></i>
-                                <span>By Employee</span>
-                            </button>
-                            <button class="view-mode-btn" data-view-mode="room" onclick="switchViewMode('room')">
-                                <i class="fas fa-door-open"></i>
-                                <span>By Room</span>
-                            </button>
-                            <button class="view-mode-btn" onclick="toggleTableView()" id="tableViewToggleBtn">
-                                <i class="fas fa-table"></i>
-                                <span>Show as Table</span>
-                            </button>
                         </div>
                     </div>
 
@@ -24278,10 +24324,17 @@
             currentViewMode = mode;
             
             // Update toggle buttons
-            document.querySelectorAll('.view-mode-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            document.querySelector(`[data-view-mode="${mode}"]`).classList.add('active');
+            const tableActive = (typeof isTableView !== 'undefined' && isTableView === true);
+            document.querySelectorAll('.view-mode-btn, .calendar-mode-btn').forEach(btn => btn.classList.remove('active'));
+
+            if (!tableActive) {
+                document
+                    .querySelectorAll(`.view-mode-btn[data-view-mode="${mode}"], .calendar-mode-btn[data-view-mode="${mode}"]`)
+                    .forEach(btn => btn.classList.add('active'));
+            } else {
+                const tableBtn = document.getElementById('tableViewToggleBtn');
+                if (tableBtn) tableBtn.classList.add('active');
+            }
             
             // Show/hide event filter controls based on view mode
             const filterControls = document.getElementById('eventFilterControls');
@@ -26560,6 +26613,8 @@
                     // Create header
                     const header = document.createElement('div');
                     header.className = 'calendar-header';
+
+                    const tableActive = (typeof isTableView !== 'undefined' && isTableView === true);
                     
                     // Build filter controls - show in all views when working hours are enabled
                     let filterControls = '';
@@ -26582,6 +26637,20 @@
                         </div>
                         <h2 class="calendar-title">${this.getDateRangeString()}</h2>
                         <div class="calendar-view-buttons">
+                            <div class="calendar-mode-tabs admin-only" title="View Mode">
+                                <button class="calendar-mode-btn ${(!tableActive && this.viewMode === 'date') ? 'active' : ''}" data-view-mode="date" onclick="switchViewMode('date')" title="By Date" aria-label="By Date">
+                                    <i class="fas fa-calendar-day"></i>
+                                </button>
+                                <button class="calendar-mode-btn ${(!tableActive && this.viewMode === 'employee') ? 'active' : ''}" data-view-mode="employee" onclick="switchViewMode('employee')" title="By Employee" aria-label="By Employee">
+                                    <i class="fas fa-users"></i>
+                                </button>
+                                <button class="calendar-mode-btn ${(!tableActive && this.viewMode === 'room') ? 'active' : ''}" data-view-mode="room" onclick="switchViewMode('room')" title="By Room" aria-label="By Room">
+                                    <i class="fas fa-door-open"></i>
+                                </button>
+                                <button class="calendar-mode-btn ${tableActive ? 'active' : ''}" onclick="toggleTableView()" id="tableViewToggleBtn" title="${tableActive ? 'Show Calendar' : 'Show as Table'}" aria-label="${tableActive ? 'Show Calendar' : 'Show as Table'}">
+                                    <i class="fas ${tableActive ? 'fa-calendar' : 'fa-table'}"></i>
+                                </button>
+                            </div>
                             ${viewButtons}
                             ${filterControls}
                             <div class="calendar-zoom-controls" title="Zoom">
@@ -30794,14 +30863,10 @@
             var calendarSection = document.getElementById('calendarSection');
             if (calendarSection) {
                 var header = calendarSection.querySelector('.section-header');
-                var viewSwitcher = calendarSection.querySelector('.view-mode-switcher');
                 var filterContainer = document.getElementById('viewFilterContainer');
                 var eventFilterControls = document.getElementById('eventFilterControls');
 
                 if (header) {
-                    if (viewSwitcher && viewSwitcher.parentElement !== header) {
-                        header.appendChild(viewSwitcher);
-                    }
                     if (filterContainer && filterContainer.parentElement !== header) {
                         header.appendChild(filterContainer);
                     }
@@ -31430,25 +31495,42 @@
         // Table View Functions
         function toggleTableView() {
             isTableView = !isTableView;
-            const calendarDiv = document.getElementById('calendar');
+            const calendarBody = document.querySelector('#calendar .calendar-body');
+            const topScrollbar = document.querySelector('#calendar .top-scrollbar-wrapper');
             const tableDiv = document.getElementById('tableView');
             const toggleBtn = document.getElementById('tableViewToggleBtn');
             
             if (isTableView) {
-                calendarDiv.style.display = 'none';
-                tableDiv.style.display = 'block';
-                toggleBtn.innerHTML = '<i class="fas fa-calendar"></i> Show Calendar';
-                toggleBtn.style.background = 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))';
-                toggleBtn.style.color = 'white';
-                toggleBtn.style.border = 'none';
+                // Keep the calendar header visible; hide only the grid/body area.
+                if (calendarBody) calendarBody.style.display = 'none';
+                if (topScrollbar) topScrollbar.style.display = 'none';
+                if (tableDiv) tableDiv.style.display = 'block';
+
+                // Only the table tab should appear active in table view.
+                document.querySelectorAll('.calendar-mode-btn').forEach(btn => btn.classList.remove('active'));
+                if (toggleBtn) {
+                    toggleBtn.classList.add('active');
+                    toggleBtn.title = 'Show Calendar';
+                    toggleBtn.setAttribute('aria-label', 'Show Calendar');
+                    toggleBtn.innerHTML = '<i class="fas fa-calendar"></i>';
+                }
                 populateTable();
             } else {
-                calendarDiv.style.display = 'block';
-                tableDiv.style.display = 'none';
-                toggleBtn.innerHTML = '<i class="fas fa-table"></i> Show as Table';
-                toggleBtn.style.background = 'var(--bg-secondary)';
-                toggleBtn.style.color = 'var(--text-primary)';
-                toggleBtn.style.border = '1px solid var(--border-color)';
+                if (calendarBody) calendarBody.style.display = 'block';
+                // Only show top scrollbar when it is applicable; render() will handle it.
+                if (topScrollbar) topScrollbar.style.display = 'none';
+                if (tableDiv) tableDiv.style.display = 'none';
+                if (toggleBtn) {
+                    toggleBtn.classList.remove('active');
+                    toggleBtn.title = 'Show as Table';
+                    toggleBtn.setAttribute('aria-label', 'Show as Table');
+                    toggleBtn.innerHTML = '<i class="fas fa-table"></i>';
+                }
+
+                // Re-render to restore top scrollbar visibility if needed.
+                if (window.calendarInstance && typeof window.calendarInstance.render === 'function') {
+                    window.calendarInstance.render();
+                }
             }
         }
 
