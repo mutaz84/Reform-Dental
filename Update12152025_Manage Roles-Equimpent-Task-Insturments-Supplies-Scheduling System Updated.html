@@ -29645,7 +29645,9 @@
 
             stickyNotes.push(noteObj);
             updateStickyStats();
-            saveStickyNotes();
+            if (!stickySuppressAutoSave) {
+                saveStickyNotes();
+            }
 
             return noteObj;
         }
@@ -29822,7 +29824,7 @@
         
         // Load recycle bin from localStorage
         async function loadStickyRecycleBin() {
-            const { userId } = getStickyUserContext();
+            const userId = await getStickyUserIdAsync();
             if (!userId) {
                 console.warn('[Recycle Bin] No userId, loading from localStorage fallback');
                 const saved = localStorage.getItem(getStickyRecycleBinStorageKey());
@@ -29846,13 +29848,13 @@
                 if (response.ok) {
                     const deletedNotes = await response.json();
                     stickyRecycleBin = deletedNotes.map(note => ({
-                        id: note.id,
-                        dbId: note.id,
-                        text: note.text || '',
-                        x: note.positionX || 100,
-                        y: note.positionY || 100,
-                        color: note.color || 'yellow',
-                        deletedAt: note.modifiedDate || note.createdDate
+                        id: note.Id,
+                        dbId: note.Id,
+                        text: note.Text || '',
+                        x: Number.isFinite(note.PositionX) ? note.PositionX : 100,
+                        y: Number.isFinite(note.PositionY) ? note.PositionY : 100,
+                        color: note.Color || 'yellow',
+                        deletedAt: note.ModifiedDate || note.CreatedDate
                     }));
                     updateRecycleBinCount();
                 } else {
@@ -30414,6 +30416,8 @@
 
         async function loadStickyNotes(options = {}) {
             const force = !!options.force;
+            const reason = options.reason || '';
+            const isPoll = reason === 'poll';
             try {
                 // Try to load from database first
                 if (stickyNotesApiDisabled || stickyApiLoadInProgress || (!force && stickyLoadedFromApi)) {
@@ -30441,48 +30445,44 @@
                                 .join('~')
                             : '';
 
-                        if (force && snapshot && snapshot === stickyLastApiSnapshot) {
+                        // For polling, skip rebuild if nothing changed.
+                        if (isPoll && snapshot && snapshot === stickyLastApiSnapshot) {
                             stickyLoadedFromApi = true;
                             setStickySyncStatus('Sync: ok');
                             return;
                         }
 
-                        if (notesData && notesData.length > 0) {
-                            // Clear current board before loading from API to avoid duplicates.
-                            try {
-                                stickyNotes.forEach(n => n.element && n.element.remove());
-                            } catch (_) {}
-                            stickyNotes = [];
+                        // Always reconcile the board to server state (prevents duplicates and ensures deletes sync).
+                        try {
+                            stickyNotes.forEach(n => n.element && n.element.remove());
+                        } catch (_) {}
+                        stickyNotes = [];
 
-                            stickySuppressAutoSave = true;
+                        stickySuppressAutoSave = true;
 
+                        if (Array.isArray(notesData) && notesData.length > 0) {
                             notesData.forEach(noteData => {
                                 const noteObj = createStickyNote(
                                     noteData.Text || '',
-                                    noteData.PositionX || 100,
-                                    noteData.PositionY || 100,
+                                    Number.isFinite(noteData.PositionX) ? noteData.PositionX : 100,
+                                    Number.isFinite(noteData.PositionY) ? noteData.PositionY : 100,
                                     noteData.Color || 'yellow'
                                 );
-                                // Store database ID directly on the returned object
                                 if (noteObj && noteData.Id) {
                                     noteObj.dbId = noteData.Id;
                                 }
                             });
-
-                            stickySuppressAutoSave = false;
-                            stickyLoadedFromApi = true;
-                            stickyLastApiSnapshot = snapshot;
-                            // If we had pending local changes while userId was unknown, sync now.
-                            if (stickyPendingApiSync) {
-                                setTimeout(() => saveStickyNotes(), 250);
-                            }
-                            return;
                         }
 
-                        // If API returned empty, still record snapshot and mark loaded.
-                        stickyLastApiSnapshot = snapshot;
+                        stickySuppressAutoSave = false;
                         stickyLoadedFromApi = true;
+                        stickyLastApiSnapshot = snapshot;
                         setStickySyncStatus('Sync: ok');
+
+                        if (stickyPendingApiSync) {
+                            setTimeout(() => saveStickyNotes(), 250);
+                        }
+                        return;
                     } else {
                         // Transient error; fall back to localStorage and retry later.
                         scheduleStickyApiRetry(5000);
@@ -30502,6 +30502,11 @@
             if (saved) {
                 try {
                     const notesData = JSON.parse(saved);
+                    // Clear current board before loading fallback to avoid duplicates.
+                    try {
+                        stickyNotes.forEach(n => n.element && n.element.remove());
+                    } catch (_) {}
+                    stickyNotes = [];
                     stickySuppressAutoSave = true;
                     notesData.forEach(noteData => {
                         const obj = createStickyNote(noteData.text, noteData.x, noteData.y, noteData.color);
