@@ -7312,16 +7312,15 @@
 
         .calendar-mode-tabs {
             display: inline-flex;
-            align-items: flex-end;
-            gap: 0;
+            align-items: center;
+            gap: 0.2rem;
         }
 
         .calendar-mode-tabs .calendar-mode-btn {
-            background: var(--card-bg);
+            background: var(--bg-secondary);
             border: 1px solid var(--border-color);
-            /* Make the tab visually merge into the calendar header border */
-            border-bottom: 2px solid var(--card-bg);
-            color: var(--text-secondary);
+            border-bottom: none;
+            color: var(--text-primary);
             width: 34px;
             height: 24px;
             display: inline-flex;
@@ -7330,25 +7329,27 @@
             cursor: pointer;
             transition: background 0.15s ease, color 0.15s ease;
             border-radius: 6px 6px 0 0;
-            position: relative;
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.65);
-        }
-
-        /* Collapse borders between adjacent tabs (so they look like one embedded strip) */
-        .calendar-mode-tabs .calendar-mode-btn + .calendar-mode-btn {
-            margin-left: -1px;
         }
 
         .calendar-mode-tabs .calendar-mode-btn:hover {
-            color: var(--text-primary);
-            border-color: var(--accent-primary);
+            background: rgba(59, 130, 246, 0.10);
         }
 
         .calendar-mode-tabs .calendar-mode-btn.active {
+            background: var(--card-bg);
             color: var(--accent-primary);
-            z-index: 2;
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 -1px 0 rgba(0,0,0,0.03);
-            border-color: var(--accent-primary);
+            position: relative;
+        }
+
+        /* Attach active tab into the calendar header by hiding the header border under it */
+        .calendar-mode-tabs .calendar-mode-btn.active::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: -2px;
+            height: 2px;
+            background: var(--card-bg);
         }
 
         .calendar-mode-tabs .calendar-mode-btn i {
@@ -10708,20 +10709,22 @@
 
         #calendarSection .calendar-view-buttons .calendar-mode-tabs {
             margin-left: auto;
-            align-self: flex-end;
         }
 
         #calendarSection .calendar-mode-tabs .calendar-mode-btn {
             width: 30px;
             height: 22px;
             padding: 0;
-            margin-bottom: -2px;
         }
 
         #calendarSection .calendar-mode-tabs .calendar-mode-btn i {
             font-size: 0.7rem;
         }
 
+        #calendarSection .calendar-mode-tabs .calendar-mode-btn.active::after {
+            bottom: -2px;
+            height: 2px;
+        }
 
         #calendarSection .calendar-title {
             font-size: 0.95rem;
@@ -10730,7 +10733,7 @@
 
         #calendarSection .calendar-view-buttons {
             gap: 0.2rem;
-            align-items: flex-end;
+            align-items: center;
             flex-wrap: wrap;
         }
 
@@ -50234,6 +50237,58 @@ if (typeof window.logout === 'undefined' && typeof logout === 'function') {
     window.logout = logout;
 }
 console.log('✅ Global functions exported to window object');
+
+// ============ NAVIGATION GUARD (PREVENT AUTO SNAP-BACK TO CALENDAR) ============
+// Some background refresh routines can call switchContentView('calendar') without a user click.
+// This wrapper ignores programmatic view switches unless explicitly forced.
+(function installNavigationGuard() {
+    const LAST_VIEW_KEY = 'rd:lastUserContentView';
+    const LAST_VIEW_TS_KEY = 'rd:lastUserContentViewTs';
+
+    function getActiveViewName() {
+        const active = document.querySelector('.content-view.active');
+        if (!active || !active.id) return null;
+        return active.id.startsWith('view-') ? active.id.slice('view-'.length) : active.id;
+    }
+
+    function wrap() {
+        if (typeof window.switchContentView !== 'function') {
+            setTimeout(wrap, 250);
+            return;
+        }
+        if (window.switchContentView.__rdWrapped) return;
+
+        const original = window.switchContentView;
+        window.switchContentView = function(viewName, event, options) {
+            // Some inline handlers may not pass `event`; fall back to `window.event` when available.
+            const effectiveEvent = event || (typeof window !== 'undefined' ? window.event : null);
+            const hasUserEvent = !!(effectiveEvent && typeof effectiveEvent === 'object' && typeof effectiveEvent.type === 'string');
+            const force = !!(options && options.force);
+
+            if (hasUserEvent) {
+                try {
+                    localStorage.setItem(LAST_VIEW_KEY, String(viewName || ''));
+                    localStorage.setItem(LAST_VIEW_TS_KEY, String(Date.now()));
+                } catch (_) {}
+                return original.apply(this, arguments);
+            }
+
+            // Programmatic navigation: allow only if forced OR no active view OR same view.
+            const current = getActiveViewName();
+            if (!force && current && viewName && String(viewName) !== String(current)) {
+                // Ignore background-triggered view changes to prevent snapping back.
+                return;
+            }
+
+            return original.apply(this, arguments);
+        };
+        window.switchContentView.__rdWrapped = true;
+    }
+
+    // Install ASAP and after DOM ready.
+    wrap();
+    document.addEventListener('DOMContentLoaded', wrap);
+})();
 
 </script>
 
