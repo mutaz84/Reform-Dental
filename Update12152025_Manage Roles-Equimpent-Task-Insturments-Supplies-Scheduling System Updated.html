@@ -11444,6 +11444,8 @@
     :root {
         --app-header-height: 72px;
         --right-rail-width: 340px;
+        --right-rail-collapsed-width: 56px;
+        --right-rail-tab-size: 34px;
     }
 
     body.right-rail-enabled .container {
@@ -11477,22 +11479,36 @@
         z-index: 50;
     }
 
+    /* Collapsed state (used by the existing arrow toggle) */
+    .unified-right-rail.collapsed {
+        flex: 0 0 var(--right-rail-collapsed-width);
+        width: var(--right-rail-collapsed-width);
+        max-width: var(--right-rail-collapsed-width);
+    }
+
+    .unified-right-rail.collapsed .urr-content {
+        display: none;
+    }
+
     .unified-right-rail .urr-tabs {
         display: flex;
-        gap: 0.5rem;
-        padding: 0.75rem;
+        gap: 0.4rem;
+        padding: 0.4rem;
         border-bottom: 1px solid var(--border-color);
         background: var(--bg-secondary);
+        justify-content: center;
     }
 
     .unified-right-rail .urr-tab {
-        flex: 1;
+        flex: 0 0 auto;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 0.5rem;
-        padding: 0.6rem 0.75rem;
-        border-radius: 10px;
+        gap: 0;
+        width: var(--right-rail-tab-size);
+        height: var(--right-rail-tab-size);
+        padding: 0;
+        border-radius: 8px;
         border: 1px solid var(--border-color);
         background: var(--card-bg);
         color: var(--text-primary);
@@ -11500,6 +11516,11 @@
         cursor: pointer;
         transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
         user-select: none;
+    }
+
+    .unified-right-rail .urr-tab i {
+        font-size: 1rem;
+        line-height: 1;
     }
 
     .unified-right-rail .urr-tab:hover {
@@ -44393,6 +44414,19 @@ function showSidebarLeft() {
 }
 
 function toggleSidebarRight() {
+    // When unified right rail is enabled, the "right sidebar" toggle should
+    // collapse/expand that rail instead of looking for a view-local .sidebar-right.
+    if (document.body && document.body.classList.contains('right-rail-enabled')) {
+        if (typeof window.toggleUnifiedRightRail === 'function') {
+            window.toggleUnifiedRightRail();
+        } else {
+            const rail = document.getElementById('unifiedRightRail');
+            if (rail) rail.classList.toggle('collapsed');
+        }
+        if (typeof updateToggleButtons === 'function') updateToggleButtons();
+        return;
+    }
+
     const activeView = document.querySelector('.content-view.active');
     const sidebar = activeView ? activeView.querySelector('.sidebar-right') : null;
     if (sidebar) {
@@ -44445,6 +44479,27 @@ function updateToggleButtons() {
     const rightBtn = document.getElementById('toggleBtnRight');
     const cornerLeftBtn = document.getElementById('cornerToggleLeft');
     const cornerRightBtn = document.getElementById('cornerToggleRight');
+
+    // Unified right rail mode: use the right arrow to collapse/expand the rail.
+    if (document.body && document.body.classList.contains('right-rail-enabled')) {
+        const rail = document.getElementById('unifiedRightRail');
+        const collapsed = !!(rail && rail.classList.contains('collapsed'));
+
+        if (rightBtn) {
+            rightBtn.setAttribute('title', collapsed ? 'Show Side Panel' : 'Hide Side Panel');
+            // On the right edge: chevron-left expands (bring rail back), chevron-right collapses.
+            rightBtn.innerHTML = collapsed ? '<i class="fas fa-chevron-left"></i>' : '<i class="fas fa-chevron-right"></i>';
+        }
+        if (cornerRightBtn) {
+            cornerRightBtn.setAttribute('title', collapsed ? 'Show Side Panel (Alt + R)' : 'Hide Side Panel (Alt + R)');
+            cornerRightBtn.innerHTML = collapsed
+                ? '<i class="fas fa-chevron-left" style="font-size: 0.6rem;"></i>'
+                : '<i class="fas fa-chevron-right" style="font-size: 0.6rem;"></i>';
+        }
+
+        // Left toggle is hidden in unified mode; guard just in case.
+        return;
+    }
 
     if (leftBtn) {
         if (leftSidebar.classList.contains('hidden')) {
@@ -50413,6 +50468,7 @@ console.log('✅ Global functions exported to window object');
 // to switch between the main menu and the active view's contextual panel.
 (function installUnifiedRightRail() {
     const TAB_KEY = 'rd:rightRailTab';
+    const COLLAPSE_KEY = 'rd:rightRailCollapsed';
 
     const state = {
         installed: false,
@@ -50526,6 +50582,23 @@ console.log('✅ Global functions exported to window object');
         }
     }
 
+    function setRailCollapsed(collapsed) {
+        const rail = document.getElementById('unifiedRightRail');
+        if (!rail) return;
+        rail.classList.toggle('collapsed', !!collapsed);
+        try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0'); } catch (_) {}
+        // Keep existing arrow buttons in sync
+        if (typeof updateToggleButtons === 'function') {
+            try { updateToggleButtons(); } catch (_) {}
+        }
+    }
+
+    function toggleRailCollapsed() {
+        const rail = document.getElementById('unifiedRightRail');
+        if (!rail) return;
+        setRailCollapsed(!rail.classList.contains('collapsed'));
+    }
+
     function buildRail() {
         const container = document.querySelector('.container');
         const mainContent = document.querySelector('.main-content');
@@ -50539,8 +50612,12 @@ console.log('✅ Global functions exported to window object');
         rail.id = 'unifiedRightRail';
         rail.innerHTML = `
             <div class="urr-tabs">
-                <button type="button" class="urr-tab" id="urrTabMenu" aria-controls="urrMenuPanel"> <i class="fas fa-bars"></i> Menu</button>
-                <button type="button" class="urr-tab" id="urrTabPanel" aria-controls="urrPanelPanel"> <i class="fas fa-columns"></i> Panel</button>
+                <button type="button" class="urr-tab" id="urrTabMenu" aria-controls="urrMenuPanel" aria-label="Employee management" title="Employee management">
+                    <i class="fas fa-users-cog"></i>
+                </button>
+                <button type="button" class="urr-tab" id="urrTabPanel" aria-controls="urrPanelPanel" aria-label="Dental" title="Dental">
+                    <i class="fas fa-tooth"></i>
+                </button>
             </div>
             <div class="urr-content">
                 <div class="urr-panel" id="urrMenuPanel"></div>
@@ -50613,6 +50690,13 @@ console.log('✅ Global functions exported to window object');
         // Restore selected tab
         const saved = (() => { try { return localStorage.getItem(TAB_KEY) || 'menu'; } catch (_) { return 'menu'; } })();
         setActiveTab(saved);
+
+        // Restore collapsed state
+        const savedCollapsed = (() => { try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch (_) { return false; } })();
+        if (savedCollapsed) setRailCollapsed(true);
+
+        // Expose a global toggle used by existing arrow buttons (toggleSidebarRight)
+        window.toggleUnifiedRightRail = toggleRailCollapsed;
 
         // Keep header height var in sync on resize
         window.addEventListener('resize', () => {
