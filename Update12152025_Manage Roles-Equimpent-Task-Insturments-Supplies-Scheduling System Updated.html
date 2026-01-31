@@ -50538,10 +50538,20 @@ console.log('✅ Global functions exported to window object');
     }
 
     function registerPanels() {
-        state.panelRegistry.clear();
+        // IMPORTANT: Do not clear the registry.
+        // Once we detach a panel into the rail, it no longer exists inside its view.
+        // Clearing + rescanning would “lose” the panel and break the Dental tab.
         document.querySelectorAll('.content-view').forEach(view => {
+            if (!view || !view.id) return;
+            if (state.panelRegistry.has(view.id)) return;
+
             const panel = view.querySelector('.sidebar-right');
             if (!panel) return;
+
+            try {
+                panel.dataset.urrViewId = view.id;
+            } catch (_) {}
+
             state.panelRegistry.set(view.id, {
                 el: panel,
                 parent: panel.parentNode,
