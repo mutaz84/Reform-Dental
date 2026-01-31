@@ -11443,9 +11443,9 @@
        ========================================================== */
     :root {
         --app-header-height: 72px;
-        --right-rail-width: 340px;
-        --right-rail-collapsed-width: 56px;
-        --right-rail-tab-size: 34px;
+        --right-rail-width: 300px;
+        --right-rail-strip-width: 44px;
+        --right-rail-strip-btn-size: 34px;
     }
 
     body.right-rail-enabled .container {
@@ -11471,7 +11471,7 @@
         border-left: 1px solid var(--border-color);
         background: var(--card-bg);
         display: flex;
-        flex-direction: column;
+        flex-direction: row;
         height: calc(100vh - var(--app-header-height));
         position: sticky;
         top: var(--app-header-height);
@@ -11481,55 +11481,74 @@
 
     /* Collapsed state (used by the existing arrow toggle) */
     .unified-right-rail.collapsed {
-        flex: 0 0 var(--right-rail-collapsed-width);
-        width: var(--right-rail-collapsed-width);
-        max-width: var(--right-rail-collapsed-width);
+        flex: 0 0 var(--right-rail-strip-width);
+        width: var(--right-rail-strip-width);
+        max-width: var(--right-rail-strip-width);
     }
 
     .unified-right-rail.collapsed .urr-content {
         display: none;
     }
 
-    .unified-right-rail .urr-tabs {
+    /* Slim vertical strip acts as a separator between Menu and Panel */
+    .unified-right-rail .urr-strip {
+        flex: 0 0 var(--right-rail-strip-width);
+        width: var(--right-rail-strip-width);
         display: flex;
-        gap: 0.4rem;
-        padding: 0.4rem;
-        border-bottom: 1px solid var(--border-color);
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.4rem;
         background: var(--bg-secondary);
-        justify-content: center;
+        border-right: 1px solid var(--border-color);
     }
 
-    .unified-right-rail .urr-tab {
-        flex: 0 0 auto;
+    .unified-right-rail .urr-strip-spacer {
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+
+    .unified-right-rail .urr-strip-btn {
+        position: relative;
+        width: var(--right-rail-strip-btn-size);
+        height: var(--right-rail-strip-btn-size);
+        padding: 0;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--text-primary);
+        cursor: pointer;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 0;
-        width: var(--right-rail-tab-size);
-        height: var(--right-rail-tab-size);
-        padding: 0;
-        border-radius: 8px;
-        border: 1px solid var(--border-color);
-        background: var(--card-bg);
-        color: var(--text-primary);
-        font-weight: 700;
-        cursor: pointer;
-        transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+        transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
         user-select: none;
     }
 
-    .unified-right-rail .urr-tab i {
-        font-size: 1rem;
+    .unified-right-rail .urr-strip-btn i {
+        font-size: 1.05rem;
         line-height: 1;
     }
 
-    .unified-right-rail .urr-tab:hover {
-        background: var(--bg-tertiary);
+    .unified-right-rail .urr-strip-btn:hover {
+        background: rgba(0, 0, 0, 0.04);
     }
 
-    .unified-right-rail .urr-tab.active {
-        border-color: rgba(var(--accent-primary-rgb, 16, 185, 129), 0.45);
-        box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb, 16, 185, 129), 0.18);
+    .unified-right-rail .urr-strip-btn.active {
+        background: rgba(var(--accent-primary-rgb, 16, 185, 129), 0.10);
+        border-color: rgba(var(--accent-primary-rgb, 16, 185, 129), 0.35);
+        box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb, 16, 185, 129), 0.12);
+    }
+
+    .unified-right-rail .urr-strip-btn.active::after {
+        content: '';
+        position: absolute;
+        right: -6px;
+        top: 20%;
+        width: 3px;
+        height: 60%;
+        border-radius: 6px;
+        background: rgba(var(--accent-primary-rgb, 16, 185, 129), 0.9);
     }
 
     .unified-right-rail .urr-content {
@@ -50479,6 +50498,7 @@ console.log('✅ Global functions exported to window object');
         panelHost: null,
         menuTabBtn: null,
         panelTabBtn: null,
+        collapseBtn: null,
     };
 
     function setHeaderHeightVar() {
@@ -50582,11 +50602,24 @@ console.log('✅ Global functions exported to window object');
         }
     }
 
+    function updateRailCollapseButton(collapsed) {
+        if (!state.collapseBtn) return;
+        const icon = state.collapseBtn.querySelector('i');
+        if (icon) {
+            // Expanded rail collapses towards the right; collapsed rail expands left.
+            icon.classList.toggle('fa-chevron-left', !!collapsed);
+            icon.classList.toggle('fa-chevron-right', !collapsed);
+        }
+        state.collapseBtn.title = collapsed ? 'Show sidebar' : 'Hide sidebar';
+        state.collapseBtn.setAttribute('aria-label', collapsed ? 'Show sidebar' : 'Hide sidebar');
+    }
+
     function setRailCollapsed(collapsed) {
         const rail = document.getElementById('unifiedRightRail');
         if (!rail) return;
         rail.classList.toggle('collapsed', !!collapsed);
         try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0'); } catch (_) {}
+        updateRailCollapseButton(!!collapsed);
         // Keep existing arrow buttons in sync
         if (typeof updateToggleButtons === 'function') {
             try { updateToggleButtons(); } catch (_) {}
@@ -50611,12 +50644,16 @@ console.log('✅ Global functions exported to window object');
         rail.className = 'unified-right-rail';
         rail.id = 'unifiedRightRail';
         rail.innerHTML = `
-            <div class="urr-tabs">
-                <button type="button" class="urr-tab" id="urrTabMenu" aria-controls="urrMenuPanel" aria-label="Employee management" title="Employee management">
+            <div class="urr-strip" aria-label="Sidebar switcher">
+                <button type="button" class="urr-strip-btn" id="urrTabMenu" aria-controls="urrMenuPanel" aria-label="Employee management" title="Employee management">
                     <i class="fas fa-users-cog"></i>
                 </button>
-                <button type="button" class="urr-tab" id="urrTabPanel" aria-controls="urrPanelPanel" aria-label="Dental" title="Dental">
+                <button type="button" class="urr-strip-btn" id="urrTabPanel" aria-controls="urrPanelPanel" aria-label="Dental" title="Dental">
                     <i class="fas fa-tooth"></i>
+                </button>
+                <div class="urr-strip-spacer"></div>
+                <button type="button" class="urr-strip-btn" id="urrCollapseBtn" aria-label="Hide sidebar" title="Hide sidebar">
+                    <i class="fas fa-chevron-right"></i>
                 </button>
             </div>
             <div class="urr-content">
@@ -50637,12 +50674,17 @@ console.log('✅ Global functions exported to window object');
         state.panelHost = panelHost;
         state.menuTabBtn = rail.querySelector('#urrTabMenu');
         state.panelTabBtn = rail.querySelector('#urrTabPanel');
+        state.collapseBtn = rail.querySelector('#urrCollapseBtn');
 
         state.menuTabBtn.addEventListener('click', () => setActiveTab('menu'));
         state.panelTabBtn.addEventListener('click', () => {
             detachPanelForActiveView();
             setActiveTab('panel');
         });
+
+        if (state.collapseBtn) {
+            state.collapseBtn.addEventListener('click', () => toggleRailCollapsed());
+        }
 
         return true;
     }
@@ -50693,7 +50735,7 @@ console.log('✅ Global functions exported to window object');
 
         // Restore collapsed state
         const savedCollapsed = (() => { try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch (_) { return false; } })();
-        if (savedCollapsed) setRailCollapsed(true);
+        setRailCollapsed(!!savedCollapsed);
 
         // Expose a global toggle used by existing arrow buttons (toggleSidebarRight)
         window.toggleUnifiedRightRail = toggleRailCollapsed;
