@@ -29630,8 +29630,18 @@
                         const calSection = document.getElementById('calendarSection') || document.querySelector('.calendar-section');
                         if (calSection) calSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         // Give FullCalendar a moment to resize correctly
-                        if (window.calendar && typeof calendar.updateSize === 'function') {
-                            setTimeout(() => calendar.updateSize(), 250);
+                        const initialCal = window.calendarInstance || window.calendar;
+                        if (initialCal && (typeof initialCal.updateSize === 'function' || typeof initialCal.render === 'function')) {
+                            setTimeout(() => {
+                                try {
+                                    const cal = window.calendarInstance || window.calendar;
+                                    if (cal && typeof cal.updateSize === 'function') {
+                                        cal.updateSize();
+                                    } else if (cal && typeof cal.render === 'function') {
+                                        cal.render();
+                                    }
+                                } catch (_) {}
+                            }, 250);
                         }
                         // Also refresh the event list preview on the right
                         updateEventList();
