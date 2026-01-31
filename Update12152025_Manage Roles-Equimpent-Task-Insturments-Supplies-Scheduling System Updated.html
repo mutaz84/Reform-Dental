@@ -50428,6 +50428,23 @@ console.log('✅ Global functions exported to window object');
     const LAST_VIEW_KEY = 'rd:lastUserContentView';
     const LAST_VIEW_TS_KEY = 'rd:lastUserContentViewTs';
 
+    // Some UI elements call switchContentView('x') without passing the event.
+    // Relying on window.event is inconsistent across browsers/handlers, so we
+    // also track the most recent user gesture and treat near-immediate calls
+    // as user-initiated.
+    let lastUserGestureTs = 0;
+    const USER_GESTURE_WINDOW_MS = 1200;
+
+    function markUserGesture() {
+        lastUserGestureTs = Date.now();
+    }
+
+    // Capture common user interactions.
+    document.addEventListener('pointerdown', markUserGesture, true);
+    document.addEventListener('mousedown', markUserGesture, true);
+    document.addEventListener('touchstart', markUserGesture, true);
+    document.addEventListener('keydown', markUserGesture, true);
+
     function getActiveViewName() {
         const active = document.querySelector('.content-view.active');
         if (!active || !active.id) return null;
@@ -50448,7 +50465,9 @@ console.log('✅ Global functions exported to window object');
             const hasUserEvent = !!(effectiveEvent && typeof effectiveEvent === 'object' && typeof effectiveEvent.type === 'string');
             const force = !!(options && options.force);
 
-            if (hasUserEvent) {
+            const gestureRecent = (Date.now() - lastUserGestureTs) <= USER_GESTURE_WINDOW_MS;
+
+            if (hasUserEvent || gestureRecent) {
                 try {
                     localStorage.setItem(LAST_VIEW_KEY, String(viewName || ''));
                     localStorage.setItem(LAST_VIEW_TS_KEY, String(Date.now()));
