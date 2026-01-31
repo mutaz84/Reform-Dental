@@ -11434,6 +11434,124 @@
                 0 0 0 3px rgba(var(--accent-primary-rgb), 0.3) !important;
         }
 </style>
+
+<style>
+    /* ==========================================================
+       Unified Right Sidebar Rail (Menu | Panel)
+       Moves the main left sidebar + the active view's right panel
+       into a single right-side rail with tabs.
+       ========================================================== */
+    :root {
+        --app-header-height: 72px;
+        --right-rail-width: 340px;
+    }
+
+    body.right-rail-enabled .container {
+        display: flex;
+        align-items: stretch;
+    }
+
+    body.right-rail-enabled .main-content {
+        flex: 1 1 auto;
+        min-width: 0;
+        margin-left: 0 !important;
+    }
+
+    body.right-rail-enabled #toggleButtonsLeft,
+    body.right-rail-enabled .calendar-corner-toggle.left-toggle {
+        display: none !important;
+    }
+
+    .unified-right-rail {
+        flex: 0 0 var(--right-rail-width);
+        width: var(--right-rail-width);
+        max-width: var(--right-rail-width);
+        border-left: 1px solid var(--border-color);
+        background: var(--card-bg);
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - var(--app-header-height));
+        position: sticky;
+        top: var(--app-header-height);
+        overflow: hidden;
+        z-index: 50;
+    }
+
+    .unified-right-rail .urr-tabs {
+        display: flex;
+        gap: 0.5rem;
+        padding: 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--bg-secondary);
+    }
+
+    .unified-right-rail .urr-tab {
+        flex: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.6rem 0.75rem;
+        border-radius: 10px;
+        border: 1px solid var(--border-color);
+        background: var(--card-bg);
+        color: var(--text-primary);
+        font-weight: 700;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+        user-select: none;
+    }
+
+    .unified-right-rail .urr-tab:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .unified-right-rail .urr-tab.active {
+        border-color: rgba(var(--accent-primary-rgb, 16, 185, 129), 0.45);
+        box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb, 16, 185, 129), 0.18);
+    }
+
+    .unified-right-rail .urr-content {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .unified-right-rail .urr-panel {
+        display: none;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+    }
+
+    .unified-right-rail .urr-panel.active {
+        display: block;
+    }
+
+    /* Make the moved-in sidebars fill the rail */
+    .unified-right-rail .sidebar,
+    .unified-right-rail .sidebar-right {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 100% !important;
+        border: none;
+        border-radius: 0;
+    }
+
+    /* When we detach the right panel from a view's dashboard grid, collapse it to one column */
+    body.right-rail-enabled .content-view.right-panel-detached .dashboard-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Mobile: keep existing mobile sidebar behavior; hide the unified rail */
+    @media (max-width: 768px) {
+        body.right-rail-enabled .unified-right-rail {
+            display: none !important;
+        }
+    }
+</style>
 </head>
 <body>
 <!-- Sticky Notes Panel -->
@@ -50288,6 +50406,226 @@ console.log('✅ Global functions exported to window object');
     // Install ASAP and after DOM ready.
     wrap();
     document.addEventListener('DOMContentLoaded', wrap);
+})();
+
+// ============ UNIFIED RIGHT RAIL (MENU | PANEL) ============
+// Moves the main navigation (left sidebar) to the right and adds tabs
+// to switch between the main menu and the active view's contextual panel.
+(function installUnifiedRightRail() {
+    const TAB_KEY = 'rd:rightRailTab';
+
+    const state = {
+        installed: false,
+        currentPanelViewId: null,
+        panelRegistry: new Map(),
+        rail: null,
+        menuHost: null,
+        panelHost: null,
+        menuTabBtn: null,
+        panelTabBtn: null,
+    };
+
+    function setHeaderHeightVar() {
+        try {
+            const header = document.querySelector('.header');
+            const h = header ? Math.max(56, header.getBoundingClientRect().height) : 72;
+            document.documentElement.style.setProperty('--app-header-height', `${Math.round(h)}px`);
+        } catch (_) {}
+    }
+
+    function getActiveViewEl() {
+        return document.querySelector('.content-view.active') || null;
+    }
+
+    function getActiveViewId() {
+        const v = getActiveViewEl();
+        return v ? v.id : null;
+    }
+
+    function registerPanels() {
+        state.panelRegistry.clear();
+        document.querySelectorAll('.content-view').forEach(view => {
+            const panel = view.querySelector('.sidebar-right');
+            if (!panel) return;
+            state.panelRegistry.set(view.id, {
+                el: panel,
+                parent: panel.parentNode,
+                nextSibling: panel.nextSibling
+            });
+        });
+    }
+
+    function restorePanelForView(viewId) {
+        if (!viewId) return;
+        const record = state.panelRegistry.get(viewId);
+        if (!record || !record.el || !record.parent) return;
+
+        // If it's currently inside the rail, move it back.
+        if (record.el.parentNode === state.panelHost) {
+            try {
+                record.parent.insertBefore(record.el, record.nextSibling || null);
+            } catch (_) {
+                try { record.parent.appendChild(record.el); } catch (_) {}
+            }
+        }
+
+        const viewEl = document.getElementById(viewId);
+        if (viewEl) viewEl.classList.remove('right-panel-detached');
+    }
+
+    function detachPanelForActiveView() {
+        const viewEl = getActiveViewEl();
+        if (!viewEl) return;
+
+        const viewId = viewEl.id;
+        if (!viewId) return;
+
+        // Restore previous panel (if any)
+        if (state.currentPanelViewId && state.currentPanelViewId !== viewId) {
+            restorePanelForView(state.currentPanelViewId);
+        }
+
+        const record = state.panelRegistry.get(viewId);
+        if (!record || !record.el) {
+            state.currentPanelViewId = viewId;
+            state.panelHost.innerHTML = '<div style="padding:1rem;color:var(--text-secondary);font-size:0.9rem;">No panel for this page.</div>';
+            return;
+        }
+
+        // Clear placeholder message if present
+        if (state.panelHost && state.panelHost.firstChild && state.panelHost.firstChild.nodeType === 1) {
+            const maybeMsg = state.panelHost.querySelector('[data-urr-placeholder="true"]');
+            if (maybeMsg) maybeMsg.remove();
+        }
+
+        // Move panel into rail
+        if (record.el.parentNode !== state.panelHost) {
+            state.panelHost.innerHTML = '';
+            state.panelHost.appendChild(record.el);
+        }
+        viewEl.classList.add('right-panel-detached');
+        state.currentPanelViewId = viewId;
+    }
+
+    function setActiveTab(tab) {
+        const isPanel = tab === 'panel';
+        if (!state.menuTabBtn || !state.panelTabBtn) return;
+        state.menuTabBtn.classList.toggle('active', !isPanel);
+        state.panelTabBtn.classList.toggle('active', isPanel);
+        state.menuHost.classList.toggle('active', !isPanel);
+        state.panelHost.classList.toggle('active', isPanel);
+        try { localStorage.setItem(TAB_KEY, isPanel ? 'panel' : 'menu'); } catch (_) {}
+
+        // If user wants Panel but there isn't one, fallback to Menu.
+        if (isPanel) {
+            const viewId = getActiveViewId();
+            const hasPanel = !!(viewId && state.panelRegistry.get(viewId) && state.panelRegistry.get(viewId).el);
+            if (!hasPanel) {
+                setActiveTab('menu');
+            }
+        }
+    }
+
+    function buildRail() {
+        const container = document.querySelector('.container');
+        const mainContent = document.querySelector('.main-content');
+        const mainSidebar = document.getElementById('mainSidebar');
+        if (!container || !mainContent || !mainSidebar) return false;
+
+        if (document.getElementById('unifiedRightRail')) return true;
+
+        const rail = document.createElement('div');
+        rail.className = 'unified-right-rail';
+        rail.id = 'unifiedRightRail';
+        rail.innerHTML = `
+            <div class="urr-tabs">
+                <button type="button" class="urr-tab" id="urrTabMenu" aria-controls="urrMenuPanel"> <i class="fas fa-bars"></i> Menu</button>
+                <button type="button" class="urr-tab" id="urrTabPanel" aria-controls="urrPanelPanel"> <i class="fas fa-columns"></i> Panel</button>
+            </div>
+            <div class="urr-content">
+                <div class="urr-panel" id="urrMenuPanel"></div>
+                <div class="urr-panel" id="urrPanelPanel"></div>
+            </div>
+        `;
+
+        container.appendChild(rail);
+
+        // Move the main sidebar into the rail
+        const menuHost = rail.querySelector('#urrMenuPanel');
+        const panelHost = rail.querySelector('#urrPanelPanel');
+        menuHost.appendChild(mainSidebar);
+
+        state.rail = rail;
+        state.menuHost = menuHost;
+        state.panelHost = panelHost;
+        state.menuTabBtn = rail.querySelector('#urrTabMenu');
+        state.panelTabBtn = rail.querySelector('#urrTabPanel');
+
+        state.menuTabBtn.addEventListener('click', () => setActiveTab('menu'));
+        state.panelTabBtn.addEventListener('click', () => {
+            detachPanelForActiveView();
+            setActiveTab('panel');
+        });
+
+        return true;
+    }
+
+    function wrapSwitchContentViewForRail() {
+        if (typeof window.switchContentView !== 'function') {
+            setTimeout(wrapSwitchContentViewForRail, 250);
+            return;
+        }
+        if (window.switchContentView.__urrWrapped) return;
+
+        const original = window.switchContentView;
+        window.switchContentView = function(viewName, event, options) {
+            const result = original.apply(this, arguments);
+            // After the view becomes active, swap the panel.
+            setTimeout(() => {
+                try {
+                    registerPanels();
+                    detachPanelForActiveView();
+                    const saved = (() => { try { return localStorage.getItem(TAB_KEY) || 'menu'; } catch (_) { return 'menu'; } })();
+                    setActiveTab(saved);
+                } catch (_) {}
+            }, 0);
+            return result;
+        };
+        window.switchContentView.__urrWrapped = true;
+    }
+
+    function install() {
+        if (state.installed) return;
+        setHeaderHeightVar();
+        document.body.classList.add('right-rail-enabled');
+
+        const ok = buildRail();
+        if (!ok) {
+            // Try again after DOM settles
+            setTimeout(install, 300);
+            return;
+        }
+
+        registerPanels();
+        detachPanelForActiveView();
+        wrapSwitchContentViewForRail();
+
+        // Restore selected tab
+        const saved = (() => { try { return localStorage.getItem(TAB_KEY) || 'menu'; } catch (_) { return 'menu'; } })();
+        setActiveTab(saved);
+
+        // Keep header height var in sync on resize
+        window.addEventListener('resize', () => {
+            setHeaderHeightVar();
+        });
+
+        state.installed = true;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // Delay a bit so initializeApp and auth-driven view activation can run
+        setTimeout(install, 400);
+    });
 })();
 
 </script>
