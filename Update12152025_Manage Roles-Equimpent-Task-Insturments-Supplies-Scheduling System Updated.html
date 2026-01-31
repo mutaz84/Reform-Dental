@@ -5398,13 +5398,13 @@
             transition: all 0.3s ease !important;
         }
 
-        /* Header */
+        /* Header (legacy top header - replaced by calendar mini header) */
         .header {
             background: var(--card-bg);
             border-bottom: 1px solid var(--border-color);
             padding: 0.5rem 1rem;
             transition: transform 0.3s ease;
-            display: flex;
+            display: none; /* removed per new layout */
             align-items: center;
             justify-content: space-between;
             position: sticky;
@@ -5644,10 +5644,10 @@
             opacity: 0.7;
         }
 
-        /* Main Container */
+        /* Main Container (no global header occupying space now) */
         .container {
             display: flex;
-            height: calc(100vh - 50px);
+            height: 100vh;
             flex-wrap: nowrap;
             transition: all 0.3s ease;
             margin-top: 0;
@@ -5655,7 +5655,7 @@
 
         .container.header-hidden {
             height: 100vh;
-            margin-top: -50px;
+            margin-top: 0;
         }
 
         /* Sidebar */
@@ -6162,6 +6162,99 @@
             position: relative;
             box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
             transition: box-shadow 0.3s ease;
+        }
+
+        /* Calendar Mini Header (logo + settings) */
+        #calendarSection {
+            --calendar-mini-header-height: 52px;
+        }
+
+        #calendarSection .calendar-mini-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            min-height: var(--calendar-mini-header-height);
+            margin: -1.5rem -1.5rem 0 -1.5rem;
+            padding: 0.35rem 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--card-bg);
+            visibility: hidden;
+        }
+
+        #calendarSection .calendar-mini-header.is-ready {
+            visibility: visible;
+        }
+
+        #calendarSection .calendar-mini-header.is-hidden {
+            display: none;
+        }
+
+        #calendarSection .calendar-mini-left {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            min-width: 0;
+        }
+
+        #calendarSection .calendar-mini-right {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex: 0 0 auto;
+        }
+
+        #calendarSection .calendar-mini-header .logo-container {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+        }
+
+        #calendarSection .calendar-mini-header .brand-text h1 {
+            font-size: 0.95rem;
+            line-height: 1.1;
+        }
+
+        #calendarSection .calendar-mini-header .brand-text p {
+            display: none;
+        }
+
+        /* Move old calendar title row out of the way (mini header replaces it) */
+        #calendarSection .section-header {
+            display: none;
+        }
+
+        /* Corner toggles: move below the mini header; remove top-toggle (old header toggle) */
+        #calendarSection .calendar-corner-toggle.left-toggle,
+        #calendarSection .calendar-corner-toggle.right-toggle {
+            top: var(--calendar-mini-header-height);
+        }
+        #calendarSection .calendar-corner-toggle.top-toggle {
+            display: none;
+        }
+
+        /* Settings dropdown: add room for user/theme controls at the top */
+        #settingsDropdown .settings-dropdown-top {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+        }
+
+        #settingsDropdown .settings-dropdown-top .user-profile {
+            width: 100%;
+            justify-content: flex-start;
+            margin-bottom: 0.75rem;
+        }
+
+        #settingsDropdown .settings-dropdown-top .theme-controls {
+            width: 100%;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        #settingsDropdown .settings-dropdown-top #clinicFilterContainer {
+            margin-top: 0.75rem;
         }
 
         .calendar-section:hover {
@@ -11442,7 +11535,7 @@
        into a single right-side rail with tabs.
        ========================================================== */
     :root {
-        --app-header-height: 72px;
+        --app-header-height: 0px;
         --right-rail-width: 280px;
         --right-rail-tabs-height: 36px;
         --right-rail-outline: rgba(59, 130, 246, 0.75); /* blue */
@@ -12978,6 +13071,11 @@
             <div class="dashboard-grid">
                 <!-- Calendar Section -->
                 <div class="calendar-section" id="calendarSection">
+                    <!-- Mini header inside calendar (logo + settings) -->
+                    <div class="calendar-mini-header" id="calendarMiniHeader">
+                        <div class="calendar-mini-left" id="calendarMiniLogoHost"></div>
+                        <div class="calendar-mini-right" id="calendarMiniActions"></div>
+                    </div>
                     <!-- Corner Toggle Buttons -->
                     <button class="calendar-corner-toggle left-toggle" id="cornerToggleLeft" onclick="toggleSidebarLeft()" title="Toggle Left Sidebar">
                         <i class="fas fa-chevron-right" style="font-size: 0.6rem;"></i>
@@ -24036,26 +24134,17 @@
             }
         }
 
-        // Header Bar Toggle Function
+        // Header Bar Toggle Function (legacy) - now toggles the Calendar mini header
         function toggleHeaderBar() {
-            const header = document.querySelector('.header');
-            const container = document.querySelector('.container');
+            const miniHeader = document.getElementById('calendarMiniHeader');
+            if (!miniHeader) return;
+
             const button = document.getElementById('cornerToggleTop');
-            const icon = button.querySelector('i');
-            
-            if (header.style.transform === 'translateY(-100%)') {
-                // Show header
-                header.style.transform = 'translateY(0)';
-                container.classList.remove('header-hidden');
-                icon.className = 'fas fa-chevron-up';
-                button.setAttribute('title', 'Hide Header Bar');
-            } else {
-                // Hide header
-                header.style.transform = 'translateY(-100%)';
-                container.classList.add('header-hidden');
-                icon.className = 'fas fa-chevron-down';
-                button.setAttribute('title', 'Show Header Bar');
-            }
+            const icon = button ? button.querySelector('i') : null;
+
+            const isHidden = miniHeader.classList.toggle('is-hidden');
+            if (icon) icon.className = isHidden ? 'fas fa-chevron-down' : 'fas fa-chevron-up';
+            if (button) button.setAttribute('title', isHidden ? 'Show Header Bar' : 'Hide Header Bar');
         }
 
         // Employee Selection
@@ -50520,7 +50609,8 @@ console.log('✅ Global functions exported to window object');
     function setHeaderHeightVar() {
         try {
             const header = document.querySelector('.header');
-            const h = header ? Math.max(56, header.getBoundingClientRect().height) : 72;
+            const rectH = header ? header.getBoundingClientRect().height : 0;
+            const h = rectH && rectH > 8 ? rectH : 0;
             document.documentElement.style.setProperty('--app-header-height', `${Math.round(h)}px`);
         } catch (_) {}
     }
@@ -50755,6 +50845,95 @@ console.log('✅ Global functions exported to window object');
     document.addEventListener('DOMContentLoaded', () => {
         // Delay a bit so initializeApp and auth-driven view activation can run
         setTimeout(install, 400);
+    });
+})();
+
+// ============ CALENDAR MINI HEADER (LOGO + SETTINGS) ============
+// Removes the big top header and places logo + settings inside the calendar.
+(function installCalendarMiniHeader() {
+    function ensureSettingsDropdownTop(dropdown) {
+        if (!dropdown) return null;
+        let top = dropdown.querySelector('.settings-dropdown-top');
+        if (top) return top;
+        top = document.createElement('div');
+        top.className = 'settings-dropdown-top';
+        dropdown.insertBefore(top, dropdown.firstChild);
+        return top;
+    }
+
+    function install() {
+        const miniLogoHost = document.getElementById('calendarMiniLogoHost');
+        const miniActions = document.getElementById('calendarMiniActions');
+        const miniHeader = document.getElementById('calendarMiniHeader');
+        if (!miniLogoHost || !miniActions) return false;
+
+        const header = document.querySelector('.header');
+        const logoSection = document.querySelector('.header .logo-section') || document.querySelector('.logo-section');
+        const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+
+        const settingsBtn = document.getElementById('settingsBtn');
+        const dropdown = document.getElementById('settingsDropdown');
+
+        if (!logoSection || !settingsBtn || !dropdown) return false;
+
+        // Move mobile menu button + logo into the calendar mini header
+        try {
+            if (mobileMenuBtn && mobileMenuBtn.parentNode !== miniLogoHost) {
+                miniLogoHost.appendChild(mobileMenuBtn);
+                // Keep it hidden unless responsive rules show it
+                mobileMenuBtn.style.display = mobileMenuBtn.style.display || 'none';
+            }
+        } catch (_) {}
+
+        try {
+            if (logoSection.parentNode !== miniLogoHost) {
+                miniLogoHost.appendChild(logoSection);
+            }
+        } catch (_) {}
+
+        // Move the settings button + dropdown wrapper into the mini header
+        const settingsWrapper = settingsBtn.closest('div') || settingsBtn.parentElement;
+        if (settingsWrapper && settingsWrapper.parentNode !== miniActions) {
+            // Ensure positioning context for absolute dropdown
+            try { settingsWrapper.style.position = 'relative'; } catch (_) {}
+            miniActions.appendChild(settingsWrapper);
+        }
+
+        // Place theme controls + logged-in user + clinic filter inside the settings dropdown
+        const dropdownTop = ensureSettingsDropdownTop(dropdown);
+        if (dropdownTop) {
+            const userProfile = document.querySelector('.header .user-profile') || document.querySelector('.user-profile');
+            const themeControls = document.querySelector('.header .theme-controls') || document.querySelector('.theme-controls');
+            const clinicFilter = document.getElementById('clinicFilterContainer');
+
+            [userProfile, themeControls, clinicFilter].forEach(el => {
+                if (!el) return;
+                if (el.parentNode === dropdownTop) return;
+                dropdownTop.appendChild(el);
+            });
+        }
+
+        // Ensure legacy header stays hidden
+        if (header) {
+            try { header.style.display = 'none'; } catch (_) {}
+        }
+
+        if (miniHeader) {
+            try { miniHeader.classList.add('is-ready'); } catch (_) {}
+        }
+
+        return true;
+    }
+
+    function installWithRetry(attempt = 0) {
+        const ok = install();
+        if (ok) return;
+        if (attempt > 15) return;
+        setTimeout(() => installWithRetry(attempt + 1), 250);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        installWithRetry();
     });
 })();
 
