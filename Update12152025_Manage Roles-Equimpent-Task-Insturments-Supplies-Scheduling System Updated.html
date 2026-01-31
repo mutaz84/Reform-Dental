@@ -13029,7 +13029,7 @@
                         </div>
                         <!-- Quick Calendar Toggle Button -->
                         <div style="padding: 0.75rem; border-top: 1px solid var(--border-color); margin-top: auto; position: relative;">
-                            <button onclick="toggleQuickCalendar()" style="width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; color: var(--text-primary); transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                            <button data-quick-calendar-toggle="true" onclick="toggleQuickCalendar(this)" style="width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; color: var(--text-primary); transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
                                 <div style="display: flex; align-items: center; gap: 0.5rem;">
                                     <i class="fas fa-calendar-alt" style="color: var(--accent-primary); font-size: 1.1rem;"></i>
                                     <div>
@@ -13292,7 +13292,7 @@
                     </div>
                     <!-- Quick Calendar Toggle Button -->
                     <div style="padding: 0.75rem; border-top: 1px solid var(--border-color); margin-top: auto; position: relative;">
-                        <button onclick="toggleQuickCalendar()" style="width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; color: var(--text-primary); transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                        <button data-quick-calendar-toggle="true" onclick="toggleQuickCalendar(this)" style="width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; color: var(--text-primary); transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
                             <div style="display: flex; align-items: center; gap: 0.5rem;">
                                 <i class="fas fa-calendar-alt" style="color: var(--accent-primary); font-size: 1.1rem;"></i>
                                 <div>
@@ -13455,7 +13455,7 @@
                         </div>
                         <!-- Quick Calendar Toggle Button -->
                         <div style="padding: 0.75rem; border-top: 1px solid var(--border-color); margin-top: auto; position: relative;">
-                            <button onclick="toggleQuickCalendar()" style="width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; color: var(--text-primary); transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                            <button data-quick-calendar-toggle="true" onclick="toggleQuickCalendar(this)" style="width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; color: var(--text-primary); transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
                                 <div style="display: flex; align-items: center; gap: 0.5rem;">
                                     <i class="fas fa-calendar-alt" style="color: var(--accent-primary); font-size: 1.1rem;"></i>
                                     <div>
@@ -29367,35 +29367,55 @@
         let quickCalendarOpen = false;
 
         // Toggle Quick Calendar Dropdown
-        function toggleQuickCalendar() {
-            quickCalendarOpen = !quickCalendarOpen;
-            
-            // Find the dropdown and chevron in the active view
-            const activeView = document.querySelector('.content-view.active');
-            const dropdown = activeView ? activeView.querySelector('.quick-calendar-dropdown') : document.getElementById('quickCalendarDropdown');
-            const chevron = activeView ? activeView.querySelector('#quickCalendarChevron') : document.getElementById('quickCalendarChevron');
-            
-            if (dropdown) {
-                if (quickCalendarOpen) {
-                    dropdown.classList.add('active');
-                    if (chevron) chevron.style.transform = 'rotate(180deg)';
-                } else {
-                    dropdown.classList.remove('active');
-                    if (chevron) chevron.style.transform = 'rotate(0deg)';
+        function toggleQuickCalendar(toggleButtonEl) {
+            const button = (toggleButtonEl && toggleButtonEl.closest) ? toggleButtonEl : null;
+            const dropdown = button
+                ? button.parentElement?.querySelector('.quick-calendar-dropdown')
+                : (document.querySelector('.content-view.active')?.querySelector('.quick-calendar-dropdown') || document.getElementById('quickCalendarDropdown'));
+
+            const chevron = button
+                ? button.querySelector('i.fas.fa-chevron-up')
+                : (document.querySelector('.content-view.active')?.querySelector('#quickCalendarChevron') || document.getElementById('quickCalendarChevron'));
+
+            if (!dropdown) return;
+
+            // Close any other open quick calendars first
+            document.querySelectorAll('.quick-calendar-dropdown.active').forEach(openDropdown => {
+                if (openDropdown !== dropdown) {
+                    openDropdown.classList.remove('active');
+                    const openButton = openDropdown.previousElementSibling;
+                    const openChevron = openButton ? openButton.querySelector('i.fas.fa-chevron-up') : null;
+                    if (openChevron) openChevron.style.transform = 'rotate(0deg)';
                 }
+            });
+
+            const willOpen = !dropdown.classList.contains('active');
+            if (willOpen) {
+                dropdown.classList.add('active');
+                if (chevron) chevron.style.transform = 'rotate(180deg)';
+            } else {
+                dropdown.classList.remove('active');
+                if (chevron) chevron.style.transform = 'rotate(0deg)';
             }
+
+            quickCalendarOpen = document.querySelector('.quick-calendar-dropdown.active') !== null;
         }
 
         // Close dropdown when clicking outside
         document.addEventListener('click', function(e) {
-            const activeView = document.querySelector('.content-view.active');
-            const dropdown = activeView ? activeView.querySelector('.quick-calendar-dropdown') : null;
-            const button = dropdown?.previousElementSibling;
-            
-            if (quickCalendarOpen && dropdown && button && 
-                !dropdown.contains(e.target) && !button.contains(e.target)) {
-                toggleQuickCalendar();
-            }
+            const clickedInsideDropdown = !!e.target.closest('.quick-calendar-dropdown');
+            const clickedToggleButton = !!e.target.closest('button[data-quick-calendar-toggle="true"]');
+            if (clickedInsideDropdown || clickedToggleButton) return;
+
+            if (!quickCalendarOpen) return;
+
+            document.querySelectorAll('.quick-calendar-dropdown.active').forEach(openDropdown => {
+                openDropdown.classList.remove('active');
+                const openButton = openDropdown.previousElementSibling;
+                const openChevron = openButton ? openButton.querySelector('i.fas.fa-chevron-up') : null;
+                if (openChevron) openChevron.style.transform = 'rotate(0deg)';
+            });
+            quickCalendarOpen = false;
         });
 
         // Initialize Quick Calendar
