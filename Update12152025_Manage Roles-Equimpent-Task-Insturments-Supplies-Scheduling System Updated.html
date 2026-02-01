@@ -11733,6 +11733,22 @@
         display: inline-flex;
         align-items: center;
         gap: 0.75rem;
+        position: relative;
+        padding-bottom: 2px;
+    }
+
+    .unified-right-rail .urr-tabs-indicator {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        border: 2px solid var(--right-rail-outline);
+        border-bottom-color: transparent;
+        border-radius: 12px;
+        background: transparent;
+        pointer-events: none;
+        transition: transform 0.2s ease, width 0.2s ease;
+        box-sizing: border-box;
     }
 
     .unified-right-rail .urr-tabs-settings {
@@ -50921,6 +50937,8 @@ console.log('✅ Global functions exported to window object');
         state.panelHost.classList.toggle('active', isPanel);
         try { localStorage.setItem(TAB_KEY, isPanel ? 'panel' : 'menu'); } catch (_) {}
 
+        updateRailIndicator();
+
         // If user wants Panel but there isn't one, fallback to Menu.
         if (isPanel) {
             const viewId = getActiveViewId();
@@ -50929,6 +50947,21 @@ console.log('✅ Global functions exported to window object');
                 setActiveTab('menu');
             }
         }
+    }
+
+    function updateRailIndicator() {
+        if (!state.menuTabBtn || !state.panelTabBtn) return;
+        const indicator = document.getElementById('urrTabsIndicator');
+        if (!indicator) return;
+        const activeBtn = state.panelTabBtn.classList.contains('active') ? state.panelTabBtn : state.menuTabBtn;
+        const parent = activeBtn.parentElement;
+        if (!parent) return;
+        const left = activeBtn.offsetLeft;
+        const width = activeBtn.offsetWidth;
+        const height = activeBtn.offsetHeight;
+        indicator.style.width = `${width}px`;
+        indicator.style.height = `${height}px`;
+        indicator.style.transform = `translateX(${left}px)`;
     }
 
     function setRailCollapsed(collapsed) {
@@ -50962,6 +50995,7 @@ console.log('✅ Global functions exported to window object');
         rail.innerHTML = `
             <div class="urr-tabs" role="tablist" aria-label="Right sidebar tabs">
                 <div class="urr-tabs-right">
+                    <div class="urr-tabs-indicator" id="urrTabsIndicator" aria-hidden="true"></div>
                     <button type="button" class="urr-tab" id="urrTabMenu" aria-controls="urrMenuPanel" aria-label="Employee management" title="Employee management" role="tab">
                         Employee
                     </button>
@@ -51009,6 +51043,10 @@ console.log('✅ Global functions exported to window object');
             detachPanelForActiveView();
             setActiveTab('panel');
         });
+
+        // Position the moving border indicator
+        setTimeout(() => updateRailIndicator(), 0);
+        window.addEventListener('resize', updateRailIndicator);
 
         return true;
     }
