@@ -7410,39 +7410,30 @@
         }
 
         .calendar-mode-tabs .calendar-mode-btn {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-bottom: none;
-            color: var(--text-primary);
+            flex: 0 0 auto;
+            border: 2px solid transparent;
+            background: transparent;
+            color: var(--text-secondary);
             width: 34px;
-            height: 24px;
+            height: 26px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            transition: background 0.15s ease, color 0.15s ease;
-            border-radius: 6px 6px 0 0;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+            border-radius: 10px;
+            line-height: 1;
         }
 
         .calendar-mode-tabs .calendar-mode-btn:hover {
-            background: rgba(59, 130, 246, 0.10);
+            color: var(--text-primary);
+            background: rgba(59, 130, 246, 0.08);
         }
 
         .calendar-mode-tabs .calendar-mode-btn.active {
+            color: var(--text-primary);
             background: var(--card-bg);
-            color: var(--accent-primary);
-            position: relative;
-        }
-
-        /* Attach active tab into the calendar header by hiding the header border under it */
-        .calendar-mode-tabs .calendar-mode-btn.active::after {
-            content: '';
-            position: absolute;
-            left: 0;
-            right: 0;
-            bottom: -2px;
-            height: 2px;
-            background: var(--card-bg);
+            border-color: var(--right-rail-outline, rgba(59, 130, 246, 0.75));
         }
 
         .calendar-mode-tabs .calendar-mode-btn i {
@@ -10814,10 +10805,7 @@
             font-size: 0.7rem;
         }
 
-        #calendarSection .calendar-mode-tabs .calendar-mode-btn.active::after {
-            bottom: -2px;
-            height: 2px;
-        }
+        /* (removed underline pseudo-element; active border matches rail tabs) */
 
         #calendarSection .calendar-title {
             font-size: 0.95rem;
@@ -29588,16 +29576,29 @@
                 // Jump quick calendar to today
                 function quickCalendarToday() {
                     const today = new Date();
-                    quickCalendarDate = new Date(today.getFullYear(), today.getMonth(), 1);
+                    quickCalendarDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+                    // Sync the main custom calendar (if present)
+                    if (window.calendarInstance) {
+                        window.calendarInstance.currentDate = new Date(today);
+                        window.calendarInstance.render();
+                    }
+
+                    // Sync any FullCalendar-style instance attached globally
+                    if (window.calendar && typeof window.calendar.gotoDate === 'function') {
+                        window.calendar.gotoDate(today);
+                    }
+
+                    // Sync My Schedule calendar if it exists
+                    if (typeof window.myScheduleGoToDate === 'function') {
+                        window.myScheduleGoToDate(today);
+                    }
+
                     renderQuickCalendar();
-                    // If main calendar exists, navigate it to today as well
-                    try {
-                        if (calendar && typeof calendar.gotoDate === 'function') {
-                            calendar.gotoDate(today);
-                            showNotification('Calendar jumped to today', 'info');
-                        }
-                    } catch (e) {
-                        console.error('Error navigating calendar to today:', e);
+
+                    // Refresh table view if active
+                    if (typeof isTableView !== 'undefined' && isTableView && typeof populateTable === 'function') {
+                        populateTable();
                     }
                 }
         
