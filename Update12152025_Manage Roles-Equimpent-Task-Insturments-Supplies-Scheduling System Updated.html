@@ -5670,6 +5670,49 @@
             flex-direction: column;
         }
 
+        /* Sidebar top-left settings (hamburger) */
+        .sidebar-topbar {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .sidebar-settings-host {
+            position: absolute;
+            left: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #mainSidebar #settingsBtn {
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            background: transparent;
+            color: var(--text-primary);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
+        #mainSidebar #settingsBtn:hover {
+            border-color: var(--accent-primary);
+            background: var(--bg-secondary);
+        }
+
+        #mainSidebar #settingsDropdown {
+            left: 0 !important;
+            right: auto !important;
+        }
+
         /* Right Sidebar */
         .sidebar-right {
             width: 220px;
@@ -6040,7 +6083,7 @@
         /* Main Content */
         .main-content {
             flex: 1;
-            padding: 0.5rem;
+            padding: 0 0.5rem 0.5rem 0.5rem;
             overflow-y: auto;
             min-width: 0;
         }
@@ -6166,11 +6209,11 @@
 
         /* Calendar Mini Header (logo + settings) */
         #calendarSection {
-            --calendar-mini-header-height: 52px;
+            --calendar-mini-header-height: 0px;
         }
 
         #calendarSection .calendar-mini-header {
-            display: flex;
+            display: none;
             align-items: center;
             justify-content: space-between;
             gap: 0.75rem;
@@ -11803,7 +11846,7 @@
             <!-- Settings Button with Dropdown -->
             <div style="position: relative; margin-left: 0.5rem;">
                 <button class="theme-toggle" onclick="toggleSettingsMenu()" title="Settings" id="settingsBtn">
-                    <i class="fas fa-cog"></i>
+                    <i class="fas fa-bars"></i>
                 </button>
                 <div id="settingsDropdown" style="display: none; position: absolute; right: 0; top: 100%; margin-top: 0.5rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); min-width: 200px; z-index: 1000;">
                     <div style="padding: 0.5rem 0;">
@@ -11894,7 +11937,8 @@
     <div class="container">
         <!-- Sidebar -->
         <div class="sidebar" id="mainSidebar">
-            <div style="display: flex; justify-content: center; align-items: center; padding: 1rem; border-bottom: 1px solid var(--border-color);">
+            <div class="sidebar-topbar" id="sidebarTopbar">
+                <div class="sidebar-settings-host" id="sidebarSettingsHost"></div>
                 <a href="#" class="nav-item active" onclick="switchContentView('calendar', event)" style="width: 100%; justify-content: center; background: var(--accent-primary); color: white; border-radius: 8px; padding: 0.75rem;">
                     <i class="fas fa-calendar-alt"></i>
                     <span>Calendar</span>
@@ -50966,10 +51010,8 @@ console.log('✅ Global functions exported to window object');
     }
 
     function install() {
-        const miniLogoHost = document.getElementById('calendarMiniLogoHost');
-        const miniActions = document.getElementById('calendarMiniActions');
-        const miniHeader = document.getElementById('calendarMiniHeader');
-        if (!miniLogoHost || !miniActions) return false;
+        const sidebarSettingsHost = document.getElementById('sidebarSettingsHost');
+        if (!sidebarSettingsHost) return false;
 
         const header = document.querySelector('.header');
         const mobileMenuBtn = document.getElementById('mobileMenuBtn');
@@ -50979,21 +51021,20 @@ console.log('✅ Global functions exported to window object');
 
         if (!settingsBtn || !dropdown) return false;
 
-        // Move mobile menu button into the calendar mini header (logo now lives in the calendar header)
+        // Move mobile menu button out of the hidden header so it can still appear on small screens
         try {
-            if (mobileMenuBtn && mobileMenuBtn.parentNode !== miniLogoHost) {
-                miniLogoHost.appendChild(mobileMenuBtn);
-                // Keep it hidden unless responsive rules show it
-                mobileMenuBtn.style.display = mobileMenuBtn.style.display || 'none';
+            if (mobileMenuBtn && mobileMenuBtn.parentNode !== document.body) {
+                document.body.appendChild(mobileMenuBtn);
             }
         } catch (_) {}
 
-        // Move the settings button + dropdown wrapper into the mini header
+        // Move the settings button + dropdown wrapper into the sidebar (top-left)
         const settingsWrapper = settingsBtn.closest('div') || settingsBtn.parentElement;
-        if (settingsWrapper && settingsWrapper.parentNode !== miniActions) {
+        if (settingsWrapper && settingsWrapper.parentNode !== sidebarSettingsHost) {
             // Ensure positioning context for absolute dropdown
             try { settingsWrapper.style.position = 'relative'; } catch (_) {}
-            miniActions.appendChild(settingsWrapper);
+            try { settingsWrapper.style.marginLeft = '0'; } catch (_) {}
+            sidebarSettingsHost.appendChild(settingsWrapper);
         }
 
         // Place theme controls + logged-in user + clinic filter inside the settings dropdown
@@ -51013,10 +51054,6 @@ console.log('✅ Global functions exported to window object');
         // Ensure legacy header stays hidden
         if (header) {
             try { header.style.display = 'none'; } catch (_) {}
-        }
-
-        if (miniHeader) {
-            try { miniHeader.classList.add('is-ready'); } catch (_) {}
         }
 
         return true;
