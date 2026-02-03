@@ -30738,6 +30738,27 @@
             return loadRequestNotifications().filter(n => n.assignedTo === userName);
         }
 
+        function getRequestAssigneeOptions() {
+            const names = new Set();
+            const employees = window.masterData?.getAllEmployees?.() || [];
+            employees.forEach(e => {
+                if (e?.title) names.add(e.title);
+            });
+
+            const currentUserName = getCurrentUserDisplayName();
+            if (currentUserName) names.add(currentUserName);
+
+            if (typeof loadUsers === 'function') {
+                const users = loadUsers() || {};
+                Object.entries(users).forEach(([key, user]) => {
+                    const fullName = (user?.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || user?.username || key || '').trim();
+                    if (fullName) names.add(fullName);
+                });
+            }
+
+            return Array.from(names).sort();
+        }
+
         function populateRequestFormOptions(selected = {}) {
             const assigneeSelect = document.getElementById('requestAssignedTo');
             const roomSelect = document.getElementById('requestLocation');
@@ -30745,8 +30766,7 @@
             const vendorSelect = document.getElementById('requestVendor');
 
             if (assigneeSelect) {
-                const employees = window.masterData?.getAllEmployees?.() || [];
-                const names = [...new Set(employees.map(e => e.title).filter(Boolean))].sort();
+                const names = getRequestAssigneeOptions();
                 const selectedName = selected.assignedTo || '';
                 const options = [...names];
                 if (selectedName && !options.includes(selectedName)) options.unshift(selectedName);
