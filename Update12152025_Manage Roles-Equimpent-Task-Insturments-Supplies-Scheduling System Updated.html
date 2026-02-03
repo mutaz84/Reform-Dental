@@ -30566,6 +30566,58 @@
                     renderQuickCalendar();
                 }, 100);
 
+                // Ensure sidebar is visible for schedule view
+                if (viewName === 'schedule') {
+                    setTimeout(() => {
+                        const sidebar = selectedView ? selectedView.querySelector('.sidebar-right') : null;
+                        if (sidebar && sidebar.classList.contains('hidden')) {
+                            sidebar.classList.remove('hidden');
+                        }
+                    }, 50);
+                }
+                
+                // Render Task Assignments view
+                if (viewName === 'task-assignments') {
+                    setTimeout(() => {
+                        renderTaskAssignmentsView();
+                        updateTaskAssignmentsNavBadge();
+                    }, 50);
+                }
+                
+                // Initialize Task Hub view
+                if (viewName === 'task-hub') {
+                    setTimeout(() => {
+                        initTaskHub();
+                        // Update nav badge
+                        const badge = document.getElementById('taskHubNavBadge');
+                        if (badge) {
+                            const activeCount = window.taskAssignments?.filter(a => 
+                                a.status !== 'completed' && a.status !== 'cancelled'
+                            ).length || 0;
+                            badge.textContent = activeCount;
+                        }
+                    }, 50);
+                }
+                
+                // Redirect legacy views to Task Hub
+                if (viewName === 'tasks' || viewName === 'task-assignments') {
+                    viewName = 'task-hub';
+                    const taskHubView = document.getElementById('view-task-hub');
+                    if (taskHubView) {
+                        views.forEach(v => v.classList.remove('active'));
+                        taskHubView.classList.add('active');
+                        setTimeout(() => {
+                            initTaskHub();
+                            switchTaskHubTab('my-tasks');
+                        }, 50);
+                    }
+                }
+
+            } catch (error) {
+                console.error('Error switching content view:', error);
+            }
+        }
+
         // ===================== REQUESTS MODULE =====================
         const REQUEST_STORAGE_KEY = 'requestsDatabase';
         const REQUEST_NOTIFICATIONS_KEY = 'requestNotifications';
@@ -31112,58 +31164,6 @@
             }
 
             renderRequestsTable();
-        }
-
-                // Ensure sidebar is visible for schedule view
-                if (viewName === 'schedule') {
-                    setTimeout(() => {
-                        const sidebar = selectedView ? selectedView.querySelector('.sidebar-right') : null;
-                        if (sidebar && sidebar.classList.contains('hidden')) {
-                            sidebar.classList.remove('hidden');
-                        }
-                    }, 50);
-                }
-                
-                // Render Task Assignments view
-                if (viewName === 'task-assignments') {
-                    setTimeout(() => {
-                        renderTaskAssignmentsView();
-                        updateTaskAssignmentsNavBadge();
-                    }, 50);
-                }
-                
-                // Initialize Task Hub view
-                if (viewName === 'task-hub') {
-                    setTimeout(() => {
-                        initTaskHub();
-                        // Update nav badge
-                        const badge = document.getElementById('taskHubNavBadge');
-                        if (badge) {
-                            const activeCount = window.taskAssignments?.filter(a => 
-                                a.status !== 'completed' && a.status !== 'cancelled'
-                            ).length || 0;
-                            badge.textContent = activeCount;
-                        }
-                    }, 50);
-                }
-                
-                // Redirect legacy views to Task Hub
-                if (viewName === 'tasks' || viewName === 'task-assignments') {
-                    viewName = 'task-hub';
-                    const taskHubView = document.getElementById('view-task-hub');
-                    if (taskHubView) {
-                        views.forEach(v => v.classList.remove('active'));
-                        taskHubView.classList.add('active');
-                        setTimeout(() => {
-                            initTaskHub();
-                            switchTaskHubTab('my-tasks');
-                        }, 50);
-                    }
-                }
-
-            } catch (error) {
-                console.error('Error switching content view:', error);
-            }
         }
 
         // Sticky Notes Board Functions
