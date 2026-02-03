@@ -9848,6 +9848,31 @@
     flex-wrap: wrap;
 }
 
+.requests-api-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    border: 1px solid transparent;
+    background: #e2e8f0;
+    color: #475569;
+}
+
+.requests-api-status.online {
+    background: #dcfce7;
+    color: #166534;
+    border-color: #bbf7d0;
+}
+
+.requests-api-status.offline {
+    background: #fee2e2;
+    color: #991b1b;
+    border-color: #fecaca;
+}
+
 .requests-actions .btn-primary {
     padding: 0.55rem 1rem;
     border-radius: 8px;
@@ -13945,6 +13970,7 @@
                         <div class="requests-header">
                             <h2><i class="fas fa-clipboard-list" style="color: var(--accent-primary);"></i> Requests</h2>
                             <div class="requests-actions">
+                                <span class="requests-api-status" id="requestsApiStatus">DB: Checking</span>
                                 <button class="btn-primary" id="openRequestModalBtn" onclick="openRequestModal()">New Request</button>
                             </div>
                         </div>
@@ -30614,6 +30640,19 @@
             }
         }
 
+        function updateRequestsApiStatus(isOnline) {
+            const statusEl = document.getElementById('requestsApiStatus');
+            if (!statusEl) return;
+            statusEl.classList.remove('online', 'offline');
+            if (isOnline) {
+                statusEl.classList.add('online');
+                statusEl.textContent = 'DB: Connected';
+            } else {
+                statusEl.classList.add('offline');
+                statusEl.textContent = 'DB: Offline';
+            }
+        }
+
         function addRequestNotification(request, type = 'assigned') {
             if (!request?.assignedTo) return;
             const notifications = loadRequestNotifications();
@@ -30698,9 +30737,11 @@
             try {
                 const data = await fetchRequestsFromAPI();
                 requestsApiAvailable = true;
+                updateRequestsApiStatus(true);
                 requestsData = (Array.isArray(data) ? data : []).map(normalizeRequest);
             } catch (e) {
                 requestsApiAvailable = false;
+                updateRequestsApiStatus(false);
                 requestsData = loadRequestsFromLocal().map(normalizeRequest);
             }
 
@@ -30976,7 +31017,8 @@
                 return;
             }
 
-            if (requestsApiAvailable) {
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+            if (canTryApi) {
                 try {
                     const method = requestId ? 'PUT' : 'POST';
                     const url = requestId ? `${API_BASE_URL}/requests/${newRequest.id}` : `${API_BASE_URL}/requests`;
@@ -30986,12 +31028,20 @@
                         body: JSON.stringify(newRequest)
                     });
                     if (!res.ok) throw new Error('API request failed');
+                    requestsApiAvailable = true;
+                    updateRequestsApiStatus(true);
                     await loadRequests({ force: true });
                 } catch (e) {
                     requestsApiAvailable = false;
+                    updateRequestsApiStatus(false);
                     upsertRequestLocal(newRequest);
+                    if (typeof showNotification === 'function') {
+                        showNotification('API unavailable — saved locally.', 'warning');
+                    }
                 }
             } else {
+                requestsApiAvailable = false;
+                updateRequestsApiStatus(false);
                 upsertRequestLocal(newRequest);
             }
 
@@ -31022,7 +31072,8 @@
             if (!request) return;
             const updated = { ...request, status };
 
-            if (requestsApiAvailable) {
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+            if (canTryApi) {
                 try {
                     const res = await fetch(`${API_BASE_URL}/requests/${requestId}`, {
                         method: 'PUT',
@@ -31030,12 +31081,20 @@
                         body: JSON.stringify(updated)
                     });
                     if (!res.ok) throw new Error('API request failed');
+                    requestsApiAvailable = true;
+                    updateRequestsApiStatus(true);
                     await loadRequests({ force: true });
                 } catch (e) {
                     requestsApiAvailable = false;
+                    updateRequestsApiStatus(false);
                     upsertRequestLocal(updated);
+                    if (typeof showNotification === 'function') {
+                        showNotification('API unavailable — saved locally.', 'warning');
+                    }
                 }
             } else {
+                requestsApiAvailable = false;
+                updateRequestsApiStatus(false);
                 upsertRequestLocal(updated);
             }
 
