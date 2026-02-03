@@ -9890,6 +9890,124 @@
     color: var(--text-primary);
 }
 
+.requests-hub-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.requests-hub-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.requests-hub-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.requests-hub-tabs {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.requests-hub-tab {
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    padding: 0.4rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.requests-hub-tab.active {
+    background: var(--accent-primary);
+    color: #fff;
+    border-color: transparent;
+}
+
+.requests-hub-badge {
+    background: rgba(255, 255, 255, 0.2);
+    color: inherit;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.requests-hub-panels {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.requests-hub-panel {
+    display: none;
+}
+
+.requests-hub-panel.active {
+    display: block;
+}
+
+.requests-hub-list {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.requests-hub-item {
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 0.6rem 0.75rem;
+    background: var(--bg-primary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.requests-hub-item:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 12px rgba(15, 23, 42, 0.08);
+}
+
+.requests-hub-item-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+.requests-hub-item-meta {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.requests-hub-empty {
+    padding: 0.75rem;
+    text-align: center;
+    color: var(--text-tertiary);
+    font-size: 0.85rem;
+}
+
 .requests-table-card {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -13847,6 +13965,37 @@
                             <div class="requests-summary-card">
                                 <span>Closed</span>
                                 <strong id="requestsClosedCount">0</strong>
+                            </div>
+                        </div>
+
+                        <div class="requests-hub-card">
+                            <div class="requests-hub-header">
+                                <h3><i class="fas fa-inbox" style="color: var(--accent-primary);"></i> Request Hub</h3>
+                                <div class="requests-hub-tabs">
+                                    <button class="requests-hub-tab active" data-tab="assigned" onclick="switchRequestsHubTab('assigned')">
+                                        Assigned to Me
+                                        <span class="requests-hub-badge" id="requestsHubAssignedCount">0</span>
+                                    </button>
+                                    <button class="requests-hub-tab" data-tab="created" onclick="switchRequestsHubTab('created')">
+                                        Created by Me
+                                        <span class="requests-hub-badge" id="requestsHubCreatedCount">0</span>
+                                    </button>
+                                    <button class="requests-hub-tab" data-tab="notifications" onclick="switchRequestsHubTab('notifications')">
+                                        Notifications
+                                        <span class="requests-hub-badge" id="requestsHubNotificationsCount">0</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="requests-hub-panels">
+                                <div class="requests-hub-panel active" id="requestsHubPanelAssigned">
+                                    <div class="requests-hub-list" id="requestsHubAssignedList"></div>
+                                </div>
+                                <div class="requests-hub-panel" id="requestsHubPanelCreated">
+                                    <div class="requests-hub-list" id="requestsHubCreatedList"></div>
+                                </div>
+                                <div class="requests-hub-panel" id="requestsHubPanelNotifications">
+                                    <div class="requests-hub-list" id="requestsHubNotificationsList"></div>
+                                </div>
                             </div>
                         </div>
 
@@ -30380,6 +30529,7 @@
 
         // ===================== REQUESTS MODULE =====================
         const REQUEST_STORAGE_KEY = 'requestsDatabase';
+        const REQUEST_NOTIFICATIONS_KEY = 'requestNotifications';
         const REQUEST_TYPES = ['Time Off', 'Equipment Maintenance', 'Office Supplies', 'Dental Supplies', 'IT Support', 'Other'];
         const REQUEST_PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'];
         const REQUEST_STATUSES = ['New', 'In Review', 'Approved', 'Denied', 'Closed'];
@@ -30420,6 +30570,8 @@
                 requestedAt: item.requestedAt || item.RequestedAt || new Date().toISOString(),
                 neededBy: item.neededBy || item.NeededBy || '',
                 location: item.location || item.Location || '',
+                equipment: item.equipment || item.Equipment || item.equipmentName || '',
+                vendor: item.vendor || item.Vendor || item.vendorName || '',
                 description: item.description || item.Description || ''
             };
         }
@@ -30440,6 +30592,96 @@
                 localStorage.setItem(getRequestStorageKey(), JSON.stringify(requestsData));
             } catch (e) {
                 console.warn('Failed to save local requests', e);
+            }
+        }
+
+        function loadRequestNotifications() {
+            try {
+                const raw = localStorage.getItem(REQUEST_NOTIFICATIONS_KEY);
+                const parsed = raw ? JSON.parse(raw) : [];
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (e) {
+                console.warn('Failed to load request notifications', e);
+                return [];
+            }
+        }
+
+        function saveRequestNotifications(list) {
+            try {
+                localStorage.setItem(REQUEST_NOTIFICATIONS_KEY, JSON.stringify(list));
+            } catch (e) {
+                console.warn('Failed to save request notifications', e);
+            }
+        }
+
+        function addRequestNotification(request, type = 'assigned') {
+            if (!request?.assignedTo) return;
+            const notifications = loadRequestNotifications();
+            notifications.unshift({
+                id: `RN-${Date.now()}`,
+                requestId: request.id,
+                assignedTo: request.assignedTo,
+                createdBy: request.requestedBy,
+                type,
+                message: `${request.title} (${request.type})`,
+                createdAt: new Date().toISOString(),
+                read: false
+            });
+            saveRequestNotifications(notifications);
+        }
+
+        function getRequestNotificationsForUser(userName) {
+            return loadRequestNotifications().filter(n => n.assignedTo === userName);
+        }
+
+        function populateRequestFormOptions(selected = {}) {
+            const assigneeSelect = document.getElementById('requestAssignedTo');
+            const roomSelect = document.getElementById('requestLocation');
+            const equipmentSelect = document.getElementById('requestEquipment');
+            const vendorSelect = document.getElementById('requestVendor');
+
+            if (assigneeSelect) {
+                const employees = window.masterData?.getAllEmployees?.() || [];
+                const names = [...new Set(employees.map(e => e.title).filter(Boolean))].sort();
+                const selectedName = selected.assignedTo || '';
+                const options = [...names];
+                if (selectedName && !options.includes(selectedName)) options.unshift(selectedName);
+                assigneeSelect.innerHTML = '<option value="">Select responsible person</option>' +
+                    options.map(name => `<option value="${name}">${name}</option>`).join('');
+                if (selectedName) assigneeSelect.value = selectedName;
+            }
+
+            if (roomSelect) {
+                const rooms = window.masterData?.rooms || [];
+                const roomNames = [...new Set(rooms.map(r => r.name).filter(Boolean))].sort();
+                const selectedRoom = selected.location || '';
+                const options = [...roomNames];
+                if (selectedRoom && !options.includes(selectedRoom)) options.unshift(selectedRoom);
+                roomSelect.innerHTML = '<option value="">Select room</option>' +
+                    options.map(name => `<option value="${name}">${name}</option>`).join('');
+                if (selectedRoom) roomSelect.value = selectedRoom;
+            }
+
+            if (equipmentSelect) {
+                const equipment = (typeof loadEquipment === 'function' ? loadEquipment() : []) || [];
+                const equipmentNames = [...new Set(equipment.map(item => item.equipmentName).filter(Boolean))].sort();
+                const selectedEquipment = selected.equipment || '';
+                const options = [...equipmentNames];
+                if (selectedEquipment && !options.includes(selectedEquipment)) options.unshift(selectedEquipment);
+                equipmentSelect.innerHTML = '<option value="">Select equipment</option>' +
+                    options.map(name => `<option value="${name}">${name}</option>`).join('');
+                if (selectedEquipment) equipmentSelect.value = selectedEquipment;
+            }
+
+            if (vendorSelect) {
+                const vendors = (typeof loadVendors === 'function' ? loadVendors() : []) || [];
+                const vendorNames = [...new Set(vendors.map(v => v.vendorName || v.name).filter(Boolean))].sort();
+                const selectedVendor = selected.vendor || '';
+                const options = [...vendorNames];
+                if (selectedVendor && !options.includes(selectedVendor)) options.unshift(selectedVendor);
+                vendorSelect.innerHTML = '<option value="">Select vendor</option>' +
+                    options.map(name => `<option value="${name}">${name}</option>`).join('');
+                if (selectedVendor) vendorSelect.value = selectedVendor;
             }
         }
 
@@ -30464,12 +30706,15 @@
 
             requestsInitialized = true;
             renderRequestsTable();
+            renderRequestHub();
         }
 
         function initializeRequestsView() {
             loadRequests();
             const requestedByInput = document.getElementById('requestRequestedBy');
             if (requestedByInput) requestedByInput.value = getCurrentUserDisplayName();
+            populateRequestFormOptions();
+            renderRequestHub();
             const newBtn = document.getElementById('openRequestModalBtn');
             if (newBtn) newBtn.onclick = () => openRequestModal();
             const overlay = document.getElementById('requestModalOverlay');
@@ -30503,6 +30748,69 @@
             });
         }
 
+        function switchRequestsHubTab(tab) {
+            const tabs = document.querySelectorAll('.requests-hub-tab');
+            const panels = document.querySelectorAll('.requests-hub-panel');
+            tabs.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
+            panels.forEach(panel => panel.classList.toggle('active', panel.id === `requestsHubPanel${tab.charAt(0).toUpperCase()}${tab.slice(1)}`));
+        }
+
+        window.switchRequestsHubTab = switchRequestsHubTab;
+
+        function renderRequestHub() {
+            const currentUser = getCurrentUserDisplayName();
+            const assigned = requestsData.filter(r => r.assignedTo === currentUser);
+            const created = requestsData.filter(r => r.requestedBy === currentUser);
+            const notifications = getRequestNotificationsForUser(currentUser).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+            const assignedCount = document.getElementById('requestsHubAssignedCount');
+            const createdCount = document.getElementById('requestsHubCreatedCount');
+            const notificationsCount = document.getElementById('requestsHubNotificationsCount');
+            if (assignedCount) assignedCount.textContent = assigned.length;
+            if (createdCount) createdCount.textContent = created.length;
+            if (notificationsCount) notificationsCount.textContent = notifications.length;
+
+            const assignedList = document.getElementById('requestsHubAssignedList');
+            const createdList = document.getElementById('requestsHubCreatedList');
+            const notificationsList = document.getElementById('requestsHubNotificationsList');
+
+            if (assignedList) {
+                assignedList.innerHTML = assigned.length ? assigned.map(req => `
+                    <div class="requests-hub-item" onclick="openRequestModal('${req.id}')">
+                        <div>
+                            <div class="requests-hub-item-title">${req.title}</div>
+                            <div class="requests-hub-item-meta">${req.type} · ${req.status} · Needed ${formatRequestDate(req.neededBy)}</div>
+                        </div>
+                        <span class="request-pill priority-${req.priority.toLowerCase()}">${req.priority}</span>
+                    </div>
+                `).join('') : '<div class="requests-hub-empty">No requests assigned to you.</div>';
+            }
+
+            if (createdList) {
+                createdList.innerHTML = created.length ? created.map(req => `
+                    <div class="requests-hub-item" onclick="openRequestModal('${req.id}')">
+                        <div>
+                            <div class="requests-hub-item-title">${req.title}</div>
+                            <div class="requests-hub-item-meta">Assigned to ${req.assignedTo || 'Unassigned'} · ${req.status}</div>
+                        </div>
+                        <span class="request-pill status-${req.status.toLowerCase().replace(/\s+/g, '-')}">${req.status}</span>
+                    </div>
+                `).join('') : '<div class="requests-hub-empty">No requests created by you.</div>';
+            }
+
+            if (notificationsList) {
+                notificationsList.innerHTML = notifications.length ? notifications.map(note => `
+                    <div class="requests-hub-item" onclick="openRequestModal('${note.requestId}')">
+                        <div>
+                            <div class="requests-hub-item-title">${note.message}</div>
+                            <div class="requests-hub-item-meta">From ${note.createdBy} · ${formatRequestDate(note.createdAt)}</div>
+                        </div>
+                        <span class="request-pill status-new">New</span>
+                    </div>
+                `).join('') : '<div class="requests-hub-empty">No notifications yet.</div>';
+            }
+        }
+
         function applyRequestFilters() {
             renderRequestsTable();
         }
@@ -30521,7 +30829,7 @@
                 if (priority !== 'all' && req.priority !== priority) return false;
                 if (assignee === 'mine' && req.assignedTo !== currentUser) return false;
                 if (search) {
-                    const hay = `${req.id} ${req.title} ${req.type} ${req.requestedBy} ${req.assignedTo} ${req.description}`.toLowerCase();
+                    const hay = `${req.id} ${req.title} ${req.type} ${req.requestedBy} ${req.assignedTo} ${req.description} ${req.location} ${req.equipment} ${req.vendor}`.toLowerCase();
                     if (!hay.includes(search)) return false;
                 }
                 return true;
@@ -30574,6 +30882,8 @@
                 row.addEventListener('dblclick', () => openRequestModal(req.id));
                 body.appendChild(row);
             });
+
+            renderRequestHub();
         }
 
         function openRequestModal(requestId = '') {
@@ -30586,6 +30896,8 @@
             const currentUser = getCurrentUserDisplayName();
             if (requestedByInput) requestedByInput.value = currentUser;
 
+            populateRequestFormOptions();
+
             if (requestId) {
                 const req = requestsData.find(r => String(r.id) === String(requestId));
                 if (req) {
@@ -30594,9 +30906,13 @@
                     document.getElementById('requestType').value = req.type;
                     document.getElementById('requestPriority').value = req.priority;
                     document.getElementById('requestStatus').value = req.status;
-                    document.getElementById('requestAssignedTo').value = req.assignedTo;
+                    populateRequestFormOptions({
+                        assignedTo: req.assignedTo,
+                        location: req.location,
+                        equipment: req.equipment,
+                        vendor: req.vendor
+                    });
                     document.getElementById('requestNeededBy').value = req.neededBy ? req.neededBy.split('T')[0] : '';
-                    document.getElementById('requestLocation').value = req.location;
                     document.getElementById('requestDescription').value = req.description;
                     if (title) title.textContent = `Edit Request ${req.id}`;
                 }
@@ -30606,6 +30922,7 @@
                 document.getElementById('requestPriority').value = 'Medium';
                 document.getElementById('requestStatus').value = 'New';
                 if (requestedByInput) requestedByInput.value = currentUser;
+                populateRequestFormOptions();
                 if (title) title.textContent = 'New Request';
             }
 
@@ -30637,6 +30954,7 @@
         async function submitRequestForm(event) {
             event.preventDefault();
             const requestId = document.getElementById('requestId').value;
+            const existingRequest = requestId ? requestsData.find(r => String(r.id) === String(requestId)) : null;
             const newRequest = normalizeRequest({
                 id: requestId || `REQ-${Date.now()}`,
                 title: document.getElementById('requestTitle').value.trim(),
@@ -30648,6 +30966,8 @@
                 requestedAt: requestId ? (requestsData.find(r => String(r.id) === String(requestId))?.requestedAt || new Date().toISOString()) : new Date().toISOString(),
                 neededBy: document.getElementById('requestNeededBy').value,
                 location: document.getElementById('requestLocation').value.trim(),
+                equipment: document.getElementById('requestEquipment').value.trim(),
+                vendor: document.getElementById('requestVendor').value.trim(),
                 description: document.getElementById('requestDescription').value.trim()
             });
 
@@ -30673,6 +30993,13 @@
                 }
             } else {
                 upsertRequestLocal(newRequest);
+            }
+
+            if (newRequest.assignedTo && (!existingRequest || existingRequest.assignedTo !== newRequest.assignedTo)) {
+                addRequestNotification(newRequest, 'assigned');
+                if (typeof showNotification === 'function') {
+                    showNotification(`Notified ${newRequest.assignedTo}`, 'success');
+                }
             }
 
             closeRequestModal();
@@ -49909,7 +50236,9 @@ document.addEventListener('keydown', function(e) {
                 </div>
                 <div class="request-form-field">
                     <label for="requestAssignedTo">Assigned To</label>
-                    <input id="requestAssignedTo" type="text" placeholder="Responsible person">
+                    <select id="requestAssignedTo">
+                        <option value="">Select responsible person</option>
+                    </select>
                 </div>
                 <div class="request-form-field">
                     <label for="requestNeededBy">Needed By</label>
@@ -49917,7 +50246,21 @@ document.addEventListener('keydown', function(e) {
                 </div>
                 <div class="request-form-field">
                     <label for="requestLocation">Location / Room</label>
-                    <input id="requestLocation" type="text" placeholder="Optional">
+                    <select id="requestLocation">
+                        <option value="">Select room</option>
+                    </select>
+                </div>
+                <div class="request-form-field">
+                    <label for="requestEquipment">Equipment</label>
+                    <select id="requestEquipment">
+                        <option value="">Select equipment</option>
+                    </select>
+                </div>
+                <div class="request-form-field">
+                    <label for="requestVendor">Vendor</label>
+                    <select id="requestVendor">
+                        <option value="">Select vendor</option>
+                    </select>
                 </div>
                 <div class="request-form-field" style="grid-column: 1 / -1;">
                     <label for="requestDescription">Description</label>
