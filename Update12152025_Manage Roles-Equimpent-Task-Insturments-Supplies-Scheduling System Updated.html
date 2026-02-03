@@ -6283,6 +6283,15 @@
             display: none;
         }
 
+        #scheduleSection .calendar-corner-toggle.right-toggle {
+            top: 42px;
+            right: 6px;
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            z-index: 9999;
+        }
+
         /* Settings dropdown: add room for user/theme controls at the top */
         #settingsDropdown .settings-dropdown-top {
             padding: 0.75rem 1rem;
@@ -11981,6 +11990,34 @@
         box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
         overflow: visible;
         z-index: 50;
+    }
+
+    .unified-right-rail .rail-divider-toggle {
+        position: absolute;
+        left: -8px;
+        top: 64px;
+        height: 12px;
+        border-radius: 3px;
+        border: 1px solid var(--right-rail-border);
+        background: #e0f2fe;
+        color: #0369a1;
+        font-weight: 700;
+        font-size: 9px;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 60;
+    }
+
+    .unified-right-rail.collapsed .rail-divider-toggle {
+        left: -12px;
+    }
+
+    body.right-rail-enabled #calendarSection .calendar-corner-toggle.right-toggle,
+    body.right-rail-enabled #scheduleSection .calendar-corner-toggle.right-toggle {
+        display: none !important;
     }
 
 
@@ -45527,6 +45564,7 @@ function updateToggleButtons() {
     if (document.body && document.body.classList.contains('right-rail-enabled')) {
         const rail = document.getElementById('unifiedRightRail');
         const collapsed = !!(rail && rail.classList.contains('collapsed'));
+        const dividerToggle = document.getElementById('railDividerToggle');
 
         if (rightBtn) {
             rightBtn.setAttribute('title', collapsed ? 'Show Side Panel' : 'Hide Side Panel');
@@ -45539,6 +45577,10 @@ function updateToggleButtons() {
                 ? '<i class="fas fa-chevron-left" style="font-size: 0.6rem;"></i>'
                 : '<i class="fas fa-chevron-right" style="font-size: 0.6rem;"></i>';
         });
+        if (dividerToggle) {
+            dividerToggle.setAttribute('title', collapsed ? 'Show Side Panel' : 'Hide Side Panel');
+            dividerToggle.textContent = collapsed ? '+' : '–';
+        }
 
         // Left toggle is hidden in unified mode; guard just in case.
         return;
@@ -51789,6 +51831,7 @@ console.log('✅ Global functions exported to window object');
                 <div class="urr-panel" id="urrMenuPanel"></div>
                 <div class="urr-panel" id="urrPanelPanel"></div>
             </div>
+            <button type="button" class="rail-divider-toggle" id="railDividerToggle" title="Hide Side Panel">–</button>
         `;
 
         container.appendChild(rail);
@@ -51824,6 +51867,8 @@ console.log('✅ Global functions exported to window object');
             detachPanelForActiveView();
             setActiveTab('panel');
         });
+        const dividerToggle = rail.querySelector('#railDividerToggle');
+        if (dividerToggle) dividerToggle.addEventListener('click', () => toggleSidebarRight());
         if (state.calendarTabBtn) {
             state.calendarTabBtn.addEventListener('click', () => {
                 switchContentView('calendar');
