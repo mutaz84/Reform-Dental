@@ -9021,6 +9021,35 @@
             transition: transform 0.3s ease, box-shadow 0.3s ease;
             animation: chat-pulse 2s infinite;
         }
+
+        .floating-calendar-btn {
+            position: fixed;
+            bottom: 96px;
+            right: 24px;
+            width: 52px;
+            height: 52px;
+            border-radius: 16px;
+            background: var(--accent-primary);
+            color: white;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.25);
+            z-index: 9999;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .floating-calendar-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 26px rgba(16, 185, 129, 0.35);
+        }
+
+        .floating-calendar-btn:active {
+            transform: translateY(0);
+        }
         
         .floating-chat-btn:hover {
             transform: scale(1.1);
@@ -30430,6 +30459,13 @@
             if (requestedByInput) requestedByInput.value = getCurrentUserDisplayName();
             const newBtn = document.getElementById('openRequestModalBtn');
             if (newBtn) newBtn.onclick = () => openRequestModal();
+            const overlay = document.getElementById('requestModalOverlay');
+            if (overlay && !overlay.dataset.bound) {
+                overlay.addEventListener('click', (e) => {
+                    if (e.target === overlay) closeRequestModal();
+                });
+                overlay.dataset.bound = '1';
+            }
         }
 
         function applyRequestFilters() {
@@ -30545,6 +30581,23 @@
             const overlay = document.getElementById('requestModalOverlay');
             if (overlay) overlay.classList.remove('active');
         }
+
+        window.openRequestModal = openRequestModal;
+        window.closeRequestModal = closeRequestModal;
+
+        function openCalendarFromAnywhere() {
+            try {
+                switchContentView('calendar');
+            } catch (_) {
+                const calView = document.getElementById('view-calendar');
+                if (calView) {
+                    document.querySelectorAll('.content-view').forEach(v => v.classList.remove('active'));
+                    calView.classList.add('active');
+                }
+            }
+        }
+
+        window.openCalendarFromAnywhere = openCalendarFromAnywhere;
 
         async function submitRequestForm(event) {
             event.preventDefault();
@@ -48107,6 +48160,11 @@ document.addEventListener('keydown', function(e) {
         </div>
     </div>
 </div>
+
+<!-- Floating Calendar Button -->
+<button class="floating-calendar-btn" id="floatingCalendarBtn" onclick="openCalendarFromAnywhere()" title="Go to Calendar">
+    <i class="fas fa-calendar-alt"></i>
+</button>
 
 <!-- Floating Chat Button -->
 <button class="floating-chat-btn" id="floatingChatBtn" onclick="openChat()" title="Team Chat">
