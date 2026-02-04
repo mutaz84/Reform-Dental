@@ -30858,6 +30858,100 @@
             return Array.from(names).sort();
         }
 
+        function parseAssignees(value) {
+            if (!value) return [];
+            if (Array.isArray(value)) return value.map(v => String(v || '').trim()).filter(Boolean);
+            return String(value)
+                .split(/[;,]/g)
+                .map(s => s.trim())
+                .filter(Boolean);
+        }
+
+        function formatAssignees(list) {
+            const unique = Array.from(new Set((list || []).map(v => String(v || '').trim()).filter(Boolean)));
+            return unique.join('; ');
+        }
+
+        function shortName(name) {
+            const s = String(name || '').trim();
+            if (!s) return '';
+            const parts = s.split(/\s+/).filter(Boolean);
+            if (parts.length === 1) return parts[0].slice(0, 10);
+            const first = parts[0];
+            const last = parts[parts.length - 1];
+            return `${first} ${last.charAt(0)}.`.slice(0, 12);
+        }
+
+        function renderFlowSvg(names, size = 90) {
+            const list = (names || []).map(shortName).filter(Boolean);
+            const n = list.length;
+            const s = size;
+            const cx = s / 2;
+            const cy = s / 2;
+            const r = Math.max(18, (s / 2) - 18);
+            const stroke = 'var(--accent-primary)';
+            const fill = 'rgba(99, 102, 241, 0.10)';
+            const textColor = 'var(--text-primary)';
+
+            if (n <= 1) {
+                const label = list[0] || '';
+                return `
+                    <svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-label="Flow">
+                        <circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="2" />
+                        <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="${textColor}">${label}</text>
+                    </svg>
+                `;
+            }
+
+            if (n === 2) {
+                const leftX = 18;
+                const rightX = s - 18;
+                return `
+                    <svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-label="Flow">
+                        <line x1="${leftX}" y1="${cy}" x2="${rightX}" y2="${cy}" stroke="${stroke}" stroke-width="3" />
+                        <circle cx="${leftX}" cy="${cy}" r="8" fill="${fill}" stroke="${stroke}" stroke-width="2" />
+                        <circle cx="${rightX}" cy="${cy}" r="8" fill="${fill}" stroke="${stroke}" stroke-width="2" />
+                        <text x="${leftX}" y="${cy - 12}" text-anchor="middle" font-size="9" fill="${textColor}">${list[0]}</text>
+                        <text x="${rightX}" y="${cy - 12}" text-anchor="middle" font-size="9" fill="${textColor}">${list[1]}</text>
+                    </svg>
+                `;
+            }
+
+            const points = [];
+            for (let i = 0; i < n; i++) {
+                const angle = (-Math.PI / 2) + (i * (2 * Math.PI / n));
+                const x = cx + r * Math.cos(angle);
+                const y = cy + r * Math.sin(angle);
+                points.push({ x, y, label: list[i] });
+            }
+
+            const pointsAttr = points.map(p => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
+            const labels = points.map(p => {
+                const dx = p.x < cx ? -6 : 6;
+                const dy = p.y < cy ? -6 : 10;
+                const anchor = p.x < cx ? 'end' : 'start';
+                return `<text x="${(p.x + dx).toFixed(2)}" y="${(p.y + dy).toFixed(2)}" text-anchor="${anchor}" font-size="9" fill="${textColor}">${p.label}</text>`;
+            }).join('');
+
+            return `
+                <svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-label="Flow">
+                    <polygon points="${pointsAttr}" fill="${fill}" stroke="${stroke}" stroke-width="2" />
+                    ${labels}
+                </svg>
+            `;
+        }
+
+        function getRequestFlowNames(req, routingLog = []) {
+            const assignees = parseAssignees(req?.assignedTo);
+            const routed = (routingLog || []).map(e => e?.toUser).filter(Boolean);
+            const combined = [...assignees, ...routed];
+            const unique = [];
+            combined.forEach(n => {
+                if (!unique.some(u => isSameUserName(u, n))) unique.push(n);
+            });
+            return unique;
+        }
+
         function populateRequestFormOptions(selected = {}) {
             const assigneeSelect = document.getElementById('requestAssignedTo');
             const roomSelect = document.getElementById('requestLocation');
@@ -30866,12 +30960,15 @@
 
             if (assigneeSelect) {
                 const names = getRequestAssigneeOptions();
-                const selectedName = selected.assignedTo || '';
+                const selectedNames = parseAssignees(selected.assignedTo);
                 const options = [...names];
-                if (selectedName && !options.includes(selectedName)) options.unshift(selectedName);
-                assigneeSelect.innerHTML = '<option value="">Select responsible person</option>' +
-                    options.map(name => `<option value="${name}">${name}</option>`).join('');
-                if (selectedName) assigneeSelect.value = selectedName;
+                selectedNames.slice().reverse().forEach(n => {
+                    if (n && !options.includes(n)) options.unshift(n);
+                });
+                assigneeSelect.innerHTML = options.map(name => `<option value="${name}">${name}</option>`).join('');
+                Array.from(assigneeSelect.options).forEach(opt => {
+                    opt.selected = selectedNames.includes(opt.value);
+                });
             }
 
             if (roomSelect) {
@@ -31006,7 +31103,9 @@
 
         function canCurrentUserChangeRequestStatus(req) {
             const currentUser = getCurrentUserDisplayName();
-            return isAdminUser() || (req?.assignedTo && isSameUserName(req.assignedTo, currentUser));
+            if (isAdminUser()) return true;
+            const assignees = parseAssignees(req?.assignedTo);
+            return assignees.some(a => isSameUserName(a, currentUser));
         }
 
         async function postRequestNotification({ requestId, toUser, fromUser, type, message }) {
@@ -31022,6 +31121,35 @@
                 });
             } catch (_) {
                 // Best-effort only
+            }
+        }
+
+        async function postRequestRoutingEvent({ requestId, fromUser, toUser, action, note }) {
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+            if (!canTryApi) return;
+            if (!requestId || !toUser) return;
+            try {
+                await fetch(`${API_BASE_URL}/request-routing`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ requestId, fromUser, toUser, action, note })
+                });
+            } catch (_) {
+                // best-effort
+            }
+        }
+
+        async function fetchRequestRoutingLog(requestId) {
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+            if (!canTryApi) return [];
+            if (!requestId) return [];
+            try {
+                const res = await fetch(`${API_BASE_URL}/request-routing?requestId=${encodeURIComponent(requestId)}`, { cache: 'no-store' });
+                if (!res.ok) return [];
+                const data = await res.json();
+                return Array.isArray(data) ? data : [];
+            } catch (_) {
+                return [];
             }
         }
 
@@ -31171,7 +31299,10 @@
                 if (type !== 'all' && req.type !== type) return false;
                 if (status !== 'all' && req.status !== status) return false;
                 if (priority !== 'all' && req.priority !== priority) return false;
-                if (assignee === 'mine' && req.assignedTo !== currentUser) return false;
+                if (assignee === 'mine') {
+                    const assignees = parseAssignees(req.assignedTo);
+                    if (!assignees.some(a => isSameUserName(a, currentUser))) return false;
+                }
                 if (search) {
                     const hay = `${req.id} ${req.title} ${req.type} ${req.requestedBy} ${req.assignedTo} ${req.description} ${req.location} ${req.equipment} ${req.vendor}`.toLowerCase();
                     if (!hay.includes(search)) return false;
@@ -31210,6 +31341,9 @@
                 const canEdit = canCurrentUserEditRequest(req);
                 const canStatus = canCurrentUserChangeRequestStatus(req);
                 const isSender = isSameUserName(req.requestedBy, currentUser);
+                const assignees = parseAssignees(req.assignedTo);
+                const assignedDisplay = assignees.length ? assignees.join(', ') : '—';
+                const flowSvg = assignees.length ? renderFlowSvg(assignees, 60) : '';
 
                 const row = document.createElement('tr');
                 row.innerHTML = `
@@ -31217,7 +31351,12 @@
                     <td>${req.title}</td>
                     <td>${req.type}</td>
                     <td>${req.requestedBy}</td>
-                    <td>${req.assignedTo || '—'}</td>
+                    <td>
+                        <div style="display:flex; align-items:center; gap: 0.5rem;">
+                            <div style="flex:1; min-width: 0;">${assignedDisplay}</div>
+                            <div style="width:60px; height:60px; flex: 0 0 auto;">${flowSvg}</div>
+                        </div>
+                    </td>
                     <td><span class="request-pill status-${req.status.toLowerCase().replace(/\s+/g, '-')}">${req.status}</span></td>
                     <td><span class="request-pill priority-${req.priority.toLowerCase()}">${req.priority}</span></td>
                     <td>${formatRequestDate(req.requestedAt)}</td>
@@ -31233,6 +31372,7 @@
 
                             <button class="btn-mini" onclick="openRequestModal('${req.id}')">View</button>
                             ${canEdit ? `<button class="btn-mini" onclick="openRequestModal('${req.id}')">Edit</button>` : ''}
+                            ${(canStatus || isSender || isAdminUser()) ? `<button class="btn-mini" onclick="forwardRequest('${req.id}')">Forward</button>` : ''}
                             ${(isSender || isAdminUser()) ? `<button class="btn-mini" onclick="sendRequestReminder('${req.id}')">Remind</button>` : ''}
                             ${(isSender || isAdminUser()) ? `<button class="btn-mini" onclick="escalateRequest('${req.id}')">Escalate</button>` : ''}
                             ${(isSender || isAdminUser()) ? `<button class="btn-mini" onclick="deleteRequest('${req.id}')">Delete</button>` : ''}
@@ -31304,6 +31444,39 @@
                             if (el) el.disabled = true;
                         });
                     }
+
+                    // Process viz + routing log
+                    (async () => {
+                        const viz = document.getElementById('requestFlowViz');
+                        const list = document.getElementById('requestRoutingLogList');
+                        const empty = document.getElementById('requestRoutingLogEmpty');
+                        if (!viz || !list || !empty) return;
+
+                        const idNum = /^\d+$/.test(String(req.id)) ? parseInt(String(req.id), 10) : null;
+                        const log = idNum !== null ? await fetchRequestRoutingLog(idNum) : [];
+                        const flowNames = getRequestFlowNames(req, log);
+                        viz.innerHTML = renderFlowSvg(flowNames.length ? flowNames : parseAssignees(req.assignedTo), 140);
+
+                        if (!log.length) {
+                            list.innerHTML = '';
+                            empty.style.display = 'block';
+                            return;
+                        }
+                        empty.style.display = 'none';
+                        list.innerHTML = log.map(e => {
+                            const when = formatRequestDate(e.createdAt);
+                            const from = e.fromUser || 'System';
+                            const to = e.toUser || '';
+                            const action = e.action || 'update';
+                            const note = e.note ? ` · ${e.note}` : '';
+                            return `
+                                <div style="border: 1px solid var(--border-color); background: var(--bg-primary); border-radius: 10px; padding: 0.5rem 0.6rem;">
+                                    <div style="font-weight: 700; font-size: 0.9rem; color: var(--text-primary);">${action.toUpperCase()}: ${to}</div>
+                                    <div style="color: var(--text-secondary); font-size: 0.8rem;">From ${from} · ${when}${note}</div>
+                                </div>
+                            `;
+                        }).join('');
+                    })();
                 }
             } else {
                 form.reset();
@@ -31329,6 +31502,13 @@
 
                 const delBtn = document.getElementById('requestDeleteBtn');
                 if (delBtn) delBtn.style.display = 'none';
+
+                const viz = document.getElementById('requestFlowViz');
+                const list = document.getElementById('requestRoutingLogList');
+                const empty = document.getElementById('requestRoutingLogEmpty');
+                if (viz) viz.innerHTML = '';
+                if (list) list.innerHTML = '';
+                if (empty) empty.style.display = 'block';
             }
 
             overlay.classList.add('active');
@@ -31360,6 +31540,12 @@
             event.preventDefault();
             const requestId = document.getElementById('requestId').value;
             const existingRequest = requestId ? requestsData.find(r => String(r.id) === String(requestId)) : null;
+
+            const assignedSelect = document.getElementById('requestAssignedTo');
+            const assignedList = assignedSelect
+                ? Array.from(assignedSelect.selectedOptions || []).map(o => String(o.value || '').trim()).filter(Boolean)
+                : [];
+
             const newRequest = normalizeRequest({
                 id: requestId || `REQ-${Date.now()}`,
                 title: document.getElementById('requestTitle').value.trim(),
@@ -31367,7 +31553,7 @@
                 priority: document.getElementById('requestPriority').value,
                 status: document.getElementById('requestStatus').value,
                 requestedBy: document.getElementById('requestRequestedBy').value,
-                assignedTo: document.getElementById('requestAssignedTo').value.trim(),
+                assignedTo: formatAssignees(assignedList),
                 requestedAt: requestId ? (requestsData.find(r => String(r.id) === String(requestId))?.requestedAt || new Date().toISOString()) : new Date().toISOString(),
                 neededBy: document.getElementById('requestNeededBy').value,
                 location: document.getElementById('requestLocation').value.trim(),
@@ -31400,6 +31586,15 @@
                         body: JSON.stringify(newRequest)
                     });
                     if (!res.ok) throw new Error('API request failed');
+
+                    // Capture returned numeric id for new records (dbo.Requests identity)
+                    try {
+                        const apiResult = await res.json();
+                        if (apiResult && apiResult.id !== undefined && apiResult.id !== null) {
+                            newRequest.id = String(apiResult.id);
+                        }
+                    } catch (_) {}
+
                     requestsApiAvailable = true;
                     updateRequestsApiStatus(true);
                     await loadRequests({ force: true });
@@ -31419,12 +31614,43 @@
 
             updateRequestsNavBadge();
 
-            if (newRequest.assignedTo && (!existingRequest || existingRequest.assignedTo !== newRequest.assignedTo)) {
-                addRequestNotification(newRequest, 'assigned');
-                if (typeof showNotification === 'function') {
-                    showNotification(`Notified ${newRequest.assignedTo}`, 'success');
+            // Notify + log assignment changes (supports multiple assignees)
+            try {
+                const numericRequestId = (() => {
+                    const raw = String(newRequest.id || '').trim();
+                    return /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
+                })();
+
+                const prevAssignees = existingRequest ? parseAssignees(existingRequest.assignedTo) : [];
+                const nextAssignees = parseAssignees(newRequest.assignedTo);
+                const addedAssignees = nextAssignees.filter(n => !prevAssignees.some(p => isSameUserName(p, n)));
+
+                // For brand new requests, treat all as added
+                const newlyAdded = existingRequest ? addedAssignees : nextAssignees;
+
+                newlyAdded.forEach(toUser => {
+                    const msg = `New request assigned to you: ${newRequest.title} (${newRequest.type})`;
+                    addRequestUserNotification({ requestId: newRequest.id, toUser, fromUser: newRequest.requestedBy, type: 'assigned', message: msg });
+                    if (numericRequestId !== null) {
+                        postRequestNotification({ requestId: numericRequestId, toUser, fromUser: newRequest.requestedBy, type: 'assigned', message: msg });
+                    }
+
+                    const action = existingRequest ? 'added' : 'assigned';
+                    if (numericRequestId !== null) {
+                        postRequestRoutingEvent({
+                            requestId: numericRequestId,
+                            fromUser: newRequest.requestedBy,
+                            toUser,
+                            action,
+                            note: existingRequest ? 'Sender added receiver' : 'Initial assignment'
+                        });
+                    }
+                });
+
+                if (newlyAdded.length && typeof showNotification === 'function') {
+                    showNotification(`Notified ${newlyAdded.join(', ')}`, 'success');
                 }
-            }
+            } catch (_) {}
 
             // If receiver changed status via modal, notify sender
             try {
@@ -31565,6 +31791,90 @@
             if (typeof showNotification === 'function') showNotification(`Escalated to ${request.assignedTo}`, 'success');
         }
 
+        async function forwardRequest(requestId) {
+            const request = requestsData.find(r => String(r.id) === String(requestId));
+            if (!request) return;
+
+            const currentUser = getCurrentUserDisplayName();
+            const isSender = isSameUserName(request.requestedBy, currentUser);
+            const canForward = isSender || isAdminUser() || canCurrentUserChangeRequestStatus(request);
+            if (!canForward) {
+                if (typeof showNotification === 'function') showNotification('You do not have permission to forward this request.', 'warning');
+                return;
+            }
+
+            const options = getRequestAssigneeOptions();
+            const existing = parseAssignees(request.assignedTo);
+            const candidates = options.filter(n => !existing.some(e => isSameUserName(e, n)));
+            if (!candidates.length) {
+                if (typeof showNotification === 'function') showNotification('No additional people available to forward to.', 'warning');
+                return;
+            }
+
+            const pick = prompt(
+                'Forward to (type exact name):\n' +
+                candidates.slice(0, 25).join('\n') +
+                (candidates.length > 25 ? `\n...and ${candidates.length - 25} more` : '')
+            );
+
+            const toUser = String(pick || '').trim();
+            if (!toUser) return;
+            if (existing.some(e => isSameUserName(e, toUser))) {
+                if (typeof showNotification === 'function') showNotification(`${toUser} is already included.`, 'warning');
+                return;
+            }
+
+            const updatedAssignees = [...existing, toUser];
+            const updated = { ...request, assignedTo: formatAssignees(updatedAssignees) };
+
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+            if (canTryApi) {
+                try {
+                    const res = await fetch(`${API_BASE_URL}/requests/${requestId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(updated)
+                    });
+                    if (!res.ok) throw new Error('API request failed');
+                    requestsApiAvailable = true;
+                    updateRequestsApiStatus(true);
+                    await loadRequests({ force: true });
+                } catch (e) {
+                    requestsApiAvailable = false;
+                    updateRequestsApiStatus(false);
+                    upsertRequestLocal(updated);
+                    if (typeof showNotification === 'function') showNotification('API unavailable — forward saved locally.', 'warning');
+                }
+            } else {
+                requestsApiAvailable = false;
+                updateRequestsApiStatus(false);
+                upsertRequestLocal(updated);
+            }
+
+            // log event + notify new person
+            const action = isSender ? 'added' : 'forwarded';
+            const note = isSender ? 'Sender added additional receiver' : 'Receiver forwarded to another person';
+            postRequestRoutingEvent({ requestId: parseInt(requestId, 10), fromUser: currentUser, toUser, action, note });
+
+            const msg = `Request ${request.id} forwarded to you: ${request.title}`;
+            addRequestUserNotification({ requestId: request.id, toUser, fromUser: currentUser, type: 'forward', message: msg });
+            postRequestNotification({ requestId: request.id, toUser, fromUser: currentUser, type: 'forward', message: msg });
+
+            // notify sender if receiver forwarded
+            try {
+                if (!isSender && request.requestedBy && !isSameUserName(request.requestedBy, currentUser)) {
+                    const senderMsg = `Request ${request.id} was forwarded to ${toUser} by ${currentUser}`;
+                    addRequestUserNotification({ requestId: request.id, toUser: request.requestedBy, fromUser: currentUser, type: 'forward', message: senderMsg });
+                    postRequestNotification({ requestId: request.id, toUser: request.requestedBy, fromUser: currentUser, type: 'forward', message: senderMsg });
+                }
+            } catch (_) {}
+
+            if (typeof showNotification === 'function') showNotification(`Forwarded to ${toUser}`, 'success');
+            updateRequestsNavBadge();
+            refreshRequestsNotificationsBadge();
+            renderRequestsTable();
+        }
+
         async function deleteRequest(requestId, options = {}) {
             const request = requestsData.find(r => String(r.id) === String(requestId));
             if (!request) return;
@@ -31618,6 +31928,7 @@
         window.sendRequestReminder = sendRequestReminder;
         window.escalateRequest = escalateRequest;
         window.deleteRequest = deleteRequest;
+        window.forwardRequest = forwardRequest;
 
         // Sticky Notes Board Functions
         let stickyNotes = [];
@@ -50761,9 +51072,10 @@ document.addEventListener('keydown', function(e) {
                 </div>
                 <div class="request-form-field">
                     <label for="requestAssignedTo">Assigned To</label>
-                    <select id="requestAssignedTo">
+                    <select id="requestAssignedTo" multiple size="5" title="Hold Ctrl (Windows) to select multiple">
                         <option value="">Select responsible person</option>
                     </select>
+                    <div style="margin-top: 0.35rem; color: var(--text-secondary); font-size: 0.8rem;">Hold Ctrl to select multiple.</div>
                 </div>
                 <div class="request-form-field">
                     <label for="requestNeededBy">Needed By</label>
@@ -50790,6 +51102,18 @@ document.addEventListener('keydown', function(e) {
                 <div class="request-form-field" style="grid-column: 1 / -1;">
                     <label for="requestDescription">Description</label>
                     <textarea id="requestDescription" required placeholder="Provide details"></textarea>
+                </div>
+
+                <div class="request-form-field" style="grid-column: 1 / -1;">
+                    <label>Process</label>
+                    <div style="display:flex; gap: 1rem; align-items:flex-start; flex-wrap: wrap;">
+                        <div id="requestFlowViz" style="width: 140px; height: 140px; border: 1px solid var(--border-color); background: var(--bg-secondary); border-radius: 12px; display:flex; align-items:center; justify-content:center;"></div>
+                        <div style="flex: 1; min-width: 260px;">
+                            <div style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 0.35rem;">Forwarding/assignment history</div>
+                            <div id="requestRoutingLogList" style="display:flex; flex-direction:column; gap: 0.35rem;"></div>
+                            <div id="requestRoutingLogEmpty" style="display:none; color: var(--text-secondary); font-size: 0.85rem; padding: 0.5rem 0;">No routing events yet.</div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="request-modal-actions">
