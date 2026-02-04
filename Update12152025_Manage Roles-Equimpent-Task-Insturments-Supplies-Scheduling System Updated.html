@@ -31231,7 +31231,8 @@
                                 </select>
                             ` : `<span style="color: var(--text-secondary);">—</span>`}
 
-                            ${(canEdit || canStatus) ? `<button class="btn-mini" onclick="openRequestModal('${req.id}')">Open</button>` : ''}
+                            <button class="btn-mini" onclick="openRequestModal('${req.id}')">View</button>
+                            ${canEdit ? `<button class="btn-mini" onclick="openRequestModal('${req.id}')">Edit</button>` : ''}
                             ${(isSender || isAdminUser()) ? `<button class="btn-mini" onclick="sendRequestReminder('${req.id}')">Remind</button>` : ''}
                             ${(isSender || isAdminUser()) ? `<button class="btn-mini" onclick="escalateRequest('${req.id}')">Escalate</button>` : ''}
                             ${(isSender || isAdminUser()) ? `<button class="btn-mini" onclick="deleteRequest('${req.id}')">Delete</button>` : ''}
@@ -31276,7 +31277,7 @@
                     document.getElementById('requestDescription').value = req.description;
                     if (title) title.textContent = `Edit Request ${req.id}`;
 
-                    // Permissions: sender can edit details; receiver can change status
+                    // Permissions: sender/admin can edit details; receiver is view-only (status updates happen from table actions)
                     const editFields = [
                         'requestTitle', 'requestType', 'requestPriority', 'requestAssignedTo',
                         'requestNeededBy', 'requestLocation', 'requestEquipment', 'requestVendor', 'requestDescription'
@@ -31287,13 +31288,22 @@
                     });
 
                     const statusEl = document.getElementById('requestStatus');
-                    if (statusEl) statusEl.disabled = !canStatus;
+                    if (statusEl) statusEl.disabled = true;
 
                     const saveBtn = document.getElementById('requestSaveBtn');
-                    if (saveBtn) saveBtn.disabled = !(canEdit || canStatus);
+                    if (saveBtn) saveBtn.disabled = !canEdit;
 
                     const delBtn = document.getElementById('requestDeleteBtn');
                     if (delBtn) delBtn.style.display = (canEdit || isAdminUser()) ? 'inline-flex' : 'none';
+
+                    // If user is receiver (canStatus) but not editor, ensure absolutely view-only
+                    if (!canEdit && canStatus) {
+                        const viewOnlyFields = [...editFields, 'requestStatus'];
+                        viewOnlyFields.forEach(id => {
+                            const el = document.getElementById(id);
+                            if (el) el.disabled = true;
+                        });
+                    }
                 }
             } else {
                 form.reset();
@@ -31368,28 +31378,9 @@
 
             if (existingRequest) {
                 const canEdit = canCurrentUserEditRequest(existingRequest);
-                const canStatus = canCurrentUserChangeRequestStatus(existingRequest);
-
-                if (!(canEdit || canStatus)) {
-                    showNotification('You do not have permission to update this request.', 'warning');
-                    return;
-                }
-
-                // Harden client-side rules: sender edits details; receiver edits status
                 if (!canEdit) {
-                    newRequest.title = existingRequest.title;
-                    newRequest.type = existingRequest.type;
-                    newRequest.priority = existingRequest.priority;
-                    newRequest.assignedTo = existingRequest.assignedTo;
-                    newRequest.neededBy = existingRequest.neededBy;
-                    newRequest.location = existingRequest.location;
-                    newRequest.equipment = existingRequest.equipment;
-                    newRequest.vendor = existingRequest.vendor;
-                    newRequest.description = existingRequest.description;
-                }
-
-                if (!canStatus) {
-                    newRequest.status = existingRequest.status;
+                    showNotification('Only the sender can edit. Receivers change status from the table Actions.', 'warning');
+                    return;
                 }
             }
 
