@@ -10139,6 +10139,60 @@
     color: var(--text-primary);
 }
 
+.request-row-actions {
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.request-row-actions .btn-mini {
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-radius: 8px;
+    padding: 0.25rem 0.45rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.request-row-actions .btn-mini:hover {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+}
+
+.request-row-actions .btn-mini.danger:hover {
+    border-color: #ef4444;
+    color: #ef4444;
+}
+
+.requests-notify-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    position: relative;
+}
+
+.requests-notify-badge {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: #ef4444;
+    color: #fff;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 800;
+    min-width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.18);
+}
+
 .request-modal-overlay {
     position: fixed;
     inset: 0;
@@ -13985,6 +14039,11 @@
                             <h2><i class="fas fa-clipboard-list" style="color: var(--accent-primary);"></i> Requests</h2>
                             <div class="requests-actions">
                                 <span class="requests-api-status" id="requestsApiStatus">DB: Checking</span>
+                                <button type="button" class="btn-secondary requests-notify-btn" id="openRequestsNotificationsBtn" onclick="openRequestsNotifications()" title="Request updates">
+                                    <i class="fas fa-bell"></i>
+                                    <span class="requests-notify-text">Updates</span>
+                                    <span class="requests-notify-badge" id="requestsNotificationsBadge" style="display:none;">0</span>
+                                </button>
                                 <button type="button" class="btn-primary" id="openRequestModalBtn" onclick="openRequestModal()">New Request</button>
                             </div>
                         </div>
@@ -14005,37 +14064,6 @@
                             <div class="requests-summary-card">
                                 <span>Closed</span>
                                 <strong id="requestsClosedCount">0</strong>
-                            </div>
-                        </div>
-
-                        <div class="requests-hub-card">
-                            <div class="requests-hub-header">
-                                <h3><i class="fas fa-inbox" style="color: var(--accent-primary);"></i> Request Hub</h3>
-                                <div class="requests-hub-tabs">
-                                    <button class="requests-hub-tab active" data-tab="assigned" onclick="switchRequestsHubTab('assigned')">
-                                        Assigned to Me
-                                        <span class="requests-hub-badge" id="requestsHubAssignedCount">0</span>
-                                    </button>
-                                    <button class="requests-hub-tab" data-tab="created" onclick="switchRequestsHubTab('created')">
-                                        Created by Me
-                                        <span class="requests-hub-badge" id="requestsHubCreatedCount">0</span>
-                                    </button>
-                                    <button class="requests-hub-tab" data-tab="notifications" onclick="switchRequestsHubTab('notifications')">
-                                        Notifications
-                                        <span class="requests-hub-badge" id="requestsHubNotificationsCount">0</span>
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="requests-hub-panels">
-                                <div class="requests-hub-panel active" id="requestsHubPanelAssigned">
-                                    <div class="requests-hub-list" id="requestsHubAssignedList"></div>
-                                </div>
-                                <div class="requests-hub-panel" id="requestsHubPanelCreated">
-                                    <div class="requests-hub-list" id="requestsHubCreatedList"></div>
-                                </div>
-                                <div class="requests-hub-panel" id="requestsHubPanelNotifications">
-                                    <div class="requests-hub-list" id="requestsHubNotificationsList"></div>
-                                </div>
                             </div>
                         </div>
 
@@ -30777,20 +30805,32 @@
             }
         }
 
-        function addRequestNotification(request, type = 'assigned') {
-            if (!request?.assignedTo) return;
+        function addRequestUserNotification({ requestId, toUser, fromUser, type, message }) {
+            if (!toUser) return;
             const notifications = loadRequestNotifications();
             notifications.unshift({
                 id: `RN-${Date.now()}`,
-                requestId: request.id,
-                assignedTo: request.assignedTo,
-                createdBy: request.requestedBy,
+                requestId,
+                assignedTo: toUser,
+                createdBy: fromUser,
                 type,
-                message: `${request.title} (${request.type})`,
+                message,
                 createdAt: new Date().toISOString(),
                 read: false
             });
             saveRequestNotifications(notifications);
+        }
+
+        function addRequestNotification(request, type = 'assigned') {
+            if (!request) return;
+            if (!request.assignedTo) return;
+            addRequestUserNotification({
+                requestId: request.id,
+                toUser: request.assignedTo,
+                fromUser: request.requestedBy,
+                type,
+                message: `${request.title} (${request.type})`
+            });
         }
 
         function getRequestNotificationsForUser(userName) {
@@ -30892,7 +30932,6 @@
             requestsInitialized = true;
             updateRequestsNavBadge();
             renderRequestsTable();
-            renderRequestHub();
         }
 
         function initializeRequestsView() {
@@ -30900,7 +30939,19 @@
             const requestedByInput = document.getElementById('requestRequestedBy');
             if (requestedByInput) requestedByInput.value = getCurrentUserDisplayName();
             populateRequestFormOptions();
-            renderRequestHub();
+            startRequestsNotificationsPolling();
+
+            const updatesBtn = document.getElementById('openRequestsNotificationsBtn');
+            if (updatesBtn) updatesBtn.onclick = () => openRequestsNotifications();
+
+            const updatesOverlay = document.getElementById('requestsNotificationsOverlay');
+            if (updatesOverlay && !updatesOverlay.dataset.bound) {
+                updatesOverlay.addEventListener('click', (e) => {
+                    if (e.target === updatesOverlay) closeRequestsNotifications();
+                });
+                updatesOverlay.dataset.bound = '1';
+            }
+
             const newBtn = document.getElementById('openRequestModalBtn');
             if (newBtn) newBtn.onclick = () => openRequestModal();
             const overlay = document.getElementById('requestModalOverlay');
@@ -30934,70 +30985,175 @@
             });
         }
 
-        function switchRequestsHubTab(tab) {
-            const tabs = document.querySelectorAll('.requests-hub-tab');
-            const panels = document.querySelectorAll('.requests-hub-panel');
-            tabs.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
-            panels.forEach(panel => panel.classList.toggle('active', panel.id === `requestsHubPanel${tab.charAt(0).toUpperCase()}${tab.slice(1)}`));
+        function getCurrentUserRole() {
+            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
+            return (currentUser?.role || localStorage.getItem('userRole') || '').toLowerCase();
         }
 
-        window.switchRequestsHubTab = switchRequestsHubTab;
+        function isAdminUser() {
+            const role = getCurrentUserRole();
+            return role === 'admin' || role === 'administrator' || role === 'superadmin';
+        }
 
-        function renderRequestHub() {
+        function isSameUserName(a, b) {
+            return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+        }
+
+        function canCurrentUserEditRequest(req) {
             const currentUser = getCurrentUserDisplayName();
-            const assigned = requestsData.filter(r => r.assignedTo === currentUser);
-            const created = requestsData.filter(r => r.requestedBy === currentUser);
-            const notifications = getRequestNotificationsForUser(currentUser).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            return isAdminUser() || isSameUserName(req?.requestedBy, currentUser);
+        }
 
-            const assignedCount = document.getElementById('requestsHubAssignedCount');
-            const createdCount = document.getElementById('requestsHubCreatedCount');
-            const notificationsCount = document.getElementById('requestsHubNotificationsCount');
-            if (assignedCount) assignedCount.textContent = assigned.length;
-            if (createdCount) createdCount.textContent = created.length;
-            if (notificationsCount) notificationsCount.textContent = notifications.length;
+        function canCurrentUserChangeRequestStatus(req) {
+            const currentUser = getCurrentUserDisplayName();
+            return isAdminUser() || (req?.assignedTo && isSameUserName(req.assignedTo, currentUser));
+        }
 
-            updateRequestsNavBadge(requestsData);
+        async function postRequestNotification({ requestId, toUser, fromUser, type, message }) {
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+            if (!canTryApi) return;
+            if (!toUser) return;
 
-            const assignedList = document.getElementById('requestsHubAssignedList');
-            const createdList = document.getElementById('requestsHubCreatedList');
-            const notificationsList = document.getElementById('requestsHubNotificationsList');
-
-            if (assignedList) {
-                assignedList.innerHTML = assigned.length ? assigned.map(req => `
-                    <div class="requests-hub-item" onclick="openRequestModal('${req.id}')">
-                        <div>
-                            <div class="requests-hub-item-title">${req.title}</div>
-                            <div class="requests-hub-item-meta">${req.type} · ${req.status} · Needed ${formatRequestDate(req.neededBy)}</div>
-                        </div>
-                        <span class="request-pill priority-${req.priority.toLowerCase()}">${req.priority}</span>
-                    </div>
-                `).join('') : '<div class="requests-hub-empty">No requests assigned to you.</div>';
-            }
-
-            if (createdList) {
-                createdList.innerHTML = created.length ? created.map(req => `
-                    <div class="requests-hub-item" onclick="openRequestModal('${req.id}')">
-                        <div>
-                            <div class="requests-hub-item-title">${req.title}</div>
-                            <div class="requests-hub-item-meta">Assigned to ${req.assignedTo || 'Unassigned'} · ${req.status}</div>
-                        </div>
-                        <span class="request-pill status-${req.status.toLowerCase().replace(/\s+/g, '-')}">${req.status}</span>
-                    </div>
-                `).join('') : '<div class="requests-hub-empty">No requests created by you.</div>';
-            }
-
-            if (notificationsList) {
-                notificationsList.innerHTML = notifications.length ? notifications.map(note => `
-                    <div class="requests-hub-item" onclick="openRequestModal('${note.requestId}')">
-                        <div>
-                            <div class="requests-hub-item-title">${note.message}</div>
-                            <div class="requests-hub-item-meta">From ${note.createdBy} · ${formatRequestDate(note.createdAt)}</div>
-                        </div>
-                        <span class="request-pill status-new">New</span>
-                    </div>
-                `).join('') : '<div class="requests-hub-empty">No notifications yet.</div>';
+            try {
+                await fetch(`${API_BASE_URL}/request-notifications`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ requestId, toUser, fromUser, type, message })
+                });
+            } catch (_) {
+                // Best-effort only
             }
         }
+
+        async function fetchMyRequestNotifications() {
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+            const toUser = getCurrentUserDisplayName();
+            if (!canTryApi) {
+                return getRequestNotificationsForUser(toUser).filter(n => !n.read);
+            }
+
+            try {
+                const url = `${API_BASE_URL}/request-notifications?to=${encodeURIComponent(toUser)}&unread=1`;
+                const res = await fetch(url, { cache: 'no-store' });
+                if (!res.ok) throw new Error('bad status');
+                const data = await res.json();
+                return Array.isArray(data) ? data : [];
+            } catch (_) {
+                return getRequestNotificationsForUser(toUser).filter(n => !n.read);
+            }
+        }
+
+        function renderRequestsNotificationsList(items) {
+            const list = document.getElementById('requestsNotificationsList');
+            const empty = document.getElementById('requestsNotificationsEmpty');
+            if (!list || !empty) return;
+
+            if (!items || !items.length) {
+                list.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+
+            empty.style.display = 'none';
+            list.innerHTML = items.map(n => {
+                const createdAt = n.createdAt || n.CreatedAt || '';
+                const fromUser = n.fromUser || n.FromUser || n.createdBy || '';
+                const msg = n.message || n.Message || '';
+                const reqId = n.requestId || n.RequestId || '';
+                return `
+                    <div style="border: 1px solid var(--border-color); background: var(--bg-primary); border-radius: 12px; padding: 0.75rem; display:flex; justify-content:space-between; gap: 0.75rem;">
+                        <div>
+                            <div style="font-weight: 700; color: var(--text-primary);">${msg || 'Update'}</div>
+                            <div style="color: var(--text-secondary); font-size: 0.85rem;">From ${fromUser || 'System'} · ${formatRequestDate(createdAt)}</div>
+                        </div>
+                        <div>
+                            <button class="btn-mini" onclick="openRequestModal('${reqId}')">Open</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function openRequestsNotifications() {
+            const overlay = document.getElementById('requestsNotificationsOverlay');
+            if (overlay) overlay.classList.add('active');
+            try {
+                const items = await fetchMyRequestNotifications();
+                renderRequestsNotificationsList(items);
+            } catch (_) {
+                renderRequestsNotificationsList([]);
+            }
+        }
+
+        function closeRequestsNotifications() {
+            const overlay = document.getElementById('requestsNotificationsOverlay');
+            if (overlay) overlay.classList.remove('active');
+        }
+
+        async function markAllRequestsNotificationsRead() {
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+            const toUser = getCurrentUserDisplayName();
+            if (canTryApi) {
+                try {
+                    await fetch(`${API_BASE_URL}/request-notifications`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ toUser, markAllRead: true })
+                    });
+                } catch (_) {}
+            }
+
+            // Always mark local notifications read too
+            try {
+                const all = loadRequestNotifications();
+                let changed = false;
+                all.forEach(n => {
+                    if (n.assignedTo === toUser && !n.read) {
+                        n.read = true;
+                        changed = true;
+                    }
+                });
+                if (changed) saveRequestNotifications(all);
+            } catch (_) {}
+
+            await refreshRequestsNotificationsBadge();
+            const items = await fetchMyRequestNotifications();
+            renderRequestsNotificationsList(items);
+        }
+
+        window.openRequestsNotifications = openRequestsNotifications;
+        window.closeRequestsNotifications = closeRequestsNotifications;
+        window.markAllRequestsNotificationsRead = markAllRequestsNotificationsRead;
+
+        async function refreshRequestsNotificationsBadge() {
+            const badge = document.getElementById('requestsNotificationsBadge');
+            if (!badge) return;
+
+            try {
+                const items = await fetchMyRequestNotifications();
+                const count = items.length;
+                badge.textContent = String(count);
+                badge.style.display = count > 0 ? 'inline-flex' : 'none';
+            } catch (_) {
+                badge.style.display = 'none';
+            }
+        }
+
+        function startRequestsNotificationsPolling() {
+            if (window.__requestsNotificationsPollStarted) return;
+            window.__requestsNotificationsPollStarted = true;
+
+            const tick = async () => {
+                const loggedInUser = localStorage.getItem('loggedInUser');
+                if (!loggedInUser) return;
+                await refreshRequestsNotificationsBadge();
+            };
+
+            tick();
+            setInterval(tick, 45 * 1000);
+        }
+
+        window.startRequestsNotificationsPolling = startRequestsNotificationsPolling;
 
         function applyRequestFilters() {
             renderRequestsTable();
@@ -31029,6 +31185,8 @@
             const emptyState = document.getElementById('requestsEmptyState');
             if (!body) return;
 
+            const currentUser = getCurrentUserDisplayName();
+
             const filtered = getFilteredRequests();
             body.innerHTML = '';
 
@@ -31049,6 +31207,10 @@
             if (emptyState) emptyState.style.display = 'none';
 
             filtered.forEach(req => {
+                const canEdit = canCurrentUserEditRequest(req);
+                const canStatus = canCurrentUserChangeRequestStatus(req);
+                const isSender = isSameUserName(req.requestedBy, currentUser);
+
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${req.id}</td>
@@ -31061,17 +31223,24 @@
                     <td>${formatRequestDate(req.requestedAt)}</td>
                     <td>${formatRequestDate(req.neededBy)}</td>
                     <td>
-                        <select class="request-actions-select" onchange="updateRequestStatus('${req.id}', this.value)">
-                            <option value="">Update...</option>
-                            ${REQUEST_STATUSES.filter(s => s !== req.status).map(s => `<option value="${s}">${s}</option>`).join('')}
-                        </select>
+                        <div class="request-row-actions">
+                            ${canStatus ? `
+                                <select class="request-actions-select" onchange="updateRequestStatus('${req.id}', this.value)">
+                                    <option value="">Status...</option>
+                                    ${REQUEST_STATUSES.filter(s => s !== req.status).map(s => `<option value="${s}">${s}</option>`).join('')}
+                                </select>
+                            ` : `<span style="color: var(--text-secondary);">—</span>`}
+
+                            ${(canEdit || canStatus) ? `<button class="btn-mini" onclick="openRequestModal('${req.id}')">Open</button>` : ''}
+                            ${(isSender || isAdminUser()) ? `<button class="btn-mini" onclick="sendRequestReminder('${req.id}')">Remind</button>` : ''}
+                            ${(isSender || isAdminUser()) ? `<button class="btn-mini" onclick="escalateRequest('${req.id}')">Escalate</button>` : ''}
+                            ${(isSender || isAdminUser()) ? `<button class="btn-mini" onclick="deleteRequest('${req.id}')">Delete</button>` : ''}
+                        </div>
                     </td>
                 `;
                 row.addEventListener('dblclick', () => openRequestModal(req.id));
                 body.appendChild(row);
             });
-
-            renderRequestHub();
         }
 
         function openRequestModal(requestId = '') {
@@ -31089,6 +31258,9 @@
             if (requestId) {
                 const req = requestsData.find(r => String(r.id) === String(requestId));
                 if (req) {
+                    const canEdit = canCurrentUserEditRequest(req);
+                    const canStatus = canCurrentUserChangeRequestStatus(req);
+
                     document.getElementById('requestId').value = req.id;
                     document.getElementById('requestTitle').value = req.title;
                     document.getElementById('requestType').value = req.type;
@@ -31103,6 +31275,25 @@
                     document.getElementById('requestNeededBy').value = req.neededBy ? req.neededBy.split('T')[0] : '';
                     document.getElementById('requestDescription').value = req.description;
                     if (title) title.textContent = `Edit Request ${req.id}`;
+
+                    // Permissions: sender can edit details; receiver can change status
+                    const editFields = [
+                        'requestTitle', 'requestType', 'requestPriority', 'requestAssignedTo',
+                        'requestNeededBy', 'requestLocation', 'requestEquipment', 'requestVendor', 'requestDescription'
+                    ];
+                    editFields.forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.disabled = !canEdit;
+                    });
+
+                    const statusEl = document.getElementById('requestStatus');
+                    if (statusEl) statusEl.disabled = !canStatus;
+
+                    const saveBtn = document.getElementById('requestSaveBtn');
+                    if (saveBtn) saveBtn.disabled = !(canEdit || canStatus);
+
+                    const delBtn = document.getElementById('requestDeleteBtn');
+                    if (delBtn) delBtn.style.display = (canEdit || isAdminUser()) ? 'inline-flex' : 'none';
                 }
             } else {
                 form.reset();
@@ -31112,6 +31303,22 @@
                 if (requestedByInput) requestedByInput.value = currentUser;
                 populateRequestFormOptions();
                 if (title) title.textContent = 'New Request';
+
+                const editFields = [
+                    'requestTitle', 'requestType', 'requestPriority', 'requestAssignedTo',
+                    'requestNeededBy', 'requestLocation', 'requestEquipment', 'requestVendor', 'requestDescription'
+                ];
+                editFields.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.disabled = false;
+                });
+                const statusEl = document.getElementById('requestStatus');
+                if (statusEl) statusEl.disabled = false;
+                const saveBtn = document.getElementById('requestSaveBtn');
+                if (saveBtn) saveBtn.disabled = false;
+
+                const delBtn = document.getElementById('requestDeleteBtn');
+                if (delBtn) delBtn.style.display = 'none';
             }
 
             overlay.classList.add('active');
@@ -31159,6 +31366,33 @@
                 description: document.getElementById('requestDescription').value.trim()
             });
 
+            if (existingRequest) {
+                const canEdit = canCurrentUserEditRequest(existingRequest);
+                const canStatus = canCurrentUserChangeRequestStatus(existingRequest);
+
+                if (!(canEdit || canStatus)) {
+                    showNotification('You do not have permission to update this request.', 'warning');
+                    return;
+                }
+
+                // Harden client-side rules: sender edits details; receiver edits status
+                if (!canEdit) {
+                    newRequest.title = existingRequest.title;
+                    newRequest.type = existingRequest.type;
+                    newRequest.priority = existingRequest.priority;
+                    newRequest.assignedTo = existingRequest.assignedTo;
+                    newRequest.neededBy = existingRequest.neededBy;
+                    newRequest.location = existingRequest.location;
+                    newRequest.equipment = existingRequest.equipment;
+                    newRequest.vendor = existingRequest.vendor;
+                    newRequest.description = existingRequest.description;
+                }
+
+                if (!canStatus) {
+                    newRequest.status = existingRequest.status;
+                }
+            }
+
             if (!newRequest.title || !newRequest.type || !newRequest.description) {
                 showNotification('Please fill in required fields.', 'error');
                 return;
@@ -31201,6 +31435,28 @@
                 }
             }
 
+            // If receiver changed status via modal, notify sender
+            try {
+                if (existingRequest && existingRequest.status !== newRequest.status && existingRequest.requestedBy && !isSameUserName(existingRequest.requestedBy, getCurrentUserDisplayName())) {
+                    const msg = `Request ${existingRequest.id} status: ${existingRequest.status} → ${newRequest.status}`;
+                    addRequestUserNotification({
+                        requestId: existingRequest.id,
+                        toUser: existingRequest.requestedBy,
+                        fromUser: getCurrentUserDisplayName(),
+                        type: 'status',
+                        message: msg
+                    });
+                    postRequestNotification({
+                        requestId: existingRequest.id,
+                        toUser: existingRequest.requestedBy,
+                        fromUser: getCurrentUserDisplayName(),
+                        type: 'status',
+                        message: msg
+                    });
+                    refreshRequestsNotificationsBadge();
+                }
+            } catch (_) {}
+
             closeRequestModal();
             renderRequestsTable();
         }
@@ -31219,6 +31475,14 @@
             if (!status) return;
             const request = requestsData.find(r => String(r.id) === String(requestId));
             if (!request) return;
+            if (!canCurrentUserChangeRequestStatus(request)) {
+                if (typeof showNotification === 'function') {
+                    showNotification('Only the assigned receiver can change status.', 'warning');
+                }
+                return;
+            }
+
+            const previousStatus = request.status;
             const updated = { ...request, status };
 
             const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
@@ -31249,8 +31513,120 @@
 
             updateRequestsNavBadge();
 
+            // Notify sender when receiver changes status
+            try {
+                if (previousStatus !== status && request.requestedBy && !isSameUserName(request.requestedBy, getCurrentUserDisplayName())) {
+                    const msg = `Request ${request.id} status: ${previousStatus} → ${status}`;
+                    addRequestUserNotification({
+                        requestId: request.id,
+                        toUser: request.requestedBy,
+                        fromUser: getCurrentUserDisplayName(),
+                        type: 'status',
+                        message: msg
+                    });
+                    postRequestNotification({
+                        requestId: request.id,
+                        toUser: request.requestedBy,
+                        fromUser: getCurrentUserDisplayName(),
+                        type: 'status',
+                        message: msg
+                    });
+                    refreshRequestsNotificationsBadge();
+                }
+            } catch (_) {}
+
             renderRequestsTable();
         }
+
+        async function sendRequestReminder(requestId) {
+            const request = requestsData.find(r => String(r.id) === String(requestId));
+            if (!request) return;
+            const currentUser = getCurrentUserDisplayName();
+            if (!isAdminUser() && !isSameUserName(request.requestedBy, currentUser)) {
+                if (typeof showNotification === 'function') showNotification('Only the sender can send reminders.', 'warning');
+                return;
+            }
+            if (!request.assignedTo) {
+                if (typeof showNotification === 'function') showNotification('Assign a receiver first.', 'warning');
+                return;
+            }
+            const msg = `Reminder: ${request.title} (${request.id})`;
+            addRequestUserNotification({ requestId: request.id, toUser: request.assignedTo, fromUser: currentUser, type: 'reminder', message: msg });
+            postRequestNotification({ requestId: request.id, toUser: request.assignedTo, fromUser: currentUser, type: 'reminder', message: msg });
+            if (typeof showNotification === 'function') showNotification(`Reminder sent to ${request.assignedTo}`, 'success');
+        }
+
+        async function escalateRequest(requestId) {
+            const request = requestsData.find(r => String(r.id) === String(requestId));
+            if (!request) return;
+            const currentUser = getCurrentUserDisplayName();
+            if (!isAdminUser() && !isSameUserName(request.requestedBy, currentUser)) {
+                if (typeof showNotification === 'function') showNotification('Only the sender can escalate.', 'warning');
+                return;
+            }
+            if (!request.assignedTo) {
+                if (typeof showNotification === 'function') showNotification('Assign a receiver first.', 'warning');
+                return;
+            }
+            const msg = `Escalation: ${request.title} (${request.id})`;
+            addRequestUserNotification({ requestId: request.id, toUser: request.assignedTo, fromUser: currentUser, type: 'escalation', message: msg });
+            postRequestNotification({ requestId: request.id, toUser: request.assignedTo, fromUser: currentUser, type: 'escalation', message: msg });
+            if (typeof showNotification === 'function') showNotification(`Escalated to ${request.assignedTo}`, 'success');
+        }
+
+        async function deleteRequest(requestId, options = {}) {
+            const request = requestsData.find(r => String(r.id) === String(requestId));
+            if (!request) return;
+            const currentUser = getCurrentUserDisplayName();
+            if (!isAdminUser() && !isSameUserName(request.requestedBy, currentUser)) {
+                if (typeof showNotification === 'function') showNotification('Only the sender can delete this request.', 'warning');
+                return;
+            }
+
+            if (!confirm(`Delete request ${request.id}? This cannot be undone.`)) return;
+
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+            if (canTryApi) {
+                try {
+                    const res = await fetch(`${API_BASE_URL}/requests/${requestId}`, { method: 'DELETE' });
+                    if (!res.ok) throw new Error('API delete failed');
+                    requestsApiAvailable = true;
+                    updateRequestsApiStatus(true);
+                    await loadRequests({ force: true });
+                } catch (e) {
+                    requestsApiAvailable = false;
+                    updateRequestsApiStatus(false);
+                    // local fallback
+                    requestsData = requestsData.filter(r => String(r.id) !== String(requestId));
+                    saveRequestsToLocal();
+                    if (typeof showNotification === 'function') showNotification('API unavailable — deleted locally only.', 'warning');
+                }
+            } else {
+                requestsApiAvailable = false;
+                updateRequestsApiStatus(false);
+                requestsData = requestsData.filter(r => String(r.id) !== String(requestId));
+                saveRequestsToLocal();
+            }
+
+            updateRequestsNavBadge();
+            renderRequestsTable();
+
+            try {
+                if (request.assignedTo && !isSameUserName(request.assignedTo, currentUser)) {
+                    const msg = `Request ${request.id} was deleted by ${currentUser}`;
+                    addRequestUserNotification({ requestId: request.id, toUser: request.assignedTo, fromUser: currentUser, type: 'deleted', message: msg });
+                    postRequestNotification({ requestId: request.id, toUser: request.assignedTo, fromUser: currentUser, type: 'deleted', message: msg });
+                }
+            } catch (_) {}
+
+            if (options.fromModal) {
+                closeRequestModal();
+            }
+        }
+
+        window.sendRequestReminder = sendRequestReminder;
+        window.escalateRequest = escalateRequest;
+        window.deleteRequest = deleteRequest;
 
         // Sticky Notes Board Functions
         let stickyNotes = [];
@@ -50427,9 +50803,26 @@ document.addEventListener('keydown', function(e) {
             </div>
             <div class="request-modal-actions">
                 <button type="button" class="btn-secondary" onclick="closeRequestModal()">Cancel</button>
-                <button type="submit" class="btn-primary">Save Request</button>
+                <button type="button" class="btn-secondary" id="requestDeleteBtn" onclick="deleteRequest(document.getElementById('requestId').value, { fromModal: true })" style="display:none; border-color: #ef4444; color: #ef4444;">Delete</button>
+                <button type="submit" class="btn-primary" id="requestSaveBtn">Save Request</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- Requests Updates Modal -->
+<div class="request-modal-overlay" id="requestsNotificationsOverlay">
+    <div class="request-modal" style="max-width: 720px;">
+        <div class="request-modal-header">
+            <h3>Request Updates</h3>
+            <button class="request-modal-close" onclick="closeRequestsNotifications()"><i class="fas fa-times"></i></button>
+        </div>
+        <div style="display:flex; justify-content: space-between; align-items:center; gap: 0.75rem; margin-bottom: 0.75rem;">
+            <div style="color: var(--text-secondary); font-size: 0.9rem;">Status changes, reminders, and escalations.</div>
+            <button type="button" class="btn-secondary" onclick="markAllRequestsNotificationsRead()">Mark all read</button>
+        </div>
+        <div id="requestsNotificationsList" style="display:flex; flex-direction:column; gap: 0.5rem;"></div>
+        <div id="requestsNotificationsEmpty" style="display:none; padding: 1.25rem; text-align:center; color: var(--text-secondary);">No updates yet.</div>
     </div>
 </div>
 
