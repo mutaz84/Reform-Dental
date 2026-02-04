@@ -10274,6 +10274,162 @@
     resize: vertical;
 }
 
+/* Requests: dropdown checklist (multi-select) */
+.msd {
+    position: relative;
+}
+
+.msd-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.msd-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.msd-btn-summary {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-secondary);
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.msd-panel {
+    position: absolute;
+    z-index: 10060;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.22);
+    padding: 0.6rem;
+    display: none;
+}
+
+.msd.open .msd-panel {
+    display: block;
+}
+
+.msd-search {
+    width: 100%;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+}
+
+.msd-options {
+    max-height: 220px;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.msd-option {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.55rem;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    text-align: left;
+}
+
+.msd-option:hover {
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
+}
+
+.msd-check {
+    width: 18px;
+    height: 18px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    color: white;
+    background: transparent;
+}
+
+.msd-option.selected .msd-check {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+.msd-option input[type="checkbox"] {
+    display: none;
+}
+
+/* Requests: Forward picker */
+.forward-picker-list {
+    max-height: 320px;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding-top: 0.25rem;
+}
+
+.forward-picker-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    border-radius: 12px;
+    cursor: pointer;
+}
+
+.forward-picker-item:hover {
+    background: var(--bg-secondary);
+}
+
+.forward-picker-item .fp-check {
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    background: transparent;
+}
+
+.forward-picker-item.selected .fp-check {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
 .request-modal-actions {
     display: flex;
     justify-content: flex-end;
@@ -30883,60 +31039,140 @@
         }
 
         function renderFlowSvg(names, size = 90) {
-            const list = (names || []).map(shortName).filter(Boolean);
-            const n = list.length;
+            const fullList = (names || [])
+                .map(v => String(v || '').trim())
+                .filter(Boolean);
+            const n = fullList.length;
             const s = size;
             const cx = s / 2;
             const cy = s / 2;
-            const r = Math.max(18, (s / 2) - 18);
+            const pad = Math.max(12, Math.round(s * 0.16));
+            const r = Math.max(16, (s / 2) - pad);
             const stroke = 'var(--accent-primary)';
-            const fill = 'rgba(99, 102, 241, 0.10)';
             const textColor = 'var(--text-primary)';
+            const pointLabels = fullList.map((_, i) => `P${i + 1}`);
+            const nameLabels = fullList.map(nm => shortName(nm));
+
+            window.__flowSvgUid = (window.__flowSvgUid || 0) + 1;
+            const uid = window.__flowSvgUid;
+            const gradId = `flowGrad-${uid}`;
+            const shadowId = `flowShadow-${uid}`;
+            const arrowId = `flowArrow-${uid}`;
+
+            const defs = `
+                <defs>
+                    <linearGradient id="${gradId}" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0" stop-color="rgba(99,102,241,0.22)" />
+                        <stop offset="1" stop-color="rgba(99,102,241,0.08)" />
+                    </linearGradient>
+                    <filter id="${shadowId}" x="-30%" y="-30%" width="160%" height="160%">
+                        <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.25)"/>
+                    </filter>
+                    <marker id="${arrowId}" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L9,3 L0,6 Z" fill="rgba(99,102,241,0.95)" />
+                    </marker>
+                </defs>
+            `;
 
             if (n <= 1) {
-                const label = list[0] || '';
+                const label = nameLabels[0] || '';
+                const full = fullList[0] || '';
                 return `
                     <svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-label="Flow">
-                        <circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="2" />
-                        <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="${textColor}">${label}</text>
+                        ${defs}
+                        <g>
+                            <title>${typeof escapeHtml === 'function' ? escapeHtml(full) : full}</title>
+                            <circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#${gradId})" stroke="${stroke}" stroke-width="2" filter="url(#${shadowId})" />
+                            <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="700" fill="${textColor}">${label}</text>
+                        </g>
                     </svg>
                 `;
             }
 
             if (n === 2) {
-                const leftX = 18;
-                const rightX = s - 18;
+                const leftX = pad;
+                const rightX = s - pad;
+                const h = Math.max(18, Math.round(s * 0.26));
+                const y = cy - (h / 2);
+                const w = rightX - leftX;
+                const rx = h / 2;
+                const fullA = fullList[0] || '';
+                const fullB = fullList[1] || '';
+                const labelA = nameLabels[0] || '';
+                const labelB = nameLabels[1] || '';
+                const tipA = typeof escapeHtml === 'function' ? escapeHtml(fullA) : fullA;
+                const tipB = typeof escapeHtml === 'function' ? escapeHtml(fullB) : fullB;
                 return `
                     <svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-label="Flow">
-                        <line x1="${leftX}" y1="${cy}" x2="${rightX}" y2="${cy}" stroke="${stroke}" stroke-width="3" />
-                        <circle cx="${leftX}" cy="${cy}" r="8" fill="${fill}" stroke="${stroke}" stroke-width="2" />
-                        <circle cx="${rightX}" cy="${cy}" r="8" fill="${fill}" stroke="${stroke}" stroke-width="2" />
-                        <text x="${leftX}" y="${cy - 12}" text-anchor="middle" font-size="9" fill="${textColor}">${list[0]}</text>
-                        <text x="${rightX}" y="${cy - 12}" text-anchor="middle" font-size="9" fill="${textColor}">${list[1]}</text>
+                        ${defs}
+                        <rect x="${leftX}" y="${y.toFixed(2)}" width="${w}" height="${h}" rx="${rx}" fill="url(#${gradId})" stroke="rgba(99,102,241,0.25)" stroke-width="2" filter="url(#${shadowId})" />
+                        <path d="M ${(leftX + 10).toFixed(2)} ${cy.toFixed(2)} L ${(rightX - 10).toFixed(2)} ${cy.toFixed(2)}" stroke="rgba(99,102,241,0.65)" stroke-width="3" stroke-linecap="round" marker-end="url(#${arrowId})" />
+                        <g>
+                            <title>${tipA}</title>
+                            <circle cx="${leftX}" cy="${cy}" r="9" fill="rgba(15,23,42,0.25)" stroke="${stroke}" stroke-width="2" />
+                            <text x="${leftX}" y="${(cy + 0.5).toFixed(2)}" text-anchor="middle" dominant-baseline="middle" font-size="9" font-weight="700" fill="${textColor}">${labelA}</text>
+                        </g>
+                        <g>
+                            <title>${tipB}</title>
+                            <circle cx="${rightX}" cy="${cy}" r="9" fill="rgba(15,23,42,0.25)" stroke="${stroke}" stroke-width="2" />
+                            <text x="${rightX}" y="${(cy + 0.5).toFixed(2)}" text-anchor="middle" dominant-baseline="middle" font-size="9" font-weight="700" fill="${textColor}">${labelB}</text>
+                        </g>
                     </svg>
                 `;
             }
 
             const points = [];
-            for (let i = 0; i < n; i++) {
-                const angle = (-Math.PI / 2) + (i * (2 * Math.PI / n));
-                const x = cx + r * Math.cos(angle);
-                const y = cy + r * Math.sin(angle);
-                points.push({ x, y, label: list[i] });
+            if (n === 3) {
+                // Triangle like the sketch: P1 top, P2 bottom-left, P3 bottom-right
+                points.push(
+                    { x: cx, y: pad, label: pointLabels[0], full: fullList[0] },
+                    { x: pad, y: s - pad, label: pointLabels[1], full: fullList[1] },
+                    { x: s - pad, y: s - pad, label: pointLabels[2], full: fullList[2] }
+                );
+            } else if (n === 4) {
+                // Square like the sketch: P1 TL, P2 TR, P3 BR, P4 BL
+                points.push(
+                    { x: pad, y: pad, label: pointLabels[0], full: fullList[0] },
+                    { x: s - pad, y: pad, label: pointLabels[1], full: fullList[1] },
+                    { x: s - pad, y: s - pad, label: pointLabels[2], full: fullList[2] },
+                    { x: pad, y: s - pad, label: pointLabels[3], full: fullList[3] }
+                );
+            } else {
+                // 5+ people: regular polygon
+                for (let i = 0; i < n; i++) {
+                    const angle = (-Math.PI / 2) + (i * (2 * Math.PI / n));
+                    const x = cx + r * Math.cos(angle);
+                    const y = cy + r * Math.sin(angle);
+                    points.push({ x, y, label: pointLabels[i], full: fullList[i] });
+                }
             }
 
             const pointsAttr = points.map(p => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
-            const labels = points.map(p => {
-                const dx = p.x < cx ? -6 : 6;
-                const dy = p.y < cy ? -6 : 10;
+
+            const nodes = points.map(p => {
+                const title = typeof escapeHtml === 'function' ? escapeHtml(p.full || '') : (p.full || '');
+                return `
+                    <g>
+                        <title>${title}</title>
+                        <circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="8" fill="rgba(15,23,42,0.25)" stroke="${stroke}" stroke-width="2" />
+                    </g>
+                `;
+            }).join('');
+
+            // Small outside labels for clarity in tiny icons
+            const outsideLabels = points.map(p => {
+                const dx = p.x < cx ? -7 : 7;
+                const dy = p.y < cy ? -7 : 13;
                 const anchor = p.x < cx ? 'end' : 'start';
-                return `<text x="${(p.x + dx).toFixed(2)}" y="${(p.y + dy).toFixed(2)}" text-anchor="${anchor}" font-size="9" fill="${textColor}">${p.label}</text>`;
+                return `<text x="${(p.x + dx).toFixed(2)}" y="${(p.y + dy).toFixed(2)}" text-anchor="${anchor}" font-size="9" fill="${textColor}" opacity="0.9">${shortName(p.full || '')}</text>`;
             }).join('');
 
             return `
                 <svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-label="Flow">
-                    <polygon points="${pointsAttr}" fill="${fill}" stroke="${stroke}" stroke-width="2" />
-                    ${labels}
+                    ${defs}
+                    <polygon points="${pointsAttr}" fill="url(#${gradId})" stroke="rgba(99,102,241,0.25)" stroke-width="2" filter="url(#${shadowId})" />
+                    ${nodes}
+                    ${outsideLabels}
                 </svg>
             `;
         }
@@ -30950,6 +31186,128 @@
                 if (!unique.some(u => isSameUserName(u, n))) unique.push(n);
             });
             return unique;
+        }
+
+        // Requests: Multi-select dropdown (reuses existing hidden <select multiple>)
+        function ensureMsdBindings() {
+            if (window.__msdBound) return;
+            window.__msdBound = true;
+
+            document.addEventListener('click', (e) => {
+                const open = document.querySelectorAll('.msd.open');
+                open.forEach(root => {
+                    if (!root.contains(e.target)) root.classList.remove('open');
+                });
+            });
+
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    document.querySelectorAll('.msd.open').forEach(root => root.classList.remove('open'));
+                }
+            });
+        }
+
+        function toggleMsd(selectId) {
+            ensureMsdBindings();
+            const root = document.getElementById(selectId + 'Msd');
+            const select = document.getElementById(selectId);
+            if (!root || !select) return;
+            if (select.disabled) return;
+            const willOpen = !root.classList.contains('open');
+            document.querySelectorAll('.msd.open').forEach(r => r.classList.remove('open'));
+            if (willOpen) {
+                root.classList.add('open');
+                const search = document.getElementById(selectId + 'MsdSearch');
+                if (search) {
+                    search.value = '';
+                    search.focus();
+                }
+                renderMsdOptions(selectId);
+            }
+        }
+
+        function filterMsd(selectId, query) {
+            window.__msdFilter = window.__msdFilter || {};
+            window.__msdFilter[selectId] = String(query || '');
+            renderMsdOptions(selectId);
+        }
+
+        function renderMsdOptions(selectId) {
+            ensureMsdBindings();
+            const select = document.getElementById(selectId);
+            const optionsEl = document.getElementById(selectId + 'MsdOptions');
+            const summaryEl = document.getElementById(selectId + 'MsdSummary');
+            const btn = document.getElementById(selectId + 'MsdBtn');
+            if (!select || !optionsEl || !summaryEl || !btn) return;
+
+            btn.disabled = !!select.disabled;
+
+            const filter = (window.__msdFilter && window.__msdFilter[selectId]) ? window.__msdFilter[selectId].toLowerCase() : '';
+            const opts = Array.from(select.options || []).filter(o => String(o.value || '').trim());
+
+            optionsEl.innerHTML = '';
+            const matched = opts.filter(o => !filter || String(o.text || o.value).toLowerCase().includes(filter));
+
+            matched.forEach(opt => {
+                const row = document.createElement('button');
+                row.type = 'button';
+                row.className = 'msd-option' + (opt.selected ? ' selected' : '');
+                row.disabled = !!select.disabled;
+
+                const hiddenCb = document.createElement('input');
+                hiddenCb.type = 'checkbox';
+                hiddenCb.checked = !!opt.selected;
+
+                const check = document.createElement('span');
+                check.className = 'msd-check';
+                check.innerHTML = opt.selected ? '<i class="fas fa-check"></i>' : '';
+
+                const label = document.createElement('span');
+                label.textContent = String(opt.text || opt.value);
+                label.style.flex = '1';
+                label.style.minWidth = '0';
+
+                row.appendChild(hiddenCb);
+                row.appendChild(check);
+                row.appendChild(label);
+
+                row.addEventListener('click', () => {
+                    if (select.disabled) return;
+                    opt.selected = !opt.selected;
+                    renderMsdOptions(selectId);
+                    updateMsdSummary(selectId);
+                    try { select.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+                });
+
+                optionsEl.appendChild(row);
+            });
+
+            if (!matched.length) {
+                const empty = document.createElement('div');
+                empty.style.color = 'var(--text-secondary)';
+                empty.style.fontSize = '0.85rem';
+                empty.style.padding = '0.6rem';
+                empty.textContent = 'No matches.';
+                optionsEl.appendChild(empty);
+            }
+
+            updateMsdSummary(selectId);
+        }
+
+        function updateMsdSummary(selectId) {
+            const select = document.getElementById(selectId);
+            const summaryEl = document.getElementById(selectId + 'MsdSummary');
+            if (!select || !summaryEl) return;
+            const selected = Array.from(select.selectedOptions || []).map(o => String(o.value || '').trim()).filter(Boolean);
+            if (!selected.length) {
+                summaryEl.textContent = 'None';
+                return;
+            }
+            if (selected.length <= 2) {
+                summaryEl.textContent = selected.join(', ');
+                return;
+            }
+            summaryEl.textContent = `${selected.length} selected`;
         }
 
         function populateRequestFormOptions(selected = {}) {
@@ -30969,6 +31327,9 @@
                 Array.from(assigneeSelect.options).forEach(opt => {
                     opt.selected = selectedNames.includes(opt.value);
                 });
+
+                // Refresh the dropdown checklist UI
+                try { renderMsdOptions('requestAssignedTo'); } catch (_) {}
             }
 
             if (roomSelect) {
@@ -31036,6 +31397,7 @@
             const requestedByInput = document.getElementById('requestRequestedBy');
             if (requestedByInput) requestedByInput.value = getCurrentUserDisplayName();
             populateRequestFormOptions();
+            try { renderMsdOptions('requestAssignedTo'); } catch (_) {}
             startRequestsNotificationsPolling();
 
             const updatesBtn = document.getElementById('openRequestsNotificationsBtn');
@@ -31057,6 +31419,14 @@
                     if (e.target === overlay) closeRequestModal();
                 });
                 overlay.dataset.bound = '1';
+            }
+
+            const fwdOverlay = document.getElementById('forwardPickerOverlay');
+            if (fwdOverlay && !fwdOverlay.dataset.bound) {
+                fwdOverlay.addEventListener('click', (e) => {
+                    if (e.target === fwdOverlay) closeForwardPicker();
+                });
+                fwdOverlay.dataset.bound = '1';
             }
         }
 
@@ -31512,6 +31882,9 @@
             }
 
             overlay.classList.add('active');
+
+            // Keep dropdown checklist in sync + reflect disabled state
+            try { renderMsdOptions('requestAssignedTo'); } catch (_) {}
         }
 
         function closeRequestModal() {
@@ -31811,6 +32184,191 @@
                 return;
             }
 
+            openForwardPicker(requestId, candidates);
+            return;
+
+            // (legacy prompt flow removed)
+
+
+        // Forward picker modal state
+        window.__forwardPickerState = window.__forwardPickerState || {
+            requestId: null,
+            candidates: [],
+            selected: ''
+        };
+
+        function openForwardPicker(requestId, candidates) {
+            const overlay = document.getElementById('forwardPickerOverlay');
+            const list = document.getElementById('forwardPickerList');
+            const search = document.getElementById('forwardPickerSearch');
+            const reqEl = document.getElementById('forwardPickerRequestId');
+            const confirmBtn = document.getElementById('forwardPickerConfirmBtn');
+            if (!overlay || !list || !search || !confirmBtn) return;
+
+            window.__forwardPickerState.requestId = requestId;
+            window.__forwardPickerState.candidates = Array.isArray(candidates) ? candidates.slice() : [];
+            window.__forwardPickerState.selected = '';
+            if (reqEl) reqEl.textContent = String(requestId || '');
+
+            search.value = '';
+            confirmBtn.disabled = true;
+            renderForwardPickerList();
+            overlay.classList.add('active');
+            setTimeout(() => search.focus(), 0);
+        }
+
+        function closeForwardPicker() {
+            const overlay = document.getElementById('forwardPickerOverlay');
+            if (overlay) overlay.classList.remove('active');
+        }
+
+        function renderForwardPickerList() {
+            const list = document.getElementById('forwardPickerList');
+            const empty = document.getElementById('forwardPickerEmpty');
+            const search = document.getElementById('forwardPickerSearch');
+            if (!list || !search) return;
+
+            const q = String(search.value || '').trim().toLowerCase();
+            const candidates = (window.__forwardPickerState?.candidates || []).filter(name => {
+                if (!q) return true;
+                return String(name || '').toLowerCase().includes(q);
+            });
+
+            list.innerHTML = '';
+
+            if (!candidates.length) {
+                if (empty) empty.style.display = 'block';
+                return;
+            }
+            if (empty) empty.style.display = 'none';
+
+            candidates.forEach(name => {
+                const item = document.createElement('div');
+                item.className = 'forward-picker-item' + (isSameUserName(window.__forwardPickerState.selected, name) ? ' selected' : '');
+                item.addEventListener('click', () => {
+                    window.__forwardPickerState.selected = name;
+                    const confirmBtn = document.getElementById('forwardPickerConfirmBtn');
+                    if (confirmBtn) confirmBtn.disabled = !window.__forwardPickerState.selected;
+                    renderForwardPickerList();
+                });
+
+                const left = document.createElement('div');
+                left.style.display = 'flex';
+                left.style.flexDirection = 'column';
+                left.style.gap = '0.1rem';
+
+                const title = document.createElement('div');
+                title.style.fontWeight = '800';
+                title.textContent = String(name || '');
+
+                const hint = document.createElement('div');
+                hint.style.color = 'var(--text-secondary)';
+                hint.style.fontSize = '0.82rem';
+                hint.textContent = 'Click to select';
+
+                left.appendChild(title);
+                left.appendChild(hint);
+
+                const check = document.createElement('span');
+                check.className = 'fp-check';
+                check.innerHTML = isSameUserName(window.__forwardPickerState.selected, name) ? '<i class="fas fa-check"></i>' : '';
+
+                item.appendChild(left);
+                item.appendChild(check);
+                list.appendChild(item);
+            });
+        }
+
+        async function confirmForwardPicker() {
+            const selected = String(window.__forwardPickerState?.selected || '').trim();
+            const requestId = window.__forwardPickerState?.requestId;
+            if (!selected || !requestId) {
+                if (typeof showNotification === 'function') showNotification('Select a person first.', 'warning');
+                return;
+            }
+            closeForwardPicker();
+            await forwardRequestTo(requestId, selected);
+        }
+
+        // Apply forward after picker selection
+        async function forwardRequestTo(requestId, toUser) {
+            const request = requestsData.find(r => String(r.id) === String(requestId));
+            if (!request) return;
+
+            const currentUser = getCurrentUserDisplayName();
+            const isSender = isSameUserName(request.requestedBy, currentUser);
+            const canForward = isSender || isAdminUser() || canCurrentUserChangeRequestStatus(request);
+            if (!canForward) {
+                if (typeof showNotification === 'function') showNotification('You do not have permission to forward this request.', 'warning');
+                return;
+            }
+
+            const existing = parseAssignees(request.assignedTo);
+            const cleanToUser = String(toUser || '').trim();
+            if (!cleanToUser) return;
+            if (existing.some(e => isSameUserName(e, cleanToUser))) {
+                if (typeof showNotification === 'function') showNotification(`${cleanToUser} is already included.`, 'warning');
+                return;
+            }
+
+            const updatedAssignees = [...existing, cleanToUser];
+            const updated = { ...request, assignedTo: formatAssignees(updatedAssignees) };
+
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+            if (canTryApi) {
+                try {
+                    const res = await fetch(`${API_BASE_URL}/requests/${requestId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(updated)
+                    });
+                    if (!res.ok) throw new Error('API request failed');
+                    requestsApiAvailable = true;
+                    updateRequestsApiStatus(true);
+                    await loadRequests({ force: true });
+                } catch (e) {
+                    requestsApiAvailable = false;
+                    updateRequestsApiStatus(false);
+                    upsertRequestLocal(updated);
+                    if (typeof showNotification === 'function') showNotification('API unavailable — forward saved locally.', 'warning');
+                }
+            } else {
+                requestsApiAvailable = false;
+                updateRequestsApiStatus(false);
+                upsertRequestLocal(updated);
+            }
+
+            const action = isSender ? 'added' : 'forwarded';
+            const note = isSender ? 'Sender added additional receiver' : 'Receiver forwarded to another person';
+            const numericId = /^\d+$/.test(String(requestId)) ? parseInt(String(requestId), 10) : null;
+            if (numericId !== null) {
+                postRequestRoutingEvent({ requestId: numericId, fromUser: currentUser, toUser: cleanToUser, action, note });
+            }
+
+            const msg = `Request ${request.id} forwarded to you: ${request.title}`;
+            addRequestUserNotification({ requestId: request.id, toUser: cleanToUser, fromUser: currentUser, type: 'forward', message: msg });
+            postRequestNotification({ requestId: request.id, toUser: cleanToUser, fromUser: currentUser, type: 'forward', message: msg });
+
+            try {
+                if (!isSender && request.requestedBy && !isSameUserName(request.requestedBy, currentUser)) {
+                    const senderMsg = `Request ${request.id} was forwarded to ${cleanToUser} by ${currentUser}`;
+                    addRequestUserNotification({ requestId: request.id, toUser: request.requestedBy, fromUser: currentUser, type: 'forward', message: senderMsg });
+                    postRequestNotification({ requestId: request.id, toUser: request.requestedBy, fromUser: currentUser, type: 'forward', message: senderMsg });
+                }
+            } catch (_) {}
+
+            if (typeof showNotification === 'function') showNotification(`Forwarded to ${cleanToUser}`, 'success');
+            updateRequestsNavBadge();
+            refreshRequestsNotificationsBadge();
+            renderRequestsTable();
+        }
+
+        window.toggleMsd = toggleMsd;
+        window.filterMsd = filterMsd;
+        window.openForwardPicker = openForwardPicker;
+        window.closeForwardPicker = closeForwardPicker;
+        window.renderForwardPickerList = renderForwardPickerList;
+        window.confirmForwardPicker = confirmForwardPicker;
             const pick = prompt(
                 'Forward to (type exact name):\n' +
                 candidates.slice(0, 25).join('\n') +
@@ -51072,10 +51630,20 @@ document.addEventListener('keydown', function(e) {
                 </div>
                 <div class="request-form-field">
                     <label for="requestAssignedTo">Assigned To</label>
-                    <select id="requestAssignedTo" multiple size="5" title="Hold Ctrl (Windows) to select multiple">
+                    <div class="msd" id="requestAssignedToMsd">
+                        <button type="button" class="msd-btn" id="requestAssignedToMsdBtn" onclick="toggleMsd('requestAssignedTo')">
+                            <span style="font-weight:600;">Select assignees</span>
+                            <span class="msd-btn-summary" id="requestAssignedToMsdSummary">None</span>
+                            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+                        </button>
+                        <div class="msd-panel" id="requestAssignedToMsdPanel">
+                            <input type="text" class="msd-search" id="requestAssignedToMsdSearch" placeholder="Search..." oninput="filterMsd('requestAssignedTo', this.value)">
+                            <div class="msd-options" id="requestAssignedToMsdOptions"></div>
+                        </div>
+                    </div>
+                    <select id="requestAssignedTo" multiple size="5" style="display:none;">
                         <option value="">Select responsible person</option>
                     </select>
-                    <div style="margin-top: 0.35rem; color: var(--text-secondary); font-size: 0.8rem;">Hold Ctrl to select multiple.</div>
                 </div>
                 <div class="request-form-field">
                     <label for="requestNeededBy">Needed By</label>
@@ -51138,6 +51706,26 @@ document.addEventListener('keydown', function(e) {
         </div>
         <div id="requestsNotificationsList" style="display:flex; flex-direction:column; gap: 0.5rem;"></div>
         <div id="requestsNotificationsEmpty" style="display:none; padding: 1.25rem; text-align:center; color: var(--text-secondary);">No updates yet.</div>
+    </div>
+</div>
+
+<!-- Forward Picker Modal (Requests) -->
+<div class="request-modal-overlay" id="forwardPickerOverlay">
+    <div class="request-modal" style="max-width: 560px;">
+        <div class="request-modal-header">
+            <h3>Forward Request <span id="forwardPickerRequestId" style="color: var(--text-secondary); font-weight: 700;"></span></h3>
+            <button class="request-modal-close" onclick="closeForwardPicker()"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="request-form-field">
+            <label for="forwardPickerSearch">Select Person</label>
+            <input id="forwardPickerSearch" type="text" placeholder="Type to search..." oninput="renderForwardPickerList()">
+        </div>
+        <div class="forward-picker-list" id="forwardPickerList"></div>
+        <div id="forwardPickerEmpty" style="display:none; color: var(--text-secondary); padding: 0.75rem 0; text-align:center;">No matches.</div>
+        <div class="request-modal-actions">
+            <button type="button" class="btn-secondary" onclick="closeForwardPicker()">Cancel</button>
+            <button type="button" class="btn-primary" id="forwardPickerConfirmBtn" onclick="confirmForwardPicker()" disabled>Forward</button>
+        </div>
     </div>
 </div>
 
