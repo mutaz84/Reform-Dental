@@ -12571,6 +12571,7 @@
                     <a href="#" class="nav-item" onclick="switchContentView('requests', event)">
                         <i class="fas fa-paper-plane"></i>
                         <span>Requests</span>
+                        <span class="nav-badge" id="requestsNavBadge">0</span>
                     </a>
                     <a href="#" class="nav-item" onclick="switchContentView('projects', event)">
                         <i class="fas fa-project-diagram"></i>
@@ -15314,6 +15315,11 @@
                 if (typeof initChatNotifications === 'function') {
                     initChatNotifications();
                     updateOnlineStatus(true);
+                }
+
+                // Keep Requests nav badge updated even when not in the Requests view
+                if (typeof startRequestsBadgePolling === 'function') {
+                    startRequestsBadgePolling();
                 }
             } else {
                 // User is not logged in, show login screen
@@ -30667,6 +30673,59 @@
             };
         }
 
+        function updateRequestsNavBadge(list = requestsData) {
+            const badge = document.getElementById('requestsNavBadge');
+            if (!badge) return;
+
+            const currentUser = getCurrentUserDisplayName().trim().toLowerCase();
+            const inactiveStatuses = new Set(['closed', 'denied']);
+
+            const count = (Array.isArray(list) ? list : []).filter(r => {
+                const assignedTo = String(r.assignedTo || '').trim().toLowerCase();
+                const status = String(r.status || '').trim().toLowerCase();
+                if (!assignedTo) return false;
+                if (assignedTo !== currentUser) return false;
+                if (inactiveStatuses.has(status)) return false;
+                return true;
+            }).length;
+
+            badge.textContent = String(count);
+        }
+
+        function startRequestsBadgePolling() {
+            if (window.__requestsBadgePollStarted) return;
+            window.__requestsBadgePollStarted = true;
+
+            const tick = async () => {
+                const loggedInUser = localStorage.getItem('loggedInUser');
+                if (!loggedInUser) {
+                    updateRequestsNavBadge([]);
+                    return;
+                }
+
+                try {
+                    const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+                    if (!canTryApi) {
+                        updateRequestsNavBadge();
+                        return;
+                    }
+
+                    const res = await fetch(`${API_BASE_URL}/requests`, { cache: 'no-store' });
+                    if (!res.ok) throw new Error('API request failed');
+                    const data = await res.json();
+                    const normalized = (Array.isArray(data) ? data : []).map(normalizeRequest);
+                    updateRequestsNavBadge(normalized);
+                } catch (_) {
+                    updateRequestsNavBadge();
+                }
+            };
+
+            tick();
+            setInterval(tick, 60 * 1000);
+        }
+
+        window.startRequestsBadgePolling = startRequestsBadgePolling;
+
         function loadRequestsFromLocal() {
             try {
                 const raw = localStorage.getItem(getRequestStorageKey());
@@ -30831,6 +30890,7 @@
             }
 
             requestsInitialized = true;
+            updateRequestsNavBadge();
             renderRequestsTable();
             renderRequestHub();
         }
@@ -30895,6 +30955,8 @@
             if (assignedCount) assignedCount.textContent = assigned.length;
             if (createdCount) createdCount.textContent = created.length;
             if (notificationsCount) notificationsCount.textContent = notifications.length;
+
+            updateRequestsNavBadge(requestsData);
 
             const assignedList = document.getElementById('requestsHubAssignedList');
             const createdList = document.getElementById('requestsHubCreatedList');
@@ -31130,6 +31192,8 @@
                 upsertRequestLocal(newRequest);
             }
 
+            updateRequestsNavBadge();
+
             if (newRequest.assignedTo && (!existingRequest || existingRequest.assignedTo !== newRequest.assignedTo)) {
                 addRequestNotification(newRequest, 'assigned');
                 if (typeof showNotification === 'function') {
@@ -31182,6 +31246,8 @@
                 updateRequestsApiStatus(false);
                 upsertRequestLocal(updated);
             }
+
+            updateRequestsNavBadge();
 
             renderRequestsTable();
         }
