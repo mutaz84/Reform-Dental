@@ -324,6 +324,8 @@ BEGIN
         AssignedTo NVARCHAR(MAX),
         NeededBy DATE,
         Location NVARCHAR(255),
+        Equipment NVARCHAR(255),
+        Vendor NVARCHAR(255),
         Description NVARCHAR(MAX),
         RequestedAt DATETIME2 DEFAULT SYSDATETIME(),
         UpdatedAt DATETIME2 DEFAULT SYSDATETIME()

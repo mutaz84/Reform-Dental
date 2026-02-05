@@ -36,6 +36,8 @@ function mapRow(row) {
         assignedTo: row.assignedTo,
         neededBy: row.neededBy,
         location: row.location,
+        equipment: row.equipment,
+        vendor: row.vendor,
         description: row.description,
         requestedAt: row.requestedAt,
         updatedAt: row.updatedAt
@@ -78,6 +80,8 @@ module.exports = async function (context, req) {
                           AssignedTo AS assignedTo,
                           NeededBy AS neededBy,
                           Location AS location,
+                                                    Equipment AS equipment,
+                                                    Vendor AS vendor,
                           Description AS description,
                           RequestedAt AS requestedAt,
                           UpdatedAt AS updatedAt
@@ -104,6 +108,8 @@ module.exports = async function (context, req) {
                   AssignedTo AS assignedTo,
                   NeededBy AS neededBy,
                   Location AS location,
+                                    Equipment AS equipment,
+                                    Vendor AS vendor,
                   Description AS description,
                   RequestedAt AS requestedAt,
                   UpdatedAt AS updatedAt
@@ -132,15 +138,17 @@ module.exports = async function (context, req) {
                 .input('assignedTo', sql.NVarChar, body.assignedTo || null)
                 .input('neededBy', sql.Date, neededBy)
                 .input('location', sql.NVarChar, body.location || null)
+                                .input('equipment', sql.NVarChar, body.equipment || null)
+                                .input('vendor', sql.NVarChar, body.vendor || null)
                 .input('description', sql.NVarChar, (body.description || '').trim())
                 .input('requestedAt', sql.DateTime2, now)
                 .input('updatedAt', sql.DateTime2, now)
                 .query(`
                     INSERT INTO Requests
-                      (Title, Type, Priority, Status, RequestedBy, AssignedTo, NeededBy, Location, Description, RequestedAt, UpdatedAt)
+                                            (Title, Type, Priority, Status, RequestedBy, AssignedTo, NeededBy, Location, Equipment, Vendor, Description, RequestedAt, UpdatedAt)
                     OUTPUT INSERTED.Id
                     VALUES
-                      (@title, @type, @priority, @status, @requestedBy, @assignedTo, @neededBy, @location, @description, @requestedAt, @updatedAt)
+                                            (@title, @type, @priority, @status, @requestedBy, @assignedTo, @neededBy, @location, @equipment, @vendor, @description, @requestedAt, @updatedAt)
                 `);
 
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
@@ -169,6 +177,8 @@ module.exports = async function (context, req) {
                 .input('assignedTo', sql.NVarChar, body.assignedTo || null)
                 .input('neededBy', sql.Date, neededBy)
                 .input('location', sql.NVarChar, body.location || null)
+                                .input('equipment', sql.NVarChar, body.equipment || null)
+                                .input('vendor', sql.NVarChar, body.vendor || null)
                 .input('description', sql.NVarChar, (body.description || '').trim())
                 .query(`
                     UPDATE Requests
@@ -181,6 +191,8 @@ module.exports = async function (context, req) {
                       AssignedTo=@assignedTo,
                       NeededBy=@neededBy,
                       Location=@location,
+                                            Equipment=@equipment,
+                                            Vendor=@vendor,
                       Description=@description,
                       UpdatedAt=SYSDATETIME()
                     WHERE Id=@id
