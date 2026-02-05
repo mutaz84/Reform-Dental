@@ -31050,14 +31050,22 @@
             const r = Math.max(16, (s / 2) - pad);
             const stroke = 'var(--accent-primary)';
             const textColor = 'var(--text-primary)';
-            const pointLabels = fullList.map((_, i) => `P${i + 1}`);
-            const nameLabels = fullList.map(nm => shortName(nm));
+            const useFullNames = s >= 180;
+            const labelFor = (full) => {
+                const v = String(full || '').trim();
+                if (!v) return '';
+                return useFullNames ? v : shortName(v);
+            };
+            const nameLabels = fullList.map(nm => labelFor(nm));
+            const pointSize = Math.max(4, Math.round(s * 0.05));
+            const pointRx = Math.min(3, Math.max(1, Math.round(pointSize * 0.25)));
+            const labelFont = Math.max(9, Math.round(s * 0.06));
+            const labelOffset = Math.max(10, Math.round(s * 0.09));
 
             window.__flowSvgUid = (window.__flowSvgUid || 0) + 1;
             const uid = window.__flowSvgUid;
             const gradId = `flowGrad-${uid}`;
             const shadowId = `flowShadow-${uid}`;
-            const arrowId = `flowArrow-${uid}`;
 
             const defs = `
                 <defs>
@@ -31068,9 +31076,6 @@
                     <filter id="${shadowId}" x="-30%" y="-30%" width="160%" height="160%">
                         <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.25)"/>
                     </filter>
-                    <marker id="${arrowId}" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
-                        <path d="M0,0 L9,3 L0,6 Z" fill="rgba(99,102,241,0.95)" />
-                    </marker>
                 </defs>
             `;
 
@@ -31083,7 +31088,7 @@
                         <g>
                             <title>${typeof escapeHtml === 'function' ? escapeHtml(full) : full}</title>
                             <circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#${gradId})" stroke="${stroke}" stroke-width="2" filter="url(#${shadowId})" />
-                            <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="700" fill="${textColor}">${label}</text>
+                            <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" font-size="${Math.max(11, Math.round(s * 0.09))}" font-weight="800" fill="${textColor}">${label}</text>
                         </g>
                     </svg>
                 `;
@@ -31106,16 +31111,15 @@
                     <svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-label="Flow">
                         ${defs}
                         <rect x="${leftX}" y="${y.toFixed(2)}" width="${w}" height="${h}" rx="${rx}" fill="url(#${gradId})" stroke="rgba(99,102,241,0.25)" stroke-width="2" filter="url(#${shadowId})" />
-                        <path d="M ${(leftX + 10).toFixed(2)} ${cy.toFixed(2)} L ${(rightX - 10).toFixed(2)} ${cy.toFixed(2)}" stroke="rgba(99,102,241,0.65)" stroke-width="3" stroke-linecap="round" marker-end="url(#${arrowId})" />
                         <g>
                             <title>${tipA}</title>
-                            <circle cx="${leftX}" cy="${cy}" r="9" fill="rgba(15,23,42,0.25)" stroke="${stroke}" stroke-width="2" />
-                            <text x="${leftX}" y="${(cy + 0.5).toFixed(2)}" text-anchor="middle" dominant-baseline="middle" font-size="9" font-weight="700" fill="${textColor}">${labelA}</text>
+                            <rect x="${(leftX - (pointSize / 2)).toFixed(2)}" y="${(cy - (pointSize / 2)).toFixed(2)}" width="${pointSize}" height="${pointSize}" rx="${pointRx}" fill="rgba(15,23,42,0.35)" stroke="${stroke}" stroke-width="1" />
+                            <text x="${leftX}" y="${(y - 6).toFixed(2)}" text-anchor="start" dominant-baseline="alphabetic" font-size="${labelFont}" font-weight="800" fill="${textColor}" stroke="rgba(0,0,0,0.35)" stroke-width="3" paint-order="stroke">${labelA}</text>
                         </g>
                         <g>
                             <title>${tipB}</title>
-                            <circle cx="${rightX}" cy="${cy}" r="9" fill="rgba(15,23,42,0.25)" stroke="${stroke}" stroke-width="2" />
-                            <text x="${rightX}" y="${(cy + 0.5).toFixed(2)}" text-anchor="middle" dominant-baseline="middle" font-size="9" font-weight="700" fill="${textColor}">${labelB}</text>
+                            <rect x="${(rightX - (pointSize / 2)).toFixed(2)}" y="${(cy - (pointSize / 2)).toFixed(2)}" width="${pointSize}" height="${pointSize}" rx="${pointRx}" fill="rgba(15,23,42,0.35)" stroke="${stroke}" stroke-width="1" />
+                            <text x="${rightX}" y="${(s - y + 6).toFixed(2)}" text-anchor="end" dominant-baseline="alphabetic" font-size="${labelFont}" font-weight="800" fill="${textColor}" stroke="rgba(0,0,0,0.35)" stroke-width="3" paint-order="stroke">${labelB}</text>
                         </g>
                     </svg>
                 `;
@@ -31125,17 +31129,17 @@
             if (n === 3) {
                 // Triangle like the sketch: P1 top, P2 bottom-left, P3 bottom-right
                 points.push(
-                    { x: cx, y: pad, label: pointLabels[0], full: fullList[0] },
-                    { x: pad, y: s - pad, label: pointLabels[1], full: fullList[1] },
-                    { x: s - pad, y: s - pad, label: pointLabels[2], full: fullList[2] }
+                    { x: cx, y: pad, full: fullList[0] },
+                    { x: pad, y: s - pad, full: fullList[1] },
+                    { x: s - pad, y: s - pad, full: fullList[2] }
                 );
             } else if (n === 4) {
                 // Square like the sketch: P1 TL, P2 TR, P3 BR, P4 BL
                 points.push(
-                    { x: pad, y: pad, label: pointLabels[0], full: fullList[0] },
-                    { x: s - pad, y: pad, label: pointLabels[1], full: fullList[1] },
-                    { x: s - pad, y: s - pad, label: pointLabels[2], full: fullList[2] },
-                    { x: pad, y: s - pad, label: pointLabels[3], full: fullList[3] }
+                    { x: pad, y: pad, full: fullList[0] },
+                    { x: s - pad, y: pad, full: fullList[1] },
+                    { x: s - pad, y: s - pad, full: fullList[2] },
+                    { x: pad, y: s - pad, full: fullList[3] }
                 );
             } else {
                 // 5+ people: regular polygon
@@ -31143,36 +31147,40 @@
                     const angle = (-Math.PI / 2) + (i * (2 * Math.PI / n));
                     const x = cx + r * Math.cos(angle);
                     const y = cy + r * Math.sin(angle);
-                    points.push({ x, y, label: pointLabels[i], full: fullList[i] });
+                    points.push({ x, y, full: fullList[i] });
                 }
             }
 
             const pointsAttr = points.map(p => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
 
-            const nodes = points.map(p => {
+            const pointMarks = points.map(p => {
                 const title = typeof escapeHtml === 'function' ? escapeHtml(p.full || '') : (p.full || '');
                 return `
                     <g>
                         <title>${title}</title>
-                        <circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="8" fill="rgba(15,23,42,0.25)" stroke="${stroke}" stroke-width="2" />
+                        <rect x="${(p.x - (pointSize / 2)).toFixed(2)}" y="${(p.y - (pointSize / 2)).toFixed(2)}" width="${pointSize}" height="${pointSize}" rx="${pointRx}" fill="rgba(15,23,42,0.35)" stroke="${stroke}" stroke-width="1" />
                     </g>
                 `;
             }).join('');
 
-            // Small outside labels for clarity in tiny icons
-            const outsideLabels = points.map(p => {
-                const dx = p.x < cx ? -7 : 7;
-                const dy = p.y < cy ? -7 : 13;
-                const anchor = p.x < cx ? 'end' : 'start';
-                return `<text x="${(p.x + dx).toFixed(2)}" y="${(p.y + dy).toFixed(2)}" text-anchor="${anchor}" font-size="9" fill="${textColor}" opacity="0.9">${shortName(p.full || '')}</text>`;
+            const labels = points.map(p => {
+                const vx = p.x - cx;
+                const vy = p.y - cy;
+                const len = Math.max(1, Math.hypot(vx, vy));
+                const ux = vx / len;
+                const uy = vy / len;
+                const tx = p.x + (ux * labelOffset);
+                const ty = p.y + (uy * labelOffset);
+                const anchor = tx < cx ? 'end' : (tx > cx ? 'start' : 'middle');
+                return `<text x="${tx.toFixed(2)}" y="${ty.toFixed(2)}" text-anchor="${anchor}" dominant-baseline="middle" font-size="${labelFont}" font-weight="800" fill="${textColor}" stroke="rgba(0,0,0,0.35)" stroke-width="3" paint-order="stroke">${labelFor(p.full || '')}</text>`;
             }).join('');
 
             return `
                 <svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-label="Flow">
                     ${defs}
                     <polygon points="${pointsAttr}" fill="url(#${gradId})" stroke="rgba(99,102,241,0.25)" stroke-width="2" filter="url(#${shadowId})" />
-                    ${nodes}
-                    ${outsideLabels}
+                    ${pointMarks}
+                    ${labels}
                 </svg>
             `;
         }
@@ -31825,7 +31833,7 @@
                         const idNum = /^\d+$/.test(String(req.id)) ? parseInt(String(req.id), 10) : null;
                         const log = idNum !== null ? await fetchRequestRoutingLog(idNum) : [];
                         const flowNames = getRequestFlowNames(req, log);
-                        viz.innerHTML = renderFlowSvg(flowNames.length ? flowNames : parseAssignees(req.assignedTo), 140);
+                        viz.innerHTML = renderFlowSvg(flowNames.length ? flowNames : parseAssignees(req.assignedTo), 240);
 
                         if (!log.length) {
                             list.innerHTML = '';
@@ -51675,7 +51683,7 @@ document.addEventListener('keydown', function(e) {
                 <div class="request-form-field" style="grid-column: 1 / -1;">
                     <label>Process</label>
                     <div style="display:flex; gap: 1rem; align-items:flex-start; flex-wrap: wrap;">
-                        <div id="requestFlowViz" style="width: 140px; height: 140px; border: 1px solid var(--border-color); background: var(--bg-secondary); border-radius: 12px; display:flex; align-items:center; justify-content:center;"></div>
+                        <div id="requestFlowViz" style="width: 240px; height: 240px; border: none; background: transparent; border-radius: 12px; display:flex; align-items:center; justify-content:center;"></div>
                         <div style="flex: 1; min-width: 260px;">
                             <div style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 0.35rem;">Forwarding/assignment history</div>
                             <div id="requestRoutingLogList" style="display:flex; flex-direction:column; gap: 0.35rem;"></div>
