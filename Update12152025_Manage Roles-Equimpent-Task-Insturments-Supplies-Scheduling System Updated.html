@@ -31788,14 +31788,27 @@
             }
 
             if (equipmentSelect) {
-                const equipment = (typeof loadEquipment === 'function' ? loadEquipment() : []) || [];
-                const equipmentNames = [...new Set(equipment.map(item => item.equipmentName || item.name || item.Name).filter(Boolean))].sort();
                 const selectedEquipment = selected.equipment || '';
-                const options = [...equipmentNames];
-                if (selectedEquipment && !options.includes(selectedEquipment)) options.unshift(selectedEquipment);
-                equipmentSelect.innerHTML = '<option value="">Select equipment</option>' +
-                    options.map(name => `<option value="${name}">${name}</option>`).join('');
-                if (selectedEquipment) equipmentSelect.value = selectedEquipment;
+
+                const fillEquipmentOptions = () => {
+                    const equipment = (typeof loadEquipment === 'function' ? loadEquipment() : []) || [];
+                    const equipmentNames = [...new Set(equipment.map(item => item.equipmentName || item.name || item.Name).filter(Boolean))].sort();
+                    const options = [...equipmentNames];
+                    if (selectedEquipment && !options.includes(selectedEquipment)) options.unshift(selectedEquipment);
+                    equipmentSelect.innerHTML = '<option value="">Select equipment</option>' +
+                        options.map(name => `<option value="${name}">${name}</option>`).join('');
+                    if (selectedEquipment) equipmentSelect.value = selectedEquipment;
+                    return equipmentNames.length;
+                };
+
+                const hasAny = fillEquipmentOptions() > 0;
+                const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+                if (!hasAny && canTryApi && typeof syncEquipmentFromAPI === 'function') {
+                    Promise.resolve()
+                        .then(() => syncEquipmentFromAPI())
+                        .then(() => { fillEquipmentOptions(); })
+                        .catch(() => {});
+                }
             }
 
             if (vendorSelect) {
