@@ -10115,6 +10115,7 @@
 
 .request-pill.status-new { background: #e0f2fe; color: #0369a1; border-color: #bae6fd; }
 .request-pill.status-review { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+.request-pill.status-in-review { background: #fef3c7; color: #92400e; border-color: #fde68a; }
 .request-pill.status-approved { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
 .request-pill.status-denied { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
 .request-pill.status-closed { background: #e5e7eb; color: #374151; border-color: #d1d5db; }
@@ -10272,6 +10273,181 @@
 .request-form-field textarea {
     min-height: 110px;
     resize: vertical;
+}
+
+/* Requests: Process visualization */
+.request-process-wrap {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+}
+
+.request-process-viz {
+    width: 100%;
+    min-height: 340px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    border-radius: 14px;
+    padding: 0.9rem;
+}
+
+.request-process-card {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 1rem;
+    align-items: start;
+}
+
+.request-process-chart {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+}
+
+.request-process-chart-sub {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.request-process-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    min-width: 0;
+}
+
+.request-process-title {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.request-process-title h4 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 900;
+    color: var(--text-primary);
+}
+
+.request-process-badges {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.request-process-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.5rem;
+}
+
+.request-metric {
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    border-radius: 12px;
+    padding: 0.6rem 0.7rem;
+    min-width: 0;
+}
+
+.request-metric .k {
+    font-size: 0.7rem;
+    font-weight: 800;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.request-metric .v {
+    margin-top: 0.2rem;
+    font-size: 0.9rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.request-process-steps {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.proc-chip {
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-radius: 999px;
+    padding: 0.25rem 0.55rem;
+    font-size: 0.78rem;
+    font-weight: 800;
+    max-width: 100%;
+}
+
+.proc-chip.active {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.18);
+}
+
+.request-process-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+    margin-top: 0.4rem;
+}
+
+.request-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.request-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(0,0,0,0.15);
+}
+
+.request-process-history {
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    border-radius: 14px;
+    padding: 0.8rem 0.9rem;
+}
+
+.request-process-history-title {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-bottom: 0.45rem;
+    font-weight: 800;
+}
+
+#requestRoutingLogList {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+#requestRoutingLogEmpty {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    padding: 0.5rem 0;
+}
+
+@media (max-width: 860px) {
+    .request-process-card { grid-template-columns: 1fr; }
 }
 
 /* Requests: dropdown checklist (multi-select) */
@@ -31185,6 +31361,148 @@
             `;
         }
 
+        function getRequestStatusKey(status) {
+            return String(status || '').toLowerCase().replace(/\s+/g, '-');
+        }
+
+        function getRequestStatusMeta(status) {
+            const key = getRequestStatusKey(status);
+            const map = {
+                'new': { color: '#0ea5e9', percent: 10 },
+                'in-review': { color: '#f59e0b', percent: 45 },
+                'approved': { color: '#22c55e', percent: 85 },
+                'denied': { color: '#ef4444', percent: 100 },
+                'closed': { color: '#6b7280', percent: 100 }
+            };
+            return map[key] || { color: '#6366f1', percent: null };
+        }
+
+        function renderDonutProgressSvg(percent, size, color, labelTop = '', labelBottom = '') {
+            const s = Math.max(140, Number(size) || 200);
+            const p = Math.max(0, Math.min(100, Number(percent) || 0));
+            const cx = s / 2;
+            const cy = s / 2;
+            const strokeW = Math.max(10, Math.round(s * 0.08));
+            const r = (s / 2) - strokeW - 6;
+            const c = 2 * Math.PI * r;
+            const dash = (p / 100) * c;
+
+            window.__flowSvgUid = (window.__flowSvgUid || 0) + 1;
+            const uid = window.__flowSvgUid;
+            const gId = `donutGrad-${uid}`;
+            const shId = `donutShadow-${uid}`;
+
+            const safeTop = typeof escapeHtml === 'function' ? escapeHtml(labelTop) : String(labelTop || '');
+            const safeBottom = typeof escapeHtml === 'function' ? escapeHtml(labelBottom) : String(labelBottom || '');
+
+            return `
+                <svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-label="Progress">
+                    <defs>
+                        <linearGradient id="${gId}" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0" stop-color="${color}" stop-opacity="0.95" />
+                            <stop offset="1" stop-color="${color}" stop-opacity="0.55" />
+                        </linearGradient>
+                        <filter id="${shId}" x="-30%" y="-30%" width="160%" height="160%">
+                            <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.22)"/>
+                        </filter>
+                    </defs>
+                    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(148,163,184,0.35)" stroke-width="${strokeW}" />
+                    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="url(#${gId})" stroke-width="${strokeW}" stroke-linecap="round"
+                        stroke-dasharray="${dash.toFixed(2)} ${c.toFixed(2)}" transform="rotate(-90 ${cx} ${cy})" filter="url(#${shId})" />
+                    <text x="${cx}" y="${(cy - 10).toFixed(2)}" text-anchor="middle" font-size="${Math.max(14, Math.round(s * 0.12))}" font-weight="900" fill="var(--text-primary)">${Math.round(p)}%</text>
+                    <text x="${cx}" y="${(cy + 12).toFixed(2)}" text-anchor="middle" font-size="${Math.max(10, Math.round(s * 0.06))}" font-weight="800" fill="var(--text-secondary)">${safeTop}</text>
+                    <text x="${cx}" y="${(cy + 30).toFixed(2)}" text-anchor="middle" font-size="${Math.max(10, Math.round(s * 0.055))}" font-weight="800" fill="var(--text-secondary)">${safeBottom}</text>
+                </svg>
+            `;
+        }
+
+        function renderRequestProcessViz(req, routingLog = []) {
+            const safe = (v) => (typeof escapeHtml === 'function' ? escapeHtml(String(v ?? '')) : String(v ?? ''));
+            const status = req?.status || 'New';
+            const statusKey = getRequestStatusKey(status);
+            const meta = getRequestStatusMeta(status);
+
+            // Build a unique "process chain": creator + assignees + routed users
+            const chain = [];
+            const creator = String(req?.requestedBy || '').trim();
+            if (creator) chain.push(creator);
+
+            const flowNames = getRequestFlowNames(req, routingLog);
+            flowNames.forEach(n => {
+                if (!chain.some(x => isSameUserName(x, n))) chain.push(n);
+            });
+
+            // Determine current owner/standing
+            const lastTo = (routingLog || []).slice().reverse().find(e => e?.toUser)?.toUser;
+            const firstAssignee = parseAssignees(req?.assignedTo)[0] || '';
+            const currentOwner = String(lastTo || firstAssignee || creator || '').trim();
+
+            const totalSteps = Math.max(1, chain.length || 1);
+            let currentStep = 1;
+            if (currentOwner) {
+                const idx = chain.findIndex(n => isSameUserName(n, currentOwner));
+                if (idx >= 0) currentStep = idx + 1;
+            }
+
+            let stepPercent = Math.round((currentStep / totalSteps) * 100);
+            if (['closed', 'denied'].includes(statusKey)) stepPercent = 100;
+            const progressPercent = (meta.percent != null && ['closed', 'denied'].includes(statusKey)) ? meta.percent : stepPercent;
+
+            const donut = renderDonutProgressSvg(
+                progressPercent,
+                220,
+                meta.color,
+                `Step ${currentStep}/${totalSteps}`,
+                String(status)
+            );
+
+            const chips = chain.map((nm, idx) => {
+                const isActive = currentOwner && isSameUserName(nm, currentOwner);
+                const prefix = idx === 0 ? 'Created by: ' : '';
+                return `<span class="proc-chip${isActive ? ' active' : ''}" title="${safe(nm)}">${safe(prefix + shortName(nm))}</span>`;
+            }).join('');
+
+            const legend = (REQUEST_STATUSES || []).map(st => {
+                const m = getRequestStatusMeta(st);
+                return `<span class="request-legend-item"><span class="request-legend-dot" style="background:${m.color}"></span>${safe(st)}</span>`;
+            }).join('');
+
+            return `
+                <div class="request-process-card">
+                    <div class="request-process-chart">
+                        ${donut}
+                        <div class="request-process-chart-sub">Progress</div>
+                    </div>
+                    <div class="request-process-info">
+                        <div class="request-process-title">
+                            <h4>Process #${safe(req?.id || '')}</h4>
+                            <div class="request-process-badges">
+                                <span class="request-pill status-${safe(statusKey)}">${safe(status)}</span>
+                                <span class="request-pill priority-${safe(String(req?.priority || 'Medium').toLowerCase())}">${safe(req?.priority || 'Medium')}</span>
+                            </div>
+                        </div>
+
+                        <div class="request-process-metrics">
+                            <div class="request-metric"><div class="k">Creator</div><div class="v" title="${safe(creator)}">${safe(creator || '—')}</div></div>
+                            <div class="request-metric"><div class="k">Created</div><div class="v">${safe(formatRequestDate(req?.requestedAt))}</div></div>
+                            <div class="request-metric"><div class="k">Current Standing</div><div class="v" title="${safe(currentOwner)}">${safe(currentOwner || '—')}</div></div>
+                            <div class="request-metric"><div class="k">Assigned To</div><div class="v" title="${safe(req?.assignedTo || '')}">${safe(req?.assignedTo || '—')}</div></div>
+                        </div>
+
+                        <div>
+                            <div style="font-size:0.75rem; font-weight:800; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.03em; margin-bottom:0.35rem;">Process Chain</div>
+                            <div class="request-process-steps">${chips || ''}</div>
+                        </div>
+
+                        <div>
+                            <div style="font-size:0.75rem; font-weight:800; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.03em; margin-bottom:0.35rem;">Legend</div>
+                            <div class="request-process-legend">${legend || ''}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
         function getRequestFlowNames(req, routingLog = []) {
             const assignees = parseAssignees(req?.assignedTo);
             const routed = (routingLog || []).map(e => e?.toUser).filter(Boolean);
@@ -31832,8 +32150,7 @@
 
                         const idNum = /^\d+$/.test(String(req.id)) ? parseInt(String(req.id), 10) : null;
                         const log = idNum !== null ? await fetchRequestRoutingLog(idNum) : [];
-                        const flowNames = getRequestFlowNames(req, log);
-                        viz.innerHTML = renderFlowSvg(flowNames.length ? flowNames : parseAssignees(req.assignedTo), 240);
+                        viz.innerHTML = renderRequestProcessViz(req, log);
 
                         if (!log.length) {
                             list.innerHTML = '';
@@ -51682,12 +51999,12 @@ document.addEventListener('keydown', function(e) {
 
                 <div class="request-form-field" style="grid-column: 1 / -1;">
                     <label>Process</label>
-                    <div style="display:flex; gap: 1rem; align-items:flex-start; flex-wrap: wrap;">
-                        <div id="requestFlowViz" style="width: 240px; height: 240px; border: none; background: transparent; border-radius: 12px; display:flex; align-items:center; justify-content:center;"></div>
-                        <div style="flex: 1; min-width: 260px;">
-                            <div style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 0.35rem;">Forwarding/assignment history</div>
-                            <div id="requestRoutingLogList" style="display:flex; flex-direction:column; gap: 0.35rem;"></div>
-                            <div id="requestRoutingLogEmpty" style="display:none; color: var(--text-secondary); font-size: 0.85rem; padding: 0.5rem 0;">No routing events yet.</div>
+                    <div class="request-process-wrap">
+                        <div id="requestFlowViz" class="request-process-viz"></div>
+                        <div class="request-process-history">
+                            <div class="request-process-history-title">Forwarding/assignment history</div>
+                            <div id="requestRoutingLogList"></div>
+                            <div id="requestRoutingLogEmpty" style="display:none;">No routing events yet.</div>
                         </div>
                     </div>
                 </div>
