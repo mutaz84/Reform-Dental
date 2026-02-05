@@ -23381,7 +23381,46 @@
         
         // Load equipment from localStorage
         function loadEquipment() {
-            return safeParseLocalStorageJSON('equipment', [], { expect: 'array' });
+            const items = safeParseLocalStorageJSON('equipment', [], { expect: 'array' });
+            if (!Array.isArray(items)) return [];
+
+            const stableHash32 = (str) => {
+                const s = String(str || '');
+                let h = 0;
+                for (let i = 0; i < s.length; i++) {
+                    h = ((h * 31) + s.charCodeAt(i)) >>> 0;
+                }
+                return h;
+            };
+
+            return items.map(it => {
+                const equipmentName = (it?.equipmentName ?? it?.EquipmentName ?? it?.name ?? it?.Name ?? '').toString();
+
+                let equipmentID = it?.equipmentID ?? it?.EquipmentID ?? it?.equipmentId ?? it?.EquipmentId ?? it?.Id ?? it?.id;
+                if (typeof equipmentID === 'string') {
+                    const m = equipmentID.match(/(\d+)/);
+                    if (m) equipmentID = parseInt(m[1], 10);
+                    else equipmentID = stableHash32(equipmentID);
+                }
+                if (typeof equipmentID !== 'number' || isNaN(equipmentID)) {
+                    equipmentID = stableHash32(equipmentName || JSON.stringify(it || {}));
+                }
+
+                const category = it?.category ?? it?.Category ?? it?.equipmentType ?? it?.EquipmentType ?? it?.type ?? it?.Type ?? '';
+                const officeName = it?.officeName ?? it?.OfficeName ?? it?.office ?? it?.Office ?? it?.location ?? it?.Location ?? '';
+                const status = it?.status ?? it?.Status ?? 'Operational';
+                const isActive = (it?.isActive !== undefined) ? it.isActive : (it?.IsActive !== undefined ? it.IsActive : true);
+
+                return {
+                    ...it,
+                    equipmentID,
+                    equipmentName,
+                    category,
+                    officeName,
+                    status,
+                    isActive
+                };
+            }).filter(e => String(e?.equipmentName || '').trim());
         }
 
         // Save equipment to localStorage and sync to API
@@ -23678,8 +23717,10 @@
             
             // Sort by category then name
             equipment.sort((a, b) => {
-                if (a.category !== b.category) return a.category.localeCompare(b.category);
-                return a.equipmentName.localeCompare(b.equipmentName);
+                const catA = String(a.category || '');
+                const catB = String(b.category || '');
+                if (catA !== catB) return catA.localeCompare(catB);
+                return String(a.equipmentName || '').localeCompare(String(b.equipmentName || ''));
             });
             
             const statusColors = {
@@ -31748,7 +31789,7 @@
 
             if (equipmentSelect) {
                 const equipment = (typeof loadEquipment === 'function' ? loadEquipment() : []) || [];
-                const equipmentNames = [...new Set(equipment.map(item => item.equipmentName).filter(Boolean))].sort();
+                const equipmentNames = [...new Set(equipment.map(item => item.equipmentName || item.name || item.Name).filter(Boolean))].sort();
                 const selectedEquipment = selected.equipment || '';
                 const options = [...equipmentNames];
                 if (selectedEquipment && !options.includes(selectedEquipment)) options.unshift(selectedEquipment);
@@ -32764,7 +32805,11 @@
 
             const requestedByInput = document.getElementById('requestRequestedBy');
             const currentUser = getCurrentUserDisplayName();
-            if (requestedByInput) requestedByInput.value = currentUser;
+            if (requestedByInput) {
+                // RequestedBy represents the request creator/sender; keep it read-only so later edits don't overwrite it.
+                requestedByInput.disabled = true;
+                if (!requestId) requestedByInput.value = currentUser;
+            }
 
             populateRequestFormOptions();
 
@@ -32779,6 +32824,7 @@
                     document.getElementById('requestType').value = req.type;
                     document.getElementById('requestPriority').value = req.priority;
                     document.getElementById('requestStatus').value = req.status;
+                    if (requestedByInput) requestedByInput.value = req.requestedBy || '';
                     populateRequestFormOptions({
                         assignedTo: req.assignedTo,
                         location: req.location,
@@ -32923,13 +32969,17 @@
                 ? Array.from(assignedSelect.selectedOptions || []).map(o => String(o.value || '').trim()).filter(Boolean)
                 : [];
 
+            const requestedByValue = existingRequest
+                ? (existingRequest.requestedBy || '')
+                : String(document.getElementById('requestRequestedBy')?.value || '').trim();
+
             const newRequest = normalizeRequest({
                 id: requestId || `REQ-${Date.now()}`,
                 title: document.getElementById('requestTitle').value.trim(),
                 type: document.getElementById('requestType').value,
                 priority: document.getElementById('requestPriority').value,
                 status: document.getElementById('requestStatus').value,
-                requestedBy: document.getElementById('requestRequestedBy').value,
+                requestedBy: requestedByValue,
                 assignedTo: formatAssignees(assignedList),
                 requestedAt: requestId ? (requestsData.find(r => String(r.id) === String(requestId))?.requestedAt || new Date().toISOString()) : new Date().toISOString(),
                 neededBy: document.getElementById('requestNeededBy').value,

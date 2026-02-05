@@ -165,7 +165,6 @@ module.exports = async function (context, req) {
                 .input('type', sql.NVarChar, body.type || '')
                 .input('priority', sql.NVarChar, body.priority || '')
                 .input('status', sql.NVarChar, body.status || '')
-                .input('requestedBy', sql.NVarChar, body.requestedBy || '')
                 .input('assignedTo', sql.NVarChar, body.assignedTo || null)
                 .input('neededBy', sql.Date, neededBy)
                 .input('location', sql.NVarChar, body.location || null)
@@ -177,7 +176,6 @@ module.exports = async function (context, req) {
                       Type=@type,
                       Priority=@priority,
                       Status=@status,
-                      RequestedBy=@requestedBy,
                       AssignedTo=@assignedTo,
                       NeededBy=@neededBy,
                       Location=@location,
