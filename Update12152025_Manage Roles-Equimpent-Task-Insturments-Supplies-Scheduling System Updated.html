@@ -32526,10 +32526,6 @@
                     fetchRequestAttachmentsFromAPI(numeric)
                 ]);
 
-                const existing = getCachedRequestExtras(id) || loadRequestExtras(id);
-                const existingComments = Array.isArray(existing?.comments) ? existing.comments : [];
-                const existingAttachments = Array.isArray(existing?.attachments) ? existing.attachments : [];
-
                 const comments = (Array.isArray(apiComments) ? apiComments : []).map(c => ({
                     id: String(c?.id ?? ''),
                     author: String(c?.createdBy || 'Unknown'),
@@ -32549,54 +32545,11 @@
                     __fromApi: true
                 }));
 
-                // Merge instead of replace to avoid races where a user posts
-                // while the prime call is still in flight.
-                const mergedCommentsMap = new Map();
-                existingComments.forEach(c => {
-                    const key = String(c?.id ?? '').trim();
-                    if (!key) return;
-                    mergedCommentsMap.set(key, c);
-                });
-                comments.forEach(c => {
-                    const key = String(c?.id ?? '').trim();
-                    if (!key) return;
-                    mergedCommentsMap.set(key, c);
-                });
-                const mergedComments = Array.from(mergedCommentsMap.values());
-
-                const mergedAttachmentsMap = new Map();
-                existingAttachments.forEach(a => {
-                    const key = String(a?.id ?? '').trim();
-                    if (!key) return;
-                    mergedAttachmentsMap.set(key, a);
-                });
-                attachments.forEach(a => {
-                    const key = String(a?.id ?? '').trim();
-                    if (!key) return;
-                    const prior = mergedAttachmentsMap.get(key);
-                    // Preserve local dataUrl when API list has metadata only.
-                    if (prior && prior.dataUrl && !a.dataUrl) {
-                        mergedAttachmentsMap.set(key, { ...a, dataUrl: prior.dataUrl });
-                    } else {
-                        mergedAttachmentsMap.set(key, a);
-                    }
-                });
-                const mergedAttachments = Array.from(mergedAttachmentsMap.values());
-
-                setCachedRequestExtras(id, { comments: mergedComments, attachments: mergedAttachments });
+                setCachedRequestExtras(id, { comments, attachments });
                 return true;
             } catch (_) {
                 return false;
             }
-        }
-
-        function getInitials(name) {
-            const s = String(name || '').trim();
-            if (!s) return '?';
-            const parts = s.split(/\s+/).filter(Boolean);
-            const a = parts[0] ? parts[0][0] : '';
-            const b = parts.length > 1 ? parts[parts.length - 1][0] : '';
-            return (a + b).toUpperCase() || '?';
         }
 
         async function addRequestCommentViaAPI(requestId, text) {
@@ -32775,33 +32728,21 @@
             const attachmentsList = document.getElementById('requestAttachmentsList');
             const attachmentsEmpty = document.getElementById('requestAttachmentsEmpty');
 
-            const me = (typeof getCurrentUserDisplayName === 'function' ? getCurrentUserDisplayName() : '').trim();
-            const same = (a, b) => (typeof isSameUserName === 'function' ? isSameUserName(a, b) : String(a || '').toLowerCase() === String(b || '').toLowerCase());
-
             const comments = (extras.comments || []).slice().sort((a, b) => String(a?.createdAt || '').localeCompare(String(b?.createdAt || '')));
             if (commentsList) {
                 commentsList.innerHTML = comments.map(c => {
                     const author = String(c?.author || 'Unknown');
                     const when = typeof formatRequestDate === 'function' ? formatRequestDate(c?.createdAt) : String(c?.createdAt || '');
                     const canDel = canCurrentUserDeleteCollabItem(author);
-                    const isMe = me && same(author, me);
-                    const bubbleStyle = isMe
-                        ? 'margin-left:auto; background: var(--bg-primary); border: 1px solid var(--border-color);'
-                        : 'margin-right:auto; background: var(--bg-secondary); border: 1px solid var(--border-color);';
                     return `
-                        <div style="display:flex; gap:0.6rem; align-items:flex-start; margin:0.55rem 0;">
-                            ${isMe ? '' : `<div style="width:34px; height:34px; border-radius:50%; background: var(--bg-tertiary); border:1px solid var(--border-color); display:flex; align-items:center; justify-content:center; font-weight:800; color: var(--text-secondary); flex:0 0 auto;">${safe(getInitials(author))}</div>`}
-                            <div style="max-width: 78%; padding:0.55rem 0.65rem; border-radius: 12px; ${bubbleStyle}">
-                                <div style="display:flex; justify-content:space-between; gap:0.75rem; align-items:center; margin-bottom:0.25rem;">
-                                    <div class="request-comment-meta" style="font-weight:700; color:var(--text-primary);" title="${safe(author)}">${safe(author)}</div>
-                                    <div style="display:flex; align-items:center; gap:0.5rem;">
-                                        <div class="request-comment-meta" style="color:var(--text-tertiary); font-size:0.78rem; white-space:nowrap;">${safe(when)}</div>
-                                        ${canDel ? `<button type="button" class="btn-mini" onclick="deleteRequestComment('${safe(requestId)}','${safe(c?.id || '')}')">Delete</button>` : ''}
-                                    </div>
+                        <div class="request-comment-item">
+                            <div class="request-comment-head">
+                                <div class="request-comment-meta" title="${safe(author)}">${safe(author)} · ${safe(when)}</div>
+                                <div class="request-collab-actions">
+                                    ${canDel ? `<button type="button" class="btn-mini" onclick="deleteRequestComment('${safe(requestId)}','${safe(c?.id || '')}')">Delete</button>` : ''}
                                 </div>
-                                <div class="request-comment-text">${safe(c?.text || '')}</div>
                             </div>
-                            ${isMe ? `<div style="width:34px; height:34px; border-radius:50%; background: var(--bg-tertiary); border:1px solid var(--border-color); display:flex; align-items:center; justify-content:center; font-weight:800; color: var(--text-secondary); flex:0 0 auto;">${safe(getInitials(author))}</div>` : ''}
+                            <div class="request-comment-text">${safe(c?.text || '')}</div>
                         </div>
                     `;
                 }).join('');
@@ -32864,12 +32805,6 @@
                         extras.comments.push({ id: String(newId), author: me, text, createdAt: new Date().toISOString(), __fromApi: true });
                         setCachedRequestExtras(requestId, extras);
                     }
-
-                    // Refresh from API for full history (and to pick up server timestamps/order)
-                    try {
-                        await primeRequestExtrasFromAPI(requestId);
-                        extras = getCachedRequestExtras(requestId) || extras;
-                    } catch (_) {}
                 } catch (e) {
                     extras.comments.push({ id: `c_${Date.now()}_${Math.random().toString(16).slice(2)}`, author: me, text, createdAt: new Date().toISOString() });
                     if (!saveRequestExtras(requestId, extras)) return;
@@ -53438,8 +53373,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // ========================================
 // API INTEGRATION - Connect to Azure SQL Database
 // ========================================
-// Azure Functions default routes are under https://<app>.azurewebsites.net/api
-const API_BASE_URL = 'https://reform-dental-api-hhgfb7h9aaghe3ej.canadacentral-01.azurewebsites.net/api';
+const API_BASE_URL = '/api';
 
 // Fetch users from API and sync with localStorage
 async function fetchUsersFromAPI() {
