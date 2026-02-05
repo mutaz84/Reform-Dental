@@ -31963,7 +31963,7 @@
             return {
                 id: item?.id ?? item?.Id,
                 requestId: item?.requestId ?? item?.RequestId,
-                text: item?.text ?? item?.Text ?? item?.commentText ?? item?.CommentText ?? item?.comment ?? item?.Comment ?? '',
+                commentText: item?.commentText ?? item?.CommentText ?? item?.text ?? item?.Text ?? item?.comment ?? item?.Comment ?? '',
                 createdBy: item?.createdBy ?? item?.CreatedBy ?? item?.user ?? item?.User ?? '',
                 createdAt: item?.createdAt ?? item?.CreatedAt ?? item?.created ?? item?.Created ?? ''
             };
@@ -31976,9 +31976,18 @@
                 fileName: item?.fileName ?? item?.FileName ?? item?.name ?? item?.Name ?? 'Attachment',
                 contentType: item?.contentType ?? item?.ContentType ?? item?.mimeType ?? item?.MimeType ?? 'application/octet-stream',
                 sizeBytes: item?.sizeBytes ?? item?.SizeBytes ?? item?.size ?? item?.Size ?? null,
-                createdBy: item?.createdBy ?? item?.CreatedBy ?? item?.user ?? item?.User ?? '',
-                createdAt: item?.createdAt ?? item?.CreatedAt ?? item?.created ?? item?.Created ?? ''
+                createdBy: item?.uploadedBy ?? item?.UploadedBy ?? item?.createdBy ?? item?.CreatedBy ?? item?.user ?? item?.User ?? '',
+                createdAt: item?.uploadedAt ?? item?.UploadedAt ?? item?.createdAt ?? item?.CreatedAt ?? item?.created ?? item?.Created ?? ''
             };
+        }
+
+        function initialsForName(name) {
+            const s = String(name || '').trim();
+            if (!s) return '?';
+            const parts = s.split(/\s+/).filter(Boolean);
+            const a = parts[0]?.[0] || '';
+            const b = (parts.length > 1 ? parts[parts.length - 1]?.[0] : '') || '';
+            return (a + b).toUpperCase() || '?';
         }
 
         function renderRequestCommentsList(items) {
@@ -31995,53 +32004,87 @@
             }
             empty.style.display = 'none';
 
-            const currentUser = getCurrentUserDisplayName();
-            normalized.forEach(c => {
-                const wrap = document.createElement('div');
-                wrap.style.border = '1px solid var(--border-color)';
-                wrap.style.background = 'var(--bg-primary)';
-                wrap.style.borderRadius = '10px';
-                wrap.style.padding = '0.55rem 0.65rem';
-                wrap.style.display = 'flex';
-                wrap.style.flexDirection = 'column';
-                wrap.style.gap = '0.25rem';
+            // Timeline-style layout (alternating left/right) similar to the screenshot
+            normalized.forEach((c, idx) => {
+                const isLeft = idx % 2 === 0;
 
-                const text = document.createElement('div');
-                text.style.whiteSpace = 'pre-wrap';
-                text.style.color = 'var(--text-primary)';
-                text.textContent = String(c.text || '').trim();
+                const row = document.createElement('div');
+                row.style.display = 'grid';
+                row.style.gridTemplateColumns = '1fr 56px 1fr';
+                row.style.gap = '0.75rem';
+                row.style.alignItems = 'start';
 
-                const metaRow = document.createElement('div');
-                metaRow.style.display = 'flex';
-                metaRow.style.justifyContent = 'space-between';
-                metaRow.style.gap = '0.5rem';
-                metaRow.style.alignItems = 'center';
+                const card = document.createElement('div');
+                card.style.border = '1px solid var(--border-color)';
+                card.style.background = 'var(--bg-primary)';
+                card.style.borderRadius = '12px';
+                card.style.padding = '0.75rem 0.85rem';
+                card.style.boxShadow = '0 1px 2px rgba(0,0,0,0.06)';
+
+                const header = document.createElement('div');
+                header.style.fontWeight = '800';
+                header.style.color = 'var(--text-primary)';
+                header.style.marginBottom = '0.25rem';
+                header.textContent = String(c.createdBy || 'Unknown');
 
                 const meta = document.createElement('div');
                 meta.style.color = 'var(--text-secondary)';
                 meta.style.fontSize = '0.78rem';
-                meta.textContent = `By ${c.createdBy || 'Unknown'} · ${formatRequestDate(c.createdAt)}`;
+                meta.style.marginBottom = '0.5rem';
+                meta.textContent = String(c.createdAt ? new Date(c.createdAt).toLocaleString() : formatRequestDate(c.createdAt));
 
-                const canDelete = isAdminUser() || isSameUserName(c.createdBy, currentUser);
-                const actions = document.createElement('div');
-                actions.style.display = 'flex';
-                actions.style.gap = '0.4rem';
+                const text = document.createElement('div');
+                text.style.whiteSpace = 'pre-wrap';
+                text.style.color = 'var(--text-primary)';
+                text.textContent = String(c.commentText || '').trim();
 
-                if (canDelete && c.id != null) {
-                    const del = document.createElement('button');
-                    del.type = 'button';
-                    del.className = 'btn-mini';
-                    del.textContent = 'Delete';
-                    del.onclick = () => deleteRequestComment(c.id);
-                    actions.appendChild(del);
+                card.appendChild(header);
+                card.appendChild(meta);
+                card.appendChild(text);
+
+                const mid = document.createElement('div');
+                mid.style.position = 'relative';
+                mid.style.minHeight = '100%';
+                mid.style.display = 'flex';
+                mid.style.justifyContent = 'center';
+
+                const line = document.createElement('div');
+                line.style.position = 'absolute';
+                line.style.top = '0';
+                line.style.bottom = '0';
+                line.style.width = '2px';
+                line.style.background = 'rgba(148,163,184,0.35)';
+                line.style.borderRadius = '2px';
+
+                const avatar = document.createElement('div');
+                avatar.style.width = '40px';
+                avatar.style.height = '40px';
+                avatar.style.borderRadius = '999px';
+                avatar.style.background = 'var(--bg-secondary)';
+                avatar.style.border = '1px solid var(--border-color)';
+                avatar.style.display = 'flex';
+                avatar.style.alignItems = 'center';
+                avatar.style.justifyContent = 'center';
+                avatar.style.fontWeight = '900';
+                avatar.style.color = 'var(--text-primary)';
+                avatar.style.marginTop = '0.2rem';
+                avatar.textContent = initialsForName(c.createdBy);
+
+                mid.appendChild(line);
+                mid.appendChild(avatar);
+
+                const left = document.createElement('div');
+                const right = document.createElement('div');
+                if (isLeft) {
+                    left.appendChild(card);
+                } else {
+                    right.appendChild(card);
                 }
 
-                metaRow.appendChild(meta);
-                metaRow.appendChild(actions);
-
-                wrap.appendChild(text);
-                wrap.appendChild(metaRow);
-                list.appendChild(wrap);
+                row.appendChild(left);
+                row.appendChild(mid);
+                row.appendChild(right);
+                list.appendChild(row);
             });
         }
 
@@ -32205,15 +32248,22 @@
                 const res = await fetch(`${API_BASE_URL}/request-comments`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ requestId: requestIdNum, text: commentText, commentText: commentText, createdBy })
+                    body: JSON.stringify({ requestId: requestIdNum, commentText: commentText, text: commentText, createdBy })
                 });
-                if (!res.ok) throw new Error('API request failed');
+                if (!res.ok) {
+                    let msg = 'Failed to add comment.';
+                    try {
+                        const body = await res.json();
+                        if (body?.error) msg = String(body.error);
+                    } catch (_) {}
+                    throw new Error(msg);
+                }
 
                 if (textEl) textEl.value = '';
                 await refreshRequestCollaborationUI();
             } catch (e) {
                 console.warn('Failed to add comment', e);
-                if (typeof showNotification === 'function') showNotification('Failed to add comment.', 'error');
+                if (typeof showNotification === 'function') showNotification(String(e?.message || 'Failed to add comment.'), 'error');
             } finally {
                 if (btn) btn.disabled = false;
             }
@@ -32265,6 +32315,7 @@
                 if (btn) btn.disabled = true;
                 const base64 = await readFileAsBase64(file);
                 const createdBy = getCurrentUserDisplayName();
+                const uploadedBy = createdBy;
 
                 const res = await fetch(`${API_BASE_URL}/request-attachments`, {
                     method: 'POST',
@@ -32275,7 +32326,9 @@
                         contentType: file.type || 'application/octet-stream',
                         base64,
                         data: base64,
-                        createdBy
+                        createdBy,
+                        uploadedBy,
+                        dataBase64: base64
                     })
                 });
                 if (!res.ok) throw new Error('API request failed');
@@ -32325,7 +32378,7 @@
                 return;
             }
 
-            const base64 = data?.base64 ?? data?.Base64 ?? data?.data ?? data?.Data ?? '';
+            const base64 = data?.dataBase64 ?? data?.DataBase64 ?? data?.base64 ?? data?.Base64 ?? data?.data ?? data?.Data ?? '';
             const fileName = data?.fileName ?? data?.FileName ?? fallbackName;
             const contentType = data?.contentType ?? data?.ContentType ?? fallbackType;
             if (!base64) {

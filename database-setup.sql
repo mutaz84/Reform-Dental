@@ -310,6 +310,75 @@ ELSE
 GO
 
 -- =============================================
+-- 12. REQUESTS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Requests' AND xtype='U')
+BEGIN
+    CREATE TABLE Requests (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        Title NVARCHAR(255) NOT NULL,
+        Type NVARCHAR(100),
+        Priority NVARCHAR(50) DEFAULT 'Medium',
+        Status NVARCHAR(50) DEFAULT 'New',
+        RequestedBy NVARCHAR(255),
+        AssignedTo NVARCHAR(MAX),
+        RequestedAt DATETIME2 DEFAULT SYSDATETIME(),
+        NeededBy NVARCHAR(50),
+        Location NVARCHAR(255),
+        Equipment NVARCHAR(255),
+        Vendor NVARCHAR(255),
+        Description NVARCHAR(MAX)
+    );
+    PRINT 'Created Requests table';
+END
+ELSE
+    PRINT 'Requests table already exists';
+GO
+
+-- =============================================
+-- 13. REQUEST COMMENTS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RequestComments' AND xtype='U')
+BEGIN
+    CREATE TABLE RequestComments (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        RequestId INT NOT NULL,
+        CommentText NVARCHAR(MAX) NOT NULL,
+        CreatedBy NVARCHAR(255),
+        CreatedAt DATETIME2 DEFAULT SYSDATETIME(),
+        FOREIGN KEY (RequestId) REFERENCES Requests(Id)
+    );
+    CREATE INDEX IX_RequestComments_RequestId ON RequestComments(RequestId);
+    PRINT 'Created RequestComments table';
+END
+ELSE
+    PRINT 'RequestComments table already exists';
+GO
+
+-- =============================================
+-- 14. REQUEST ATTACHMENTS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RequestAttachments' AND xtype='U')
+BEGIN
+    CREATE TABLE RequestAttachments (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        RequestId INT NOT NULL,
+        FileName NVARCHAR(255) NOT NULL,
+        ContentType NVARCHAR(255) NOT NULL,
+        SizeBytes INT,
+        Data VARBINARY(MAX) NOT NULL,
+        UploadedBy NVARCHAR(255),
+        UploadedAt DATETIME2 DEFAULT SYSDATETIME(),
+        FOREIGN KEY (RequestId) REFERENCES Requests(Id)
+    );
+    CREATE INDEX IX_RequestAttachments_RequestId ON RequestAttachments(RequestId);
+    PRINT 'Created RequestAttachments table';
+END
+ELSE
+    PRINT 'RequestAttachments table already exists';
+GO
+
+-- =============================================
 -- VERIFY ALL TABLES
 -- =============================================
 SELECT 
@@ -317,7 +386,8 @@ SELECT
     (SELECT COUNT(*) FROM sys.columns c WHERE c.object_id = t.object_id) AS ColumnCount
 FROM sys.tables t
 WHERE t.name IN ('Clinics', 'Rooms', 'Users', 'Vendors', 'Equipment', 'Instruments', 
-                 'Supplies', 'Schedules', 'Tasks', 'Duties', 'Settings', 'Events', 'ChatMessages', 'StickyNotes')
+                 'Supplies', 'Schedules', 'Tasks', 'Duties', 'Settings', 'Events', 'ChatMessages', 'StickyNotes',
+                 'Requests', 'RequestComments', 'RequestAttachments')
 ORDER BY t.name;
 
 PRINT '';
