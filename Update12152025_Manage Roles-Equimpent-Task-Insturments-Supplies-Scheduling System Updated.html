@@ -32294,12 +32294,6 @@
                             canContribute: canCurrentUserContributeToRequest(req, [])
                         };
                         refreshRequestCollabSection(req, []);
-
-                        // Prefer API-backed comments/attachments when request id is numeric
-                        primeRequestExtrasFromAPI(req.id).then((ok) => {
-                            if (!ok) return;
-                            try { refreshRequestCollabSection(req, []); } catch (_) {}
-                        });
                     } catch (_) {}
 
                     // Process viz + routing log
@@ -32439,178 +32433,6 @@
             }
         }
 
-        function getNumericRequestId(value) {
-            const raw = String(value ?? '').trim();
-            return /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
-        }
-
-        function getCachedRequestExtras(requestId) {
-            try {
-                const id = String(requestId || '').trim();
-                const cache = window.__requestExtrasCache || {};
-                const hit = cache[id];
-                if (!hit) return null;
-                return {
-                    comments: Array.isArray(hit.comments) ? hit.comments : [],
-                    attachments: Array.isArray(hit.attachments) ? hit.attachments : []
-                };
-            } catch (_) {
-                return null;
-            }
-        }
-
-        function setCachedRequestExtras(requestId, extras) {
-            const id = String(requestId || '').trim();
-            if (!id) return;
-            window.__requestExtrasCache = window.__requestExtrasCache || {};
-            window.__requestExtrasCache[id] = {
-                comments: Array.isArray(extras?.comments) ? extras.comments : [],
-                attachments: Array.isArray(extras?.attachments) ? extras.attachments : []
-            };
-        }
-
-        async function fetchRequestCommentsFromAPI(requestId) {
-            const id = getNumericRequestId(requestId);
-            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
-            if (!canTryApi || id === null) return null;
-            const res = await fetch(`${API_BASE_URL}/request-comments?requestId=${id}`, { cache: 'no-store' });
-            if (!res.ok) throw new Error('Request comments API failed');
-            const data = await res.json();
-            return Array.isArray(data) ? data : [];
-        }
-
-        async function fetchRequestAttachmentsFromAPI(requestId) {
-            const id = getNumericRequestId(requestId);
-            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
-            if (!canTryApi || id === null) return null;
-            const res = await fetch(`${API_BASE_URL}/request-attachments?requestId=${id}`, { cache: 'no-store' });
-            if (!res.ok) throw new Error('Request attachments API failed');
-            const data = await res.json();
-            return Array.isArray(data) ? data : [];
-        }
-
-        async function primeRequestExtrasFromAPI(requestId) {
-            const id = String(requestId || '').trim();
-            const numeric = getNumericRequestId(id);
-            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
-            if (!canTryApi || numeric === null) return false;
-
-            try {
-                const [apiComments, apiAttachments] = await Promise.all([
-                    fetchRequestCommentsFromAPI(numeric),
-                    fetchRequestAttachmentsFromAPI(numeric)
-                ]);
-
-                const comments = (Array.isArray(apiComments) ? apiComments : []).map(c => ({
-                    id: String(c?.id ?? ''),
-                    author: String(c?.createdBy || 'Unknown'),
-                    text: String(c?.text || ''),
-                    createdAt: c?.createdAt || new Date().toISOString(),
-                    __fromApi: true
-                }));
-
-                const attachments = (Array.isArray(apiAttachments) ? apiAttachments : []).map(a => ({
-                    id: String(a?.id ?? ''),
-                    name: String(a?.fileName || 'file'),
-                    type: String(a?.contentType || 'application/octet-stream'),
-                    size: Number(a?.sizeBytes || 0),
-                    addedBy: String(a?.uploadedBy || 'Unknown'),
-                    addedAt: a?.uploadedAt || new Date().toISOString(),
-                    dataUrl: '',
-                    __fromApi: true
-                }));
-
-                setCachedRequestExtras(id, { comments, attachments });
-                return true;
-            } catch (_) {
-                return false;
-            }
-        }
-
-        async function addRequestCommentViaAPI(requestId, text) {
-            const id = getNumericRequestId(requestId);
-            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
-            if (!canTryApi || id === null) return null;
-
-            const me = (typeof getCurrentUserDisplayName === 'function' ? getCurrentUserDisplayName() : '').trim() || 'Unknown';
-            const res = await fetch(`${API_BASE_URL}/request-comments`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ requestId: id, text, createdBy: me })
-            });
-            if (!res.ok) throw new Error('Request comment create failed');
-            const data = await res.json().catch(() => ({}));
-            return data && data.id !== undefined && data.id !== null ? String(data.id) : null;
-        }
-
-        async function deleteRequestCommentViaAPI(commentId) {
-            const cid = String(commentId || '').trim();
-            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
-            if (!canTryApi || !/^\d+$/.test(cid)) return false;
-            const res = await fetch(`${API_BASE_URL}/request-comments/${cid}`, { method: 'DELETE' });
-            return !!res.ok;
-        }
-
-        async function addRequestAttachmentViaAPI(requestId, file, dataBase64) {
-            const id = getNumericRequestId(requestId);
-            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
-            if (!canTryApi || id === null) return null;
-
-            const me = (typeof getCurrentUserDisplayName === 'function' ? getCurrentUserDisplayName() : '').trim() || 'Unknown';
-            const res = await fetch(`${API_BASE_URL}/request-attachments`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    requestId: id,
-                    fileName: file?.name || 'file',
-                    contentType: file?.type || 'application/octet-stream',
-                    dataBase64,
-                    uploadedBy: me
-                })
-            });
-            if (!res.ok) throw new Error('Request attachment upload failed');
-            const data = await res.json().catch(() => ({}));
-            return data && data.id !== undefined && data.id !== null ? String(data.id) : null;
-        }
-
-        async function deleteRequestAttachmentViaAPI(attachmentId) {
-            const aid = String(attachmentId || '').trim();
-            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
-            if (!canTryApi || !/^\d+$/.test(aid)) return false;
-            const res = await fetch(`${API_BASE_URL}/request-attachments/${aid}`, { method: 'DELETE' });
-            return !!res.ok;
-        }
-
-        async function downloadRequestAttachmentById(attachmentId, fileName) {
-            const aid = String(attachmentId || '').trim();
-            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
-            if (!canTryApi || !/^\d+$/.test(aid)) return;
-
-            const res = await fetch(`${API_BASE_URL}/request-attachments/${aid}`, { cache: 'no-store' });
-            if (!res.ok) throw new Error('Download failed');
-            const data = await res.json();
-            const base64 = String(data?.dataBase64 || '');
-            if (!base64) throw new Error('No data');
-            const contentType = String(data?.contentType || 'application/octet-stream');
-            const name = String(fileName || data?.fileName || 'attachment');
-
-            const bin = atob(base64);
-            const bytes = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-
-            const blob = new Blob([bytes], { type: contentType });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = name;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-        }
-
-        window.downloadRequestAttachmentById = downloadRequestAttachmentById;
-
         function canCurrentUserContributeToRequest(req, routingLog = []) {
             try {
                 if (typeof isAdminUser === 'function' && isAdminUser()) return true;
@@ -32697,7 +32519,7 @@
             if (btn) btn.disabled = !canContribute;
             if (attBtn) attBtn.disabled = !canContribute;
 
-            const extras = getCachedRequestExtras(requestId) || loadRequestExtras(requestId);
+            const extras = loadRequestExtras(requestId);
             const commentsList = document.getElementById('requestCommentsList');
             const commentsEmpty = document.getElementById('requestCommentsEmpty');
             const attachmentsList = document.getElementById('requestAttachmentsList');
@@ -32733,13 +32555,11 @@
                     const when = typeof formatRequestDate === 'function' ? formatRequestDate(a?.addedAt) : String(a?.addedAt || '');
                     const canDel = canCurrentUserDeleteCollabItem(who);
                     const href = String(a?.dataUrl || '');
-                    const canDownload = !href && /^\d+$/.test(String(a?.id || ''));
                     return `
                         <div class="request-attachment-item">
                             <div class="request-attachment-head">
-                                ${href ? `<a class="request-attachment-link" href="${safe(href)}" download="${safe(name)}" title="${safe(name)}">${safe(name)}</a>` : `<span class="request-attachment-link" title="${safe(name)}">${safe(name)}</span>`}
+                                <a class="request-attachment-link" href="${safe(href)}" download="${safe(name)}" title="${safe(name)}">${safe(name)}</a>
                                 <div class="request-collab-actions">
-                                    ${canDownload ? `<button type="button" class="btn-mini" onclick="downloadRequestAttachmentById('${safe(a?.id || '')}','${safe(name)}')">Download</button>` : ''}
                                     ${canDel ? `<button type="button" class="btn-mini" onclick="deleteRequestAttachment('${safe(requestId)}','${safe(a?.id || '')}')">Delete</button>` : ''}
                                 </div>
                             </div>
@@ -32768,27 +32588,16 @@
             if (!text) return;
 
             const me = (typeof getCurrentUserDisplayName === 'function' ? getCurrentUserDisplayName() : '').trim() || 'Unknown';
-            let extras = getCachedRequestExtras(requestId) || loadRequestExtras(requestId);
+            const extras = loadRequestExtras(requestId);
             extras.comments = Array.isArray(extras.comments) ? extras.comments : [];
+            extras.comments.push({
+                id: `c_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+                author: me,
+                text,
+                createdAt: new Date().toISOString()
+            });
 
-            const numeric = getNumericRequestId(requestId);
-            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
-            if (canTryApi && numeric !== null) {
-                try {
-                    const newId = await addRequestCommentViaAPI(numeric, text);
-                    if (newId) {
-                        extras.comments.push({ id: String(newId), author: me, text, createdAt: new Date().toISOString(), __fromApi: true });
-                        setCachedRequestExtras(requestId, extras);
-                    }
-                } catch (e) {
-                    extras.comments.push({ id: `c_${Date.now()}_${Math.random().toString(16).slice(2)}`, author: me, text, createdAt: new Date().toISOString() });
-                    if (!saveRequestExtras(requestId, extras)) return;
-                    if (typeof showNotification === 'function') showNotification('Saved comment locally (API unavailable).', 'warning');
-                }
-            } else {
-                extras.comments.push({ id: `c_${Date.now()}_${Math.random().toString(16).slice(2)}`, author: me, text, createdAt: new Date().toISOString() });
-                if (!saveRequestExtras(requestId, extras)) return;
-            }
+            if (!saveRequestExtras(requestId, extras)) return;
             if (t) t.value = '';
 
             try {
@@ -32815,11 +32624,8 @@
 
             const MAX_BYTES = Math.round(1.5 * 1024 * 1024);
             const me = (typeof getCurrentUserDisplayName === 'function' ? getCurrentUserDisplayName() : '').trim() || 'Unknown';
-            let extras = getCachedRequestExtras(requestId) || loadRequestExtras(requestId);
+            const extras = loadRequestExtras(requestId);
             extras.attachments = Array.isArray(extras.attachments) ? extras.attachments : [];
-
-            const numeric = getNumericRequestId(requestId);
-            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
 
             for (const file of files) {
                 if (!file) continue;
@@ -32839,35 +32645,6 @@
                     continue;
                 }
 
-                if (canTryApi && numeric !== null) {
-                    const base64 = String(dataUrl.split(',')[1] || '').trim();
-                    if (!base64) {
-                        if (typeof showNotification === 'function') showNotification(`Could not encode ${file.name}`, 'error');
-                        continue;
-                    }
-
-                    try {
-                        const newId = await addRequestAttachmentViaAPI(numeric, file, base64);
-                        if (newId) {
-                            extras.attachments.push({
-                                id: String(newId),
-                                name: file.name,
-                                type: file.type || 'application/octet-stream',
-                                size: file.size,
-                                dataUrl: '',
-                                addedBy: me,
-                                addedAt: new Date().toISOString(),
-                                __fromApi: true
-                            });
-                            setCachedRequestExtras(requestId, extras);
-                            continue;
-                        }
-                    } catch (e) {
-                        // fall through to local save
-                        if (typeof showNotification === 'function') showNotification('Saved attachment locally (API unavailable).', 'warning');
-                    }
-                }
-
                 extras.attachments.push({
                     id: `a_${Date.now()}_${Math.random().toString(16).slice(2)}`,
                     name: file.name,
@@ -32879,9 +32656,7 @@
                 });
             }
 
-            if (!getCachedRequestExtras(requestId)) {
-                if (!saveRequestExtras(requestId, extras)) return;
-            }
+            if (!saveRequestExtras(requestId, extras)) return;
 
             try {
                 if (input) input.value = '';
@@ -32895,7 +32670,7 @@
             const cid = String(commentId || '').trim();
             if (!id || !cid) return;
 
-            let extras = getCachedRequestExtras(id) || loadRequestExtras(id);
+            const extras = loadRequestExtras(id);
             const target = (extras.comments || []).find(c => String(c?.id || '') === cid);
             if (!target) return;
             if (!canCurrentUserDeleteCollabItem(target.author)) {
@@ -32903,26 +32678,14 @@
                 return;
             }
 
-            (async () => {
-                const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
-                const isApiId = /^\d+$/.test(cid);
-                if (canTryApi && isApiId) {
-                    try { await deleteRequestCommentViaAPI(cid); } catch (_) {}
-                    extras.comments = (extras.comments || []).filter(c => String(c?.id || '') !== cid);
-                    setCachedRequestExtras(id, extras);
-                } else {
-                    extras.comments = (extras.comments || []).filter(c => String(c?.id || '') !== cid);
-                    if (!saveRequestExtras(id, extras)) return;
-                }
+            extras.comments = (extras.comments || []).filter(c => String(c?.id || '') !== cid);
+            if (!saveRequestExtras(id, extras)) return;
 
-                try {
-                    const state = window.__requestModalState || {};
-                    const req = (requestsData || []).find(r => String(r.id) === String(id));
-                    refreshRequestCollabSection(req || {}, state.routingLog || []);
-                } catch (_) {}
-            })();
-
-            return;
+            try {
+                const state = window.__requestModalState || {};
+                const req = (requestsData || []).find(r => String(r.id) === String(id));
+                refreshRequestCollabSection(req || {}, state.routingLog || []);
+            } catch (_) {}
         }
 
         function deleteRequestAttachment(requestId, attachmentId) {
@@ -32930,7 +32693,7 @@
             const aid = String(attachmentId || '').trim();
             if (!id || !aid) return;
 
-            let extras = getCachedRequestExtras(id) || loadRequestExtras(id);
+            const extras = loadRequestExtras(id);
             const target = (extras.attachments || []).find(a => String(a?.id || '') === aid);
             if (!target) return;
             if (!canCurrentUserDeleteCollabItem(target.addedBy)) {
@@ -32938,24 +32701,14 @@
                 return;
             }
 
-            (async () => {
-                const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
-                const isApiId = /^\d+$/.test(aid);
-                if (canTryApi && isApiId) {
-                    try { await deleteRequestAttachmentViaAPI(aid); } catch (_) {}
-                    extras.attachments = (extras.attachments || []).filter(a => String(a?.id || '') !== aid);
-                    setCachedRequestExtras(id, extras);
-                } else {
-                    extras.attachments = (extras.attachments || []).filter(a => String(a?.id || '') !== aid);
-                    if (!saveRequestExtras(id, extras)) return;
-                }
+            extras.attachments = (extras.attachments || []).filter(a => String(a?.id || '') !== aid);
+            if (!saveRequestExtras(id, extras)) return;
 
-                try {
-                    const state = window.__requestModalState || {};
-                    const req = (requestsData || []).find(r => String(r.id) === String(id));
-                    refreshRequestCollabSection(req || {}, state.routingLog || []);
-                } catch (_) {}
-            })();
+            try {
+                const state = window.__requestModalState || {};
+                const req = (requestsData || []).find(r => String(r.id) === String(id));
+                refreshRequestCollabSection(req || {}, state.routingLog || []);
+            } catch (_) {}
         }
 
         window.addRequestCommentFromModal = addRequestCommentFromModal;
