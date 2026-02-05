@@ -31926,6 +31926,478 @@
             }
         }
 
+        function getActiveRequestIdValue() {
+            return String(document.getElementById('requestId')?.value || '').trim();
+        }
+
+        function parseNumericRequestId(requestId) {
+            const raw = String(requestId || '').trim();
+            return /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
+        }
+
+        function setRequestCollaborationEnabled(enabled, hint = '') {
+            const commentInput = document.getElementById('requestCommentInput');
+            const commentBtn = document.getElementById('requestCommentAddBtn');
+            const fileInput = document.getElementById('requestAttachmentFile');
+            const uploadBtn = document.getElementById('requestAttachmentUploadBtn');
+            const commentsHint = document.getElementById('requestCommentsHint');
+            const attachHint = document.getElementById('requestAttachmentsHint');
+
+            if (commentInput) commentInput.disabled = !enabled;
+            if (commentBtn) commentBtn.disabled = !enabled;
+            if (fileInput) fileInput.disabled = !enabled;
+            if (uploadBtn) uploadBtn.disabled = !enabled;
+
+            if (commentsHint) commentsHint.textContent = String(hint || '');
+            if (attachHint) attachHint.textContent = String(hint || '');
+        }
+
+        function setRequestCollaborationLoading(isLoading) {
+            const commentBtn = document.getElementById('requestCommentAddBtn');
+            const uploadBtn = document.getElementById('requestAttachmentUploadBtn');
+            if (commentBtn) commentBtn.disabled = !!isLoading || commentBtn.disabled;
+            if (uploadBtn) uploadBtn.disabled = !!isLoading || uploadBtn.disabled;
+        }
+
+        function normalizeRequestComment(item) {
+            return {
+                id: item?.id ?? item?.Id,
+                requestId: item?.requestId ?? item?.RequestId,
+                text: item?.text ?? item?.Text ?? item?.commentText ?? item?.CommentText ?? item?.comment ?? item?.Comment ?? '',
+                createdBy: item?.createdBy ?? item?.CreatedBy ?? item?.user ?? item?.User ?? '',
+                createdAt: item?.createdAt ?? item?.CreatedAt ?? item?.created ?? item?.Created ?? ''
+            };
+        }
+
+        function normalizeRequestAttachment(item) {
+            return {
+                id: item?.id ?? item?.Id,
+                requestId: item?.requestId ?? item?.RequestId,
+                fileName: item?.fileName ?? item?.FileName ?? item?.name ?? item?.Name ?? 'Attachment',
+                contentType: item?.contentType ?? item?.ContentType ?? item?.mimeType ?? item?.MimeType ?? 'application/octet-stream',
+                sizeBytes: item?.sizeBytes ?? item?.SizeBytes ?? item?.size ?? item?.Size ?? null,
+                createdBy: item?.createdBy ?? item?.CreatedBy ?? item?.user ?? item?.User ?? '',
+                createdAt: item?.createdAt ?? item?.CreatedAt ?? item?.created ?? item?.Created ?? ''
+            };
+        }
+
+        function renderRequestCommentsList(items) {
+            const list = document.getElementById('requestCommentsList');
+            const empty = document.getElementById('requestCommentsEmpty');
+            if (!list || !empty) return;
+
+            const normalized = (Array.isArray(items) ? items : []).map(normalizeRequestComment);
+
+            list.innerHTML = '';
+            if (!normalized.length) {
+                empty.style.display = 'block';
+                return;
+            }
+            empty.style.display = 'none';
+
+            const currentUser = getCurrentUserDisplayName();
+            normalized.forEach(c => {
+                const wrap = document.createElement('div');
+                wrap.style.border = '1px solid var(--border-color)';
+                wrap.style.background = 'var(--bg-primary)';
+                wrap.style.borderRadius = '10px';
+                wrap.style.padding = '0.55rem 0.65rem';
+                wrap.style.display = 'flex';
+                wrap.style.flexDirection = 'column';
+                wrap.style.gap = '0.25rem';
+
+                const text = document.createElement('div');
+                text.style.whiteSpace = 'pre-wrap';
+                text.style.color = 'var(--text-primary)';
+                text.textContent = String(c.text || '').trim();
+
+                const metaRow = document.createElement('div');
+                metaRow.style.display = 'flex';
+                metaRow.style.justifyContent = 'space-between';
+                metaRow.style.gap = '0.5rem';
+                metaRow.style.alignItems = 'center';
+
+                const meta = document.createElement('div');
+                meta.style.color = 'var(--text-secondary)';
+                meta.style.fontSize = '0.78rem';
+                meta.textContent = `By ${c.createdBy || 'Unknown'} · ${formatRequestDate(c.createdAt)}`;
+
+                const canDelete = isAdminUser() || isSameUserName(c.createdBy, currentUser);
+                const actions = document.createElement('div');
+                actions.style.display = 'flex';
+                actions.style.gap = '0.4rem';
+
+                if (canDelete && c.id != null) {
+                    const del = document.createElement('button');
+                    del.type = 'button';
+                    del.className = 'btn-mini';
+                    del.textContent = 'Delete';
+                    del.onclick = () => deleteRequestComment(c.id);
+                    actions.appendChild(del);
+                }
+
+                metaRow.appendChild(meta);
+                metaRow.appendChild(actions);
+
+                wrap.appendChild(text);
+                wrap.appendChild(metaRow);
+                list.appendChild(wrap);
+            });
+        }
+
+        function renderRequestAttachmentsList(items) {
+            const list = document.getElementById('requestAttachmentsList');
+            const empty = document.getElementById('requestAttachmentsEmpty');
+            if (!list || !empty) return;
+
+            const normalized = (Array.isArray(items) ? items : []).map(normalizeRequestAttachment);
+
+            list.innerHTML = '';
+            if (!normalized.length) {
+                empty.style.display = 'block';
+                return;
+            }
+            empty.style.display = 'none';
+
+            const currentUser = getCurrentUserDisplayName();
+            normalized.forEach(a => {
+                const wrap = document.createElement('div');
+                wrap.style.border = '1px solid var(--border-color)';
+                wrap.style.background = 'var(--bg-primary)';
+                wrap.style.borderRadius = '10px';
+                wrap.style.padding = '0.55rem 0.65rem';
+                wrap.style.display = 'flex';
+                wrap.style.justifyContent = 'space-between';
+                wrap.style.alignItems = 'center';
+                wrap.style.gap = '0.6rem';
+
+                const left = document.createElement('div');
+                left.style.display = 'flex';
+                left.style.flexDirection = 'column';
+                left.style.gap = '0.15rem';
+                left.style.minWidth = '0';
+
+                const title = document.createElement('div');
+                title.style.fontWeight = '800';
+                title.style.color = 'var(--text-primary)';
+                title.style.overflow = 'hidden';
+                title.style.textOverflow = 'ellipsis';
+                title.style.whiteSpace = 'nowrap';
+                title.textContent = String(a.fileName || 'Attachment');
+
+                const meta = document.createElement('div');
+                meta.style.color = 'var(--text-secondary)';
+                meta.style.fontSize = '0.78rem';
+                meta.textContent = `By ${a.createdBy || 'Unknown'} · ${formatRequestDate(a.createdAt)}`;
+
+                left.appendChild(title);
+                left.appendChild(meta);
+
+                const right = document.createElement('div');
+                right.style.display = 'flex';
+                right.style.gap = '0.4rem';
+                right.style.flex = '0 0 auto';
+
+                if (a.id != null) {
+                    const dl = document.createElement('button');
+                    dl.type = 'button';
+                    dl.className = 'btn-mini';
+                    dl.textContent = 'Download';
+                    dl.onclick = () => downloadRequestAttachment(a.id, a.fileName, a.contentType);
+                    right.appendChild(dl);
+                }
+
+                const canDelete = isAdminUser() || isSameUserName(a.createdBy, currentUser);
+                if (canDelete && a.id != null) {
+                    const del = document.createElement('button');
+                    del.type = 'button';
+                    del.className = 'btn-mini';
+                    del.textContent = 'Delete';
+                    del.onclick = () => deleteRequestAttachment(a.id);
+                    right.appendChild(del);
+                }
+
+                wrap.appendChild(left);
+                wrap.appendChild(right);
+                list.appendChild(wrap);
+            });
+        }
+
+        async function fetchRequestCommentsFromApi(requestIdNum) {
+            const res = await fetch(`${API_BASE_URL}/request-comments?requestId=${encodeURIComponent(requestIdNum)}`, { cache: 'no-store' });
+            if (!res.ok) throw new Error('Failed to fetch comments');
+            const data = await res.json();
+            return Array.isArray(data) ? data : [];
+        }
+
+        async function fetchRequestAttachmentsFromApi(requestIdNum) {
+            const res = await fetch(`${API_BASE_URL}/request-attachments?requestId=${encodeURIComponent(requestIdNum)}`, { cache: 'no-store' });
+            if (!res.ok) throw new Error('Failed to fetch attachments');
+            const data = await res.json();
+            return Array.isArray(data) ? data : [];
+        }
+
+        async function refreshRequestCollaborationUI() {
+            const requestIdRaw = getActiveRequestIdValue();
+            const requestIdNum = parseNumericRequestId(requestIdRaw);
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+
+            const listA = document.getElementById('requestCommentsList');
+            const emptyA = document.getElementById('requestCommentsEmpty');
+            const listB = document.getElementById('requestAttachmentsList');
+            const emptyB = document.getElementById('requestAttachmentsEmpty');
+            if (listA) listA.innerHTML = '';
+            if (listB) listB.innerHTML = '';
+            if (emptyA) emptyA.style.display = 'block';
+            if (emptyB) emptyB.style.display = 'block';
+
+            if (!requestIdNum) {
+                setRequestCollaborationEnabled(false, 'Save this request to the DB to enable shared comments & attachments.');
+                return;
+            }
+            if (!canTryApi) {
+                setRequestCollaborationEnabled(false, 'DB unavailable — collaboration is offline.');
+                return;
+            }
+
+            setRequestCollaborationEnabled(true, '');
+            setRequestCollaborationLoading(true);
+
+            try {
+                const [comments, attachments] = await Promise.all([
+                    fetchRequestCommentsFromApi(requestIdNum).catch(() => []),
+                    fetchRequestAttachmentsFromApi(requestIdNum).catch(() => [])
+                ]);
+                renderRequestCommentsList(comments);
+                renderRequestAttachmentsList(attachments);
+            } catch (_) {
+                // If something unexpected happens, fall back to disabled UI but keep the modal usable.
+                setRequestCollaborationEnabled(false, 'DB unavailable — collaboration is offline.');
+            } finally {
+                setRequestCollaborationLoading(false);
+            }
+        }
+
+        async function addRequestComment() {
+            const textEl = document.getElementById('requestCommentInput');
+            const btn = document.getElementById('requestCommentAddBtn');
+            const commentText = String(textEl?.value || '').trim();
+
+            const requestIdNum = parseNumericRequestId(getActiveRequestIdValue());
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+
+            if (!requestIdNum) {
+                if (typeof showNotification === 'function') showNotification('Save the request to DB before adding comments.', 'warning');
+                return;
+            }
+            if (!canTryApi) {
+                if (typeof showNotification === 'function') showNotification('DB unavailable — cannot add comment.', 'warning');
+                return;
+            }
+            if (!commentText) {
+                if (typeof showNotification === 'function') showNotification('Type a comment first.', 'warning');
+                return;
+            }
+
+            try {
+                if (btn) btn.disabled = true;
+                const createdBy = getCurrentUserDisplayName();
+                const res = await fetch(`${API_BASE_URL}/request-comments`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ requestId: requestIdNum, text: commentText, commentText: commentText, createdBy })
+                });
+                if (!res.ok) throw new Error('API request failed');
+
+                if (textEl) textEl.value = '';
+                await refreshRequestCollaborationUI();
+            } catch (e) {
+                console.warn('Failed to add comment', e);
+                if (typeof showNotification === 'function') showNotification('Failed to add comment.', 'error');
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        function readFileAsBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onerror = () => reject(new Error('Failed to read file'));
+                reader.onload = () => {
+                    const result = String(reader.result || '');
+                    const comma = result.indexOf(',');
+                    if (comma >= 0) return resolve(result.slice(comma + 1));
+                    resolve(result);
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function uploadRequestAttachment() {
+            const fileInput = document.getElementById('requestAttachmentFile');
+            const btn = document.getElementById('requestAttachmentUploadBtn');
+            const file = fileInput?.files?.[0];
+
+            const requestIdNum = parseNumericRequestId(getActiveRequestIdValue());
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+
+            if (!requestIdNum) {
+                if (typeof showNotification === 'function') showNotification('Save the request to DB before uploading attachments.', 'warning');
+                return;
+            }
+            if (!canTryApi) {
+                if (typeof showNotification === 'function') showNotification('DB unavailable — cannot upload attachment.', 'warning');
+                return;
+            }
+            if (!file) {
+                if (typeof showNotification === 'function') showNotification('Choose a file first.', 'warning');
+                return;
+            }
+
+            // Keep payload reasonable for base64 JSON uploads.
+            const maxBytes = 4 * 1024 * 1024;
+            if (file.size > maxBytes) {
+                if (typeof showNotification === 'function') showNotification('File too large. Please upload a file under 4 MB.', 'warning');
+                return;
+            }
+
+            try {
+                if (btn) btn.disabled = true;
+                const base64 = await readFileAsBase64(file);
+                const createdBy = getCurrentUserDisplayName();
+
+                const res = await fetch(`${API_BASE_URL}/request-attachments`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        requestId: requestIdNum,
+                        fileName: file.name,
+                        contentType: file.type || 'application/octet-stream',
+                        base64,
+                        data: base64,
+                        createdBy
+                    })
+                });
+                if (!res.ok) throw new Error('API request failed');
+
+                if (fileInput) fileInput.value = '';
+                await refreshRequestCollaborationUI();
+            } catch (e) {
+                console.warn('Failed to upload attachment', e);
+                if (typeof showNotification === 'function') showNotification('Failed to upload attachment.', 'error');
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        function base64ToBlob(base64, contentType) {
+            const bin = atob(String(base64 || ''));
+            const len = bin.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+            return new Blob([bytes], { type: contentType || 'application/octet-stream' });
+        }
+
+        async function downloadRequestAttachment(attachmentId, fallbackName = 'attachment', fallbackType = 'application/octet-stream') {
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+            if (!canTryApi) {
+                if (typeof showNotification === 'function') showNotification('DB unavailable — cannot download.', 'warning');
+                return;
+            }
+
+            const tryUrls = [
+                `${API_BASE_URL}/request-attachments/${encodeURIComponent(attachmentId)}`,
+                `${API_BASE_URL}/request-attachments?id=${encodeURIComponent(attachmentId)}`
+            ];
+
+            let data = null;
+            for (const url of tryUrls) {
+                try {
+                    const res = await fetch(url, { cache: 'no-store' });
+                    if (!res.ok) continue;
+                    data = await res.json();
+                    break;
+                } catch (_) {}
+            }
+
+            if (!data) {
+                if (typeof showNotification === 'function') showNotification('Failed to download attachment.', 'error');
+                return;
+            }
+
+            const base64 = data?.base64 ?? data?.Base64 ?? data?.data ?? data?.Data ?? '';
+            const fileName = data?.fileName ?? data?.FileName ?? fallbackName;
+            const contentType = data?.contentType ?? data?.ContentType ?? fallbackType;
+            if (!base64) {
+                if (typeof showNotification === 'function') showNotification('Attachment data missing.', 'error');
+                return;
+            }
+
+            const blob = base64ToBlob(base64, contentType);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = String(fileName || 'attachment');
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        async function deleteRequestComment(commentId) {
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+            if (!canTryApi) return;
+            if (!confirm('Delete this comment?')) return;
+
+            const tryUrls = [
+                `${API_BASE_URL}/request-comments/${encodeURIComponent(commentId)}`,
+                `${API_BASE_URL}/request-comments?id=${encodeURIComponent(commentId)}`
+            ];
+
+            let ok = false;
+            for (const url of tryUrls) {
+                try {
+                    const res = await fetch(url, { method: 'DELETE' });
+                    if (res.ok) {
+                        ok = true;
+                        break;
+                    }
+                } catch (_) {}
+            }
+            if (!ok) {
+                if (typeof showNotification === 'function') showNotification('Failed to delete comment.', 'error');
+                return;
+            }
+            await refreshRequestCollaborationUI();
+        }
+
+        async function deleteRequestAttachment(attachmentId) {
+            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
+            if (!canTryApi) return;
+            if (!confirm('Delete this attachment?')) return;
+
+            const tryUrls = [
+                `${API_BASE_URL}/request-attachments/${encodeURIComponent(attachmentId)}`,
+                `${API_BASE_URL}/request-attachments?id=${encodeURIComponent(attachmentId)}`
+            ];
+
+            let ok = false;
+            for (const url of tryUrls) {
+                try {
+                    const res = await fetch(url, { method: 'DELETE' });
+                    if (res.ok) {
+                        ok = true;
+                        break;
+                    }
+                } catch (_) {}
+            }
+            if (!ok) {
+                if (typeof showNotification === 'function') showNotification('Failed to delete attachment.', 'error');
+                return;
+            }
+            await refreshRequestCollaborationUI();
+        }
+
         async function fetchMyRequestNotifications() {
             const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
             const toUser = getCurrentUserDisplayName();
@@ -32284,6 +32756,9 @@
             }
 
             overlay.classList.add('active');
+
+            // Load shared comments/attachments from DB for this request
+            try { refreshRequestCollaborationUI(); } catch (_) {}
 
             // Keep dropdown checklist in sync + reflect disabled state
             try { renderMsdOptions('requestAssignedTo'); } catch (_) {}
@@ -32768,6 +33243,13 @@
         window.closeForwardPicker = closeForwardPicker;
         window.renderForwardPickerList = renderForwardPickerList;
         window.confirmForwardPicker = confirmForwardPicker;
+
+        window.refreshRequestCollaborationUI = refreshRequestCollaborationUI;
+        window.addRequestComment = addRequestComment;
+        window.uploadRequestAttachment = uploadRequestAttachment;
+        window.deleteRequestComment = deleteRequestComment;
+        window.deleteRequestAttachment = deleteRequestAttachment;
+        window.downloadRequestAttachment = downloadRequestAttachment;
 
         async function deleteRequest(requestId, options = {}) {
             const request = requestsData.find(r => String(r.id) === String(requestId));
