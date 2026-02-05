@@ -310,6 +310,112 @@ ELSE
 GO
 
 -- =============================================
+-- 12. REQUESTS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Requests' AND xtype='U')
+BEGIN
+    CREATE TABLE Requests (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        Title NVARCHAR(255) NOT NULL,
+        Type NVARCHAR(100),
+        Priority NVARCHAR(50),
+        Status NVARCHAR(50) DEFAULT 'New',
+        RequestedBy NVARCHAR(255),
+        AssignedTo NVARCHAR(MAX),
+        NeededBy DATE,
+        Location NVARCHAR(255),
+        Description NVARCHAR(MAX),
+        RequestedAt DATETIME2 DEFAULT SYSDATETIME(),
+        UpdatedAt DATETIME2 DEFAULT SYSDATETIME()
+    );
+    PRINT 'Created Requests table';
+END
+ELSE
+    PRINT 'Requests table already exists';
+GO
+
+-- =============================================
+-- 13. REQUEST ROUTING LOG TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RequestRoutingLog' AND xtype='U')
+BEGIN
+    CREATE TABLE RequestRoutingLog (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        RequestId INT NOT NULL,
+        FromUser NVARCHAR(255),
+        ToUser NVARCHAR(255) NOT NULL,
+        Action NVARCHAR(50) NOT NULL,
+        Note NVARCHAR(1000),
+        CreatedAt DATETIME2 DEFAULT SYSDATETIME()
+    );
+    PRINT 'Created RequestRoutingLog table';
+END
+ELSE
+    PRINT 'RequestRoutingLog table already exists';
+GO
+
+-- =============================================
+-- 14. REQUEST NOTIFICATIONS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RequestNotifications' AND xtype='U')
+BEGIN
+    CREATE TABLE RequestNotifications (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        RequestId INT NOT NULL,
+        ToUser NVARCHAR(255) NOT NULL,
+        FromUser NVARCHAR(255),
+        NotificationType NVARCHAR(50) NOT NULL,
+        Message NVARCHAR(1000) NOT NULL,
+        CreatedAt DATETIME2 DEFAULT SYSDATETIME(),
+        IsRead BIT DEFAULT 0,
+        ReadAt DATETIME2
+    );
+    PRINT 'Created RequestNotifications table';
+END
+ELSE
+    PRINT 'RequestNotifications table already exists';
+GO
+
+-- =============================================
+-- 15. REQUEST COMMENTS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RequestComments' AND xtype='U')
+BEGIN
+    CREATE TABLE RequestComments (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        RequestId INT NOT NULL,
+        CommentText NVARCHAR(MAX) NOT NULL,
+        CreatedBy NVARCHAR(255),
+        CreatedAt DATETIME2 DEFAULT SYSDATETIME()
+    );
+    PRINT 'Created RequestComments table';
+END
+ELSE
+    PRINT 'RequestComments table already exists';
+GO
+
+-- =============================================
+-- 16. REQUEST ATTACHMENTS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RequestAttachments' AND xtype='U')
+BEGIN
+    CREATE TABLE RequestAttachments (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        RequestId INT NOT NULL,
+        FileName NVARCHAR(255) NOT NULL,
+        ContentType NVARCHAR(150) NOT NULL,
+        SizeBytes INT NOT NULL,
+        Data VARBINARY(MAX) NOT NULL,
+        UploadedBy NVARCHAR(255),
+        UploadedAt DATETIME2 DEFAULT SYSDATETIME()
+    );
+    PRINT 'Created RequestAttachments table';
+END
+ELSE
+    PRINT 'RequestAttachments table already exists';
+GO
+
+-- =============================================
 -- VERIFY ALL TABLES
 -- =============================================
 SELECT 
@@ -317,7 +423,8 @@ SELECT
     (SELECT COUNT(*) FROM sys.columns c WHERE c.object_id = t.object_id) AS ColumnCount
 FROM sys.tables t
 WHERE t.name IN ('Clinics', 'Rooms', 'Users', 'Vendors', 'Equipment', 'Instruments', 
-                 'Supplies', 'Schedules', 'Tasks', 'Duties', 'Settings', 'Events', 'ChatMessages', 'StickyNotes')
+                 'Supplies', 'Schedules', 'Tasks', 'Duties', 'Settings', 'Events', 'ChatMessages', 'StickyNotes',
+                 'Requests', 'RequestRoutingLog', 'RequestNotifications', 'RequestComments', 'RequestAttachments')
 ORDER BY t.name;
 
 PRINT '';
