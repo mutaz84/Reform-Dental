@@ -31952,6 +31952,16 @@
             if (attachHint) attachHint.textContent = String(hint || '');
         }
 
+        function setRequestCommentsHint(text) {
+            const el = document.getElementById('requestCommentsHint');
+            if (el) el.textContent = String(text || '');
+        }
+
+        function setRequestAttachmentsHint(text) {
+            const el = document.getElementById('requestAttachmentsHint');
+            if (el) el.textContent = String(text || '');
+        }
+
         function setRequestCollaborationLoading(isLoading) {
             const commentBtn = document.getElementById('requestCommentAddBtn');
             const uploadBtn = document.getElementById('requestAttachmentUploadBtn');
@@ -32168,14 +32178,28 @@
 
         async function fetchRequestCommentsFromApi(requestIdNum) {
             const res = await fetch(`${API_BASE_URL}/request-comments?requestId=${encodeURIComponent(requestIdNum)}`, { cache: 'no-store' });
-            if (!res.ok) throw new Error('Failed to fetch comments');
+            if (!res.ok) {
+                let detail = '';
+                try {
+                    const text = await res.text();
+                    detail = text ? `: ${text}` : '';
+                } catch (_) {}
+                throw new Error(`Comments API ${res.status}${detail}`);
+            }
             const data = await res.json();
             return Array.isArray(data) ? data : [];
         }
 
         async function fetchRequestAttachmentsFromApi(requestIdNum) {
             const res = await fetch(`${API_BASE_URL}/request-attachments?requestId=${encodeURIComponent(requestIdNum)}`, { cache: 'no-store' });
-            if (!res.ok) throw new Error('Failed to fetch attachments');
+            if (!res.ok) {
+                let detail = '';
+                try {
+                    const text = await res.text();
+                    detail = text ? `: ${text}` : '';
+                } catch (_) {}
+                throw new Error(`Attachments API ${res.status}${detail}`);
+            }
             const data = await res.json();
             return Array.isArray(data) ? data : [];
         }
@@ -32204,13 +32228,28 @@
             }
 
             setRequestCollaborationEnabled(true, '');
+            setRequestCommentsHint(`Request #${requestIdNum}`);
+            setRequestAttachmentsHint(`Request #${requestIdNum}`);
             setRequestCollaborationLoading(true);
 
             try {
-                const [comments, attachments] = await Promise.all([
-                    fetchRequestCommentsFromApi(requestIdNum).catch(() => []),
-                    fetchRequestAttachmentsFromApi(requestIdNum).catch(() => [])
-                ]);
+                let comments = [];
+                let attachments = [];
+
+                try {
+                    comments = await fetchRequestCommentsFromApi(requestIdNum);
+                } catch (e) {
+                    setRequestCommentsHint(String(e?.message || 'Comments unavailable'));
+                    comments = [];
+                }
+
+                try {
+                    attachments = await fetchRequestAttachmentsFromApi(requestIdNum);
+                } catch (e) {
+                    setRequestAttachmentsHint(String(e?.message || 'Attachments unavailable'));
+                    attachments = [];
+                }
+
                 renderRequestCommentsList(comments);
                 renderRequestAttachmentsList(attachments);
             } catch (_) {
@@ -32251,10 +32290,17 @@
                     body: JSON.stringify({ requestId: requestIdNum, commentText: commentText, text: commentText, createdBy })
                 });
                 if (!res.ok) {
-                    let msg = 'Failed to add comment.';
+                    let msg = `Comments API ${res.status}`;
                     try {
-                        const body = await res.json();
-                        if (body?.error) msg = String(body.error);
+                        const ct = (res.headers.get('content-type') || '').toLowerCase();
+                        if (ct.includes('application/json')) {
+                            const body = await res.json();
+                            if (body?.error) msg = String(body.error);
+                            else msg = JSON.stringify(body);
+                        } else {
+                            const text = await res.text();
+                            if (text) msg = text;
+                        }
                     } catch (_) {}
                     throw new Error(msg);
                 }
@@ -32264,6 +32310,7 @@
             } catch (e) {
                 console.warn('Failed to add comment', e);
                 if (typeof showNotification === 'function') showNotification(String(e?.message || 'Failed to add comment.'), 'error');
+                setRequestCommentsHint(String(e?.message || 'Failed to add comment.'));
             } finally {
                 if (btn) btn.disabled = false;
             }
