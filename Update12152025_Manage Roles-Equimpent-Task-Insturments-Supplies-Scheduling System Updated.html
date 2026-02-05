@@ -32489,32 +32489,6 @@
             if (typeof showNotification === 'function') showNotification(`Escalated to ${request.assignedTo}`, 'success');
         }
 
-        async function forwardRequest(requestId) {
-            const request = requestsData.find(r => String(r.id) === String(requestId));
-            if (!request) return;
-
-            const currentUser = getCurrentUserDisplayName();
-            const isSender = isSameUserName(request.requestedBy, currentUser);
-            const canForward = isSender || isAdminUser() || canCurrentUserChangeRequestStatus(request);
-            if (!canForward) {
-                if (typeof showNotification === 'function') showNotification('You do not have permission to forward this request.', 'warning');
-                return;
-            }
-
-            const options = getRequestAssigneeOptions();
-            const existing = parseAssignees(request.assignedTo);
-            const candidates = options.filter(n => !existing.some(e => isSameUserName(e, n)));
-            if (!candidates.length) {
-                if (typeof showNotification === 'function') showNotification('No additional people available to forward to.', 'warning');
-                return;
-            }
-
-            openForwardPicker(requestId, candidates);
-            return;
-
-            // (legacy prompt flow removed)
-
-
         // Forward picker modal state
         window.__forwardPickerState = window.__forwardPickerState || {
             requestId: null,
@@ -32688,75 +32662,35 @@
             renderRequestsTable();
         }
 
+        async function forwardRequest(requestId) {
+            const request = requestsData.find(r => String(r.id) === String(requestId));
+            if (!request) return;
+
+            const currentUser = getCurrentUserDisplayName();
+            const isSender = isSameUserName(request.requestedBy, currentUser);
+            const canForward = isSender || isAdminUser() || canCurrentUserChangeRequestStatus(request);
+            if (!canForward) {
+                if (typeof showNotification === 'function') showNotification('You do not have permission to forward this request.', 'warning');
+                return;
+            }
+
+            const options = getRequestAssigneeOptions();
+            const existing = parseAssignees(request.assignedTo);
+            const candidates = options.filter(n => !existing.some(e => isSameUserName(e, n)));
+            if (!candidates.length) {
+                if (typeof showNotification === 'function') showNotification('No additional people available to forward to.', 'warning');
+                return;
+            }
+
+            openForwardPicker(requestId, candidates);
+        }
+
         window.toggleMsd = toggleMsd;
         window.filterMsd = filterMsd;
         window.openForwardPicker = openForwardPicker;
         window.closeForwardPicker = closeForwardPicker;
         window.renderForwardPickerList = renderForwardPickerList;
         window.confirmForwardPicker = confirmForwardPicker;
-            const pick = prompt(
-                'Forward to (type exact name):\n' +
-                candidates.slice(0, 25).join('\n') +
-                (candidates.length > 25 ? `\n...and ${candidates.length - 25} more` : '')
-            );
-
-            const toUser = String(pick || '').trim();
-            if (!toUser) return;
-            if (existing.some(e => isSameUserName(e, toUser))) {
-                if (typeof showNotification === 'function') showNotification(`${toUser} is already included.`, 'warning');
-                return;
-            }
-
-            const updatedAssignees = [...existing, toUser];
-            const updated = { ...request, assignedTo: formatAssignees(updatedAssignees) };
-
-            const canTryApi = typeof API_BASE_URL !== 'undefined' && API_BASE_URL;
-            if (canTryApi) {
-                try {
-                    const res = await fetch(`${API_BASE_URL}/requests/${requestId}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(updated)
-                    });
-                    if (!res.ok) throw new Error('API request failed');
-                    requestsApiAvailable = true;
-                    updateRequestsApiStatus(true);
-                    await loadRequests({ force: true });
-                } catch (e) {
-                    requestsApiAvailable = false;
-                    updateRequestsApiStatus(false);
-                    upsertRequestLocal(updated);
-                    if (typeof showNotification === 'function') showNotification('API unavailable — forward saved locally.', 'warning');
-                }
-            } else {
-                requestsApiAvailable = false;
-                updateRequestsApiStatus(false);
-                upsertRequestLocal(updated);
-            }
-
-            // log event + notify new person
-            const action = isSender ? 'added' : 'forwarded';
-            const note = isSender ? 'Sender added additional receiver' : 'Receiver forwarded to another person';
-            postRequestRoutingEvent({ requestId: parseInt(requestId, 10), fromUser: currentUser, toUser, action, note });
-
-            const msg = `Request ${request.id} forwarded to you: ${request.title}`;
-            addRequestUserNotification({ requestId: request.id, toUser, fromUser: currentUser, type: 'forward', message: msg });
-            postRequestNotification({ requestId: request.id, toUser, fromUser: currentUser, type: 'forward', message: msg });
-
-            // notify sender if receiver forwarded
-            try {
-                if (!isSender && request.requestedBy && !isSameUserName(request.requestedBy, currentUser)) {
-                    const senderMsg = `Request ${request.id} was forwarded to ${toUser} by ${currentUser}`;
-                    addRequestUserNotification({ requestId: request.id, toUser: request.requestedBy, fromUser: currentUser, type: 'forward', message: senderMsg });
-                    postRequestNotification({ requestId: request.id, toUser: request.requestedBy, fromUser: currentUser, type: 'forward', message: senderMsg });
-                }
-            } catch (_) {}
-
-            if (typeof showNotification === 'function') showNotification(`Forwarded to ${toUser}`, 'success');
-            updateRequestsNavBadge();
-            refreshRequestsNotificationsBadge();
-            renderRequestsTable();
-        }
 
         async function deleteRequest(requestId, options = {}) {
             const request = requestsData.find(r => String(r.id) === String(requestId));
