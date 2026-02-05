@@ -55,7 +55,7 @@ module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type'
     };
 
@@ -71,33 +71,62 @@ module.exports = async function (context, req) {
         const body = req.body || {};
 
         if (method === 'GET') {
-            const requestId = toIntOrNull((req.query && req.query.requestId) || (req.params && req.params.id));
-            if (!requestId) {
-                context.res = { status: 400, headers, body: { error: 'Missing numeric requestId.' } };
-                return;
-            }
+            const requestId = toIntOrNull(req.query && req.query.requestId);
+            const attachmentId = toIntOrNull((req.query && (req.query.id || req.query.attachmentId)) || (req.params && req.params.id));
 
             const includeDataRaw = (req.query && req.query.includeData ? String(req.query.includeData) : '').trim();
             const includeData = includeDataRaw === '1' || includeDataRaw.toLowerCase() === 'true';
 
-            const selectFields = includeData
-                ? 'Id AS id, RequestId AS requestId, FileName AS fileName, ContentType AS contentType, SizeBytes AS sizeBytes, UploadedBy AS uploadedBy, UploadedAt AS uploadedAt, Data AS data'
-                : 'Id AS id, RequestId AS requestId, FileName AS fileName, ContentType AS contentType, SizeBytes AS sizeBytes, UploadedBy AS uploadedBy, UploadedAt AS uploadedAt';
+            if (requestId) {
+                const selectFields = includeData
+                    ? 'Id AS id, RequestId AS requestId, FileName AS fileName, ContentType AS contentType, SizeBytes AS sizeBytes, UploadedBy AS uploadedBy, UploadedAt AS uploadedAt, Data AS data'
+                    : 'Id AS id, RequestId AS requestId, FileName AS fileName, ContentType AS contentType, SizeBytes AS sizeBytes, UploadedBy AS uploadedBy, UploadedAt AS uploadedAt';
 
-            const result = await pool.request()
-                .input('requestId', sql.Int, requestId)
-                .query(`
-                    SELECT ${selectFields}
-                    FROM RequestAttachments
-                    WHERE RequestId = @requestId
-                    ORDER BY UploadedAt ASC
-                `);
+                const result = await pool.request()
+                    .input('requestId', sql.Int, requestId)
+                    .query(`
+                        SELECT ${selectFields}
+                        FROM RequestAttachments
+                        WHERE RequestId = @requestId
+                        ORDER BY UploadedAt ASC
+                    `);
 
-            context.res = {
-                status: 200,
-                headers,
-                body: (result.recordset || []).map(row => mapRow(row, includeData))
-            };
+                context.res = {
+                    status: 200,
+                    headers,
+                    body: (result.recordset || []).map(row => mapRow(row, includeData))
+                };
+                return;
+            }
+
+            if (attachmentId) {
+                const result = await pool.request()
+                    .input('id', sql.Int, attachmentId)
+                    .query(`
+                        SELECT
+                          Id AS id,
+                          RequestId AS requestId,
+                          FileName AS fileName,
+                          ContentType AS contentType,
+                          SizeBytes AS sizeBytes,
+                          UploadedBy AS uploadedBy,
+                          UploadedAt AS uploadedAt,
+                          Data AS data
+                        FROM RequestAttachments
+                        WHERE Id = @id
+                    `);
+
+                const row = (result.recordset || [])[0];
+                if (!row) {
+                    context.res = { status: 404, headers, body: { error: 'Attachment not found.' } };
+                    return;
+                }
+
+                context.res = { status: 200, headers, body: mapRow(row, true) };
+                return;
+            }
+
+            context.res = { status: 400, headers, body: { error: 'Missing numeric requestId (for list) or id (for download).' } };
             return;
         }
 
@@ -105,8 +134,11 @@ module.exports = async function (context, req) {
             const requestId = toIntOrNull(body.requestId);
             const fileName = (body.fileName !== undefined && body.fileName !== null ? String(body.fileName) : '').trim();
             const contentType = (body.contentType !== undefined && body.contentType !== null ? String(body.contentType) : '').trim();
-            const uploadedBy = (body.uploadedBy !== undefined && body.uploadedBy !== null ? String(body.uploadedBy) : '').trim();
-            const base64 = normalizeBase64(body.dataBase64 || body.data);
+            const uploadedBy = (body.uploadedBy !== undefined && body.uploadedBy !== null
+                ? String(body.uploadedBy)
+                : (body.createdBy !== undefined && body.createdBy !== null ? String(body.createdBy) : '')
+            ).trim();
+            const base64 = normalizeBase64(body.dataBase64 || body.base64 || body.data);
 
             if (!requestId) {
                 context.res = { status: 400, headers, body: { error: 'Missing numeric requestId.' } };
@@ -126,6 +158,12 @@ module.exports = async function (context, req) {
             }
 
             const buffer = Buffer.from(base64, 'base64');
+
+            // Guardrail for JSON base64 uploads (keep it reasonably small).
+            if (buffer.length > 4 * 1024 * 1024) {
+                context.res = { status: 413, headers, body: { error: 'File too large. Please upload a file under 4 MB.' } };
+                return;
+            }
             const sizeBytes = toIntOrNull(body.sizeBytes) || buffer.length;
 
             const result = await pool.request()
@@ -144,6 +182,27 @@ module.exports = async function (context, req) {
                 `);
 
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
+            return;
+        }
+
+        if (method === 'DELETE') {
+            const attachmentId = toIntOrNull((req.query && (req.query.id || req.query.attachmentId)) || (req.params && req.params.id));
+            if (!attachmentId) {
+                context.res = { status: 400, headers, body: { error: 'Missing numeric attachment id.' } };
+                return;
+            }
+
+            const result = await pool.request()
+                .input('id', sql.Int, attachmentId)
+                .query('DELETE FROM RequestAttachments WHERE Id = @id');
+
+            const affected = (result.rowsAffected && result.rowsAffected[0]) ? result.rowsAffected[0] : 0;
+            if (!affected) {
+                context.res = { status: 404, headers, body: { error: 'Attachment not found.' } };
+                return;
+            }
+
+            context.res = { status: 204, headers };
             return;
         }
 

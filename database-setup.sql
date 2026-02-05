@@ -379,6 +379,50 @@ ELSE
 GO
 
 -- =============================================
+-- 15. REQUEST ROUTING LOG TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RequestRoutingLog' AND xtype='U')
+BEGIN
+    CREATE TABLE RequestRoutingLog (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        RequestId INT NOT NULL,
+        FromUser NVARCHAR(255) NULL,
+        ToUser NVARCHAR(255) NOT NULL,
+        Action NVARCHAR(50) NOT NULL,
+        Note NVARCHAR(1000) NULL,
+        CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME()
+    );
+    CREATE INDEX IX_RequestRoutingLog_RequestId_CreatedAt ON RequestRoutingLog(RequestId, CreatedAt DESC);
+    PRINT 'Created RequestRoutingLog table';
+END
+ELSE
+    PRINT 'RequestRoutingLog table already exists';
+GO
+
+-- =============================================
+-- 16. REQUEST NOTIFICATIONS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='RequestNotifications' AND xtype='U')
+BEGIN
+    CREATE TABLE RequestNotifications (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        RequestId INT NOT NULL,
+        ToUser NVARCHAR(255) NOT NULL,
+        FromUser NVARCHAR(255) NULL,
+        NotificationType NVARCHAR(50) NOT NULL,
+        Message NVARCHAR(1000) NOT NULL,
+        CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+        IsRead BIT NOT NULL DEFAULT 0,
+        ReadAt DATETIME2 NULL
+    );
+    CREATE INDEX IX_RequestNotifications_ToUser_IsRead_CreatedAt ON RequestNotifications(ToUser, IsRead, CreatedAt DESC);
+    PRINT 'Created RequestNotifications table';
+END
+ELSE
+    PRINT 'RequestNotifications table already exists';
+GO
+
+-- =============================================
 -- VERIFY ALL TABLES
 -- =============================================
 SELECT 
@@ -387,7 +431,7 @@ SELECT
 FROM sys.tables t
 WHERE t.name IN ('Clinics', 'Rooms', 'Users', 'Vendors', 'Equipment', 'Instruments', 
                  'Supplies', 'Schedules', 'Tasks', 'Duties', 'Settings', 'Events', 'ChatMessages', 'StickyNotes',
-                 'Requests', 'RequestComments', 'RequestAttachments')
+                 'Requests', 'RequestComments', 'RequestAttachments', 'RequestRoutingLog', 'RequestNotifications')
 ORDER BY t.name;
 
 PRINT '';

@@ -40,7 +40,7 @@ module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type'
     };
 
@@ -82,7 +82,10 @@ module.exports = async function (context, req) {
 
         if (method === 'POST') {
             const requestId = toIntOrNull(body.requestId);
-            const commentText = (body.commentText !== undefined && body.commentText !== null ? String(body.commentText) : '').trim();
+            const commentText = (body.commentText !== undefined && body.commentText !== null
+                ? String(body.commentText)
+                : (body.text !== undefined && body.text !== null ? String(body.text) : '')
+            ).trim();
             const createdBy = (body.createdBy !== undefined && body.createdBy !== null ? String(body.createdBy) : '').trim();
 
             if (!requestId) {
@@ -107,6 +110,27 @@ module.exports = async function (context, req) {
                 `);
 
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
+            return;
+        }
+
+        if (method === 'DELETE') {
+            const commentId = toIntOrNull((req.query && (req.query.id || req.query.commentId)) || (req.params && req.params.id));
+            if (!commentId) {
+                context.res = { status: 400, headers, body: { error: 'Missing numeric comment id.' } };
+                return;
+            }
+
+            const result = await pool.request()
+                .input('id', sql.Int, commentId)
+                .query('DELETE FROM RequestComments WHERE Id = @id');
+
+            const affected = (result.rowsAffected && result.rowsAffected[0]) ? result.rowsAffected[0] : 0;
+            if (!affected) {
+                context.res = { status: 404, headers, body: { error: 'Comment not found.' } };
+                return;
+            }
+
+            context.res = { status: 204, headers };
             return;
         }
 
