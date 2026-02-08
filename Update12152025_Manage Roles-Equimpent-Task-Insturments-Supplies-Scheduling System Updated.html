@@ -12712,9 +12712,9 @@
         display: flex;
         align-items: center;
         justify-content: flex-start;
-        gap: 0.5rem;
+        gap: 0.35rem;
         min-height: 40px;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
     }
 
     .unified-right-rail .urr-top-left {
@@ -12728,11 +12728,10 @@
     .unified-right-rail .urr-top-right {
         display: inline-flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.35rem;
         flex: 1 1 auto;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         justify-content: flex-start;
-        min-width: 0;
     }
 
     .unified-right-rail .urr-meta {
@@ -12774,11 +12773,6 @@
     .unified-right-rail #urrClinicHost,
     .unified-right-rail #urrUserHost {
         min-width: 0;
-    }
-
-    .unified-right-rail #urrClinicHost {
-        display: inline-flex;
-        align-items: center;
     }
 
     .unified-right-rail #urrClinicHost:empty {
@@ -12870,50 +12864,62 @@
         text-overflow: ellipsis;
     }
 
-    /* Single-line header: keep user compact and clinic beside it */
+    /* Screenshot-like stacked user + clinic (clinic under username) */
     .unified-right-rail #urrUserHost .user-profile {
-        height: 34px;
-        padding: 0.2rem 0.45rem;
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
+        height: auto;
+        padding: 0;
+        border: none;
         background: transparent;
         align-items: center;
-        max-width: 220px;
+    }
+
+    .unified-right-rail #urrUserHost .user-info {
+        gap: 2px;
     }
 
     .unified-right-rail #urrUserHost .user-name {
-        font-size: 0.85rem;
-        line-height: 1.1;
-        color: var(--text-primary);
-        max-width: 160px;
+        font-size: 0.9rem;
+        line-height: 1.05;
+        color: var(--accent-primary);
+        max-width: 150px;
     }
 
-    .unified-right-rail #urrClinicHost #clinicFilterContainer {
+    .unified-right-rail #urrUserHost #clinicFilterContainer {
         display: inline-flex !important;
-        align-items: center;
+        margin-top: 1px;
     }
 
-    .unified-right-rail #urrClinicHost #clinicFilterSelect {
+    .unified-right-rail #urrUserHost #clinicFilterSelect {
         width: 150px;
         min-width: 150px;
         max-width: 150px;
-        height: 34px;
-        padding: 0.35rem 0.6rem;
-        padding-right: 1.9rem;
-        border: 1px solid var(--border-color);
-        border-radius: 10px;
+        height: 22px;
+        padding: 0;
+        padding-right: 1.15rem;
+        border: none;
         background-color: transparent;
         box-shadow: none;
         font-size: 0.85rem;
         font-weight: 600;
-        color: var(--text-primary);
+        color: var(--text-secondary);
         appearance: none;
         -webkit-appearance: none;
         -moz-appearance: none;
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
         background-repeat: no-repeat;
-        background-position: right 0.6rem center;
+        background-position: right 0.25rem center;
         background-size: 10px 10px;
+    }
+
+    .unified-right-rail #urrUserHost #clinicFilterSelect:hover {
+        border-color: transparent;
+        background-color: transparent;
+    }
+
+    .unified-right-rail #urrUserHost #clinicFilterSelect:focus {
+        border-color: transparent;
+        background-color: transparent;
+        box-shadow: none;
     }
 
     .unified-right-rail .user-profile .user-role {
@@ -55242,7 +55248,11 @@ console.log('✅ Global functions exported to window object');
             } catch (_) {}
             try {
                 if (canUseRailHosts) {
-                    if (clinicFilter && railClinicHost && clinicFilter.parentNode !== railClinicHost) {
+                    // Prefer the screenshot layout: clinic dropdown under the username (inside user-profile).
+                    const userInfo = userProfile ? (userProfile.querySelector('.user-info') || userProfile) : null;
+                    if (clinicFilter && userInfo && clinicFilter.parentNode !== userInfo) {
+                        userInfo.appendChild(clinicFilter);
+                    } else if (clinicFilter && railClinicHost && clinicFilter.parentNode !== railClinicHost) {
                         railClinicHost.appendChild(clinicFilter);
                     }
                 } else {
@@ -55279,8 +55289,9 @@ console.log('✅ Global functions exported to window object');
 
                 // Clinic can be hosted either in the dedicated clinic host OR nested under the user block (screenshot layout).
                 if (clinicFilter) {
+                    const inUserHost = railUserHost ? railUserHost.contains(clinicFilter) : false;
                     const inClinicHost = railClinicHost ? railClinicHost.contains(clinicFilter) : false;
-                    if (!inClinicHost) return false;
+                    if (!inUserHost && !inClinicHost) return false;
                 }
             } else {
                 // Rail not yet installed; keep retrying for a short time.
