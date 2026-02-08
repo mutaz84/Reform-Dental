@@ -13144,6 +13144,15 @@
         right: calc(var(--right-rail-width) + var(--app-gutter)) !important;
     }
 
+    body.right-rail-enabled.right-rail-collapsed #vendorsManagementModal,
+    body.right-rail-enabled.right-rail-collapsed #equipmentManagementModal,
+    body.right-rail-enabled.right-rail-collapsed #instrumentsManagementModal,
+    body.right-rail-enabled.right-rail-collapsed #suppliesManagementModal,
+    body.right-rail-enabled.right-rail-collapsed #scheduleManagerModal,
+    body.right-rail-enabled.right-rail-collapsed #scheduleManagerModalDynamic {
+        right: var(--app-gutter) !important;
+    }
+
     body.right-rail-enabled #vendorsManagementModal .login-card,
     body.right-rail-enabled #equipmentManagementModal .login-card,
     body.right-rail-enabled #instrumentsManagementModal .login-card,
@@ -13164,6 +13173,15 @@
     body.right-rail-enabled #scheduleManagerModal,
     body.right-rail-enabled #scheduleManagerModalDynamic {
         right: calc(var(--right-rail-width) + var(--app-gutter)) !important;
+    }
+
+    body.right-rail-enabled.right-rail-collapsed #vendorsManagementModal,
+    body.right-rail-enabled.right-rail-collapsed #equipmentManagementModal,
+    body.right-rail-enabled.right-rail-collapsed #instrumentsManagementModal,
+    body.right-rail-enabled.right-rail-collapsed #suppliesManagementModal,
+    body.right-rail-enabled.right-rail-collapsed #scheduleManagerModal,
+    body.right-rail-enabled.right-rail-collapsed #scheduleManagerModalDynamic {
+        right: var(--app-gutter) !important;
     }
 
     body.right-rail-enabled #vendorsManagementModal .login-card,
@@ -23957,6 +23975,9 @@
                 } catch (_) {}
 
                 modal.style.display = 'flex';
+                // The management modal is now used for add/edit only.
+                const formSection = document.getElementById('equipmentFormSection');
+                if (formSection) formSection.style.display = 'block';
                 populateEquipmentOfficeDropdown();
                 populateEquipmentVendorDropdown();
                 displayEquipmentList();
@@ -51829,42 +51850,12 @@ document.addEventListener('keydown', function(e) {
                 <i class="fas fa-cog" style="color: #f59e0b;"></i>
                 Equipment Management
             </h3>
-            <button type="button" class="btn-secondary" onclick="closeEquipmentManagement()" style="display: inline-flex; align-items: center; gap: 0.5rem;">
-                <i class="fas fa-arrow-left"></i>
-                Back
-            </button>
+            <button onclick="closeEquipmentManagement()" style="background: transparent; color: var(--text-secondary); border: 1px solid var(--border-color); width: 40px; height: 40px; border-radius: 10px; font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s, border-color 0.2s, color 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'; this.style.borderColor='var(--accent-primary)'; this.style.color='var(--text-primary)'" onmouseout="this.style.background='transparent'; this.style.borderColor='var(--border-color)'; this.style.color='var(--text-secondary)'" title="Close">&times;</button>
         </div>
         
         <div class="modal-body" style="padding: 2rem;">
-            <!-- Equipment List Section - FIRST -->
-            <div style="margin-bottom: 1.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                    <h4 style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
-                        <i class="fas fa-list" style="color: var(--accent-primary);"></i>
-                        Equipment Inventory
-                    </h4>
-                    <div></div>
-                </div>
-                <div style="overflow-x: auto;">
-                    <table style="width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 8px; overflow: hidden;">
-                        <thead>
-                            <tr style="background: var(--bg-secondary); border-bottom: 2px solid var(--border-color);">
-                                <th style="padding: 1rem; text-align: left; color: var(--text-secondary); font-weight: 600;">Equipment Name</th>
-                                <th style="padding: 1rem; text-align: left; color: var(--text-secondary); font-weight: 600;">Category</th>
-                                <th style="padding: 1rem; text-align: left; color: var(--text-secondary); font-weight: 600;">Location</th>
-                                <th style="padding: 1rem; text-align: left; color: var(--text-secondary); font-weight: 600;">Status</th>
-                                <th style="padding: 1rem; text-align: left; color: var(--text-secondary); font-weight: 600;">Next Service</th>
-                                <th style="padding: 1rem; text-align: center; color: var(--text-secondary); font-weight: 600;">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="equipmentList">
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Add/Edit Equipment Form - Hidden by default -->
-            <div id="equipmentFormSection" style="display: none; background: var(--bg-secondary); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
+            <!-- Add/Edit Equipment Form -->
+            <div id="equipmentFormSection" style="display: block; background: var(--bg-secondary); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
                 <h4 id="equipmentFormTitle" style="margin: 0 0 1rem 0; color: var(--text-primary);">Add New Equipment</h4>
                 <form id="createEquipmentForm" onsubmit="createEquipment(event)">
                     <input type="hidden" id="editEquipmentId" value="">
@@ -55415,6 +55406,9 @@ console.log('✅ Global functions exported to window object');
         const rail = document.getElementById('unifiedRightRail');
         if (!rail) return;
         rail.classList.toggle('collapsed', !!collapsed);
+        try {
+            if (document.body) document.body.classList.toggle('right-rail-collapsed', !!collapsed);
+        } catch (_) {}
         try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0'); } catch (_) {}
         // Keep existing arrow buttons in sync
         if (typeof updateToggleButtons === 'function') {
