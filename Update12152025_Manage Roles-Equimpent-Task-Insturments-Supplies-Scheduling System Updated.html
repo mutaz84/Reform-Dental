@@ -55081,11 +55081,12 @@ console.log('✅ Global functions exported to window object');
         const railClinicHost = document.getElementById('urrClinicHost');
         if (!sidebarSettingsHost) return false;
 
-        const wantsRail = !!(document.body && document.body.classList.contains('right-rail-enabled'));
         const rail = document.getElementById('unifiedRightRail');
-        // If the unified rail is enabled, wait until it exists so we can place the logo/user/clinic in the top row.
+        // The rail is installed after DOMContentLoaded with a small delay. During that window,
+        // we still want to keep retrying so we can eventually move logo/user/clinic into the rail.
+        const wantsRail = !!(document.body && document.body.classList.contains('right-rail-enabled'));
         if (wantsRail && !rail) return false;
-        if (wantsRail && rail && (!railTabsSettings || !railBrandHost || !railUserHost || !railClinicHost)) return false;
+        const canUseRailHosts = !!(rail && railTabsSettings && railBrandHost && railUserHost && railClinicHost);
 
         const header = document.querySelector('.header');
         const mobileMenuBtn = document.getElementById('mobileMenuBtn');
@@ -55122,8 +55123,8 @@ console.log('✅ Global functions exported to window object');
             // Brand
             try {
                 const logoSection = document.querySelector('.header .logo-section') || document.querySelector('.logo-section');
-                if (wantsRail) {
-                    if (railBrandHost && logoSection && logoSection.parentNode !== railBrandHost) {
+                if (canUseRailHosts) {
+                    if (logoSection && logoSection.parentNode !== railBrandHost) {
                         railBrandHost.appendChild(logoSection);
                     }
                 } else {
@@ -55135,8 +55136,8 @@ console.log('✅ Global functions exported to window object');
 
             // Visible (not hidden under settings)
             try {
-                if (wantsRail) {
-                    if (railUserHost && userProfile && userProfile.parentNode !== railUserHost) {
+                if (canUseRailHosts) {
+                    if (userProfile && userProfile.parentNode !== railUserHost) {
                         railUserHost.appendChild(userProfile);
                     }
                 } else {
@@ -55146,8 +55147,8 @@ console.log('✅ Global functions exported to window object');
                 }
             } catch (_) {}
             try {
-                if (wantsRail) {
-                    if (railClinicHost && clinicFilter && clinicFilter.parentNode !== railClinicHost) {
+                if (canUseRailHosts) {
+                    if (clinicFilter && clinicFilter.parentNode !== railClinicHost) {
                         railClinicHost.appendChild(clinicFilter);
                     }
                 } else {
@@ -55173,11 +55174,18 @@ console.log('✅ Global functions exported to window object');
         // If the unified right rail exists, make sure the top-row hosts have been populated.
         // This avoids timing issues where elements get stuck inside the settings dropdown.
         try {
-            const rail = document.getElementById('unifiedRightRail');
             if (rail) {
-                if (railBrandHost && !railBrandHost.querySelector('.logo-section')) return false;
-                if (railUserHost && !railUserHost.querySelector('.user-profile')) return false;
-                if (railClinicHost && !railClinicHost.querySelector('#clinicFilterContainer')) return false;
+                // Only require elements that exist (some screens may not render all controls).
+                const logoSection = document.querySelector('.logo-section');
+                const userProfile = document.querySelector('.user-profile');
+                const clinicFilter = document.getElementById('clinicFilterContainer');
+
+                if (logoSection && railBrandHost && logoSection.parentNode !== railBrandHost) return false;
+                if (userProfile && railUserHost && userProfile.parentNode !== railUserHost) return false;
+                if (clinicFilter && railClinicHost && clinicFilter.parentNode !== railClinicHost) return false;
+            } else {
+                // Rail not yet installed; keep retrying for a short time.
+                return false;
             }
         } catch (_) {}
 
