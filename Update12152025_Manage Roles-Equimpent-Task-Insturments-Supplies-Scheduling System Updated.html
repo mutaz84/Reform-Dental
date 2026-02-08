@@ -7113,6 +7113,122 @@
             color: var(--text-secondary);
         }
 
+        /* Equipment View */
+        .equipment-page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .equipment-filters {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            align-items: center;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            background: var(--bg-secondary);
+            margin-bottom: 0.75rem;
+        }
+
+        .equipment-filter-input {
+            min-width: 180px;
+        }
+
+        .equipment-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 0.75rem;
+        }
+
+        .equipment-card {
+            padding: 0.9rem;
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            background: var(--bg-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .equipment-card:hover {
+            border-color: var(--accent-primary);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px var(--shadow);
+        }
+
+        .equipment-card.inactive {
+            opacity: 0.65;
+        }
+
+        .equipment-card-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .equipment-card-title {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0;
+            line-height: 1.2;
+        }
+
+        .equipment-card-meta {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .equipment-badge {
+            padding: 0.25rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 650;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            background: var(--bg-tertiary);
+            white-space: nowrap;
+        }
+
+        .equipment-status-badge {
+            padding: 0.25rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .equipment-card-lines {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            color: var(--text-secondary);
+            font-size: 0.82rem;
+        }
+
+        .equipment-card-lines .line {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .equipment-empty {
+            padding: 2rem;
+            text-align: center;
+            color: var(--text-tertiary);
+            border: 1px dashed var(--border-color);
+            border-radius: 12px;
+            background: var(--bg-secondary);
+        }
+
         /* Quick Calendar Dropdown */
         .quick-calendar-dropdown {
             position: absolute;
@@ -14338,7 +14454,7 @@
                                     <i class="fas fa-truck"></i>
                                     <span>Vendors</span>
                                 </a>
-                                <a href="#" class="nav-item" onclick="openEquipmentManagement(); return false;">
+                                <a href="#" class="nav-item" onclick="switchContentView('equipment', event); return false;">
                                     <i class="fas fa-tools"></i>
                                     <span>Equipment</span>
                                 </a>
@@ -14554,7 +14670,7 @@
                                 <i class="fas fa-truck"></i>
                                 <span>Vendors</span>
                             </a>
-                            <a href="#" class="nav-item" onclick="openEquipmentManagement(); return false;">
+                            <a href="#" class="nav-item" onclick="switchContentView('equipment', event); return false;">
                                 <i class="fas fa-tools"></i>
                                 <span>Equipment</span>
                             </a>
@@ -14771,6 +14887,162 @@
                     </div>
                 </div>
 
+                <!-- Equipment View -->
+                <div class="content-view" id="view-equipment">
+                    <div class="dashboard-grid">
+                        <!-- Equipment Section (Left) -->
+                        <div class="calendar-section" id="equipmentSection">
+                            <div class="section-header equipment-page-header">
+                                <h2 class="section-title">
+                                    <i class="fas fa-tools" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+                                    Equipment
+                                </h2>
+                                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                    <button type="button" class="btn-secondary" onclick="openEquipmentManagement(); return false;">Manage</button>
+                                    <button type="button" class="btn-primary" onclick="openEquipmentManagement(); setTimeout(openAddEquipmentForm, 50); return false;">Add Equipment</button>
+                                </div>
+                            </div>
+
+                            <div class="equipment-filters">
+                                <input id="equipmentPageSearch" class="form-input-enhanced equipment-filter-input" type="text" placeholder="Search equipment..." oninput="renderEquipmentPageList()">
+                                <select id="equipmentPageType" class="form-input-enhanced equipment-filter-input" onchange="renderEquipmentPageList()">
+                                    <option value="">All Types</option>
+                                </select>
+                                <select id="equipmentPageStatus" class="form-input-enhanced equipment-filter-input" onchange="renderEquipmentPageList()">
+                                    <option value="">All Status</option>
+                                    <option value="Operational">Operational</option>
+                                    <option value="Needs Service">Needs Service</option>
+                                    <option value="Under Repair">Under Repair</option>
+                                    <option value="Out of Service">Out of Service</option>
+                                    <option value="Retired">Retired</option>
+                                </select>
+                                <button type="button" class="clear-filter-btn" onclick="clearEquipmentPageFilters()" title="Clear filters">
+                                    <i class="fas fa-times"></i>
+                                    Clear
+                                </button>
+                            </div>
+
+                            <div class="equipment-cards" id="equipmentPageList"></div>
+                        </div>
+
+                        <!-- Right Sidebar - Dental Office (for right rail) -->
+                        <div class="sidebar-right">
+                            <!-- Dental Office Section -->
+                            <div class="nav-section" data-section="dental-office">
+                                <div class="nav-title">
+                                    <span>DENTAL OFFICE</span>
+                                    <span class="nav-toggle"><i class="fas fa-chevron-down"></i></span>
+                                </div>
+                                <div class="nav-items">
+                                    <a href="#" class="nav-item" onclick="showOfficePlan(); return false;">
+                                        <i class="fas fa-map-marked-alt"></i>
+                                        <span>Office Plan</span>
+                                    </a>
+                                    <a href="#" class="nav-item" onclick="openVendorsManagement(); return false;">
+                                        <i class="fas fa-truck"></i>
+                                        <span>Vendors</span>
+                                    </a>
+                                    <a href="#" class="nav-item" onclick="switchContentView('equipment', event); return false;">
+                                        <i class="fas fa-tools"></i>
+                                        <span>Equipment</span>
+                                    </a>
+                                    <a href="#" class="nav-item" onclick="openInstrumentsManagement(); return false;">
+                                        <i class="fas fa-syringe"></i>
+                                        <span>Instruments</span>
+                                    </a>
+                                    <a href="#" class="nav-item" onclick="openSuppliesManagement(); return false;">
+                                        <i class="fas fa-boxes"></i>
+                                        <span>Supplies</span>
+                                    </a>
+                                    <a href="#" class="nav-item" onclick="switchContentView('procedures', event)">
+                                        <i class="fas fa-clipboard-list"></i>
+                                        <span>Procedures</span>
+                                        <span class="nav-badge" id="proceduresCountBadge">0</span>
+                                    </a>
+                                </div>
+                            </div>
+
+                            <!-- Employee Operations Section -->
+                            <div class="nav-section" data-section="employee-operations">
+                                <div class="nav-title">
+                                    <span>EMPLOYEE OPERATIONS</span>
+                                    <span class="nav-toggle"><i class="fas fa-chevron-down"></i></span>
+                                </div>
+                                <div class="nav-items">
+                                    <a href="#" class="nav-item" onclick="openScheduleManager(); return false;">
+                                        <i class="fas fa-calendar-check" style="color: var(--accent-primary);"></i>
+                                        <span>Manage Schedule</span>
+                                    </a>
+                                    <a href="#" class="nav-item" onclick="openTasksManagement(); return false;">
+                                        <i class="fas fa-tasks" style="color: var(--accent-primary);"></i>
+                                        <span>Manage Tasks</span>
+                                    </a>
+                                    <a href="#" class="nav-item" onclick="openDutiesManagement(); return false;">
+                                        <i class="fas fa-clipboard-check" style="color: #10b981;"></i>
+                                        <span>Manage Duties</span>
+                                    </a>
+                                </div>
+                            </div>
+
+                            <!-- Clinical Resources Section -->
+                            <div class="nav-section collapsed" data-section="clinical">
+                                <div class="nav-title">
+                                    <span>RESOURCES</span>
+                                    <span class="nav-toggle"><i class="fas fa-chevron-down"></i></span>
+                                </div>
+                                <div class="nav-items">
+                                    <a href="#" class="nav-item">
+                                        <i class="fas fa-graduation-cap"></i>
+                                        <span>Training</span>
+                                    </a>
+                                    <a href="#" class="nav-item">
+                                        <i class="fas fa-book-medical"></i>
+                                        <span>Guidelines</span>
+                                    </a>
+                                    <a href="#" class="nav-item">
+                                        <i class="fas fa-video"></i>
+                                        <span>Video Library</span>
+                                    </a>
+                                    <a href="#" class="nav-item">
+                                        <i class="fas fa-question-circle"></i>
+                                        <span>Support</span>
+                                    </a>
+                                    <a href="#" class="nav-item">
+                                        <i class="fas fa-address-book"></i>
+                                        <span>Rolodex</span>
+                                    </a>
+                                    <a href="#" class="nav-item" onclick="openChat(); return false;" style="position: relative;">
+                                        <i class="fas fa-comments"></i>
+                                        <span>Chat</span>
+                                        <span class="chat-unread-badge" style="display: none; position: absolute; top: 4px; right: 8px; background: #ef4444; color: white; font-size: 0.65rem; min-width: 18px; height: 18px; border-radius: 9px; align-items: center; justify-content: center; font-weight: 600;">0</span>
+                                    </a>
+                                </div>
+                            </div>
+
+                            <!-- Quick Calendar Toggle Button -->
+                            <div style="padding: 0.75rem; border-top: 1px solid var(--border-color); margin-top: auto; position: relative;">
+                                <button data-quick-calendar-toggle="true" onclick="toggleQuickCalendar(this)" style="width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; color: var(--text-primary); transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'"><div style="display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-calendar-alt" style="color: var(--accent-primary); font-size: 1.1rem;"></i><div><div style="font-size: 0.7rem; font-weight: 600; color: var(--text-secondary); text-align: left;">QUICK CALENDAR</div><div style="font-size: 0.75rem; font-weight: 500; color: var(--text-primary); text-align: left;" id="quickCalendarButtonDate">November 2025</div></div></div><i class="fas fa-chevron-up" id="quickCalendarChevron" style="transition: transform 0.2s; color: var(--text-secondary);"></i></button>
+                                <div class="quick-calendar-dropdown" id="quickCalendarDropdown">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; gap: 0.5rem;">
+                                        <button onclick="quickCalendarPrevMonth()" style="background: transparent; border: 1px solid var(--border-color); padding: 0.4rem 0.6rem; border-radius: 6px; cursor: pointer; color: var(--text-primary); transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'"><i class="fas fa-chevron-left"></i></button>
+                                        <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; justify-content: center;"><div style="font-weight: 600; color: var(--accent-primary); text-align: center; font-size: 0.85rem;" id="quickCalendarMonth">November 2025</div><button onclick="quickCalendarToday()" title="Jump to Today" style="background: var(--accent-primary); color: white; border: none; padding: 0.35rem 0.6rem; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: 500;">Today</button></div>
+                                        <button onclick="quickCalendarNextMonth()" style="background: transparent; border: 1px solid var(--border-color); padding: 0.4rem 0.6rem; border-radius: 6px; cursor: pointer; color: var(--text-primary); transition: 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'"><i class="fas fa-chevron-right"></i></button>
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: repeat(7, 1fr); text-align: center;" id="quickCalendarGrid">
+                                        <div style="font-weight: 600; color: var(--text-secondary); font-size: 0.75rem; padding: 0.25rem;">Su</div>
+                                        <div style="font-weight: 600; color: var(--text-secondary); font-size: 0.75rem; padding: 0.25rem;">Mo</div>
+                                        <div style="font-weight: 600; color: var(--text-secondary); font-size: 0.75rem; padding: 0.25rem;">Tu</div>
+                                        <div style="font-weight: 600; color: var(--text-secondary); font-size: 0.75rem; padding: 0.25rem;">We</div>
+                                        <div style="font-weight: 600; color: var(--text-secondary); font-size: 0.75rem; padding: 0.25rem;">Th</div>
+                                        <div style="font-weight: 600; color: var(--text-secondary); font-size: 0.75rem; padding: 0.25rem;">Fr</div>
+                                        <div style="font-weight: 600; color: var(--text-secondary); font-size: 0.75rem; padding: 0.25rem;">Sa</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             <!-- Content Toggle - Duties View -->
             <div class="content-view" id="view-duties">
                 <!-- Dashboard Grid for Duties -->
@@ -14808,7 +15080,7 @@
                                     <i class="fas fa-truck"></i>
                                     <span>Vendors</span>
                                 </a>
-                                <a href="#" class="nav-item" onclick="openEquipmentManagement(); return false;">
+                                <a href="#" class="nav-item" onclick="switchContentView('equipment', event); return false;">
                                     <i class="fas fa-tools"></i>
                                     <span>Equipment</span>
                                 </a>
@@ -23696,6 +23968,145 @@
             document.getElementById('equipmentSubmitBtn').innerHTML = '<i class="fas fa-plus-circle" style="margin-right: 0.5rem;"></i>Add Equipment';
         }
 
+        // ---- EQUIPMENT PAGE (content-view) ----
+
+        function refreshEquipmentViewIfActive() {
+            const equipmentView = document.getElementById('view-equipment');
+            if (equipmentView && equipmentView.classList.contains('active') && typeof initializeEquipmentView === 'function') {
+                initializeEquipmentView();
+            }
+        }
+
+        function initializeEquipmentView() {
+            populateEquipmentPageTypeFilter();
+            renderEquipmentPageList();
+        }
+
+        function populateEquipmentPageTypeFilter() {
+            const select = document.getElementById('equipmentPageType');
+            if (!select) return;
+
+            const esc = (typeof escapeHtml === 'function') ? escapeHtml : (v) => String(v ?? '');
+
+            const current = select.value;
+            const equipment = loadEquipment();
+            const types = [...new Set(equipment.map(e => (e.category || e.equipmentType || '').toString().trim()).filter(Boolean))];
+            types.sort((a, b) => a.localeCompare(b));
+
+            select.innerHTML = '<option value="">All Types</option>' + types.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+            // Restore selection if it still exists
+            if ([...select.options].some(o => o.value === current)) {
+                select.value = current;
+            }
+        }
+
+        function clearEquipmentPageFilters() {
+            const search = document.getElementById('equipmentPageSearch');
+            const type = document.getElementById('equipmentPageType');
+            const status = document.getElementById('equipmentPageStatus');
+            if (search) search.value = '';
+            if (type) type.value = '';
+            if (status) status.value = '';
+            renderEquipmentPageList();
+        }
+
+        function getEquipmentStatusColor(status) {
+            const statusColors = {
+                'Operational': '#10b981',
+                'Needs Service': '#f59e0b',
+                'Under Repair': '#f97316',
+                'Out of Service': '#ef4444',
+                'Retired': '#6b7280'
+            };
+            return statusColors[status] || '#6b7280';
+        }
+
+        function openEquipmentFromCard(equipmentID) {
+            openEquipmentManagement();
+            setTimeout(() => {
+                try { editEquipment(equipmentID); } catch (_) {}
+            }, 50);
+        }
+
+        function renderEquipmentPageList() {
+            const container = document.getElementById('equipmentPageList');
+            if (!container) return;
+
+            const esc = (typeof escapeHtml === 'function') ? escapeHtml : (v) => String(v ?? '');
+
+            const equipment = loadEquipment();
+            const searchRaw = (document.getElementById('equipmentPageSearch')?.value || '').toString().trim().toLowerCase();
+            const typeFilter = (document.getElementById('equipmentPageType')?.value || '').toString().trim();
+            const statusFilter = (document.getElementById('equipmentPageStatus')?.value || '').toString().trim();
+
+            let filtered = equipment;
+
+            if (searchRaw) {
+                filtered = filtered.filter(e => {
+                    const hay = [
+                        e.equipmentName,
+                        e.manufacturer,
+                        e.model,
+                        e.serialNumber,
+                        e.officeName,
+                        e.roomName,
+                        e.category,
+                        e.equipmentType
+                    ].map(v => (v || '').toString().toLowerCase()).join(' ');
+                    return hay.includes(searchRaw);
+                });
+            }
+
+            if (typeFilter) {
+                filtered = filtered.filter(e => (e.category || e.equipmentType || '').toString().trim() === typeFilter);
+            }
+
+            if (statusFilter) {
+                filtered = filtered.filter(e => (e.status || '').toString().trim() === statusFilter);
+            }
+
+            // Sort by type then name
+            filtered.sort((a, b) => {
+                const catA = (a.category || a.equipmentType || '').toString();
+                const catB = (b.category || b.equipmentType || '').toString();
+                if (catA !== catB) return catA.localeCompare(catB);
+                return (a.equipmentName || '').toString().localeCompare((b.equipmentName || '').toString());
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div class="equipment-empty">No equipment found.</div>';
+                return;
+            }
+
+            container.innerHTML = filtered.map(item => {
+                const typeLabel = (item.category || item.equipmentType || '-').toString();
+                const statusLabel = (item.status || 'Unknown').toString();
+                const statusColor = getEquipmentStatusColor(statusLabel);
+                const office = (item.officeName || item.location || '').toString();
+                const room = (item.roomName || '').toString();
+                const locationLabel = (office && room) ? `${office} • ${room}` : (office || room || '-');
+                const nextService = item.nextServiceDate ? new Date(item.nextServiceDate) : null;
+                const nextServiceLabel = nextService && !isNaN(nextService.getTime()) ? nextService.toLocaleDateString() : '-';
+
+                return `
+                    <div class="equipment-card ${item.isActive === false ? 'inactive' : ''}" onclick="openEquipmentFromCard(${item.equipmentID})" title="Open to edit">
+                        <div class="equipment-card-top">
+                            <h3 class="equipment-card-title">${esc(item.equipmentName || '')}</h3>
+                            <span class="equipment-status-badge" style="background: ${statusColor}20; color: ${statusColor};">${esc(statusLabel)}</span>
+                        </div>
+                        <div class="equipment-card-meta">
+                            <span class="equipment-badge">${esc(typeLabel)}</span>
+                            ${item.serialNumber ? `<span class="equipment-badge"><i class=\"fas fa-hashtag\" style=\"opacity:0.8; margin-right: 0.35rem;\"></i>${esc(item.serialNumber)}</span>` : ''}
+                        </div>
+                        <div class="equipment-card-lines">
+                            <div class="line"><i class="fas fa-hospital" style="opacity:0.8;"></i> ${esc(locationLabel)}</div>
+                            <div class="line"><i class="fas fa-wrench" style="opacity:0.8;"></i> Next service: ${esc(nextServiceLabel)}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
         // Populate office dropdown for equipment
         function populateEquipmentOfficeDropdown() {
             const offices = loadOffices();
@@ -23930,6 +24341,7 @@
             // Refresh list
             displayEquipmentList();
             updateInventoryBadges();
+            refreshEquipmentViewIfActive();
             
             // Hide success message after 3 seconds
             setTimeout(() => {
@@ -24166,6 +24578,7 @@
                 saveEquipment(updatedEquipment);
                 displayEquipmentList();
                 updateInventoryBadges();
+                refreshEquipmentViewIfActive();
             }
         }
 
@@ -31235,6 +31648,11 @@
                 // Initialize requests view on demand
                 if (viewName === 'requests' && typeof initializeRequestsView === 'function') {
                     initializeRequestsView();
+                }
+
+                // Initialize equipment view on demand
+                if (viewName === 'equipment' && typeof initializeEquipmentView === 'function') {
+                    initializeEquipmentView();
                 }
 
                 // If switching to calendar, make sure the calendar section is visible
