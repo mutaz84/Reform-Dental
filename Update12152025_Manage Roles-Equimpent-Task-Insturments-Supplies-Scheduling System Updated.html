@@ -6104,6 +6104,22 @@
             min-width: 0;
         }
 
+        /* Global brand bar (visible across all views) */
+        .global-brand-bar {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 0.5rem 0.75rem;
+            margin: 0.5rem 0;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+        }
+
+        .global-brand-bar .logo-section {
+            width: 100%;
+        }
+
         /* Content Toggle */
         .content-view {
             display: none;
@@ -13143,6 +13159,10 @@
         <div class="main-content">
             <!-- Frozen Header with Stats -->
             <div class="dashboard-header">
+
+                <div class="global-brand-bar" id="globalBrandBar">
+                    <div id="globalBrandHost"></div>
+                </div>
                 
 
             <!-- Stats Cards - User View -->
@@ -31040,6 +31060,14 @@
                         // ignore scroll errors on older browsers
                     }
                 }
+
+                // Hide global brand bar on Calendar (calendar already has its own header branding)
+                try {
+                    const globalBrandBar = document.getElementById('globalBrandBar');
+                    if (globalBrandBar) {
+                        globalBrandBar.style.display = (viewName === 'calendar') ? 'none' : 'flex';
+                    }
+                } catch (_) {}
 
                 // Update active nav items
                 const navItems = document.querySelectorAll('.nav-item');
@@ -54997,6 +55025,7 @@ console.log('✅ Global functions exported to window object');
     function install() {
         const sidebarSettingsHost = document.getElementById('sidebarSettingsHost');
         const sidebarBrandHost = document.getElementById('sidebarBrandHost');
+        const globalBrandHost = document.getElementById('globalBrandHost');
         const railTabsSettings = document.getElementById('urrTabsSettings');
         if (!sidebarSettingsHost) return false;
 
@@ -55006,12 +55035,13 @@ console.log('✅ Global functions exported to window object');
         const settingsBtn = document.getElementById('settingsBtn');
         const dropdown = document.getElementById('settingsDropdown');
 
-        // Move the app logo/brand out of the (hidden) legacy header into the persistent sidebar
+        // Move the app logo/brand out of the (hidden) legacy header into a global host (works even when the left sidebar is docked under the Employee tab)
         let movedLogo = false;
         try {
             const logoSection = document.querySelector('.header .logo-section') || document.querySelector('.logo-section');
-            if (sidebarBrandHost && logoSection && logoSection.parentNode !== sidebarBrandHost) {
-                sidebarBrandHost.appendChild(logoSection);
+            const targetHost = globalBrandHost || sidebarBrandHost;
+            if (targetHost && logoSection && logoSection.parentNode !== targetHost) {
+                targetHost.appendChild(logoSection);
                 movedLogo = true;
             }
         } catch (_) {}
