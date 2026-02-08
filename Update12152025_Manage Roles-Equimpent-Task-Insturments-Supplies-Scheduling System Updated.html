@@ -55266,9 +55266,15 @@ console.log('✅ Global functions exported to window object');
                 const userProfile = document.querySelector('.user-profile');
                 const clinicFilter = document.getElementById('clinicFilterContainer');
 
-                if (logoSection && railBrandHost && logoSection.parentNode !== railBrandHost) return false;
-                if (userProfile && railUserHost && userProfile.parentNode !== railUserHost) return false;
-                if (clinicFilter && railClinicHost && clinicFilter.parentNode !== railClinicHost) return false;
+                if (logoSection && railBrandHost && !railBrandHost.contains(logoSection)) return false;
+                if (userProfile && railUserHost && !railUserHost.contains(userProfile)) return false;
+
+                // Clinic can be hosted either in the dedicated clinic host OR nested under the user block (screenshot layout).
+                if (clinicFilter) {
+                    const inUserHost = railUserHost ? railUserHost.contains(clinicFilter) : false;
+                    const inClinicHost = railClinicHost ? railClinicHost.contains(clinicFilter) : false;
+                    if (!inUserHost && !inClinicHost) return false;
+                }
             } else {
                 // Rail not yet installed; keep retrying for a short time.
                 return false;
