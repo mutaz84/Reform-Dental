@@ -7390,6 +7390,28 @@
             gap: 0.4rem;
         }
 
+        .equipment-card-actions {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            margin-top: 0.25rem;
+        }
+
+        .equipment-action-btn {
+            padding: 0.45rem 0.6rem;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .equipment-action-btn:hover {
+            background: var(--bg-secondary);
+            border-color: var(--accent-primary);
+        }
+
         .equipment-empty {
             padding: 2rem;
             text-align: center;
@@ -24584,6 +24606,155 @@
             }, 50);
         }
 
+        function viewEquipment(equipmentID) {
+            const equipment = loadEquipment();
+            const item = equipment.find(e => e.equipmentID == equipmentID);
+
+            if (!item) {
+                if (typeof showNotification === 'function') showNotification('Equipment not found', 'error');
+                return;
+            }
+
+            const esc = (typeof escapeHtml === 'function') ? escapeHtml : (v) => String(v ?? '');
+            const statusLabel = (item.status || 'Unknown').toString();
+            const statusColor = getEquipmentStatusColor(statusLabel);
+            const typeLabel = (item.category || item.equipmentType || '-').toString();
+
+            const office = (item.officeName || item.location || '').toString();
+            const room = (item.roomName || '').toString();
+            const locationLabel = (office && room) ? `${office} • ${room}` : (office || room || '-');
+
+            const fmtDate = (d) => {
+                if (!d) return '-';
+                const dt = new Date(d);
+                return isNaN(dt.getTime()) ? '-' : dt.toLocaleDateString();
+            };
+
+            const priceLabel = (typeof item.price === 'number' && !isNaN(item.price) && item.price > 0)
+                ? item.price.toLocaleString(undefined, { style: 'currency', currency: 'USD' })
+                : (item.price ? String(item.price) : '-');
+
+            const active = item.isActive !== false;
+            const activeColor = active ? '#10b981' : '#ef4444';
+            const activeText = active ? 'Active' : 'Inactive';
+
+            const modalContent = `
+                <div id="viewEquipmentModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10100;">
+                    <div style="background: var(--bg-primary); border-radius: 12px; width: 90%; max-width: 780px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                        <!-- Header -->
+                        <div style="padding: 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); border-radius: 12px 12px 0 0;">
+                            <div style="display: flex; align-items: center; gap: 1rem;">
+                                <div style="width: 50px; height: 50px; background: white; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                    <i class="fas fa-tools" style="font-size: 1.5rem; color: var(--accent-primary);"></i>
+                                </div>
+                                <div>
+                                    <h2 style="margin: 0; color: white; font-size: 1.4rem;">${esc(item.equipmentName || 'Unknown Equipment')}</h2>
+                                    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-top: 0.25rem;">
+                                        <span style="background: ${statusColor}; color: white; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: 700;">${esc(statusLabel)}</span>
+                                        <span style="background: ${activeColor}; color: white; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: 700;">${esc(activeText)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button onclick="closeViewEquipmentModal()" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 1.2rem;">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <!-- Content -->
+                        <div style="padding: 1.5rem;">
+                            ${typeLabel && typeLabel !== '-' ? `
+                            <div style="margin-bottom: 1.25rem;">
+                                <span style="background: var(--accent-primary)15; color: var(--accent-primary); padding: 0.4rem 1rem; border-radius: 20px; font-size: 0.85rem; font-weight: 700;">
+                                    <i class="fas fa-tag" style="margin-right: 0.5rem;"></i>${esc(typeLabel)}
+                                </span>
+                            </div>
+                            ` : ''}
+
+                            <div style="background: var(--bg-secondary); border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem;">
+                                <h3 style="margin: 0 0 1rem 0; color: var(--text-primary); font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="fas fa-info-circle" style="color: var(--accent-primary);"></i> Details
+                                </h3>
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Manufacturer</div>
+                                        <div style="color: var(--text-primary); font-weight: 500;">${esc(item.manufacturer || '-')}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Model</div>
+                                        <div style="color: var(--text-primary); font-weight: 500;">${esc(item.model || '-')}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Serial Number</div>
+                                        <div style="color: var(--text-primary); font-weight: 500;">${esc(item.serialNumber || '-')}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Condition</div>
+                                        <div style="color: var(--text-primary); font-weight: 500;">${esc(item.condition || '-')}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Vendor</div>
+                                        <div style="color: var(--text-primary); font-weight: 500;">${esc(item.vendorName || '-')}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Location</div>
+                                        <div style="color: var(--text-primary); font-weight: 500;">${esc(locationLabel)}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Purchase Date</div>
+                                        <div style="color: var(--text-primary); font-weight: 500;">${esc(fmtDate(item.purchaseDate))}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Warranty Expiry</div>
+                                        <div style="color: var(--text-primary); font-weight: 500;">${esc(fmtDate(item.warrantyExpiry))}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Last Service</div>
+                                        <div style="color: var(--text-primary); font-weight: 500;">${esc(fmtDate(item.lastServiceDate))}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Next Service</div>
+                                        <div style="color: var(--text-primary); font-weight: 500;">${esc(fmtDate(item.nextServiceDate))}</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Price</div>
+                                        <div style="color: var(--text-primary); font-weight: 500;">${esc(priceLabel)}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            ${item.notes ? `
+                            <div style="background: var(--bg-secondary); border-radius: 10px; padding: 1.25rem;">
+                                <h3 style="margin: 0 0 1rem 0; color: var(--text-primary); font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="fas fa-sticky-note" style="color: var(--accent-primary);"></i> Notes
+                                </h3>
+                                <div style="color: var(--text-secondary); white-space: pre-wrap;">${esc(item.notes)}</div>
+                            </div>
+                            ` : ''}
+                        </div>
+
+                        <!-- Footer -->
+                        <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
+                            <button onclick="closeViewEquipmentModal(); openEquipmentFromCard(${item.equipmentID});" style="padding: 0.6rem 1.25rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                                <i class="fas fa-edit" style="margin-right: 0.5rem;"></i>Edit Equipment
+                            </button>
+                            <button onclick="closeViewEquipmentModal()" style="padding: 0.6rem 1.25rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-weight: 600;">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const existingModal = document.getElementById('viewEquipmentModal');
+            if (existingModal) existingModal.remove();
+            document.body.insertAdjacentHTML('beforeend', modalContent);
+        }
+
+        function closeViewEquipmentModal() {
+            const modal = document.getElementById('viewEquipmentModal');
+            if (modal) modal.remove();
+        }
+
         function renderEquipmentPageList() {
             const container = document.getElementById('equipmentPageList');
             if (!container) return;
@@ -24657,6 +24828,17 @@
                         <div class="equipment-card-lines">
                             <div class="line"><i class="fas fa-hospital" style="opacity:0.8;"></i> ${esc(locationLabel)}</div>
                             <div class="line"><i class="fas fa-wrench" style="opacity:0.8;"></i> Next service: ${esc(nextServiceLabel)}</div>
+                        </div>
+                        <div class="equipment-card-actions">
+                            <button type="button" class="equipment-action-btn" onclick="event.stopPropagation(); viewEquipment(${item.equipmentID});" title="View">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button type="button" class="equipment-action-btn" onclick="event.stopPropagation(); openEquipmentFromCard(${item.equipmentID});" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button type="button" class="equipment-action-btn" onclick="event.stopPropagation(); deleteEquipment(${item.equipmentID});" title="Delete">
+                                <i class="fas fa-trash" style="color: #ef4444;"></i>
+                            </button>
                         </div>
                     </div>
                 `;
