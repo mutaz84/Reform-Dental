@@ -31904,18 +31904,48 @@
             const requestId = String(document.getElementById('requestId')?.value || '').trim();
             if (!requestId) return;
 
-            if (!isCompleted) {
-                // Keep this one-way to avoid accidental reopen.
-                if (cb) cb.checked = true;
-                if (typeof showNotification === 'function') {
-                    showNotification('Completed requests cannot be unchecked here.', 'warning');
+            window.__requestCompletedState = window.__requestCompletedState || { prevStatusById: {} };
+
+            const req = requestsData.find(r => String(r.id) === String(requestId));
+            const currentStatus = String(req?.status || '').trim();
+            const isClosed = currentStatus.toLowerCase() === 'closed';
+
+            if (isCompleted) {
+                if (isClosed) {
+                    if (cb) cb.checked = true;
+                    return;
                 }
+
+                const ok = window.confirm('Mark this request as Completed?\n\nThis will set the status to Closed and notify the request creator.');
+                if (!ok) {
+                    if (cb) cb.checked = false;
+                    return;
+                }
+
+                // Remember previous status so we can undo if needed.
+                const prev = currentStatus || 'In Review';
+                window.__requestCompletedState.prevStatusById[requestId] = prev;
+
+                await updateRequestStatus(requestId, 'Closed');
+                try { openRequestModal(requestId); } catch (_) {}
                 return;
             }
 
-            await updateRequestStatus(requestId, 'Closed');
+            // Undo: reopen request
+            if (!isClosed) {
+                if (cb) cb.checked = false;
+                return;
+            }
 
-            // Refresh the modal so progress/process reflects 100%.
+            const restore = String(window.__requestCompletedState.prevStatusById[requestId] || '').trim();
+            const nextStatus = (restore && restore.toLowerCase() !== 'closed') ? restore : 'In Review';
+            const okUndo = window.confirm(`Reopen this request?\n\nThis will change the status to ${nextStatus} and notify the request creator.`);
+            if (!okUndo) {
+                if (cb) cb.checked = true;
+                return;
+            }
+
+            await updateRequestStatus(requestId, nextStatus);
             try { openRequestModal(requestId); } catch (_) {}
         }
 
@@ -32947,6 +32977,13 @@
                     setRequestTypeValue(req.type);
                     document.getElementById('requestPriority').value = req.priority;
                     document.getElementById('requestStatus').value = req.status;
+
+                    try {
+                        window.__requestCompletedState = window.__requestCompletedState || { prevStatusById: {} };
+                        if (!window.__requestCompletedState.prevStatusById[String(req.id)]) {
+                            window.__requestCompletedState.prevStatusById[String(req.id)] = String(req.status || '').trim() || 'In Review';
+                        }
+                    } catch (_) {}
                     if (requestedByInput) requestedByInput.value = req.requestedBy || '';
                     populateRequestFormOptions({
                         assignedTo: req.assignedTo,
