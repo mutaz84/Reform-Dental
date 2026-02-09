@@ -17478,6 +17478,11 @@
                 
                 // Update UI for role
                 updateUIForRole();
+
+                // Enforce clinic scoping based on the logged-in user's assigned office
+                if (typeof applyUserClinicScope === 'function') {
+                    try { applyUserClinicScope(); } catch (_) {}
+                }
                 
                 // Initialize chat notifications
                 if (typeof initChatNotifications === 'function') {
@@ -17500,122 +17505,233 @@
         // Handle login form submission - Uses API for secure authentication
         async function handleLogin(event) {
             event.preventDefault();
-            
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
+
+            const username = (document.getElementById('username')?.value || '').trim();
+            const password = document.getElementById('password')?.value || '';
             const errorDiv = document.getElementById('loginError');
             const submitBtn = document.querySelector('#loginForm button[type="submit"]');
-            
-            // Show loading state
-            if (submitBtn) {
-                submitBtn.disabled = true;
-                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing In...';
-            }
-            
-            // Try API login first (secure - passwords checked server-side)
-            if (typeof API_BASE_URL !== 'undefined') {
-                try {
-                    const response = await fetch(`${API_BASE_URL}/login`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ username, password })
-                    });
-                    
-                    const result = await response.json();
-                    
-                    if (response.ok && result.success) {
-                        console.log('✅ API login successful');
 
-                        const dbUserId = result.user?.Id ?? result.user?.id;
+            const originalBtnHtml = submitBtn ? submitBtn.innerHTML : '';
+            const setButtonLoading = (isLoading) => {
+                if (!submitBtn) return;
+                submitBtn.disabled = !!isLoading;
+                submitBtn.innerHTML = isLoading ? 'Signing In...' : (originalBtnHtml || 'Sign In');
+            };
+
+            if (errorDiv) {
+                errorDiv.style.display = 'none';
+            }
+
+            setButtonLoading(true);
+
+            let didLogin = false;
+
+            try {
+                let sessionUser = null;
+
+                // Try API login first (secure - passwords checked server-side)
+                if (typeof API_BASE_URL !== 'undefined') {
+                    try {
+                        const response = await fetch(`${API_BASE_URL}/login`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ username, password })
+                        });
+
+                        const result = await response.json().catch(() => null);
+
+                        if (response.ok && result && result.success && result.user) {
+                            console.log('✅ API login successful');
+
+                            const role = result.user.role || 'user';
+                            const firstName = result.user.firstName || '';
+                            const lastName = result.user.lastName || '';
+                            const fullName = `${firstName} ${lastName}`.trim() || username;
+                            const dbUserId = result.user?.Id ?? result.user?.id;
+                            const officeLocation = (result.user.officeLocation || result.user.OfficeLocation || result.user.office || result.user.clinic || '').toString().trim();
+
+                            if (dbUserId) {
+                                window.currentDbUserId = dbUserId;
+                            }
+
+                            sessionUser = {
+                                username: username,
+                                role: role,
+                                name: fullName,
+                                firstName: firstName,
+                                lastName: lastName,
+                                dbId: dbUserId,
+                                officeLocation: officeLocation,
+                                clinics: (typeof getClinicsFromUser === 'function') ? getClinicsFromUser(result.user) : (officeLocation ? [officeLocation] : []),
+                                permissions: getDefaultPermissions(role)
+                            };
+                        }
+                    } catch (apiError) {
+                        console.log('API login unavailable, using local fallback');
+                    }
+                }
+
+                // Fallback to localStorage (for offline/local testing)
+                if (!sessionUser) {
+                    const users = loadUsers();
+                    if (users[username] && users[username].password === password) {
+                        const user = users[username];
+
+                        if (!user.permissions) {
+                            user.permissions = getDefaultPermissions(user.role);
+                            users[username] = user;
+                            saveUsers(users);
+                        }
+
+                        const dbUserId = user.id || user.dbId || user.Id;
+                        const officeLocation = (user.officeLocation || user.OfficeLocation || user.office || user.Office || user.clinic || user.Clinic || '').toString().trim();
+
                         if (dbUserId) {
                             window.currentDbUserId = dbUserId;
                         }
-                        
-                        // Store session
-                        localStorage.setItem('loggedInUser', username);
-                        localStorage.setItem('userRole', result.user.role);
-                        localStorage.setItem('userName', `${result.user.firstName} ${result.user.lastName}`);
-                        localStorage.setItem('currentUser', JSON.stringify({
+
+                        sessionUser = {
                             username: username,
-                            role: result.user.role,
-                            name: `${result.user.firstName} ${result.user.lastName}`,
-                            firstName: result.user.firstName,
-                            lastName: result.user.lastName,
+                            role: user.role,
+                            name: user.name,
+                            firstName: user.firstName,
+                            lastName: user.lastName,
                             dbId: dbUserId,
-                            permissions: getDefaultPermissions(result.user.role)
-                        }));
-                        
-                        // Show success
+                            officeLocation: officeLocation,
+                            clinics: (typeof getClinicsFromUser === 'function') ? getClinicsFromUser(user) : (officeLocation ? [officeLocation] : []),
+                            permissions: user.permissions
+                        };
+                    }
+                }
+
+                if (sessionUser) {
+                    didLogin = true;
+
+                    // Store session
+                    localStorage.setItem('loggedInUser', username);
+                    localStorage.setItem('userRole', sessionUser.role);
+                    localStorage.setItem('userName', sessionUser.name);
+                    localStorage.setItem('currentUser', JSON.stringify(sessionUser));
+
+                    // Show success
+                    if (errorDiv) {
                         errorDiv.style.display = 'block';
                         errorDiv.style.background = '#d4edda';
                         errorDiv.style.borderColor = '#c3e6cb';
                         errorDiv.style.color = '#155724';
                         errorDiv.textContent = 'Login successful! Redirecting...';
-                        
-                        setTimeout(() => {
-                            checkAuth();
-                            updateUIForRole();
-                        }, 500);
-                        return;
                     }
-                } catch (apiError) {
-                    console.log('API login unavailable, using local fallback');
-                }
-            }
-            
-            // Fallback to localStorage (for offline/local testing)
-            const users = loadUsers();
-            
-            if (users[username] && users[username].password === password) {
-                const user = users[username];
-                
-                if (!user.permissions) {
-                    user.permissions = getDefaultPermissions(user.role);
-                    users[username] = user;
-                    saveUsers(users);
-                }
-                
-                localStorage.setItem('loggedInUser', username);
-                localStorage.setItem('userRole', user.role);
-                localStorage.setItem('userName', user.name);
 
-                const dbUserId = user.id || user.dbId || user.Id;
-                if (dbUserId) {
-                    window.currentDbUserId = dbUserId;
+                    setTimeout(() => {
+                        checkAuth();
+                        updateUIForRole();
+                    }, 500);
+                    return;
                 }
-                localStorage.setItem('currentUser', JSON.stringify({
-                    username: username,
-                    role: user.role,
-                    name: user.name,
-                    firstName: user.firstName,
-                    lastName: user.lastName,
-                    dbId: dbUserId,
-                    permissions: user.permissions
-                }));
-                
-                errorDiv.style.display = 'block';
-                errorDiv.style.background = '#d4edda';
-                errorDiv.style.borderColor = '#c3e6cb';
-                errorDiv.style.color = '#155724';
-                errorDiv.textContent = 'Login successful! Redirecting...';
-                
-                setTimeout(() => {
-                    checkAuth();
-                    updateUIForRole();
-                }, 500);
-            } else {
+
                 // Failed login
-                errorDiv.style.display = 'block';
-                errorDiv.style.background = '#f8d7da';
-                errorDiv.style.borderColor = '#f5c6cb';
-                errorDiv.style.color = '#721c24';
-                errorDiv.textContent = 'Invalid username or password. Please try again.';
+                if (errorDiv) {
+                    errorDiv.style.display = 'block';
+                    errorDiv.style.background = '#f8d7da';
+                    errorDiv.style.borderColor = '#f5c6cb';
+                    errorDiv.style.color = '#721c24';
+                    errorDiv.textContent = 'Invalid username or password. Please try again.';
+                }
+            } finally {
+                if (!didLogin) {
+                    setButtonLoading(false);
+                }
             }
-            
-            // Reset button
-            if (submitBtn) {
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = 'Sign In';
+        }
+
+        // Enforce clinic scoping based on logged-in user office assignment.
+        // Admin/Owner: can see all clinics + "All Clinics".
+        // Non-admin with officeLocation: defaults to that clinic and locks the dropdown.
+        async function applyUserClinicScope() {
+            try {
+                const username = localStorage.getItem('loggedInUser');
+                if (!username) return;
+
+                const users = (typeof loadUsers === 'function') ? loadUsers() : {};
+                const user = users && users[username] ? users[username] : null;
+                const sessionUser = (() => {
+                    try {
+                        const raw = localStorage.getItem('currentUser');
+                        return raw ? JSON.parse(raw) : null;
+                    } catch (_) {
+                        return null;
+                    }
+                })();
+                const role = (user && user.role) || localStorage.getItem('userRole') || 'user';
+                const isAdmin = role === 'admin' || role === 'owner';
+
+                const rawOffice =
+                    (user && (user.officeLocation || user.OfficeLocation || user.clinic || user.Clinic || user.office || user.Office)) ||
+                    (sessionUser && (sessionUser.officeLocation || sessionUser.OfficeLocation || sessionUser.clinic || sessionUser.office)) ||
+                    '';
+                const officeName = String(rawOffice || '').trim();
+
+                // If user has an assigned office and is not admin, force clinic selection.
+                const shouldLock = !isAdmin && !!officeName;
+
+                // Ensure dropdown is populated first
+                if (typeof loadClinicFilterDropdown === 'function') {
+                    try { await loadClinicFilterDropdown(); } catch (_) {}
+                }
+
+                const clinicSelect = document.getElementById('clinicFilterSelect');
+                if (clinicSelect) {
+                    if (shouldLock) {
+                        // Replace options with only the assigned office
+                        clinicSelect.innerHTML = '';
+                        const opt = document.createElement('option');
+                        opt.value = officeName;
+                        opt.textContent = officeName;
+                        clinicSelect.appendChild(opt);
+                        clinicSelect.value = officeName;
+                        clinicSelect.disabled = true;
+                        clinicSelect.title = `Clinic locked: ${officeName}`;
+
+                        if (typeof applyClinicFilter === 'function') {
+                            try { applyClinicFilter(officeName); } catch (_) {}
+                        }
+                    } else {
+                        clinicSelect.disabled = false;
+                        clinicSelect.title = 'Clinic filter';
+                    }
+                }
+
+                // Apply the same lock/default to other clinic selectors used throughout the app
+                const otherClinicSelectIds = [
+                    'myScheduleClinicFilter',
+                    'tsbFilterClinic',
+                    'whClinicFilter'
+                ];
+                otherClinicSelectIds.forEach((id) => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    if (shouldLock) {
+                        try {
+                            el.innerHTML = '';
+                            const opt = document.createElement('option');
+                            opt.value = officeName;
+                            opt.textContent = officeName;
+                            el.appendChild(opt);
+                            el.value = officeName;
+                            el.disabled = true;
+                            el.title = `Clinic locked: ${officeName}`;
+                        } catch (_) {}
+                    } else {
+                        try { el.disabled = false; } catch (_) {}
+                    }
+                });
+
+                // Keep resource filter UI in sync
+                if (typeof updateFilterUI === 'function') {
+                    try { updateFilterUI(); } catch (_) {}
+                }
+            } catch (e) {
+                console.warn('applyUserClinicScope failed:', e);
             }
         }
 
@@ -56504,6 +56620,7 @@ async function createUserViaAPI(userData) {
                 password: userData.password || 'changeme123',
                 firstName: userData.firstName,
                 lastName: userData.lastName,
+                officeLocation: userData.officeLocation || userData.OfficeLocation || userData.office || userData.clinic || '',
                 role: userData.role || 'user',
                 staffType: userData.staffType || 'non-clinical',
                 employeeStatus: userData.employeeStatus || 'active'
@@ -57287,6 +57404,11 @@ async function loadAllDataFromAPI() {
         if (typeof loadSupervisorsForUserForm === 'function') loadSupervisorsForUserForm();
         if (typeof initPhoneFormatting === 'function') initPhoneFormatting();
         if (typeof populateRoleDropdowns === 'function') populateRoleDropdowns();
+
+        // After syncing users/clinics, apply user clinic scope to lock/default the filter as needed
+        if (typeof applyUserClinicScope === 'function') {
+            try { await applyUserClinicScope(); } catch (_) {}
+        }
         
         // Refresh calendar if in room view
         if (typeof customCalendar !== 'undefined' && customCalendar && typeof customCalendar.render === 'function') {
