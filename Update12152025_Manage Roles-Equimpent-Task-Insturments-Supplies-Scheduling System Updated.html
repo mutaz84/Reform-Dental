@@ -9665,6 +9665,42 @@
             z-index: 9999;
         }
 
+        /* When the chat button is hosted inside the unified right rail header, style it like a header action (not floating) */
+        .unified-right-rail .urr-tabs-settings #floatingChatBtn.floating-chat-btn {
+            position: relative;
+            bottom: auto;
+            right: auto;
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            background: transparent;
+            color: var(--text-primary);
+            font-size: 1rem;
+            box-shadow: none;
+            animation: none;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+
+        .unified-right-rail .urr-tabs-settings #floatingChatBtn.floating-chat-btn:hover {
+            border-color: var(--accent-primary);
+            background: var(--bg-secondary);
+            transform: none;
+        }
+
+        .unified-right-rail .urr-tabs-settings #floatingChatBtn.floating-chat-btn:active {
+            transform: none;
+        }
+
+        .unified-right-rail .urr-tabs-settings #floatingChatBtn.floating-chat-btn.has-messages {
+            animation: none;
+        }
+
+        .unified-right-rail .urr-tabs-settings #floatingChatBadge.floating-chat-badge {
+            top: -6px;
+            right: -6px;
+        }
+
         
         .floating-chat-btn:hover {
             transform: scale(1.1);
@@ -51401,6 +51437,13 @@ function initChatHighlight() {
     // Add periodic attention animation to floating button
     setInterval(() => {
         const floatingBtn = document.getElementById('floatingChatBtn');
+        const inRail = !!(floatingBtn && typeof floatingBtn.closest === 'function' && floatingBtn.closest('#unifiedRightRail'));
+
+        // If the button is in the rail header, keep it static (no pulse/bounce)
+        if (floatingBtn && inRail) {
+            try { floatingBtn.style.animation = 'none'; } catch (_) {}
+            return;
+        }
         if (floatingBtn && !floatingBtn.classList.contains('has-messages')) {
             floatingBtn.style.animation = 'none';
             floatingBtn.offsetHeight; // Trigger reflow
@@ -57676,6 +57719,13 @@ console.log('✅ Global functions exported to window object');
                     try { settingsWrapper.style.marginLeft = '0'; } catch (_) {}
                     railTabsSettings.appendChild(settingsWrapper);
                 }
+            }
+
+            // Host the chat button in the rail header (left of the settings gear)
+            const floatingChatBtn = document.getElementById('floatingChatBtn');
+            if (railTabsSettings && floatingChatBtn && floatingChatBtn.parentNode !== railTabsSettings) {
+                try { floatingChatBtn.style.animation = 'none'; } catch (_) {}
+                railTabsSettings.insertBefore(floatingChatBtn, railTabsSettings.firstChild);
             }
         } catch (_) {}
 
