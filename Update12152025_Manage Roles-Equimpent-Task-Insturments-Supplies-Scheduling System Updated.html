@@ -9670,13 +9670,13 @@
             position: relative;
             bottom: auto;
             right: auto;
-            width: 30px;
-            height: 30px;
-            border-radius: 9px;
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
             border: 1px solid var(--border-color);
             background: transparent;
             color: var(--text-primary);
-            font-size: 0.95rem;
+            font-size: 1rem;
             box-shadow: none;
             animation: none;
             transition: background 0.15s ease, border-color 0.15s ease;
@@ -9693,17 +9693,12 @@
         }
 
         .unified-right-rail .urr-tabs-settings #floatingChatBtn.floating-chat-btn.has-messages {
-            border-color: rgba(6, 182, 212, 0.55);
-            animation: rail-chat-attn 1.4s ease-in-out infinite;
-        }
-
-        .unified-right-rail .urr-tabs-settings #floatingChatBtn.floating-chat-btn.has-messages i {
-            animation: rail-icon-pulse 1.2s ease-in-out infinite;
+            animation: none;
         }
 
         .unified-right-rail .urr-tabs-settings #floatingChatBadge.floating-chat-badge {
-            top: -4px;
-            right: -4px;
+            top: -5px;
+            right: -5px;
             min-width: 18px;
             height: 18px;
             border-radius: 9px;
@@ -9743,17 +9738,6 @@
             25% { transform: translateY(-8px); }
             50% { transform: translateY(0); }
             75% { transform: translateY(-4px); }
-        }
-
-        /* Subtle attention animation when the chat button is hosted in the rail */
-        @keyframes rail-chat-attn {
-            0%, 100% { transform: translateY(0); box-shadow: none; }
-            50% { transform: translateY(-1px); box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.18); }
-        }
-
-        @keyframes rail-icon-pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.12); }
         }
         
         .floating-chat-btn.has-messages {
@@ -13398,10 +13382,10 @@
     .unified-right-rail .urr-top-row {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 0.5rem;
+        justify-content: flex-start;
+        gap: 0.35rem;
         min-height: 40px;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
     }
 
     .unified-right-rail .urr-top-left {
@@ -13415,11 +13399,10 @@
     .unified-right-rail .urr-top-right {
         display: inline-flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.35rem;
         flex: 1 1 auto;
-        flex-wrap: nowrap;
-        justify-content: flex-end;
-        min-width: 0;
+        flex-wrap: wrap;
+        justify-content: flex-start;
     }
 
     .unified-right-rail .urr-meta {
@@ -13449,7 +13432,6 @@
         align-items: center;
         margin-left: 0;
         position: relative;
-        gap: 0.75rem;
     }
 
     /* Keep user/clinic close to logo; push only the gear to the far right */
@@ -13616,9 +13598,9 @@
     }
 
     .unified-right-rail .urr-tabs-settings #settingsBtn {
-        width: 30px;
-        height: 30px;
-        border-radius: 9px;
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
         border: 1px solid var(--border-color);
         background: transparent;
         color: var(--text-primary);
@@ -17566,13 +17548,7 @@
                             const lastName = result.user.lastName || '';
                             const fullName = `${firstName} ${lastName}`.trim() || username;
                             const dbUserId = result.user?.Id ?? result.user?.id;
-                            const clinicIds = Array.isArray(result.user.clinicIds || result.user.ClinicIds)
-                                ? (result.user.clinicIds || result.user.ClinicIds)
-                                : [];
-                            const clinicNames = Array.isArray(result.user.clinics)
-                                ? result.user.clinics.map(c => (c && (c.Name || c.name)) ? String(c.Name || c.name).trim() : '').filter(Boolean)
-                                : [];
-                            const officeLocation = (result.user.officeLocation || result.user.OfficeLocation || result.user.office || result.user.clinic || (clinicNames.length === 1 ? clinicNames[0] : '') || '').toString().trim();
+                            const officeLocation = (result.user.officeLocation || result.user.OfficeLocation || result.user.office || result.user.clinic || '').toString().trim();
 
                             if (dbUserId) {
                                 window.currentDbUserId = dbUserId;
@@ -17586,8 +17562,7 @@
                                 lastName: lastName,
                                 dbId: dbUserId,
                                 officeLocation: officeLocation,
-                                clinicIds: clinicIds,
-                                clinics: clinicNames.length ? clinicNames : (officeLocation ? [officeLocation] : []),
+                                clinics: (typeof getClinicsFromUser === 'function') ? getClinicsFromUser(result.user) : (officeLocation ? [officeLocation] : []),
                                 permissions: getDefaultPermissions(role)
                             };
                         }
@@ -17610,8 +17585,6 @@
 
                         const dbUserId = user.id || user.dbId || user.Id;
                         const officeLocation = (user.officeLocation || user.OfficeLocation || user.office || user.Office || user.clinic || user.Clinic || '').toString().trim();
-                        const clinicIds = Array.isArray(user.clinicIds || user.ClinicIds) ? (user.clinicIds || user.ClinicIds) : [];
-                        const clinicNames = Array.isArray(user.clinics) ? user.clinics.map(x => String(x || '').trim()).filter(Boolean) : [];
 
                         if (dbUserId) {
                             window.currentDbUserId = dbUserId;
@@ -17625,8 +17598,7 @@
                             lastName: user.lastName,
                             dbId: dbUserId,
                             officeLocation: officeLocation,
-                            clinicIds: clinicIds,
-                            clinics: clinicNames.length ? clinicNames : (officeLocation ? [officeLocation] : []),
+                            clinics: (typeof getClinicsFromUser === 'function') ? getClinicsFromUser(user) : (officeLocation ? [officeLocation] : []),
                             permissions: user.permissions
                         };
                     }
@@ -17693,22 +17665,14 @@
                 const role = (user && user.role) || localStorage.getItem('userRole') || 'user';
                 const isAdmin = role === 'admin' || role === 'owner';
 
-                const assignedClinicNames = (() => {
-                    const fromSession = sessionUser && Array.isArray(sessionUser.clinics) ? sessionUser.clinics : null;
-                    const fromUser = user && Array.isArray(user.clinics) ? user.clinics : null;
-                    const raw = fromSession || fromUser || [];
-                    return raw.map((x) => String(x || '').trim()).filter(Boolean);
-                })();
-
                 const rawOffice =
                     (user && (user.officeLocation || user.OfficeLocation || user.clinic || user.Clinic || user.office || user.Office)) ||
                     (sessionUser && (sessionUser.officeLocation || sessionUser.OfficeLocation || sessionUser.clinic || sessionUser.office)) ||
                     '';
                 const officeName = String(rawOffice || '').trim();
 
-                const scopedClinics = assignedClinicNames.length ? assignedClinicNames : (officeName ? [officeName] : []);
-                const shouldLock = !isAdmin && scopedClinics.length === 1;
-                const shouldRestrict = !isAdmin && scopedClinics.length > 1;
+                // If user has an assigned office and is not admin, force clinic selection.
+                const shouldLock = !isAdmin && !!officeName;
 
                 // Ensure dropdown is populated first
                 if (typeof loadClinicFilterDropdown === 'function') {
@@ -17721,29 +17685,15 @@
                         // Replace options with only the assigned office
                         clinicSelect.innerHTML = '';
                         const opt = document.createElement('option');
-                        opt.value = scopedClinics[0];
-                        opt.textContent = scopedClinics[0];
+                        opt.value = officeName;
+                        opt.textContent = officeName;
                         clinicSelect.appendChild(opt);
-                        clinicSelect.value = scopedClinics[0];
+                        clinicSelect.value = officeName;
                         clinicSelect.disabled = true;
-                        clinicSelect.title = `Clinic locked: ${scopedClinics[0]}`;
+                        clinicSelect.title = `Clinic locked: ${officeName}`;
 
                         if (typeof applyClinicFilter === 'function') {
-                            try { applyClinicFilter(scopedClinics[0]); } catch (_) {}
-                        }
-                    } else if (shouldRestrict) {
-                        clinicSelect.innerHTML = '';
-                        scopedClinics.forEach((name) => {
-                            const opt = document.createElement('option');
-                            opt.value = name;
-                            opt.textContent = name;
-                            clinicSelect.appendChild(opt);
-                        });
-                        clinicSelect.disabled = false;
-                        clinicSelect.title = 'Clinic filter (restricted)';
-
-                        if (typeof applyClinicFilter === 'function') {
-                            try { applyClinicFilter(scopedClinics[0]); } catch (_) {}
+                            try { applyClinicFilter(officeName); } catch (_) {}
                         }
                     } else {
                         clinicSelect.disabled = false;
@@ -17764,24 +17714,12 @@
                         try {
                             el.innerHTML = '';
                             const opt = document.createElement('option');
-                            opt.value = scopedClinics[0];
-                            opt.textContent = scopedClinics[0];
+                            opt.value = officeName;
+                            opt.textContent = officeName;
                             el.appendChild(opt);
-                            el.value = scopedClinics[0];
+                            el.value = officeName;
                             el.disabled = true;
-                            el.title = `Clinic locked: ${scopedClinics[0]}`;
-                        } catch (_) {}
-                    } else if (shouldRestrict) {
-                        try {
-                            el.innerHTML = '';
-                            scopedClinics.forEach((name) => {
-                                const opt = document.createElement('option');
-                                opt.value = name;
-                                opt.textContent = name;
-                                el.appendChild(opt);
-                            });
-                            el.disabled = false;
-                            el.title = 'Clinic filter (restricted)';
+                            el.title = `Clinic locked: ${officeName}`;
                         } catch (_) {}
                     } else {
                         try { el.disabled = false; } catch (_) {}
@@ -18163,26 +18101,6 @@
             }
             try {
                 console.log('📤 Saving user to database:', username);
-                const resolvedClinicIds = (() => {
-                    const ids = Array.isArray(userData?.clinicIds)
-                        ? userData.clinicIds.map((n) => Number.parseInt(String(n), 10)).filter((n) => Number.isInteger(n) && n > 0)
-                        : [];
-                    if (ids.length) return Array.from(new Set(ids));
-
-                    const officeName = String(userData?.officeLocation || '').trim();
-                    if (!officeName) return [];
-                    const clinics = (typeof loadOffices === 'function')
-                        ? loadOffices()
-                        : safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
-                    const match = (Array.isArray(clinics) ? clinics : []).find((c) => {
-                        const name = String(c?.officeName || c?.name || c?.Name || c?.clinicName || '').trim();
-                        return name && name === officeName;
-                    });
-                    const idRaw = match?.officeID ?? match?.officeId ?? match?.clinicId ?? match?.dbId ?? match?.DbId ?? match?.Id ?? match?.id;
-                    const idNum = Number.parseInt(String(idRaw ?? ''), 10);
-                    return Number.isInteger(idNum) && idNum > 0 ? [idNum] : [];
-                })();
-
                 const payload = {
                     username: username,
                     password: userData.password || 'changeme123',
@@ -18208,8 +18126,7 @@
                     hireDate: userData.hireDate || null,
                     hourlyRate: userData.hourlyRate || null,
                     salary: userData.salary || null,
-                    color: userData.color || '#3b82f6',
-                    clinicIds: resolvedClinicIds
+                    color: userData.color || '#3b82f6'
                 };
                 console.log('📦 Payload:', JSON.stringify(payload));
                 
@@ -18252,26 +18169,6 @@
             }
             try {
                 console.log('📤 Updating user in database, ID:', userId);
-                const resolvedClinicIds = (() => {
-                    const ids = Array.isArray(userData?.clinicIds)
-                        ? userData.clinicIds.map((n) => Number.parseInt(String(n), 10)).filter((n) => Number.isInteger(n) && n > 0)
-                        : [];
-                    if (ids.length) return Array.from(new Set(ids));
-
-                    const officeName = String(userData?.officeLocation || '').trim();
-                    if (!officeName) return [];
-                    const clinics = (typeof loadOffices === 'function')
-                        ? loadOffices()
-                        : safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
-                    const match = (Array.isArray(clinics) ? clinics : []).find((c) => {
-                        const name = String(c?.officeName || c?.name || c?.Name || c?.clinicName || '').trim();
-                        return name && name === officeName;
-                    });
-                    const idRaw = match?.officeID ?? match?.officeId ?? match?.clinicId ?? match?.dbId ?? match?.DbId ?? match?.Id ?? match?.id;
-                    const idNum = Number.parseInt(String(idRaw ?? ''), 10);
-                    return Number.isInteger(idNum) && idNum > 0 ? [idNum] : [];
-                })();
-
                 const payload = {
                     firstName: userData.firstName || '',
                     middleName: userData.middleName || '',
@@ -18295,8 +18192,7 @@
                     hireDate: userData.hireDate || null,
                     hourlyRate: userData.hourlyRate || null,
                     salary: userData.salary || null,
-                    color: userData.color || '#3b82f6',
-                    clinicIds: resolvedClinicIds
+                    color: userData.color || '#3b82f6'
                 };
                 console.log('📦 Update Payload:', JSON.stringify(payload));
                 
@@ -18669,46 +18565,6 @@
                 // Reset form
                 document.getElementById('createUserForm').reset();
                 document.getElementById('createUserError').style.display = 'none';
-
-                // Ensure clinic/office dropdowns are populated whenever the modal opens
-                try {
-                    if (typeof loadOfficesForUserForm === 'function') {
-                        loadOfficesForUserForm();
-                    }
-                    if (typeof loadSupervisorsForUserForm === 'function') {
-                        loadSupervisorsForUserForm();
-                    }
-                } catch (_) {}
-
-                // If the logged-in user is clinic-scoped, default new user clinic to that clinic
-                try {
-                    const raw = localStorage.getItem('currentUser');
-                    const sessionUser = raw ? JSON.parse(raw) : null;
-                    const scopedClinics = (sessionUser && Array.isArray(sessionUser.clinics)) ? sessionUser.clinics.map((x) => String(x || '').trim()).filter(Boolean) : [];
-                    const scopedClinic = scopedClinics[0] || ((sessionUser && (sessionUser.officeLocation || sessionUser.OfficeLocation || sessionUser.clinic || sessionUser.office)) ? String(sessionUser.officeLocation || sessionUser.OfficeLocation || sessionUser.clinic || sessionUser.office).trim() : '');
-                    const officeSelect = document.getElementById('newOfficeLocation');
-                    if (officeSelect && scopedClinic && !officeSelect.value) {
-                        officeSelect.value = scopedClinic;
-                    }
-
-                    const scopedClinicIds = (sessionUser && Array.isArray(sessionUser.clinicIds)) ? sessionUser.clinicIds.map((n) => Number.parseInt(String(n), 10)).filter((n) => Number.isInteger(n) && n > 0) : [];
-                    const clinicsMulti = document.getElementById('newClinicIds');
-                    if (clinicsMulti && clinicsMulti.options) {
-                        const set = new Set(scopedClinicIds.map(String));
-                        Array.from(clinicsMulti.options).forEach((opt) => {
-                            opt.selected = set.has(String(opt.value));
-                        });
-
-                        // If no ids were available, fall back to matching by clinic name
-                        if (set.size === 0 && scopedClinic) {
-                            Array.from(clinicsMulti.options).forEach((opt) => {
-                                const name = String(opt.getAttribute('data-name') || opt.textContent || '').trim();
-                                if (name && name === scopedClinic) opt.selected = true;
-                            });
-                        }
-                    }
-                } catch (_) {}
-
                 // Reset photo preview
                 const photoPreview = document.getElementById('photoPreview');
                 if (photoPreview) {
@@ -18809,26 +18665,6 @@
             const nextReviewDate = document.getElementById('newNextReviewDate').value;
             const exemptStatus = document.getElementById('newExemptStatus').value;
             const officeLocation = document.getElementById('newOfficeLocation').value.trim();
-            let clinicIds = (() => {
-                const sel = document.getElementById('newClinicIds');
-                if (!sel || !sel.options) return [];
-                const ids = [];
-                Array.from(sel.selectedOptions || []).forEach((opt) => {
-                    const n = Number.parseInt(String(opt.value || ''), 10);
-                    if (Number.isInteger(n) && n > 0) ids.push(n);
-                });
-                return Array.from(new Set(ids));
-            })();
-            let clinicNames = (() => {
-                const sel = document.getElementById('newClinicIds');
-                if (!sel || !sel.options) return [];
-                const names = [];
-                Array.from(sel.selectedOptions || []).forEach((opt) => {
-                    const name = String(opt.getAttribute('data-name') || opt.textContent || '').trim();
-                    if (name) names.push(name);
-                });
-                return Array.from(new Set(names));
-            })();
             const department = document.getElementById('newDepartment').value.trim();
             const directSupervisor = document.getElementById('newDirectSupervisor').value.trim();
             const roleTitle = document.getElementById('newRoleTitle').value.trim();
@@ -18862,37 +18698,6 @@
             if (!firstName || !lastName || !workEmail || !jobTitle || !hireDate) {
                 errorDiv.style.display = 'block';
                 errorDiv.textContent = 'Please fill in all required fields.';
-                return;
-            }
-
-            // Clinic is required for non-admin roles (needed for clinic scoping)
-            // Updated 2026-02-09: enforce clinicIds on create.
-            // Prefer explicit multi-select (clinicIds), else resolve from primary clinic dropdown.
-            if ((!Array.isArray(clinicIds) || clinicIds.length === 0) && officeLocation) {
-                try {
-                    const clinics = (typeof loadOffices === 'function')
-                        ? loadOffices()
-                        : safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
-
-                    const match = (Array.isArray(clinics) ? clinics : []).find((c) => {
-                        const name = String(c?.officeName || c?.Name || c?.name || c?.clinicName || '').trim();
-                        return name && name === officeLocation;
-                    });
-
-                    const idRaw = match?.officeID ?? match?.clinicId ?? match?.dbId ?? match?.DbId ?? match?.Id ?? match?.id;
-                    const idNum = Number.parseInt(String(idRaw ?? ''), 10);
-                    if (Number.isInteger(idNum) && idNum > 0) {
-                        clinicIds = [idNum];
-                        if (!Array.isArray(clinicNames) || clinicNames.length === 0) {
-                            clinicNames = [officeLocation];
-                        }
-                    }
-                } catch (_) {}
-            }
-
-            if ((role !== 'admin' && role !== 'owner') && (!Array.isArray(clinicIds) || clinicIds.length === 0)) {
-                errorDiv.style.display = 'block';
-                errorDiv.textContent = 'Please assign at least one clinic.';
                 return;
             }
             
@@ -18946,9 +18751,7 @@
                 employeeStatus: employeeStatus,
                 nextReviewDate: nextReviewDate,
                 exemptStatus: exemptStatus,
-                officeLocation: officeLocation || (clinicNames[0] || ''),
-                clinicIds: clinicIds,
-                clinics: clinicNames,
+                officeLocation: officeLocation,
                 department: department,
                 directSupervisor: directSupervisor,
                 roleTitle: roleTitle,
@@ -19472,13 +19275,6 @@
             }
             
             editingUsername = username;
-
-            // Ensure clinic/office dropdown options exist before setting selected value
-            try {
-                if (typeof loadOfficesForUserForm === 'function') {
-                    loadOfficesForUserForm();
-                }
-            } catch (_) {}
             
             // Populate form fields
             document.getElementById('editUsername').value = username;
@@ -19515,37 +19311,6 @@
             document.getElementById('editStaffType').value = user.staffType || '';
             document.getElementById('editEmployeeType').value = user.employeeType || '';
             document.getElementById('editDepartment').value = user.department || '';
-            try {
-                const editOfficeSelect = document.getElementById('editOfficeLocation');
-                if (editOfficeSelect) {
-                    editOfficeSelect.value = (user.officeLocation || user.OfficeLocation || user.office || user.clinic || '').toString().trim();
-                }
-            } catch (_) {}
-
-            // Populate assigned clinics (multi-select) if available
-            try {
-                const editClinicsSelect = document.getElementById('editClinicIds');
-                if (editClinicsSelect && editClinicsSelect.options) {
-                    const ids = Array.isArray(user.clinicIds || user.ClinicIds)
-                        ? (user.clinicIds || user.ClinicIds).map((n) => Number.parseInt(String(n), 10)).filter((n) => Number.isInteger(n) && n > 0)
-                        : [];
-                    const idSet = new Set(ids.map(String));
-
-                    Array.from(editClinicsSelect.options).forEach((opt) => {
-                        opt.selected = idSet.has(String(opt.value));
-                    });
-
-                    // Fallback: match by name if ids are not present
-                    if (idSet.size === 0) {
-                        const names = Array.isArray(user.clinics) ? user.clinics.map((x) => String(x || '').trim()).filter(Boolean) : [];
-                        const nameSet = new Set(names);
-                        Array.from(editClinicsSelect.options).forEach((opt) => {
-                            const name = String(opt.getAttribute('data-name') || opt.textContent || '').trim();
-                            if (name && nameSet.has(name)) opt.selected = true;
-                        });
-                    }
-                }
-            } catch (_) {}
             document.getElementById('editEmployeeStatus').value = user.employeeStatus || 'Active';
             document.getElementById('editHireDate').value = user.hireDate || '';
             document.getElementById('editHourlyRate').value = user.hourlyRate || '';
@@ -19804,33 +19569,6 @@
             user.staffType = document.getElementById('editStaffType').value;
             user.employeeType = document.getElementById('editEmployeeType').value;
             user.department = document.getElementById('editDepartment').value.trim();
-            try {
-                const editOfficeLocation = document.getElementById('editOfficeLocation');
-                if (editOfficeLocation) {
-                    user.officeLocation = editOfficeLocation.value.trim();
-                }
-            } catch (_) {}
-
-            // Capture assigned clinics (multi-select)
-            try {
-                const editClinicsSelect = document.getElementById('editClinicIds');
-                if (editClinicsSelect && editClinicsSelect.options) {
-                    const ids = [];
-                    const names = [];
-                    Array.from(editClinicsSelect.selectedOptions || []).forEach((opt) => {
-                        const n = Number.parseInt(String(opt.value || ''), 10);
-                        if (Number.isInteger(n) && n > 0) ids.push(n);
-                        const name = String(opt.getAttribute('data-name') || opt.textContent || '').trim();
-                        if (name) names.push(name);
-                    });
-                    user.clinicIds = Array.from(new Set(ids));
-                    user.clinics = Array.from(new Set(names));
-
-                    if (!user.officeLocation) {
-                        user.officeLocation = user.clinics[0] || '';
-                    }
-                }
-            } catch (_) {}
             user.employeeStatus = document.getElementById('editEmployeeStatus').value;
             user.hireDate = document.getElementById('editHireDate').value;
             user.hourlyRate = document.getElementById('editHourlyRate').value ? parseFloat(document.getElementById('editHourlyRate').value) : null;
@@ -28345,11 +28083,8 @@
 
         // Load offices into dropdown
         async function loadOfficesForUserForm() {
-            const primarySelectIds = ['newOfficeLocation', 'editOfficeLocation'];
-            const multiSelectIds = ['newClinicIds', 'editClinicIds'];
-            const primarySelects = primarySelectIds.map((id) => document.getElementById(id)).filter(Boolean);
-            const multiSelects = multiSelectIds.map((id) => document.getElementById(id)).filter(Boolean);
-            if (primarySelects.length === 0 && multiSelects.length === 0) return;
+            const officeSelect = document.getElementById('newOfficeLocation');
+            if (!officeSelect) return;
 
             const esc = (v) => (typeof escapeHtml === 'function' ? escapeHtml(String(v ?? '')) : String(v ?? ''));
 
@@ -28368,51 +28103,16 @@
                 offices = safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
             }
 
-            const clinics = Array.isArray(offices) ? offices : [];
+            officeSelect.innerHTML = '<option value="">--Select Office--</option>';
 
-            // Primary clinic selects use clinic NAME as value (backwards compatible)
-            primarySelects.forEach((sel) => {
-                try {
-                    sel.innerHTML = '<option value="">--Select Clinic--</option>';
-                } catch (_) {}
-            });
-
-            // Multi selects use DB id when available
-            multiSelects.forEach((sel) => {
-                try {
-                    sel.innerHTML = '';
-                } catch (_) {}
-            });
-
-            const seenNames = new Set();
-            const seenMultiValues = new Set();
-
-            clinics.forEach((clinic) => {
-                const name = String(clinic?.officeName || clinic?.Name || clinic?.name || clinic?.clinicName || '').trim();
+            const seen = new Set();
+            (offices || []).forEach((office) => {
+                const name = String(office?.officeName || office?.Name || office?.name || office?.clinicName || '').trim();
                 if (!name) return;
-
-                const nameKey = name.toLowerCase();
-                if (!seenNames.has(nameKey)) {
-                    seenNames.add(nameKey);
-                    primarySelects.forEach((sel) => {
-                        try {
-                            sel.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
-                        } catch (_) {}
-                    });
-                }
-
-                const dbIdRaw = clinic?.dbId ?? clinic?.DbId ?? clinic?.Id ?? clinic?.id ?? clinic?.officeID ?? clinic?.officeId ?? clinic?.clinicId;
-                const dbId = Number.parseInt(String(dbIdRaw ?? ''), 10);
-                const value = Number.isInteger(dbId) && dbId > 0 ? String(dbId) : '';
-
-                if (value && !seenMultiValues.has(value)) {
-                    seenMultiValues.add(value);
-                    multiSelects.forEach((sel) => {
-                        try {
-                            sel.innerHTML += `<option value="${esc(value)}" data-name="${esc(name)}">${esc(name)}</option>`;
-                        } catch (_) {}
-                    });
-                }
+                const key = name.toLowerCase();
+                if (seen.has(key)) return;
+                seen.add(key);
+                officeSelect.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
             });
         }
 
@@ -51862,11 +51562,9 @@ function initChatHighlight() {
         const floatingBtn = document.getElementById('floatingChatBtn');
         const inRail = !!(floatingBtn && typeof floatingBtn.closest === 'function' && floatingBtn.closest('#unifiedRightRail'));
 
-        // If the button is in the rail header, only animate when unread exists
+        // If the button is in the rail header, keep it static (no pulse/bounce)
         if (floatingBtn && inRail) {
-            if (!floatingBtn.classList.contains('has-messages')) {
-                try { floatingBtn.style.animation = 'none'; } catch (_) {}
-            }
+            try { floatingBtn.style.animation = 'none'; } catch (_) {}
             return;
         }
         if (floatingBtn && !floatingBtn.classList.contains('has-messages')) {
@@ -51908,7 +51606,6 @@ async function fetchUnreadChatCount() {
 function updateChatBadges(unreadCount) {
     const floatingBadge = document.getElementById('floatingChatBadge');
     const floatingBtn = document.getElementById('floatingChatBtn');
-    const inRail = !!(floatingBtn && typeof floatingBtn.closest === 'function' && floatingBtn.closest('#unifiedRightRail'));
 
     // Keep tooltip/aria in sync whether the button is floating or hosted in the rail
     try {
@@ -51925,10 +51622,6 @@ function updateChatBadges(unreadCount) {
             floatingBadge.style.display = 'flex';
         }
         if (floatingBtn) floatingBtn.classList.add('has-messages');
-        if (floatingBtn && inRail) {
-            // Clear any inline animation override so rail CSS can animate
-            try { floatingBtn.style.animation = ''; } catch (_) {}
-        }
         
         // Update sidebar badges
         document.querySelectorAll('.chat-unread-badge').forEach(badge => {
@@ -51941,10 +51634,6 @@ function updateChatBadges(unreadCount) {
     } else {
         if (floatingBadge) floatingBadge.style.display = 'none';
         if (floatingBtn) floatingBtn.classList.remove('has-messages');
-        if (floatingBtn && inRail) {
-            // Keep the rail-hosted button static when there are no unread messages
-            try { floatingBtn.style.animation = 'none'; } catch (_) {}
-        }
         document.querySelectorAll('.chat-unread-badge').forEach(badge => {
             badge.style.display = 'none';
         });
@@ -52537,11 +52226,11 @@ document.addEventListener('keydown', function(e) {
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div class="form-group" style="margin-bottom: 0;">
                                 <label for="newOfficeLocation">
-                                    Clinic
+                                    Office Location
                                     <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Select the primary office where this employee works"></i>
                                 </label>
-                                <select id="newOfficeLocation" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                                    <option value="">--Select Clinic--</option>
+                                <select id="newOfficeLocation" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                    <option value="">--Select Office--</option>
                                 </select>
                             </div>
                             <div class="form-group" style="margin-bottom: 0;">
@@ -52553,14 +52242,6 @@ document.addEventListener('keydown', function(e) {
                                     <option value="">--Select Supervisor--</option>
                                 </select>
                             </div>
-                        </div>
-                        <div class="form-group" style="margin-bottom: 1rem;">
-                            <label for="newClinicIds">
-                                Clinics (Assignments) *
-                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Assign this employee to one or more clinics. Used for clinic scoping after login."></i>
-                            </label>
-                            <select id="newClinicIds" multiple style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); min-height: 120px;"></select>
-                            <div style="margin-top: 0.35rem; font-size: 0.8rem; color: var(--text-tertiary);">Tip: hold Ctrl (Windows) or ⌘ (Mac) to select multiple.</div>
                         </div>
                         <!-- Separation Fields - shown only when status is not Active -->
                         <div id="newSeparationFieldsContainer" style="display: none; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
@@ -52966,18 +52647,6 @@ document.addEventListener('keydown', function(e) {
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="editDepartment">Department</label>
                             <input type="text" id="editDepartment">
-                        </div>
-                    </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label for="editOfficeLocation">Primary Clinic</label>
-                            <select id="editOfficeLocation" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                                <option value="">--Select Clinic--</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label for="editClinicIds">Clinics (Assignments)</label>
-                            <select id="editClinicIds" multiple style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); min-height: 120px;"></select>
                         </div>
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
@@ -56848,13 +56517,6 @@ async function syncUsersFromAPI() {
     const localUsers = {};
     apiUsers.forEach(user => {
         const username = user.Username || user.username;
-        const clinicIds = Array.isArray(user.ClinicIds || user.clinicIds) ? (user.ClinicIds || user.clinicIds) : [];
-        const clinicsRaw = Array.isArray(user.Clinics || user.clinics) ? (user.Clinics || user.clinics) : [];
-        const clinicNames = clinicsRaw
-            .map((c) => (typeof c === 'string') ? c : (c && (c.Name || c.name)) ? String(c.Name || c.name).trim() : '')
-            .map((x) => String(x || '').trim())
-            .filter(Boolean);
-        const officeLocation = (user.OfficeLocation || user.officeLocation || user.office || user.clinic || (clinicNames.length === 1 ? clinicNames[0] : '') || '').toString().trim();
         localUsers[username] = {
             id: user.Id || user.id,
             password: '***', // Don't store passwords in localStorage
@@ -56882,9 +56544,6 @@ async function syncUsersFromAPI() {
             hourlyRate: user.HourlyRate || user.hourlyRate || '',
             salary: user.Salary || user.salary || '',
             color: user.Color || user.color || '#3b82f6',
-            officeLocation: officeLocation,
-            clinicIds: Array.isArray(clinicIds) ? clinicIds : [],
-            clinics: clinicNames,
             permissions: getDefaultPermissions(user.Role || user.role || 'user')
         };
     });
