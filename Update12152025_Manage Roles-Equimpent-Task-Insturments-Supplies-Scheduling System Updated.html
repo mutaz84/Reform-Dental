@@ -27908,24 +27908,34 @@
         async function loadOfficesForUserForm() {
             const officeSelect = document.getElementById('newOfficeLocation');
             if (!officeSelect) return;
-            
-            // Get offices from localStorage or API
-            let offices = safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
-            
-            // Try to get from API
+
+            const esc = (v) => (typeof escapeHtml === 'function' ? escapeHtml(String(v ?? '')) : String(v ?? ''));
+
+            // Prefer normalized clinics/offices from masterData / local storage mapping
+            let offices = [];
             try {
-                const response = await fetch('/api/clinics');
-                if (response.ok) {
-                    offices = await response.json();
+                if (typeof loadOffices === 'function') {
+                    offices = loadOffices();
                 }
             } catch (e) {
-                console.log('Using local offices data');
+                offices = [];
             }
-            
+
+            // Fallback: raw localStorage clinics (older shapes)
+            if (!Array.isArray(offices) || offices.length === 0) {
+                offices = safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
+            }
+
             officeSelect.innerHTML = '<option value="">--Select Office--</option>';
-            offices.forEach(office => {
-                const name = office.Name || office.name || office.clinicName;
-                officeSelect.innerHTML += `<option value="${name}">${name}</option>`;
+
+            const seen = new Set();
+            (offices || []).forEach((office) => {
+                const name = String(office?.officeName || office?.Name || office?.name || office?.clinicName || '').trim();
+                if (!name) return;
+                const key = name.toLowerCase();
+                if (seen.has(key)) return;
+                seen.add(key);
+                officeSelect.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
             });
         }
 
@@ -57271,21 +57281,47 @@ document.addEventListener('DOMContentLoaded', initializeApp);
 async function loadClinicFilterDropdown() {
     const clinicSelect = document.getElementById('clinicFilterSelect');
     if (!clinicSelect) return;
-    
-    // Get offices from localStorage or API
-    let offices = safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
-    
-    // Keep "All Clinics" option and add offices
-    clinicSelect.innerHTML = '<option value="">All Clinics</option>';
-    offices.forEach(office => {
-        const id = office.Id || office.id;
-        const name = office.Name || office.name || office.clinicName;
-        if (name) {
-            clinicSelect.innerHTML += `<option value="${id || name}">${name}</option>`;
+
+    const esc = (v) => (typeof escapeHtml === 'function' ? escapeHtml(String(v ?? '')) : String(v ?? ''));
+
+    const currentValue = clinicSelect.value;
+
+    // Prefer normalized clinics/offices from masterData / local storage mapping
+    let offices = [];
+    try {
+        if (typeof loadOffices === 'function') {
+            offices = loadOffices();
         }
+    } catch (e) {
+        offices = [];
+    }
+
+    // Fallback: raw localStorage clinics (older shapes)
+    if (!Array.isArray(offices) || offices.length === 0) {
+        offices = safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
+    }
+
+    // Keep "All Clinics" option and add offices (value = clinic name to match filter logic)
+    clinicSelect.innerHTML = '<option value="">All Clinics</option>';
+
+    const seen = new Set();
+    (offices || []).forEach((office) => {
+        const name = String(office?.officeName || office?.Name || office?.name || office?.clinicName || '').trim();
+        if (!name) return;
+        if (name.toLowerCase() === 'all clinics') return;
+        const key = name.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        clinicSelect.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
     });
-    
-    console.log('✅ Clinic filter loaded with', offices.length, 'offices');
+
+    // Preserve selection if still present
+    if (currentValue) {
+        const hasOption = Array.from(clinicSelect.options).some(opt => opt.value === currentValue);
+        if (hasOption) clinicSelect.value = currentValue;
+    }
+
+    console.log('✅ Clinic filter loaded with', (offices || []).length, 'offices');
 }
 
 // Override loadDataFromAPI to use enhanced version
