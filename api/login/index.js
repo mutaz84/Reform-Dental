@@ -57,19 +57,43 @@ module.exports = async function (context, req) {
             return;
         }
 
-        context.res = { 
-            status: 200, 
-            headers, 
-            body: { 
+        // Load assigned clinics (many-to-many)
+        let clinics = [];
+        try {
+            const clinicsResult = await pool.request()
+                .input('userId', sql.Int, user.Id)
+                .query(`SELECT c.Id, c.Name
+                        FROM UserClinics uc
+                        JOIN Clinics c ON c.Id = uc.ClinicId
+                        WHERE uc.UserId = @userId AND c.IsActive = 1
+                        ORDER BY c.Name`);
+            clinics = clinicsResult.recordset || [];
+        } catch (e) {
+            // If the join table doesn't exist yet, keep response backwards compatible.
+            context.log.warn('UserClinics lookup failed (table may be missing):', e.message);
+            clinics = [];
+        }
+
+        const clinicIds = clinics.map((c) => c.Id).filter((n) => Number.isInteger(n));
+        const clinicNames = clinics.map((c) => c.Name).filter(Boolean);
+        const officeLocation = clinicNames.length === 1 ? clinicNames[0] : '';
+
+        context.res = {
+            status: 200,
+            headers,
+            body: {
                 success: true,
                 user: {
                     id: user.Id,
                     username: user.Username,
                     firstName: user.FirstName,
                     lastName: user.LastName,
-                    role: user.Role
+                    role: user.Role,
+                    clinicIds,
+                    clinics,
+                    officeLocation
                 }
-            } 
+            }
         };
 
         await pool.close();
