@@ -27790,6 +27790,9 @@
                         expirationDate,
                         notes,
                         isActive,
+                        imageData: window.supplyImageData || supplies[index].imageData || null,
+                        documentData: window.supplyDocumentData || supplies[index].documentData || null,
+                        documentName: window.supplyDocumentName || supplies[index].documentName || null,
                         modifiedDate: new Date().toISOString()
                     };
                     saveSupplies(supplies);
@@ -27819,6 +27822,9 @@
                     expirationDate,
                     notes,
                     isActive,
+                    imageData: window.supplyImageData || null,
+                    documentData: window.supplyDocumentData || null,
+                    documentName: window.supplyDocumentName || null,
                     createdDate: new Date().toISOString(),
                     modifiedDate: new Date().toISOString()
                 };
@@ -27847,6 +27853,8 @@
             document.getElementById('editSupplyId').value = '';
             document.getElementById('supplyFormTitle').textContent = 'Add New Supply';
             document.getElementById('supplySubmitBtn').innerHTML = '<i class="fas fa-plus-circle" style="margin-right: 0.5rem;"></i>Add Supply';
+            clearSupplyImage();
+            clearSupplyDocument();
             document.getElementById('supplyFormSection').style.display = 'none';
             
             displaySuppliesList();
@@ -27927,6 +27935,65 @@
             document.getElementById('supplyFormSection').style.display = 'none';
             document.getElementById('createSupplyForm').reset();
             document.getElementById('editSupplyId').value = '';
+            clearSupplyImage();
+            clearSupplyDocument();
+        }
+
+        // ---- Supply Image & Document Upload Functions ----
+        function previewSupplyImage(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (file.size > 5 * 1024 * 1024) {
+                alert('Image must be less than 5MB');
+                event.target.value = '';
+                return;
+            }
+            if (!file.type.startsWith('image/')) {
+                alert('Please select an image file');
+                event.target.value = '';
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                window.supplyImageData = e.target.result;
+                const preview = document.getElementById('supplyImagePreview');
+                preview.innerHTML = '<img src="' + e.target.result + '" style="width: 100%; height: 100%; object-fit: cover;">';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function clearSupplyImage() {
+            window.supplyImageData = null;
+            const preview = document.getElementById('supplyImagePreview');
+            if (preview) preview.innerHTML = '<i class="fas fa-image" style="font-size: 2rem; color: var(--text-tertiary);"></i>';
+            const input = document.getElementById('newSupplyImage');
+            if (input) input.value = '';
+        }
+
+        function previewSupplyDocument(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (file.size > 10 * 1024 * 1024) {
+                alert('Document must be less than 10MB');
+                event.target.value = '';
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                window.supplyDocumentData = e.target.result;
+                window.supplyDocumentName = file.name;
+                document.getElementById('supplyDocumentList').innerHTML = '<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 0.5rem;"><i class="fas fa-file-pdf" style="color: #ef4444;"></i><span style="flex: 1;">' + file.name + '</span><button type="button" onclick="clearSupplyDocument()" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer;"><i class="fas fa-times"></i></button></div>';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function clearSupplyDocument() {
+            window.supplyDocumentData = null;
+            window.supplyDocumentName = null;
+            const list = document.getElementById('supplyDocumentList');
+            if (list) list.innerHTML = '';
+            const input = document.getElementById('newSupplyDocument');
+            if (input) input.value = '';
         }
 
         // Edit supply
@@ -27957,6 +28024,25 @@
             
             document.getElementById('supplyFormTitle').textContent = 'Edit Supply';
             document.getElementById('supplySubmitBtn').innerHTML = '<i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save Changes';
+            
+            // Restore image preview if exists
+            if (item.imageData) {
+                window.supplyImageData = item.imageData;
+                const preview = document.getElementById('supplyImagePreview');
+                if (preview) preview.innerHTML = '<img src="' + item.imageData + '" style="width: 100%; height: 100%; object-fit: cover;">';
+            } else {
+                clearSupplyImage();
+            }
+            
+            // Restore document preview if exists
+            if (item.documentData && item.documentName) {
+                window.supplyDocumentData = item.documentData;
+                window.supplyDocumentName = item.documentName;
+                const docList = document.getElementById('supplyDocumentList');
+                if (docList) docList.innerHTML = '<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 0.5rem;"><i class="fas fa-file-pdf" style="color: #ef4444;"></i><span style="flex: 1;">' + item.documentName + '</span><button type="button" onclick="clearSupplyDocument()" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer;"><i class="fas fa-times"></i></button></div>';
+            } else {
+                clearSupplyDocument();
+            }
             
             document.getElementById('supplyFormSection').scrollIntoView({ behavior: 'smooth' });
         }
@@ -54689,6 +54775,39 @@ document.addEventListener('keydown', function(e) {
                         <select id="newSupplyVendor" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                             <option value="">Select Vendor</option>
                         </select>
+                    </div>
+                    
+                    <!-- Image Upload -->
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="newSupplyImage">Supply Image</label>
+                        <div style="display: flex; gap: 1rem; align-items: flex-start;">
+                            <div id="supplyImagePreview" style="width: 100px; height: 100px; border: 2px dashed var(--border-color); border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--card-bg);">
+                                <i class="fas fa-image" style="font-size: 2rem; color: var(--text-tertiary);"></i>
+                            </div>
+                            <div style="flex: 1;">
+                                <input type="file" id="newSupplyImage" accept="image/*" onchange="previewSupplyImage(event)" style="display: none;">
+                                <button type="button" onclick="document.getElementById('newSupplyImage').click()" style="padding: 0.5rem 1rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; margin-bottom: 0.5rem;">
+                                    <i class="fas fa-upload" style="margin-right: 0.5rem;"></i>Upload Image
+                                </button>
+                                <button type="button" onclick="clearSupplyImage()" style="padding: 0.5rem 1rem; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; margin-left: 0.5rem;">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                                <p style="margin: 0.5rem 0 0 0; font-size: 0.75rem; color: var(--text-tertiary);">Max 5MB. JPG, PNG, GIF supported.</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Document/Attachment Upload -->
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="newSupplyDocument">Attachments (PDF)</label>
+                        <div style="border: 2px dashed var(--border-color); border-radius: 8px; padding: 1rem; background: var(--card-bg);">
+                            <input type="file" id="newSupplyDocument" accept=".pdf" onchange="previewSupplyDocument(event)" style="display: none;">
+                            <div id="supplyDocumentList" style="margin-bottom: 0.5rem;"></div>
+                            <button type="button" onclick="document.getElementById('newSupplyDocument').click()" style="padding: 0.5rem 1rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer;">
+                                <i class="fas fa-file-pdf" style="margin-right: 0.5rem;"></i>Add PDF Attachment
+                            </button>
+                            <p style="margin: 0.5rem 0 0 0; font-size: 0.75rem; color: var(--text-tertiary);">Upload SDS sheets, invoices, or product specifications.</p>
+                        </div>
                     </div>
                     
                     <div class="form-group" style="margin-bottom: 1rem;">
