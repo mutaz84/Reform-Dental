@@ -20913,42 +20913,11 @@
         // ============ VENDORS MANAGEMENT ============
         
         // Add custom vendor type as a checkbox
-        function addCustomVendorType() {
-            const customInput = document.getElementById('customVendorType');
-            const customType = customInput.value.trim();
-            
-            if (!customType) {
-                showNotification('Please enter a custom type', 'warning');
-                return;
-            }
-            
-            // Check if type already exists
-            const existingCheckbox = document.querySelector(`input[name="vendorTypes"][value="${customType}"]`);
-            if (existingCheckbox) {
-                existingCheckbox.checked = true;
-                customInput.value = '';
-                showNotification('Type already exists - selected', 'info');
-                return;
-            }
-            
-            // Add new checkbox for custom type
-            const checkboxContainer = document.getElementById('vendorTypeCheckboxes');
-            const newLabel = document.createElement('label');
-            newLabel.style.cssText = 'display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;';
-            newLabel.innerHTML = `
-                <input type="checkbox" name="vendorTypes" value="${customType}" checked style="width: 16px; height: 16px; cursor: pointer;">
-                <span>${customType}</span>
-            `;
-            checkboxContainer.appendChild(newLabel);
-            customInput.value = '';
-            showNotification('Custom type added', 'success');
-        }
-        
-        // Clear all vendor type checkboxes
+        // Legacy stubs - vendor types now use dropdown
+        function addCustomVendorType() { /* Replaced by vendor type manager */ }
         function clearVendorTypeCheckboxes() {
-            const checkboxes = document.querySelectorAll('input[name="vendorTypes"]');
-            checkboxes.forEach(cb => cb.checked = false);
-            document.getElementById('customVendorType').value = '';
+            const dd = document.getElementById('newVendorType');
+            if (dd) dd.value = '';
         }
 
         // Load vendors from localStorage
@@ -24850,11 +24819,9 @@
             const editId = document.getElementById('editVendorId').value;
             const vendorName = document.getElementById('newVendorName').value.trim();
             
-            // Get all selected vendor types
-            const vendorTypeCheckboxes = document.querySelectorAll('input[name="vendorTypes"]:checked');
-            const selectedTypes = Array.from(vendorTypeCheckboxes).map(cb => cb.value);
-            const vendorType = selectedTypes.join(', ');  // Store as comma-separated string for API compatibility
-            const vendorTypes = selectedTypes;  // Also store as array for local use
+            // Get vendor type from dropdown
+            const vendorType = document.getElementById('newVendorType').value;
+            const vendorTypes = vendorType ? [vendorType] : [];  // Store as array for local use
             
             const contactName = document.getElementById('newVendorContactName').value.trim();
             const email = document.getElementById('newVendorEmail').value.trim();
@@ -25060,20 +25027,8 @@
             
             document.getElementById('newVendorName').value = vendor.vendorName || '';
             
-            // Handle multiple vendor types
-            const allCheckboxes = document.querySelectorAll('input[name="vendorTypes"]');
-            allCheckboxes.forEach(cb => cb.checked = false);  // Uncheck all first
-            
-            if (vendor.vendorType) {
-                // Split by comma if stored as comma-separated string
-                const types = vendor.vendorType.split(',').map(t => t.trim());
-                types.forEach(type => {
-                    const checkbox = document.querySelector(`input[name="vendorTypes"][value="${type}"]`);
-                    if (checkbox) {
-                        checkbox.checked = true;
-                    }
-                });
-            }
+            // Set vendor type dropdown
+            document.getElementById('newVendorType').value = vendor.vendorType || '';
             
             document.getElementById('newVendorContactName').value = vendor.contactName || '';
             document.getElementById('newVendorEmail').value = vendor.email || '';
@@ -53846,47 +53801,23 @@ document.addEventListener('keydown', function(e) {
                             <input type="text" id="newVendorName" required placeholder="Vendor company name" maxlength="200">
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label>Vendor Type(s)</label>
-                            <div id="vendorTypeCheckboxes" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); max-height: 180px; overflow-y: auto;">
-                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
-                                    <input type="checkbox" name="vendorTypes" value="Dental Supplies" style="width: 16px; height: 16px; cursor: pointer;">
-                                    <span>Dental Supplies</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
-                                    <input type="checkbox" name="vendorTypes" value="Lab" style="width: 16px; height: 16px; cursor: pointer;">
-                                    <span>Lab</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
-                                    <input type="checkbox" name="vendorTypes" value="Equipment" style="width: 16px; height: 16px; cursor: pointer;">
-                                    <span>Equipment</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
-                                    <input type="checkbox" name="vendorTypes" value="Software" style="width: 16px; height: 16px; cursor: pointer;">
-                                    <span>Software</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
-                                    <input type="checkbox" name="vendorTypes" value="Services" style="width: 16px; height: 16px; cursor: pointer;">
-                                    <span>Services</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
-                                    <input type="checkbox" name="vendorTypes" value="Office Supplies" style="width: 16px; height: 16px; cursor: pointer;">
-                                    <span>Office Supplies</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
-                                    <input type="checkbox" name="vendorTypes" value="Insurance" style="width: 16px; height: 16px; cursor: pointer;">
-                                    <span>Insurance</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
-                                    <input type="checkbox" name="vendorTypes" value="Utilities" style="width: 16px; height: 16px; cursor: pointer;">
-                                    <span>Utilities</span>
-                                </label>
-                            </div>
-                            <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;">
-                                <input type="text" id="customVendorType" placeholder="Add custom type..." maxlength="100" style="flex: 1; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-primary); font-size: 0.85rem;">
-                                <button type="button" onclick="addCustomVendorType()" style="padding: 0.5rem 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem;">
-                                    <i class="fas fa-plus"></i> Add
+                            <label for="newVendorType" style="display: flex; align-items: center; gap: 0.5rem;">
+                                Vendor Type
+                                <button type="button" onclick="openVendorTypeManager()" class="category-gear-btn" style="display: none; background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Vendor Types (Admin)">
+                                    <i class="fas fa-cog"></i>
                                 </button>
-                            </div>
+                            </label>
+                            <select id="newVendorType" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="">Select Vendor Type</option>
+                                <option value="Dental Supplies">Dental Supplies</option>
+                                <option value="Lab">Lab</option>
+                                <option value="Equipment">Equipment</option>
+                                <option value="Software">Software</option>
+                                <option value="Services">Services</option>
+                                <option value="Office Supplies">Office Supplies</option>
+                                <option value="Insurance">Insurance</option>
+                                <option value="Utilities">Utilities</option>
+                            </select>
                         </div>
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
@@ -55022,6 +54953,30 @@ document.addEventListener('keydown', function(e) {
             </div>
             <div id="categoryListContainer" style="border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
                 <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">Loading categories...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Vendor Type Manager Modal -->
+<div id="vendorTypeManagerModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.6); z-index: 10004; align-items: center; justify-content: center;">
+    <div style="background: var(--card-bg); border-radius: 12px; width: 550px; max-width: 95vw; max-height: 85vh; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); background: var(--bg-secondary);">
+            <h3 style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-cog" style="color: #8b5cf6;"></i>
+                Manage Vendor Types
+            </h3>
+            <button onclick="closeVendorTypeManager()" style="background: #ef4444; color: white; border: none; width: 36px; height: 36px; border-radius: 8px; font-size: 1.25rem; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Close">&times;</button>
+        </div>
+        <div style="padding: 1.5rem; overflow-y: auto; max-height: calc(85vh - 70px);">
+            <div style="display: flex; gap: 0.75rem; margin-bottom: 1rem;">
+                <input type="text" id="newVendorTypeName" placeholder="Enter new vendor type..." maxlength="200" style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                <button onclick="addVendorType()" style="padding: 0.75rem 1.25rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; white-space: nowrap;">
+                    <i class="fas fa-plus" style="margin-right: 0.25rem;"></i> Add
+                </button>
+            </div>
+            <div id="vendorTypeListContainer" style="border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
+                <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">Loading vendor types...</div>
             </div>
         </div>
     </div>
@@ -57360,6 +57315,202 @@ function deleteCategory(catId) {
         refreshAllCategoryDropdowns();
         updateCategoryGearVisibility();
     }, 500);
+})();
+
+// ============ VENDOR TYPE MANAGEMENT FUNCTIONS ============
+function loadVendorTypesFromStorage() {
+    try {
+        return JSON.parse(localStorage.getItem('reformDentalVendorTypes') || '[]');
+    } catch (e) { return []; }
+}
+
+function saveVendorTypesStorage(types) {
+    localStorage.setItem('reformDentalVendorTypes', JSON.stringify(types));
+}
+
+function initDefaultVendorTypes() {
+    const existing = loadVendorTypesFromStorage();
+    if (existing.length > 0) return;
+
+    const defaults = [
+        { id: 1, name: 'Dental Supplies', sortOrder: 1, isActive: true },
+        { id: 2, name: 'Lab', sortOrder: 2, isActive: true },
+        { id: 3, name: 'Equipment', sortOrder: 3, isActive: true },
+        { id: 4, name: 'Software', sortOrder: 4, isActive: true },
+        { id: 5, name: 'Services', sortOrder: 5, isActive: true },
+        { id: 6, name: 'Office Supplies', sortOrder: 6, isActive: true },
+        { id: 7, name: 'Insurance', sortOrder: 7, isActive: true },
+        { id: 8, name: 'Utilities', sortOrder: 8, isActive: true },
+    ];
+    saveVendorTypesStorage(defaults);
+}
+
+function getActiveVendorTypes() {
+    const all = loadVendorTypesFromStorage();
+    return all.filter(t => t.isActive !== false).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+}
+
+function populateVendorTypeDropdown() {
+    const select = document.getElementById('newVendorType');
+    if (!select) return;
+    const currentVal = select.value;
+    const firstOption = select.options[0];
+    select.innerHTML = '';
+    select.appendChild(firstOption);
+
+    const types = getActiveVendorTypes();
+    types.forEach(t => {
+        const option = document.createElement('option');
+        option.value = t.name;
+        option.textContent = t.name;
+        select.appendChild(option);
+    });
+
+    if (currentVal) select.value = currentVal;
+}
+
+function openVendorTypeManager() {
+    document.getElementById('vendorTypeManagerModal').style.display = 'flex';
+    document.getElementById('newVendorTypeName').value = '';
+    renderVendorTypeList();
+}
+
+function closeVendorTypeManager() {
+    document.getElementById('vendorTypeManagerModal').style.display = 'none';
+    populateVendorTypeDropdown();
+}
+
+function renderVendorTypeList() {
+    const container = document.getElementById('vendorTypeListContainer');
+    const types = getActiveVendorTypes();
+
+    if (types.length === 0) {
+        container.innerHTML = '<div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">No vendor types yet. Add one above.</div>';
+        return;
+    }
+
+    let html = '';
+    types.forEach((t, idx) => {
+        html += '<div style="display: flex; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-color); gap: 0.75rem;" id="vtRow_' + t.id + '">';
+        html += '<span style="color: var(--text-tertiary); font-size: 0.8rem; min-width: 24px;">' + (idx + 1) + '.</span>';
+        html += '<span style="flex: 1; color: var(--text-primary); font-weight: 500;" id="vtName_' + t.id + '">' + t.name + '</span>';
+        html += '<button onclick="editVendorTypeInline(' + t.id + ')" style="background: none; border: none; color: var(--accent-primary); cursor: pointer; padding: 4px 8px;" title="Edit"><i class="fas fa-pencil-alt"></i></button>';
+        html += '<button onclick="deleteVendorType(' + t.id + ')" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px;" title="Delete"><i class="fas fa-trash"></i></button>';
+        html += '</div>';
+    });
+    container.innerHTML = html;
+}
+
+function addVendorType() {
+    const input = document.getElementById('newVendorTypeName');
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+
+    const all = loadVendorTypesFromStorage();
+    const exists = all.find(t => t.name.toLowerCase() === name.toLowerCase() && t.isActive !== false);
+    if (exists) {
+        alert('Vendor type "' + name + '" already exists.');
+        return;
+    }
+
+    const maxId = all.reduce((max, t) => Math.max(max, t.id || 0), 0);
+    const maxSort = all.reduce((max, t) => Math.max(max, t.sortOrder || 0), 0);
+
+    all.push({
+        id: maxId + 1,
+        name: name,
+        sortOrder: maxSort + 1,
+        isActive: true,
+        createdDate: new Date().toISOString()
+    });
+
+    saveVendorTypesStorage(all);
+    // Sync to API
+    if (typeof API_BASE_URL !== 'undefined') {
+        fetch(API_BASE_URL + '/vendortypes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name, sortOrder: maxSort + 1 })
+        }).catch(err => console.error('VendorType API sync error:', err));
+    }
+
+    input.value = '';
+    renderVendorTypeList();
+    showNotification('Vendor type "' + name + '" added', 'success');
+}
+
+function editVendorTypeInline(vtId) {
+    const all = loadVendorTypesFromStorage();
+    const vt = all.find(t => t.id === vtId);
+    if (!vt) return;
+
+    const nameSpan = document.getElementById('vtName_' + vtId);
+    if (!nameSpan) return;
+
+    const currentName = vt.name;
+    nameSpan.innerHTML = '<input type="text" id="editVtInput_' + vtId + '" value="' + currentName + '" maxlength="200" style="width: 100%; padding: 0.4rem 0.6rem; border: 1px solid var(--accent-primary); border-radius: 6px; background: var(--card-bg); color: var(--text-primary); font-size: 0.9rem;">';
+
+    const editInput = document.getElementById('editVtInput_' + vtId);
+    editInput.focus();
+    editInput.select();
+
+    const saveEdit = function() {
+        const newName = editInput.value.trim();
+        if (!newName) {
+            nameSpan.textContent = currentName;
+            return;
+        }
+        const dup = all.find(t => t.name.toLowerCase() === newName.toLowerCase() && t.id !== vtId && t.isActive !== false);
+        if (dup) {
+            alert('Vendor type "' + newName + '" already exists.');
+            nameSpan.textContent = currentName;
+            return;
+        }
+        vt.name = newName;
+        vt.modifiedDate = new Date().toISOString();
+        saveVendorTypesStorage(all);
+        // Sync to API
+        if (typeof API_BASE_URL !== 'undefined') {
+            fetch(API_BASE_URL + '/vendortypes/' + vtId, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: newName, sortOrder: vt.sortOrder, isActive: true })
+            }).catch(err => console.error('VendorType API update error:', err));
+        }
+        renderVendorTypeList();
+    };
+
+    editInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); saveEdit(); }
+        if (e.key === 'Escape') { nameSpan.textContent = currentName; }
+    });
+    editInput.addEventListener('blur', saveEdit);
+}
+
+function deleteVendorType(vtId) {
+    if (!confirm('Are you sure you want to delete this vendor type?')) return;
+
+    const all = loadVendorTypesFromStorage();
+    const idx = all.findIndex(t => t.id === vtId);
+    if (idx > -1) {
+        all[idx].isActive = false;
+        saveVendorTypesStorage(all);
+        // Sync to API
+        if (typeof API_BASE_URL !== 'undefined') {
+            fetch(API_BASE_URL + '/vendortypes/' + vtId, { method: 'DELETE' })
+                .catch(err => console.error('VendorType API delete error:', err));
+        }
+    }
+    renderVendorTypeList();
+    showNotification('Vendor type deleted', 'success');
+}
+
+// Initialize vendor types on page load
+(function() {
+    initDefaultVendorTypes();
+    setTimeout(function() {
+        populateVendorTypeDropdown();
+    }, 600);
 })();
 
 // ============ EQUIPMENT API FUNCTIONS ============

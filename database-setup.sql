@@ -280,6 +280,36 @@ ELSE
 GO
 
 -- =============================================
+-- 8.5 VENDOR TYPES TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='VendorTypes' AND xtype='U')
+BEGIN
+    CREATE TABLE VendorTypes (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        Name NVARCHAR(200) NOT NULL,
+        SortOrder INT DEFAULT 0,
+        IsActive BIT DEFAULT 1,
+        CreatedDate DATETIME DEFAULT GETUTCDATE(),
+        ModifiedDate DATETIME
+    );
+    
+    -- Insert default vendor types
+    INSERT INTO VendorTypes (Name, SortOrder) VALUES ('Dental Supplies', 1);
+    INSERT INTO VendorTypes (Name, SortOrder) VALUES ('Lab', 2);
+    INSERT INTO VendorTypes (Name, SortOrder) VALUES ('Equipment', 3);
+    INSERT INTO VendorTypes (Name, SortOrder) VALUES ('Software', 4);
+    INSERT INTO VendorTypes (Name, SortOrder) VALUES ('Services', 5);
+    INSERT INTO VendorTypes (Name, SortOrder) VALUES ('Office Supplies', 6);
+    INSERT INTO VendorTypes (Name, SortOrder) VALUES ('Insurance', 7);
+    INSERT INTO VendorTypes (Name, SortOrder) VALUES ('Utilities', 8);
+    
+    PRINT 'Created VendorTypes table with default data';
+END
+ELSE
+    PRINT 'VendorTypes table already exists';
+GO
+
+-- =============================================
 -- 8. SETTINGS TABLE
 -- =============================================
 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Settings' AND xtype='U')

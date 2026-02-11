@@ -291,7 +291,19 @@ CREATE INDEX IX_Categories_CategoryType ON Categories(CategoryType);
 CREATE INDEX IX_Categories_IsActive ON Categories(IsActive);
 
 -- =============================================
--- 12. PROCEDURES TABLE
+-- 12. VENDOR TYPES TABLE
+-- =============================================
+CREATE TABLE VendorTypes (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    Name NVARCHAR(200) NOT NULL,
+    SortOrder INT DEFAULT 0,
+    IsActive BIT DEFAULT 1,
+    CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
+    ModifiedDate DATETIME2 DEFAULT GETUTCDATE()
+);
+
+-- =============================================
+-- 13. PROCEDURES TABLE
 -- =============================================
 CREATE TABLE Procedures (
     Id INT IDENTITY(1,1) PRIMARY KEY,
