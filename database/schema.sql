@@ -252,7 +252,7 @@ CREATE INDEX IX_Supplies_ClinicId ON Supplies(ClinicId);
 CREATE TABLE Instruments (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     Name NVARCHAR(200) NOT NULL,
-    SerialNumber NVARCHAR(100),
+    SkuNumber NVARCHAR(100),
     Category NVARCHAR(100), -- 'diagnostic', 'surgical', 'cutting', 'filling', etc.
     Description NVARCHAR(MAX),
     Quantity INT DEFAULT 1,
