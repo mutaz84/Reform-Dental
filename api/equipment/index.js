@@ -74,13 +74,20 @@ module.exports = async function (context, req) {
                 .input('id', sql.Int, id)
                 .input('name', sql.NVarChar, body.name)
                 .input('category', sql.NVarChar, body.category)
-                .input('status', sql.NVarChar, body.status)
+                .input('brand', sql.NVarChar, body.brand || null)
+                .input('model', sql.NVarChar, body.model || null)
+                .input('serialNumber', sql.NVarChar, body.serialNumber || null)
                 .input('description', sql.NVarChar, body.description)
+                .input('status', sql.NVarChar, body.status)
+                .input('clinicId', sql.Int, body.clinicId || null)
+                .input('purchaseDate', sql.Date, body.purchaseDate || null)
+                .input('purchasePrice', sql.Decimal, body.purchasePrice || null)
+                .input('warrantyExpiry', sql.Date, body.warrantyExpiry || null)
                 .input('notes', sql.NVarChar, body.notes)
                 .input('warnings', sql.NVarChar, body.warnings)
                 .input('imageUrl', sql.NVarChar, body.imageUrl)
                 .input('documentUrl', sql.NVarChar, body.documentUrl)
-                .query(`UPDATE Equipment SET Name=@name, Category=@category, Status=@status, Description=@description, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+                .query(`UPDATE Equipment SET Name=@name, Category=@category, Brand=@brand, Model=@model, SerialNumber=@serialNumber, Description=@description, Status=@status, ClinicId=@clinicId, PurchaseDate=@purchaseDate, PurchasePrice=@purchasePrice, WarrantyExpiry=@warrantyExpiry, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Equipment updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()

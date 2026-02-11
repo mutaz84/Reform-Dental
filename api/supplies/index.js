@@ -73,14 +73,19 @@ module.exports = async function (context, req) {
                 .input('id', sql.Int, id)
                 .input('name', sql.NVarChar, body.name)
                 .input('category', sql.NVarChar, body.category)
+                .input('sku', sql.NVarChar, body.sku || null)
+                .input('description', sql.NVarChar, body.description || null)
+                .input('unit', sql.NVarChar, body.unit || null)
                 .input('quantityInStock', sql.Int, body.quantityInStock)
                 .input('minimumStock', sql.Int, body.minimumStock)
                 .input('reorderPoint', sql.Int, body.reorderPoint)
+                .input('unitCost', sql.Decimal, body.unitCost || null)
+                .input('clinicId', sql.Int, body.clinicId || null)
                 .input('notes', sql.NVarChar, body.notes)
                 .input('warnings', sql.NVarChar, body.warnings)
                 .input('imageUrl', sql.NVarChar, body.imageUrl)
                 .input('documentUrl', sql.NVarChar, body.documentUrl)
-                .query(`UPDATE Supplies SET Name=@name, Category=@category, QuantityInStock=@quantityInStock, MinimumStock=@minimumStock, ReorderPoint=@reorderPoint, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+                .query(`UPDATE Supplies SET Name=@name, Category=@category, SKU=@sku, Description=@description, Unit=@unit, QuantityInStock=@quantityInStock, MinimumStock=@minimumStock, ReorderPoint=@reorderPoint, UnitCost=@unitCost, ClinicId=@clinicId, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Supply updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()

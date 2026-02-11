@@ -26022,11 +26022,20 @@
                     if (typeof updateEquipmentViaAPI === 'function') {
                         updateEquipmentViaAPI(editId, {
                             name: equipmentName,
+                            category: equipmentType || '',
+                            brand: manufacturer || '',
+                            model: model || '',
                             serialNumber: serialNumber || '',
-                            clinicId: officeId ? parseInt(officeId) : null,
+                            description: '',
                             status: status || 'operational',
-                            notes: notes,
-                            warnings: warnings
+                            clinicId: officeId ? parseInt(officeId) : null,
+                            purchaseDate: purchaseDate || null,
+                            purchasePrice: price ? parseFloat(price) : null,
+                            warrantyExpiry: warrantyExpiry || null,
+                            notes: notes || '',
+                            warnings: warnings || '',
+                            imageUrl: imageData || null,
+                            documentUrl: documentData || null
                         });
                     }
                     
@@ -26334,9 +26343,12 @@
         function deleteEquipment(equipmentID) {
             if (confirm('Are you sure you want to delete this equipment?')) {
                 const equipment = loadEquipment();
+                // Look up apiId BEFORE removing from localStorage
+                const itemToDelete = equipment.find(e => e.equipmentID === equipmentID);
+                const apiId = itemToDelete ? (itemToDelete.apiId || itemToDelete.equipmentID) : equipmentID;
                 const updatedEquipment = equipment.filter(e => e.equipmentID !== equipmentID);
                 saveEquipment(updatedEquipment);
-                if (typeof deleteEquipmentViaAPI === 'function') deleteEquipmentViaAPI(equipmentID);
+                if (typeof deleteEquipmentViaAPI === 'function') deleteEquipmentViaAPI(apiId);
                 displayEquipmentList();
                 updateInventoryBadges();
                 refreshEquipmentViewIfActive();
@@ -27082,10 +27094,16 @@
                             name: instrumentName,
                             skuNumber: skuNumber || null,
                             category: category,
+                            description: instrumentType || '',
                             quantity: 1,
                             status: 'available',
-                            notes: notes,
-                            warnings: warnings
+                            clinicId: officeId ? parseInt(officeId) : null,
+                            sterilizationRequired: true,
+                            icon: '',
+                            notes: notes || '',
+                            warnings: warnings || '',
+                            imageUrl: imageData || null,
+                            documentUrl: documentData || null
                         });
                     }
                     
@@ -27378,9 +27396,12 @@
         function deleteInstrument(instrumentID) {
             if (confirm('Are you sure you want to delete this instrument?')) {
                 const instruments = loadInstruments();
+                // Look up apiId BEFORE removing from localStorage
+                const itemToDelete = instruments.find(i => i.instrumentID === instrumentID);
+                const apiId = itemToDelete ? (itemToDelete.apiId || itemToDelete.instrumentID) : instrumentID;
                 const updated = instruments.filter(i => i.instrumentID !== instrumentID);
                 saveInstruments(updated);
-                if (typeof deleteInstrumentViaAPI === 'function') deleteInstrumentViaAPI(instrumentID);
+                if (typeof deleteInstrumentViaAPI === 'function') deleteInstrumentViaAPI(apiId);
                 displayInstrumentsList();
                 updateInventoryBadges();
                 refreshInstrumentsViewIfActive();
@@ -27861,11 +27882,18 @@
                         updateSupplyViaAPI(editId, {
                             name: supplyName,
                             category: category,
+                            sku: sku || '',
+                            description: manufacturer || '',
+                            unit: unit || '',
                             quantityInStock: quantityInStock || 0,
                             minimumStock: reorderLevel || 0,
                             reorderPoint: reorderLevel || 0,
-                            notes: notes,
-                            warnings: warnings
+                            unitCost: unitCost ? parseFloat(unitCost) : null,
+                            clinicId: officeId ? parseInt(officeId) : null,
+                            notes: notes || '',
+                            warnings: warnings || '',
+                            imageUrl: window.supplyImageData || null,
+                            documentUrl: window.supplyDocumentData || null
                         });
                     }
                     
@@ -28135,9 +28163,12 @@
         function deleteSupply(supplyID) {
             if (confirm('Are you sure you want to delete this supply?')) {
                 const supplies = loadSupplies();
+                // Look up apiId BEFORE removing from localStorage
+                const itemToDelete = supplies.find(s => s.supplyID === supplyID);
+                const apiId = itemToDelete ? (itemToDelete.apiId || itemToDelete.supplyID) : supplyID;
                 const updated = supplies.filter(s => s.supplyID !== supplyID);
                 saveSupplies(updated);
-                if (typeof deleteSupplyViaAPI === 'function') deleteSupplyViaAPI(supplyID);
+                if (typeof deleteSupplyViaAPI === 'function') deleteSupplyViaAPI(apiId);
                 displaySuppliesList();
                 updateInventoryBadges();
                 refreshSuppliesViewIfActive();
@@ -57574,21 +57605,28 @@ async function saveEquipmentToAPI(equipmentData) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                name: equipmentData.name,
+                name: equipmentData.name || equipmentData.equipmentName || '',
+                category: equipmentData.category || equipmentData.equipmentType || '',
+                brand: equipmentData.brand || equipmentData.manufacturer || '',
+                model: equipmentData.model || '',
                 serialNumber: equipmentData.serialNumber || '',
-                clinicId: equipmentData.clinicId || null,
+                description: equipmentData.description || '',
                 status: equipmentData.status || 'operational',
+                clinicId: equipmentData.clinicId || equipmentData.officeId ? parseInt(equipmentData.clinicId || equipmentData.officeId) : null,
                 purchaseDate: equipmentData.purchaseDate || null,
-                warranty: equipmentData.warranty || '',
-                notes: equipmentData.notes || ''
+                purchasePrice: equipmentData.purchasePrice || equipmentData.price ? parseFloat(equipmentData.purchasePrice || equipmentData.price) : null,
+                warrantyExpiry: equipmentData.warrantyExpiry || equipmentData.warranty || null,
+                notes: equipmentData.notes || '',
+                warnings: equipmentData.warnings || '',
+                imageUrl: equipmentData.imageUrl || equipmentData.imageData || null,
+                documentUrl: equipmentData.documentUrl || equipmentData.documentData || null
             })
         });
         if (response.ok) {
             const result = await response.json();
-            // Store database ID back on the local item
             if (result && result.id) {
                 const equipment = JSON.parse(localStorage.getItem('equipment') || '[]');
-                const item = equipment.find(e => e.equipmentName === equipmentData.name && !e.apiId);
+                const item = equipment.find(e => (e.equipmentName === (equipmentData.name || equipmentData.equipmentName)) && !e.apiId);
                 if (item) {
                     item.apiId = result.id;
                     localStorage.setItem('equipment', JSON.stringify(equipment));
@@ -57596,6 +57634,9 @@ async function saveEquipmentToAPI(equipmentData) {
             }
             console.log('✅ Equipment saved to database');
             showSyncStatus('Equipment saved to database', true);
+        } else {
+            const errText = await response.text();
+            console.error('❌ Equipment API POST failed:', response.status, errText);
         }
     } catch (error) {
         console.error('❌ Error saving equipment to API:', error);
@@ -57604,7 +57645,6 @@ async function saveEquipmentToAPI(equipmentData) {
 
 async function updateEquipmentViaAPI(id, equipmentData) {
     if (typeof API_BASE_URL === 'undefined') return;
-    // Look up the database API ID from local storage
     const equipment = JSON.parse(localStorage.getItem('equipment') || '[]');
     const item = equipment.find(e => String(e.equipmentID) === String(id));
     const apiId = item ? (item.apiId || item.equipmentID) : id;
@@ -57617,21 +57657,25 @@ async function updateEquipmentViaAPI(id, equipmentData) {
         if (response.ok) {
             console.log('✅ Equipment updated in database');
             showSyncStatus('Equipment updated', true);
+        } else {
+            const errText = await response.text();
+            console.error('❌ Equipment API PUT failed:', response.status, errText);
         }
     } catch (error) {
         console.error('❌ Error updating equipment:', error);
     }
 }
 
-async function deleteEquipmentViaAPI(id) {
+// deleteEquipmentViaAPI now receives the correct apiId directly from deleteEquipment
+async function deleteEquipmentViaAPI(apiId) {
     if (typeof API_BASE_URL === 'undefined') return;
-    // Look up the database API ID from local storage
-    const equipment = JSON.parse(localStorage.getItem('equipment') || '[]');
-    const item = equipment.find(e => String(e.equipmentID) === String(id));
-    const apiId = item ? (item.apiId || item.equipmentID) : id;
     try {
-        await fetch(`${API_BASE_URL}/equipment/${apiId}`, { method: 'DELETE' });
-        console.log('✅ Equipment deleted from database');
+        const response = await fetch(`${API_BASE_URL}/equipment/${apiId}`, { method: 'DELETE' });
+        if (response.ok) {
+            console.log('✅ Equipment deleted from database (ID:', apiId, ')');
+        } else {
+            console.error('❌ Equipment API DELETE failed:', response.status);
+        }
     } catch (error) {
         console.error('❌ Error deleting equipment:', error);
     }
@@ -57646,13 +57690,29 @@ async function syncEquipmentFromAPI() {
             const localEquipment = apiEquipment.map(e => ({
                 equipmentID: e.Id || e.id,
                 apiId: e.Id || e.id,
-                equipmentName: e.Name || e.name,
+                equipmentName: e.Name || e.name || '',
+                equipmentType: e.Category || e.category || '',
+                manufacturer: e.Brand || e.brand || '',
+                model: e.Model || e.model || '',
                 serialNumber: e.SerialNumber || e.serialNumber || '',
+                description: e.Description || e.description || '',
                 officeId: e.ClinicId || e.clinicId || '',
-                status: e.Status || e.status || 'operational',
+                roomId: e.RoomId || e.roomId || '',
                 purchaseDate: e.PurchaseDate || e.purchaseDate || '',
-                warranty: e.Warranty || e.warranty || '',
-                notes: e.Notes || e.notes || ''
+                price: e.PurchasePrice || e.purchasePrice || '',
+                warrantyExpiry: e.WarrantyExpiry || e.warrantyExpiry || '',
+                status: e.Status || e.status || 'operational',
+                maintenanceSchedule: e.MaintenanceSchedule || e.maintenanceSchedule || '',
+                lastServiceDate: e.LastMaintenanceDate || e.lastMaintenanceDate || '',
+                nextServiceDate: e.NextMaintenanceDate || e.nextMaintenanceDate || '',
+                vendorId: e.VendorId || e.vendorId || '',
+                notes: e.Notes || e.notes || '',
+                warnings: e.Warnings || e.warnings || '',
+                imageData: e.ImageUrl || e.imageUrl || null,
+                documentData: e.DocumentUrl || e.documentUrl || null,
+                isActive: true,
+                createdDate: e.CreatedDate || e.createdDate || '',
+                modifiedDate: e.ModifiedDate || e.modifiedDate || ''
             }));
             localStorage.setItem('equipment', JSON.stringify(localEquipment));
             console.log('✅ Synced', localEquipment.length, 'equipment items from API');
@@ -57672,23 +57732,26 @@ async function saveInstrumentToAPI(instrumentData) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                name: instrumentData.name,
+                name: instrumentData.name || instrumentData.instrumentName || '',
                 skuNumber: instrumentData.skuNumber || null,
                 category: instrumentData.category || '',
-                description: instrumentData.instrumentType || '',
-                clinicId: instrumentData.clinicId || null,
+                description: instrumentData.instrumentType || instrumentData.description || '',
+                clinicId: instrumentData.clinicId || instrumentData.officeId ? parseInt(instrumentData.clinicId || instrumentData.officeId) : null,
                 quantity: instrumentData.quantity || 1,
                 status: instrumentData.status || 'available',
-                notes: instrumentData.notes || null,
-                warnings: instrumentData.warnings || null
+                sterilizationRequired: instrumentData.sterilizationRequired !== false,
+                icon: instrumentData.icon || '',
+                notes: instrumentData.notes || '',
+                warnings: instrumentData.warnings || '',
+                imageUrl: instrumentData.imageUrl || instrumentData.imageData || null,
+                documentUrl: instrumentData.documentUrl || instrumentData.documentData || null
             })
         });
         if (response.ok) {
             const result = await response.json();
-            // Store database ID back on the local item
             if (result && result.id) {
                 const instruments = JSON.parse(localStorage.getItem('instruments') || '[]');
-                const item = instruments.find(i => i.instrumentName === instrumentData.name && !i.apiId);
+                const item = instruments.find(i => (i.instrumentName === (instrumentData.name || instrumentData.instrumentName)) && !i.apiId);
                 if (item) {
                     item.apiId = result.id;
                     localStorage.setItem('instruments', JSON.stringify(instruments));
@@ -57696,6 +57759,9 @@ async function saveInstrumentToAPI(instrumentData) {
             }
             console.log('✅ Instrument saved to database');
             showSyncStatus('Instrument saved to database', true);
+        } else {
+            const errText = await response.text();
+            console.error('❌ Instrument API POST failed:', response.status, errText);
         }
     } catch (error) {
         console.error('❌ Error saving instrument to API:', error);
@@ -57716,20 +57782,25 @@ async function updateInstrumentViaAPI(id, instrumentData) {
         if (response.ok) {
             console.log('✅ Instrument updated in database');
             showSyncStatus('Instrument updated', true);
+        } else {
+            const errText = await response.text();
+            console.error('❌ Instrument API PUT failed:', response.status, errText);
         }
     } catch (error) {
         console.error('❌ Error updating instrument:', error);
     }
 }
 
-async function deleteInstrumentViaAPI(id) {
+// deleteInstrumentViaAPI now receives the correct apiId directly from deleteInstrument
+async function deleteInstrumentViaAPI(apiId) {
     if (typeof API_BASE_URL === 'undefined') return;
-    const instruments = JSON.parse(localStorage.getItem('instruments') || '[]');
-    const item = instruments.find(i => String(i.instrumentID) === String(id));
-    const apiId = item ? (item.apiId || item.instrumentID) : id;
     try {
-        await fetch(`${API_BASE_URL}/instruments/${apiId}`, { method: 'DELETE' });
-        console.log('✅ Instrument deleted from database');
+        const response = await fetch(`${API_BASE_URL}/instruments/${apiId}`, { method: 'DELETE' });
+        if (response.ok) {
+            console.log('✅ Instrument deleted from database (ID:', apiId, ')');
+        } else {
+            console.error('❌ Instrument API DELETE failed:', response.status);
+        }
     } catch (error) {
         console.error('❌ Error deleting instrument:', error);
     }
@@ -57748,15 +57819,19 @@ async function syncInstrumentsFromAPI() {
                 skuNumber: i.SkuNumber || i.skuNumber || '',
                 category: i.Category || i.category || '',
                 instrumentType: i.Description || i.description || '',
-                manufacturer: i.Manufacturer || i.manufacturer || '',
                 officeId: i.ClinicId || i.clinicId || '',
                 vendorId: i.VendorId || i.vendorId || '',
                 quantity: i.Quantity || i.quantity || 1,
                 status: i.Status || i.status || 'available',
+                sterilizationRequired: i.SterilizationRequired !== false && i.sterilizationRequired !== false,
+                icon: i.Icon || i.icon || '',
+                purchaseDate: i.PurchaseDate || i.purchaseDate || '',
+                unitCost: i.UnitCost || i.unitCost || '',
                 notes: i.Notes || i.notes || '',
                 warnings: i.Warnings || i.warnings || '',
                 imageData: i.ImageUrl || i.imageUrl || null,
                 documentData: i.DocumentUrl || i.documentUrl || null,
+                isActive: true,
                 createdDate: i.CreatedDate || i.createdDate || '',
                 modifiedDate: i.ModifiedDate || i.modifiedDate || ''
             }));
@@ -57778,26 +57853,27 @@ async function saveSupplyToAPI(supplyData) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                name: supplyData.name,
+                name: supplyData.name || supplyData.supplyName || '',
                 category: supplyData.category || '',
                 sku: supplyData.sku || null,
-                description: supplyData.manufacturer || '',
+                description: supplyData.manufacturer || supplyData.description || '',
                 unit: supplyData.unit || '',
-                clinicId: supplyData.clinicId || null,
-                quantityInStock: supplyData.quantity || 0,
-                minimumStock: supplyData.minQuantity || 0,
-                reorderPoint: supplyData.minQuantity || 0,
-                unitCost: supplyData.unitPrice || null,
-                notes: supplyData.notes || null,
-                warnings: supplyData.warnings || null
+                clinicId: supplyData.clinicId || supplyData.officeId ? parseInt(supplyData.clinicId || supplyData.officeId) : null,
+                quantityInStock: supplyData.quantity || supplyData.quantityInStock || 0,
+                minimumStock: supplyData.minQuantity || supplyData.reorderLevel || 0,
+                reorderPoint: supplyData.minQuantity || supplyData.reorderLevel || 0,
+                unitCost: supplyData.unitPrice || supplyData.unitCost ? parseFloat(supplyData.unitPrice || supplyData.unitCost) : null,
+                notes: supplyData.notes || '',
+                warnings: supplyData.warnings || '',
+                imageUrl: supplyData.imageUrl || supplyData.imageData || null,
+                documentUrl: supplyData.documentUrl || supplyData.documentData || null
             })
         });
         if (response.ok) {
             const result = await response.json();
-            // Store database ID back on the local item
             if (result && result.id) {
                 const supplies = JSON.parse(localStorage.getItem('supplies') || '[]');
-                const item = supplies.find(s => s.supplyName === supplyData.name && !s.apiId);
+                const item = supplies.find(s => (s.supplyName === (supplyData.name || supplyData.supplyName)) && !s.apiId);
                 if (item) {
                     item.apiId = result.id;
                     localStorage.setItem('supplies', JSON.stringify(supplies));
@@ -57805,6 +57881,9 @@ async function saveSupplyToAPI(supplyData) {
             }
             console.log('✅ Supply saved to database');
             showSyncStatus('Supply saved to database', true);
+        } else {
+            const errText = await response.text();
+            console.error('❌ Supply API POST failed:', response.status, errText);
         }
     } catch (error) {
         console.error('❌ Error saving supply to API:', error);
@@ -57825,20 +57904,25 @@ async function updateSupplyViaAPI(id, supplyData) {
         if (response.ok) {
             console.log('✅ Supply updated in database');
             showSyncStatus('Supply updated', true);
+        } else {
+            const errText = await response.text();
+            console.error('❌ Supply API PUT failed:', response.status, errText);
         }
     } catch (error) {
         console.error('❌ Error updating supply:', error);
     }
 }
 
-async function deleteSupplyViaAPI(id) {
+// deleteSupplyViaAPI now receives the correct apiId directly from deleteSupply
+async function deleteSupplyViaAPI(apiId) {
     if (typeof API_BASE_URL === 'undefined') return;
-    const supplies = JSON.parse(localStorage.getItem('supplies') || '[]');
-    const item = supplies.find(s => String(s.supplyID) === String(id));
-    const apiId = item ? (item.apiId || item.supplyID) : id;
     try {
-        await fetch(`${API_BASE_URL}/supplies/${apiId}`, { method: 'DELETE' });
-        console.log('✅ Supply deleted from database');
+        const response = await fetch(`${API_BASE_URL}/supplies/${apiId}`, { method: 'DELETE' });
+        if (response.ok) {
+            console.log('✅ Supply deleted from database (ID:', apiId, ')');
+        } else {
+            console.error('❌ Supply API DELETE failed:', response.status);
+        }
     } catch (error) {
         console.error('❌ Error deleting supply:', error);
     }
@@ -57862,6 +57946,9 @@ async function syncSuppliesFromAPI() {
                 reorderLevel: s.MinimumStock || s.minimumStock || s.ReorderPoint || s.reorderPoint || 0,
                 unit: s.Unit || s.unit || '',
                 unitCost: s.UnitCost || s.unitCost || 0,
+                location: s.StorageLocation || s.storageLocation || '',
+                vendorId: s.VendorId || s.vendorId || '',
+                expirationDate: s.ExpirationDate || s.expirationDate || '',
                 notes: s.Notes || s.notes || '',
                 warnings: s.Warnings || s.warnings || '',
                 isActive: s.IsActive !== false && s.isActive !== false,

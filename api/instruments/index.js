@@ -73,13 +73,17 @@ module.exports = async function (context, req) {
                 .input('name', sql.NVarChar, body.name)
                 .input('skuNumber', sql.NVarChar, body.skuNumber || null)
                 .input('category', sql.NVarChar, body.category)
+                .input('description', sql.NVarChar, body.description || null)
                 .input('quantity', sql.Int, body.quantity)
                 .input('status', sql.NVarChar, body.status)
+                .input('clinicId', sql.Int, body.clinicId || null)
+                .input('sterilizationRequired', sql.Bit, body.sterilizationRequired !== false)
+                .input('icon', sql.NVarChar, body.icon || null)
                 .input('notes', sql.NVarChar, body.notes)
                 .input('warnings', sql.NVarChar, body.warnings)
                 .input('imageUrl', sql.NVarChar, body.imageUrl)
                 .input('documentUrl', sql.NVarChar, body.documentUrl)
-                .query(`UPDATE Instruments SET Name=@name, SkuNumber=@skuNumber, Category=@category, Quantity=@quantity, Status=@status, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+                .query(`UPDATE Instruments SET Name=@name, SkuNumber=@skuNumber, Category=@category, Description=@description, Quantity=@quantity, Status=@status, ClinicId=@clinicId, SterilizationRequired=@sterilizationRequired, Icon=@icon, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Instrument updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()
