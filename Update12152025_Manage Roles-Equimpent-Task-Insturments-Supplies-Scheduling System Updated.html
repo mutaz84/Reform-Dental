@@ -26357,9 +26357,14 @@
                 // Look up apiId BEFORE removing from localStorage
                 const itemToDelete = equipment.find(e => e.equipmentID === equipmentID);
                 const apiId = itemToDelete ? (itemToDelete.apiId || itemToDelete.equipmentID) : equipmentID;
+                console.log('🗑️ DELETE Equipment - localID:', equipmentID, 'apiId:', apiId, 'item found:', !!itemToDelete);
                 const updatedEquipment = equipment.filter(e => e.equipmentID !== equipmentID);
                 saveEquipment(updatedEquipment);
-                if (typeof deleteEquipmentViaAPI === 'function') deleteEquipmentViaAPI(apiId);
+                if (typeof deleteEquipmentViaAPI === 'function') {
+                    deleteEquipmentViaAPI(apiId);
+                } else {
+                    console.error('❌ deleteEquipmentViaAPI function not found!');
+                }
                 displayEquipmentList();
                 updateInventoryBadges();
                 refreshEquipmentViewIfActive();
@@ -27432,9 +27437,14 @@
                 // Look up apiId BEFORE removing from localStorage
                 const itemToDelete = instruments.find(i => i.instrumentID === instrumentID);
                 const apiId = itemToDelete ? (itemToDelete.apiId || itemToDelete.instrumentID) : instrumentID;
+                console.log('🗑️ DELETE Instrument - localID:', instrumentID, 'apiId:', apiId, 'item found:', !!itemToDelete);
                 const updated = instruments.filter(i => i.instrumentID !== instrumentID);
                 saveInstruments(updated);
-                if (typeof deleteInstrumentViaAPI === 'function') deleteInstrumentViaAPI(apiId);
+                if (typeof deleteInstrumentViaAPI === 'function') {
+                    deleteInstrumentViaAPI(apiId);
+                } else {
+                    console.error('❌ deleteInstrumentViaAPI function not found!');
+                }
                 displayInstrumentsList();
                 updateInventoryBadges();
                 refreshInstrumentsViewIfActive();
@@ -28199,9 +28209,14 @@
                 // Look up apiId BEFORE removing from localStorage
                 const itemToDelete = supplies.find(s => s.supplyID === supplyID);
                 const apiId = itemToDelete ? (itemToDelete.apiId || itemToDelete.supplyID) : supplyID;
+                console.log('🗑️ DELETE Supply - localID:', supplyID, 'apiId:', apiId, 'item found:', !!itemToDelete);
                 const updated = supplies.filter(s => s.supplyID !== supplyID);
                 saveSupplies(updated);
-                if (typeof deleteSupplyViaAPI === 'function') deleteSupplyViaAPI(apiId);
+                if (typeof deleteSupplyViaAPI === 'function') {
+                    deleteSupplyViaAPI(apiId);
+                } else {
+                    console.error('❌ deleteSupplyViaAPI function not found!');
+                }
                 displaySuppliesList();
                 updateInventoryBadges();
                 refreshSuppliesViewIfActive();
@@ -57701,13 +57716,17 @@ async function updateEquipmentViaAPI(id, equipmentData) {
 
 // deleteEquipmentViaAPI now receives the correct apiId directly from deleteEquipment
 async function deleteEquipmentViaAPI(apiId) {
-    if (typeof API_BASE_URL === 'undefined') return;
+    if (typeof API_BASE_URL === 'undefined') { console.error('❌ API_BASE_URL is undefined!'); return; }
+    const url = `${API_BASE_URL}/equipment/${apiId}`;
+    console.log('🌐 DELETE Equipment API call:', url);
     try {
-        const response = await fetch(`${API_BASE_URL}/equipment/${apiId}`, { method: 'DELETE' });
+        const response = await fetch(url, { method: 'DELETE' });
+        const responseText = await response.text();
+        console.log('🌐 DELETE Equipment response:', response.status, responseText);
         if (response.ok) {
             console.log('✅ Equipment deleted from database (ID:', apiId, ')');
         } else {
-            console.error('❌ Equipment API DELETE failed:', response.status);
+            console.error('❌ Equipment API DELETE failed:', response.status, responseText);
         }
     } catch (error) {
         console.error('❌ Error deleting equipment:', error);
@@ -57826,13 +57845,17 @@ async function updateInstrumentViaAPI(id, instrumentData) {
 
 // deleteInstrumentViaAPI now receives the correct apiId directly from deleteInstrument
 async function deleteInstrumentViaAPI(apiId) {
-    if (typeof API_BASE_URL === 'undefined') return;
+    if (typeof API_BASE_URL === 'undefined') { console.error('❌ API_BASE_URL is undefined!'); return; }
+    const url = `${API_BASE_URL}/instruments/${apiId}`;
+    console.log('🌐 DELETE Instrument API call:', url);
     try {
-        const response = await fetch(`${API_BASE_URL}/instruments/${apiId}`, { method: 'DELETE' });
+        const response = await fetch(url, { method: 'DELETE' });
+        const responseText = await response.text();
+        console.log('🌐 DELETE Instrument response:', response.status, responseText);
         if (response.ok) {
             console.log('✅ Instrument deleted from database (ID:', apiId, ')');
         } else {
-            console.error('❌ Instrument API DELETE failed:', response.status);
+            console.error('❌ Instrument API DELETE failed:', response.status, responseText);
         }
     } catch (error) {
         console.error('❌ Error deleting instrument:', error);
@@ -57948,13 +57971,17 @@ async function updateSupplyViaAPI(id, supplyData) {
 
 // deleteSupplyViaAPI now receives the correct apiId directly from deleteSupply
 async function deleteSupplyViaAPI(apiId) {
-    if (typeof API_BASE_URL === 'undefined') return;
+    if (typeof API_BASE_URL === 'undefined') { console.error('❌ API_BASE_URL is undefined!'); return; }
+    const url = `${API_BASE_URL}/supplies/${apiId}`;
+    console.log('🌐 DELETE Supply API call:', url);
     try {
-        const response = await fetch(`${API_BASE_URL}/supplies/${apiId}`, { method: 'DELETE' });
+        const response = await fetch(url, { method: 'DELETE' });
+        const responseText = await response.text();
+        console.log('🌐 DELETE Supply response:', response.status, responseText);
         if (response.ok) {
             console.log('✅ Supply deleted from database (ID:', apiId, ')');
         } else {
-            console.error('❌ Supply API DELETE failed:', response.status);
+            console.error('❌ Supply API DELETE failed:', response.status, responseText);
         }
     } catch (error) {
         console.error('❌ Error deleting supply:', error);
