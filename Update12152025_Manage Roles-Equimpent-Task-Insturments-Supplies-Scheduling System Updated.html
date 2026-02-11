@@ -57584,6 +57584,16 @@ async function saveEquipmentToAPI(equipmentData) {
             })
         });
         if (response.ok) {
+            const result = await response.json();
+            // Store database ID back on the local item
+            if (result && result.id) {
+                const equipment = JSON.parse(localStorage.getItem('equipment') || '[]');
+                const item = equipment.find(e => e.equipmentName === equipmentData.name && !e.apiId);
+                if (item) {
+                    item.apiId = result.id;
+                    localStorage.setItem('equipment', JSON.stringify(equipment));
+                }
+            }
             console.log('✅ Equipment saved to database');
             showSyncStatus('Equipment saved to database', true);
         }
@@ -57594,8 +57604,12 @@ async function saveEquipmentToAPI(equipmentData) {
 
 async function updateEquipmentViaAPI(id, equipmentData) {
     if (typeof API_BASE_URL === 'undefined') return;
+    // Look up the database API ID from local storage
+    const equipment = JSON.parse(localStorage.getItem('equipment') || '[]');
+    const item = equipment.find(e => String(e.equipmentID) === String(id));
+    const apiId = item ? (item.apiId || item.equipmentID) : id;
     try {
-        const response = await fetch(`${API_BASE_URL}/equipment/${id}`, {
+        const response = await fetch(`${API_BASE_URL}/equipment/${apiId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(equipmentData)
@@ -57611,8 +57625,12 @@ async function updateEquipmentViaAPI(id, equipmentData) {
 
 async function deleteEquipmentViaAPI(id) {
     if (typeof API_BASE_URL === 'undefined') return;
+    // Look up the database API ID from local storage
+    const equipment = JSON.parse(localStorage.getItem('equipment') || '[]');
+    const item = equipment.find(e => String(e.equipmentID) === String(id));
+    const apiId = item ? (item.apiId || item.equipmentID) : id;
     try {
-        await fetch(`${API_BASE_URL}/equipment/${id}`, { method: 'DELETE' });
+        await fetch(`${API_BASE_URL}/equipment/${apiId}`, { method: 'DELETE' });
         console.log('✅ Equipment deleted from database');
     } catch (error) {
         console.error('❌ Error deleting equipment:', error);
@@ -57626,10 +57644,11 @@ async function syncEquipmentFromAPI() {
         const apiEquipment = await response.json();
         if (apiEquipment && apiEquipment.length > 0) {
             const localEquipment = apiEquipment.map(e => ({
-                id: `eq-${e.Id || e.id}`,
-                name: e.Name || e.name,
+                equipmentID: e.Id || e.id,
+                apiId: e.Id || e.id,
+                equipmentName: e.Name || e.name,
                 serialNumber: e.SerialNumber || e.serialNumber || '',
-                office: e.ClinicId || e.clinicId || '',
+                officeId: e.ClinicId || e.clinicId || '',
                 status: e.Status || e.status || 'operational',
                 purchaseDate: e.PurchaseDate || e.purchaseDate || '',
                 warranty: e.Warranty || e.warranty || '',
@@ -57665,6 +57684,16 @@ async function saveInstrumentToAPI(instrumentData) {
             })
         });
         if (response.ok) {
+            const result = await response.json();
+            // Store database ID back on the local item
+            if (result && result.id) {
+                const instruments = JSON.parse(localStorage.getItem('instruments') || '[]');
+                const item = instruments.find(i => i.instrumentName === instrumentData.name && !i.apiId);
+                if (item) {
+                    item.apiId = result.id;
+                    localStorage.setItem('instruments', JSON.stringify(instruments));
+                }
+            }
             console.log('✅ Instrument saved to database');
             showSyncStatus('Instrument saved to database', true);
         }
@@ -57675,8 +57704,11 @@ async function saveInstrumentToAPI(instrumentData) {
 
 async function updateInstrumentViaAPI(id, instrumentData) {
     if (typeof API_BASE_URL === 'undefined') return;
+    const instruments = JSON.parse(localStorage.getItem('instruments') || '[]');
+    const item = instruments.find(i => String(i.instrumentID) === String(id));
+    const apiId = item ? (item.apiId || item.instrumentID) : id;
     try {
-        const response = await fetch(`${API_BASE_URL}/instruments/${id}`, {
+        const response = await fetch(`${API_BASE_URL}/instruments/${apiId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(instrumentData)
@@ -57692,8 +57724,11 @@ async function updateInstrumentViaAPI(id, instrumentData) {
 
 async function deleteInstrumentViaAPI(id) {
     if (typeof API_BASE_URL === 'undefined') return;
+    const instruments = JSON.parse(localStorage.getItem('instruments') || '[]');
+    const item = instruments.find(i => String(i.instrumentID) === String(id));
+    const apiId = item ? (item.apiId || item.instrumentID) : id;
     try {
-        await fetch(`${API_BASE_URL}/instruments/${id}`, { method: 'DELETE' });
+        await fetch(`${API_BASE_URL}/instruments/${apiId}`, { method: 'DELETE' });
         console.log('✅ Instrument deleted from database');
     } catch (error) {
         console.error('❌ Error deleting instrument:', error);
@@ -57708,6 +57743,7 @@ async function syncInstrumentsFromAPI() {
         if (apiInstruments && apiInstruments.length > 0) {
             const localInstruments = apiInstruments.map(i => ({
                 instrumentID: i.Id || i.id,
+                apiId: i.Id || i.id,
                 instrumentName: i.Name || i.name || '',
                 skuNumber: i.SkuNumber || i.skuNumber || '',
                 category: i.Category || i.category || '',
@@ -57757,6 +57793,16 @@ async function saveSupplyToAPI(supplyData) {
             })
         });
         if (response.ok) {
+            const result = await response.json();
+            // Store database ID back on the local item
+            if (result && result.id) {
+                const supplies = JSON.parse(localStorage.getItem('supplies') || '[]');
+                const item = supplies.find(s => s.supplyName === supplyData.name && !s.apiId);
+                if (item) {
+                    item.apiId = result.id;
+                    localStorage.setItem('supplies', JSON.stringify(supplies));
+                }
+            }
             console.log('✅ Supply saved to database');
             showSyncStatus('Supply saved to database', true);
         }
@@ -57767,8 +57813,11 @@ async function saveSupplyToAPI(supplyData) {
 
 async function updateSupplyViaAPI(id, supplyData) {
     if (typeof API_BASE_URL === 'undefined') return;
+    const supplies = JSON.parse(localStorage.getItem('supplies') || '[]');
+    const item = supplies.find(s => String(s.supplyID) === String(id));
+    const apiId = item ? (item.apiId || item.supplyID) : id;
     try {
-        const response = await fetch(`${API_BASE_URL}/supplies/${id}`, {
+        const response = await fetch(`${API_BASE_URL}/supplies/${apiId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(supplyData)
@@ -57784,8 +57833,11 @@ async function updateSupplyViaAPI(id, supplyData) {
 
 async function deleteSupplyViaAPI(id) {
     if (typeof API_BASE_URL === 'undefined') return;
+    const supplies = JSON.parse(localStorage.getItem('supplies') || '[]');
+    const item = supplies.find(s => String(s.supplyID) === String(id));
+    const apiId = item ? (item.apiId || item.supplyID) : id;
     try {
-        await fetch(`${API_BASE_URL}/supplies/${id}`, { method: 'DELETE' });
+        await fetch(`${API_BASE_URL}/supplies/${apiId}`, { method: 'DELETE' });
         console.log('✅ Supply deleted from database');
     } catch (error) {
         console.error('❌ Error deleting supply:', error);
@@ -57800,6 +57852,7 @@ async function syncSuppliesFromAPI() {
         if (apiSupplies && apiSupplies.length > 0) {
             const localSupplies = apiSupplies.map(s => ({
                 supplyID: s.Id || s.id,
+                apiId: s.Id || s.id,
                 supplyName: s.Name || s.name || '',
                 category: s.Category || s.category || '',
                 sku: s.SKU || s.sku || '',
