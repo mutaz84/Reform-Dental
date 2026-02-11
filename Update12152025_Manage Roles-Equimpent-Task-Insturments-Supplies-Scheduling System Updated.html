@@ -26018,6 +26018,17 @@
                         modifiedDate: new Date().toISOString()
                     };
                     saveEquipment(equipment);
+                    // Sync edit to API
+                    if (typeof updateEquipmentViaAPI === 'function') {
+                        updateEquipmentViaAPI(editId, {
+                            name: equipmentName,
+                            serialNumber: serialNumber || '',
+                            clinicId: officeId ? parseInt(officeId) : null,
+                            status: status || 'operational',
+                            notes: notes,
+                            warnings: warnings
+                        });
+                    }
                     
                     errorDiv.style.display = 'block';
                     errorDiv.style.background = '#d4edda';
@@ -26325,6 +26336,7 @@
                 const equipment = loadEquipment();
                 const updatedEquipment = equipment.filter(e => e.equipmentID !== equipmentID);
                 saveEquipment(updatedEquipment);
+                if (typeof deleteEquipmentViaAPI === 'function') deleteEquipmentViaAPI(equipmentID);
                 displayEquipmentList();
                 updateInventoryBadges();
                 refreshEquipmentViewIfActive();
@@ -27064,6 +27076,18 @@
                         modifiedDate: new Date().toISOString()
                     };
                     saveInstruments(instruments);
+                    // Sync edit to API
+                    if (typeof updateInstrumentViaAPI === 'function') {
+                        updateInstrumentViaAPI(editId, {
+                            name: instrumentName,
+                            skuNumber: skuNumber || null,
+                            category: category,
+                            quantity: 1,
+                            status: 'available',
+                            notes: notes,
+                            warnings: warnings
+                        });
+                    }
                     
                     errorDiv.style.display = 'block';
                     errorDiv.style.background = '#d4edda';
@@ -27097,10 +27121,13 @@
                 // Save to localStorage and sync to API
                 saveInstruments(instruments, {
                     name: instrumentName,
+                    skuNumber: skuNumber || null,
                     category: category,
+                    instrumentType: instrumentType,
                     clinicId: officeId ? parseInt(officeId) : null,
                     roomId: roomId ? parseInt(roomId) : null,
-                    notes: notes
+                    notes: notes,
+                    warnings: warnings
                 });
                 
                 errorDiv.style.display = 'block';
@@ -27353,6 +27380,7 @@
                 const instruments = loadInstruments();
                 const updated = instruments.filter(i => i.instrumentID !== instrumentID);
                 saveInstruments(updated);
+                if (typeof deleteInstrumentViaAPI === 'function') deleteInstrumentViaAPI(instrumentID);
                 displayInstrumentsList();
                 updateInventoryBadges();
                 refreshInstrumentsViewIfActive();
@@ -27828,6 +27856,18 @@
                         modifiedDate: new Date().toISOString()
                     };
                     saveSupplies(supplies);
+                    // Sync edit to API
+                    if (typeof updateSupplyViaAPI === 'function') {
+                        updateSupplyViaAPI(editId, {
+                            name: supplyName,
+                            category: category,
+                            quantityInStock: quantityInStock || 0,
+                            minimumStock: reorderLevel || 0,
+                            reorderPoint: reorderLevel || 0,
+                            notes: notes,
+                            warnings: warnings
+                        });
+                    }
                     
                     errorDiv.style.display = 'block';
                     errorDiv.style.background = '#d4edda';
@@ -27869,12 +27909,15 @@
                 saveSupplies(supplies, {
                     name: supplyName,
                     category: category,
+                    sku: sku || null,
+                    manufacturer: manufacturer,
                     clinicId: officeId ? parseInt(officeId) : null,
                     quantity: quantityInStock || 0,
                     minQuantity: reorderLevel || 0,
                     unit: unit,
                     unitPrice: unitCost || null,
-                    notes: notes
+                    notes: notes,
+                    warnings: warnings
                 });
                 
                 errorDiv.style.display = 'block';
@@ -28094,6 +28137,7 @@
                 const supplies = loadSupplies();
                 const updated = supplies.filter(s => s.supplyID !== supplyID);
                 saveSupplies(updated);
+                if (typeof deleteSupplyViaAPI === 'function') deleteSupplyViaAPI(supplyID);
                 displaySuppliesList();
                 updateInventoryBadges();
                 refreshSuppliesViewIfActive();
@@ -57610,12 +57654,14 @@ async function saveInstrumentToAPI(instrumentData) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name: instrumentData.name,
+                skuNumber: instrumentData.skuNumber || null,
                 category: instrumentData.category || '',
+                description: instrumentData.instrumentType || '',
                 clinicId: instrumentData.clinicId || null,
                 quantity: instrumentData.quantity || 1,
                 status: instrumentData.status || 'available',
-                sterilizationDate: instrumentData.sterilizationDate || null,
-                notes: instrumentData.notes || ''
+                notes: instrumentData.notes || null,
+                warnings: instrumentData.warnings || null
             })
         });
         if (response.ok) {
@@ -57627,6 +57673,33 @@ async function saveInstrumentToAPI(instrumentData) {
     }
 }
 
+async function updateInstrumentViaAPI(id, instrumentData) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/instruments/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(instrumentData)
+        });
+        if (response.ok) {
+            console.log('✅ Instrument updated in database');
+            showSyncStatus('Instrument updated', true);
+        }
+    } catch (error) {
+        console.error('❌ Error updating instrument:', error);
+    }
+}
+
+async function deleteInstrumentViaAPI(id) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        await fetch(`${API_BASE_URL}/instruments/${id}`, { method: 'DELETE' });
+        console.log('✅ Instrument deleted from database');
+    } catch (error) {
+        console.error('❌ Error deleting instrument:', error);
+    }
+}
+
 async function syncInstrumentsFromAPI() {
     try {
         const response = await fetch(`${API_BASE_URL}/instruments`);
@@ -57634,14 +57707,22 @@ async function syncInstrumentsFromAPI() {
         const apiInstruments = await response.json();
         if (apiInstruments && apiInstruments.length > 0) {
             const localInstruments = apiInstruments.map(i => ({
-                id: `inst-${i.Id || i.id}`,
-                name: i.Name || i.name,
+                instrumentID: i.Id || i.id,
+                instrumentName: i.Name || i.name || '',
+                skuNumber: i.SkuNumber || i.skuNumber || '',
                 category: i.Category || i.category || '',
-                office: i.ClinicId || i.clinicId || '',
+                instrumentType: i.Description || i.description || '',
+                manufacturer: i.Manufacturer || i.manufacturer || '',
+                officeId: i.ClinicId || i.clinicId || '',
+                vendorId: i.VendorId || i.vendorId || '',
                 quantity: i.Quantity || i.quantity || 1,
                 status: i.Status || i.status || 'available',
-                sterilizationDate: i.SterilizationDate || i.sterilizationDate || '',
-                notes: i.Notes || i.notes || ''
+                notes: i.Notes || i.notes || '',
+                warnings: i.Warnings || i.warnings || '',
+                imageData: i.ImageUrl || i.imageUrl || null,
+                documentData: i.DocumentUrl || i.documentUrl || null,
+                createdDate: i.CreatedDate || i.createdDate || '',
+                modifiedDate: i.ModifiedDate || i.modifiedDate || ''
             }));
             localStorage.setItem('instruments', JSON.stringify(localInstruments));
             console.log('✅ Synced', localInstruments.length, 'instruments from API');
@@ -57663,12 +57744,16 @@ async function saveSupplyToAPI(supplyData) {
             body: JSON.stringify({
                 name: supplyData.name,
                 category: supplyData.category || '',
-                clinicId: supplyData.clinicId || null,
-                quantity: supplyData.quantity || 0,
-                minQuantity: supplyData.minQuantity || 0,
+                sku: supplyData.sku || null,
+                description: supplyData.manufacturer || '',
                 unit: supplyData.unit || '',
-                unitPrice: supplyData.unitPrice || null,
-                notes: supplyData.notes || ''
+                clinicId: supplyData.clinicId || null,
+                quantityInStock: supplyData.quantity || 0,
+                minimumStock: supplyData.minQuantity || 0,
+                reorderPoint: supplyData.minQuantity || 0,
+                unitCost: supplyData.unitPrice || null,
+                notes: supplyData.notes || null,
+                warnings: supplyData.warnings || null
             })
         });
         if (response.ok) {
@@ -57680,6 +57765,33 @@ async function saveSupplyToAPI(supplyData) {
     }
 }
 
+async function updateSupplyViaAPI(id, supplyData) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/supplies/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(supplyData)
+        });
+        if (response.ok) {
+            console.log('✅ Supply updated in database');
+            showSyncStatus('Supply updated', true);
+        }
+    } catch (error) {
+        console.error('❌ Error updating supply:', error);
+    }
+}
+
+async function deleteSupplyViaAPI(id) {
+    if (typeof API_BASE_URL === 'undefined') return;
+    try {
+        await fetch(`${API_BASE_URL}/supplies/${id}`, { method: 'DELETE' });
+        console.log('✅ Supply deleted from database');
+    } catch (error) {
+        console.error('❌ Error deleting supply:', error);
+    }
+}
+
 async function syncSuppliesFromAPI() {
     try {
         const response = await fetch(`${API_BASE_URL}/supplies`);
@@ -57687,15 +57799,23 @@ async function syncSuppliesFromAPI() {
         const apiSupplies = await response.json();
         if (apiSupplies && apiSupplies.length > 0) {
             const localSupplies = apiSupplies.map(s => ({
-                id: `sup-${s.Id || s.id}`,
-                name: s.Name || s.name,
+                supplyID: s.Id || s.id,
+                supplyName: s.Name || s.name || '',
                 category: s.Category || s.category || '',
-                office: s.ClinicId || s.clinicId || '',
-                quantity: s.Quantity || s.quantity || 0,
-                minQuantity: s.MinQuantity || s.minQuantity || 0,
+                sku: s.SKU || s.sku || '',
+                manufacturer: s.Description || s.description || '',
+                officeId: s.ClinicId || s.clinicId || '',
+                quantityInStock: s.QuantityInStock || s.quantityInStock || 0,
+                reorderLevel: s.MinimumStock || s.minimumStock || s.ReorderPoint || s.reorderPoint || 0,
                 unit: s.Unit || s.unit || '',
-                unitPrice: s.UnitPrice || s.unitPrice || 0,
-                notes: s.Notes || s.notes || ''
+                unitCost: s.UnitCost || s.unitCost || 0,
+                notes: s.Notes || s.notes || '',
+                warnings: s.Warnings || s.warnings || '',
+                isActive: s.IsActive !== false && s.isActive !== false,
+                imageData: s.ImageUrl || s.imageUrl || null,
+                documentData: s.DocumentUrl || s.documentUrl || null,
+                createdDate: s.CreatedDate || s.createdDate || '',
+                modifiedDate: s.ModifiedDate || s.modifiedDate || ''
             }));
             localStorage.setItem('supplies', JSON.stringify(localSupplies));
             console.log('✅ Synced', localSupplies.length, 'supplies from API');
