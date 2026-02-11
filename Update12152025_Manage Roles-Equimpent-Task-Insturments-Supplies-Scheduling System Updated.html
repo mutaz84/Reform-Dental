@@ -26351,26 +26351,26 @@
         }
 
         // Delete equipment
-        function deleteEquipment(equipmentID) {
-            if (confirm('Are you sure you want to delete this equipment?')) {
-                const equipment = loadEquipment();
-                // Look up apiId BEFORE removing from localStorage
-                const itemToDelete = equipment.find(e => e.equipmentID === equipmentID);
-                const apiId = itemToDelete ? (itemToDelete.apiId || itemToDelete.equipmentID) : equipmentID;
-                console.log('🗑️ DELETE Equipment - localID:', equipmentID, 'apiId:', apiId, 'item found:', !!itemToDelete);
-                const updatedEquipment = equipment.filter(e => e.equipmentID !== equipmentID);
-                saveEquipment(updatedEquipment);
-                if (typeof deleteEquipmentViaAPI === 'function') {
-                    deleteEquipmentViaAPI(apiId);
-                } else {
-                    console.error('❌ deleteEquipmentViaAPI function not found!');
-                }
-                displayEquipmentList();
-                updateInventoryBadges();
-                refreshEquipmentViewIfActive();
-                if (typeof renderEquipmentPageList === 'function') renderEquipmentPageList();
-                if (typeof populateEquipmentPageTypeFilter === 'function') populateEquipmentPageTypeFilter();
+        async function deleteEquipment(equipmentID) {
+            if (!confirm('Are you sure you want to delete this equipment?')) return;
+
+            const equipment = loadEquipment();
+            const itemToDelete = equipment.find(e => String(e.equipmentID) === String(equipmentID));
+            const apiId = itemToDelete ? (itemToDelete.apiId || itemToDelete.equipmentID) : equipmentID;
+            console.log('🗑️ DELETE Equipment - localID:', equipmentID, 'apiId:', apiId, 'item found:', !!itemToDelete);
+
+            const updatedEquipment = equipment.filter(e => String(e.equipmentID) !== String(equipmentID));
+            saveEquipment(updatedEquipment);
+
+            // AWAIT API delete before re-rendering to prevent sync-on-navigate race
+            if (typeof deleteEquipmentViaAPI === 'function') {
+                try { await deleteEquipmentViaAPI(apiId); } catch (e) { console.error('❌ API delete error:', e); }
             }
+
+            try { displayEquipmentList(); } catch (e) { console.error('displayEquipmentList error:', e); }
+            try { updateInventoryBadges(); } catch (e) { console.error('updateInventoryBadges error:', e); }
+            try { if (typeof renderEquipmentPageList === 'function') renderEquipmentPageList(); } catch (e) { console.error('renderEquipmentPageList error:', e); }
+            try { if (typeof populateEquipmentPageTypeFilter === 'function') populateEquipmentPageTypeFilter(); } catch (e) { console.error('populateEquipmentPageTypeFilter error:', e); }
         }
 
         // ---- INSTRUMENTS PAGE (content-view) ----
@@ -27433,26 +27433,26 @@
         }
 
         // Delete instrument
-        function deleteInstrument(instrumentID) {
-            if (confirm('Are you sure you want to delete this instrument?')) {
-                const instruments = loadInstruments();
-                // Look up apiId BEFORE removing from localStorage
-                const itemToDelete = instruments.find(i => i.instrumentID === instrumentID);
-                const apiId = itemToDelete ? (itemToDelete.apiId || itemToDelete.instrumentID) : instrumentID;
-                console.log('🗑️ DELETE Instrument - localID:', instrumentID, 'apiId:', apiId, 'item found:', !!itemToDelete);
-                const updated = instruments.filter(i => i.instrumentID !== instrumentID);
-                saveInstruments(updated);
-                if (typeof deleteInstrumentViaAPI === 'function') {
-                    deleteInstrumentViaAPI(apiId);
-                } else {
-                    console.error('❌ deleteInstrumentViaAPI function not found!');
-                }
-                displayInstrumentsList();
-                updateInventoryBadges();
-                refreshInstrumentsViewIfActive();
-                if (typeof renderInstrumentsPageList === 'function') renderInstrumentsPageList();
-                if (typeof populateInstrumentsPageTypeFilter === 'function') populateInstrumentsPageTypeFilter();
+        async function deleteInstrument(instrumentID) {
+            if (!confirm('Are you sure you want to delete this instrument?')) return;
+
+            const instruments = loadInstruments();
+            const itemToDelete = instruments.find(i => String(i.instrumentID) === String(instrumentID));
+            const apiId = itemToDelete ? (itemToDelete.apiId || itemToDelete.instrumentID) : instrumentID;
+            console.log('🗑️ DELETE Instrument - localID:', instrumentID, 'apiId:', apiId, 'item found:', !!itemToDelete);
+
+            const updated = instruments.filter(i => String(i.instrumentID) !== String(instrumentID));
+            saveInstruments(updated);
+
+            // AWAIT API delete before re-rendering to prevent sync-on-navigate race
+            if (typeof deleteInstrumentViaAPI === 'function') {
+                try { await deleteInstrumentViaAPI(apiId); } catch (e) { console.error('❌ API delete error:', e); }
             }
+
+            try { displayInstrumentsList(); } catch (e) { console.error('displayInstrumentsList error:', e); }
+            try { updateInventoryBadges(); } catch (e) { console.error('updateInventoryBadges error:', e); }
+            try { if (typeof renderInstrumentsPageList === 'function') renderInstrumentsPageList(); } catch (e) { console.error('renderInstrumentsPageList error:', e); }
+            try { if (typeof populateInstrumentsPageTypeFilter === 'function') populateInstrumentsPageTypeFilter(); } catch (e) { console.error('populateInstrumentsPageTypeFilter error:', e); }
         }
 
         // ============ INVENTORY LIST VIEWS ============
@@ -28207,27 +28207,31 @@
         }
 
         // Delete supply
-        function deleteSupply(supplyID) {
-            if (confirm('Are you sure you want to delete this supply?')) {
-                const supplies = loadSupplies();
-                // Look up apiId BEFORE removing from localStorage
-                const itemToDelete = supplies.find(s => s.supplyID === supplyID);
-                const apiId = itemToDelete ? (itemToDelete.apiId || itemToDelete.supplyID) : supplyID;
-                console.log('🗑️ DELETE Supply - localID:', supplyID, 'apiId:', apiId, 'item found:', !!itemToDelete);
-                const updated = supplies.filter(s => s.supplyID !== supplyID);
-                saveSupplies(updated);
-                if (typeof deleteSupplyViaAPI === 'function') {
-                    deleteSupplyViaAPI(apiId);
-                } else {
-                    console.error('❌ deleteSupplyViaAPI function not found!');
-                }
-                displaySuppliesList();
-                updateInventoryBadges();
-                refreshSuppliesViewIfActive();
-                // Also directly re-render the card-based page view
-                if (typeof renderSuppliesPageList === 'function') renderSuppliesPageList();
-                if (typeof populateSuppliesPageTypeFilter === 'function') populateSuppliesPageTypeFilter();
+        async function deleteSupply(supplyID) {
+            if (!confirm('Are you sure you want to delete this supply?')) return;
+
+            const supplies = loadSupplies();
+            // Use String() comparison to handle number/string type mismatches
+            const itemToDelete = supplies.find(s => String(s.supplyID) === String(supplyID));
+            const apiId = itemToDelete ? (itemToDelete.apiId || itemToDelete.supplyID) : supplyID;
+            console.log('🗑️ DELETE Supply - localID:', supplyID, 'apiId:', apiId, 'item found:', !!itemToDelete);
+
+            // Remove from localStorage
+            const updated = supplies.filter(s => String(s.supplyID) !== String(supplyID));
+            saveSupplies(updated);
+
+            // AWAIT the API delete so the item is gone from the DB
+            // before any sync-on-navigate can re-fetch it
+            if (typeof deleteSupplyViaAPI === 'function') {
+                try { await deleteSupplyViaAPI(apiId); } catch (e) { console.error('❌ API delete error:', e); }
             }
+
+            // Re-render all views — each wrapped in try-catch so one failure
+            // does not prevent the others from running
+            try { displaySuppliesList(); } catch (e) { console.error('displaySuppliesList error:', e); }
+            try { updateInventoryBadges(); } catch (e) { console.error('updateInventoryBadges error:', e); }
+            try { if (typeof renderSuppliesPageList === 'function') renderSuppliesPageList(); } catch (e) { console.error('renderSuppliesPageList error:', e); }
+            try { if (typeof populateSuppliesPageTypeFilter === 'function') populateSuppliesPageTypeFilter(); } catch (e) { console.error('populateSuppliesPageTypeFilter error:', e); }
         }
 
         // ============ PHOTO & DOCUMENTS HANDLING ============
