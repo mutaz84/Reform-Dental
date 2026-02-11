@@ -90,7 +90,7 @@ module.exports = async function (context, req) {
         } else if (req.method === 'DELETE' && id) {
             await pool.request()
                 .input('id', sql.Int, id)
-                .query('UPDATE Supplies SET IsActive = 0 WHERE Id = @id');
+                .query('DELETE FROM Supplies WHERE Id = @id');
             context.res = { status: 200, headers, body: { message: 'Supply deleted' } };
         }
 
