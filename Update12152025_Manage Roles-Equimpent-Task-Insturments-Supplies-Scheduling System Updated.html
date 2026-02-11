@@ -20129,6 +20129,11 @@
             if (roomsListSection) roomsListSection.style.display = 'block';
             const roomFormSection = document.getElementById('roomFormSection');
             if (roomFormSection) roomFormSection.style.display = 'none';
+            
+            // Refresh all office & room dropdowns across Equipment, Instruments, Supplies
+            if (typeof populateEquipmentOfficeDropdown === 'function') populateEquipmentOfficeDropdown();
+            if (typeof populateInstrumentOfficeDropdown === 'function') populateInstrumentOfficeDropdown();
+            if (typeof populateSupplyOfficeDropdown === 'function') populateSupplyOfficeDropdown();
         }
 
         // Create new room
@@ -24829,6 +24834,11 @@
             // Clear form
             document.getElementById('createVendorForm').reset();
             document.getElementById('createVendorError').style.display = 'none';
+            
+            // Refresh all vendor dropdowns across Equipment, Instruments, Supplies
+            if (typeof populateEquipmentVendorDropdown === 'function') populateEquipmentVendorDropdown();
+            if (typeof populateInstrumentVendorDropdown === 'function') populateInstrumentVendorDropdown();
+            if (typeof populateSupplyVendorDropdown === 'function') populateSupplyVendorDropdown();
         }
 
         // Create new vendor - NOW SYNCS WITH API
@@ -27744,6 +27754,40 @@
             }
         }
 
+        // Populate room dropdown for supplies (based on selected office)
+        function populateSupplyRoomDropdown() {
+            const officeId = document.getElementById('newSupplyOffice').value;
+            const roomSelect = document.getElementById('newSupplyRoom');
+            if (!roomSelect) return;
+            
+            roomSelect.innerHTML = '<option value="">Select Room</option>';
+            
+            if (!officeId) return;
+            
+            const rooms = loadRooms();
+            const filteredRooms = rooms.filter(r => {
+                const roomOfficeId = String(r.officeID || r.clinicId || '');
+                const selectedOfficeId = String(officeId);
+                return roomOfficeId === selectedOfficeId;
+            });
+            
+            if (filteredRooms.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No rooms found for this office';
+                option.disabled = true;
+                roomSelect.appendChild(option);
+                return;
+            }
+            
+            filteredRooms.forEach(room => {
+                const option = document.createElement('option');
+                option.value = room.roomID || room.id;
+                option.textContent = room.roomName || room.name || room.roomType;
+                roomSelect.appendChild(option);
+            });
+        }
+
         // Create or Update supply
         function createSupply(event) {
             event.preventDefault();
@@ -27760,6 +27804,7 @@
             const reorderLevel = parseInt(document.getElementById('newSupplyReorderLevel').value) || 0;
             const officeId = document.getElementById('newSupplyOffice').value;
             const location = document.getElementById('newSupplyLocation').value.trim();
+            const roomId = document.getElementById('newSupplyRoom') ? document.getElementById('newSupplyRoom').value : '';
             const vendorId = document.getElementById('newSupplyVendor').value;
             const unitCost = parseFloat(document.getElementById('newSupplyUnitCost').value) || 0;
             const expirationDate = document.getElementById('newSupplyExpiration').value;
@@ -27783,6 +27828,10 @@
             const selectedOffice = offices.find(o => o.officeID == officeId);
             const officeName = selectedOffice ? selectedOffice.officeName : '';
             
+            const rooms = loadRooms();
+            const selectedRoom = rooms.find(r => (r.roomID || r.id) == roomId);
+            const roomName = selectedRoom ? (selectedRoom.roomName || selectedRoom.name || selectedRoom.roomType) : '';
+            
             const vendors = loadVendors();
             const selectedVendor = vendors.find(v => v.vendorID == vendorId);
             const vendorName = selectedVendor ? selectedVendor.vendorName : '';
@@ -27801,6 +27850,8 @@
                         reorderLevel,
                         officeId,
                         officeName,
+                        roomId,
+                        roomName,
                         location,
                         vendorId,
                         vendorName,
@@ -27834,6 +27885,8 @@
                     reorderLevel,
                     officeId,
                     officeName,
+                    roomId,
+                    roomName,
                     location,
                     vendorId,
                     vendorName,
@@ -28035,6 +28088,11 @@
             document.getElementById('newSupplyUnit').value = item.unit || '';
             document.getElementById('newSupplyReorderLevel').value = item.reorderLevel || 0;
             document.getElementById('newSupplyOffice').value = item.officeId || '';
+            // Populate room dropdown based on selected office, then set room value
+            populateSupplyRoomDropdown();
+            if (item.roomId) {
+                document.getElementById('newSupplyRoom').value = item.roomId;
+            }
             document.getElementById('newSupplyLocation').value = item.location || '';
             document.getElementById('newSupplyVendor').value = item.vendorId || '';
             document.getElementById('newSupplyUnitCost').value = item.unitCost || '';
@@ -54397,7 +54455,12 @@ document.addEventListener('keydown', function(e) {
                     <!-- Row 7: Office & Room -->
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newEquipmentOffice">Office</label>
+                            <label for="newEquipmentOffice" style="display: flex; align-items: center; gap: 0.5rem;">
+                                Office
+                                <button type="button" onclick="openRoomsManagementFromGear('equipment')" class="category-gear-btn" style="display: none; background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Offices & Rooms (Admin)">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </label>
                             <select id="newEquipmentOffice" onchange="populateEquipmentRoomDropdown()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                 <option value="">Select Office</option>
                             </select>
@@ -54413,7 +54476,12 @@ document.addEventListener('keydown', function(e) {
                     <!-- Row 7.5: Vendor & Price -->
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newEquipmentVendor">Vendor (Supplier/Service Provider)</label>
+                            <label for="newEquipmentVendor" style="display: flex; align-items: center; gap: 0.5rem;">
+                                Vendor (Supplier/Service Provider)
+                                <button type="button" onclick="openVendorsManagementFromGear('equipment')" class="category-gear-btn" style="display: none; background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Vendors (Admin)">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </label>
                             <select id="newEquipmentVendor" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                 <option value="">Select Vendor</option>
                             </select>
@@ -54616,7 +54684,12 @@ document.addEventListener('keydown', function(e) {
                     
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newInstrumentOffice">Office</label>
+                            <label for="newInstrumentOffice" style="display: flex; align-items: center; gap: 0.5rem;">
+                                Office
+                                <button type="button" onclick="openRoomsManagementFromGear('instruments')" class="category-gear-btn" style="display: none; background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Offices & Rooms (Admin)">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </label>
                             <select id="newInstrumentOffice" onchange="populateInstrumentRoomDropdown()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                 <option value="">Select Office</option>
                             </select>
@@ -54630,7 +54703,12 @@ document.addEventListener('keydown', function(e) {
                     </div>
                     
                     <div class="form-group" style="margin-bottom: 1rem;">
-                        <label for="newInstrumentVendor">Vendor</label>
+                        <label for="newInstrumentVendor" style="display: flex; align-items: center; gap: 0.5rem;">
+                            Vendor
+                            <button type="button" onclick="openVendorsManagementFromGear('instruments')" class="category-gear-btn" style="display: none; background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Vendors (Admin)">
+                                <i class="fas fa-cog"></i>
+                            </button>
+                        </label>
                         <select id="newInstrumentVendor" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                             <option value="">Select Vendor</option>
                         </select>
@@ -54805,13 +54883,26 @@ document.addEventListener('keydown', function(e) {
                         </div>
                     </div>
                     
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newSupplyOffice">Office</label>
-                            <select id="newSupplyOffice" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            <label for="newSupplyOffice" style="display: flex; align-items: center; gap: 0.5rem;">
+                                Office
+                                <button type="button" onclick="openRoomsManagementFromGear('supplies')" class="category-gear-btn" style="display: none; background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Offices & Rooms (Admin)">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </label>
+                            <select id="newSupplyOffice" onchange="populateSupplyRoomDropdown()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                 <option value="">Select Office</option>
                             </select>
                         </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="newSupplyRoom">Room</label>
+                            <select id="newSupplyRoom" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="">Select Room</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="newSupplyLocation">Storage Location</label>
                             <input type="text" id="newSupplyLocation" placeholder="e.g., Cabinet A, Supply Room" maxlength="100">
@@ -54823,7 +54914,12 @@ document.addEventListener('keydown', function(e) {
                     </div>
                     
                     <div class="form-group" style="margin-bottom: 1rem;">
-                        <label for="newSupplyVendor">Vendor</label>
+                        <label for="newSupplyVendor" style="display: flex; align-items: center; gap: 0.5rem;">
+                            Vendor
+                            <button type="button" onclick="openVendorsManagementFromGear('supplies')" class="category-gear-btn" style="display: none; background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Vendors (Admin)">
+                                <i class="fas fa-cog"></i>
+                            </button>
+                        </label>
                         <select id="newSupplyVendor" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                             <option value="">Select Vendor</option>
                         </select>
@@ -57077,6 +57173,22 @@ function updateCategoryGearVisibility() {
     document.querySelectorAll('.category-gear-btn').forEach(btn => {
         btn.style.display = isAdmin ? 'inline-flex' : 'none';
     });
+}
+
+// Open Rooms management from gear icon (admin only)
+function openRoomsManagementFromGear(sourceForm) {
+    window._gearSourceForm = sourceForm;
+    if (typeof openRoomsManagement === 'function') {
+        openRoomsManagement();
+    }
+}
+
+// Open Vendors management from gear icon (admin only)
+function openVendorsManagementFromGear(sourceForm) {
+    window._gearSourceForm = sourceForm;
+    if (typeof openVendorsManagement === 'function') {
+        openVendorsManagement();
+    }
 }
 
 // Open category manager modal
