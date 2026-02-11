@@ -51,6 +51,7 @@ module.exports = async function (context, req) {
             const body = req.body;
             const result = await pool.request()
                 .input('name', sql.NVarChar, body.name)
+                .input('serialNumber', sql.NVarChar, body.serialNumber || null)
                 .input('category', sql.NVarChar, body.category)
                 .input('description', sql.NVarChar, body.description)
                 .input('quantity', sql.Int, body.quantity || 1)
@@ -62,14 +63,15 @@ module.exports = async function (context, req) {
                 .input('warnings', sql.NVarChar, body.warnings || null)
                 .input('imageUrl', sql.NVarChar, body.imageUrl || null)
                 .input('documentUrl', sql.NVarChar, body.documentUrl || null)
-                .query(`INSERT INTO Instruments (Name, Category, Description, Quantity, Status, ClinicId, SterilizationRequired, Icon, Notes, Warnings, ImageUrl, DocumentUrl) 
-                        OUTPUT INSERTED.Id VALUES (@name, @category, @description, @quantity, @status, @clinicId, @sterilizationRequired, @icon, @notes, @warnings, @imageUrl, @documentUrl)`);
+                .query(`INSERT INTO Instruments (Name, SerialNumber, Category, Description, Quantity, Status, ClinicId, SterilizationRequired, Icon, Notes, Warnings, ImageUrl, DocumentUrl) 
+                        OUTPUT INSERTED.Id VALUES (@name, @serialNumber, @category, @description, @quantity, @status, @clinicId, @sterilizationRequired, @icon, @notes, @warnings, @imageUrl, @documentUrl)`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
             await pool.request()
                 .input('id', sql.Int, id)
                 .input('name', sql.NVarChar, body.name)
+                .input('serialNumber', sql.NVarChar, body.serialNumber || null)
                 .input('category', sql.NVarChar, body.category)
                 .input('quantity', sql.Int, body.quantity)
                 .input('status', sql.NVarChar, body.status)
@@ -77,7 +79,7 @@ module.exports = async function (context, req) {
                 .input('warnings', sql.NVarChar, body.warnings)
                 .input('imageUrl', sql.NVarChar, body.imageUrl)
                 .input('documentUrl', sql.NVarChar, body.documentUrl)
-                .query(`UPDATE Instruments SET Name=@name, Category=@category, Quantity=@quantity, Status=@status, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+                .query(`UPDATE Instruments SET Name=@name, SerialNumber=@serialNumber, Category=@category, Quantity=@quantity, Status=@status, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Instrument updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()

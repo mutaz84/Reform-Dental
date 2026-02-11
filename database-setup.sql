@@ -75,6 +75,7 @@ BEGIN
     CREATE TABLE Instruments (
         Id INT IDENTITY(1,1) PRIMARY KEY,
         Name NVARCHAR(255) NOT NULL,
+        SerialNumber NVARCHAR(100),
         Category NVARCHAR(100),
         Description NVARCHAR(MAX),
         Quantity INT DEFAULT 1,
