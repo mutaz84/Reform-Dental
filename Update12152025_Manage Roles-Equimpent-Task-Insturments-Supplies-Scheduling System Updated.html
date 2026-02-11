@@ -25563,6 +25563,9 @@
                 populateEquipmentOfficeDropdown();
                 populateEquipmentVendorDropdown();
                 displayEquipmentList();
+                // Populate category dropdowns from categories table & show gear for admins
+                if (typeof refreshAllCategoryDropdowns === 'function') refreshAllCategoryDropdowns();
+                if (typeof updateCategoryGearVisibility === 'function') updateCategoryGearVisibility();
             } else {
                 alert('Equipment modal not found!');
             }
@@ -26934,6 +26937,9 @@
                 populateInstrumentOfficeDropdown();
                 populateInstrumentVendorDropdown();
                 refreshInstrumentsViewIfActive();
+                // Populate category dropdowns from categories table & show gear for admins
+                if (typeof refreshAllCategoryDropdowns === 'function') refreshAllCategoryDropdowns();
+                if (typeof updateCategoryGearVisibility === 'function') updateCategoryGearVisibility();
             }
         }
 
@@ -27687,6 +27693,9 @@
                 populateSupplyOfficeDropdown();
                 populateSupplyVendorDropdown();
                 refreshSuppliesViewIfActive();
+                // Populate category dropdowns from categories table & show gear for admins
+                if (typeof refreshAllCategoryDropdowns === 'function') refreshAllCategoryDropdowns();
+                if (typeof updateCategoryGearVisibility === 'function') updateCategoryGearVisibility();
             }
         }
 
@@ -54308,7 +54317,12 @@ document.addEventListener('keydown', function(e) {
                             <input type="text" id="newEquipmentName" required placeholder="e.g., Autoclave #1, X-Ray Unit" maxlength="200">
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newEquipmentType">Equipment Type</label>
+                            <label for="newEquipmentType" style="display: flex; align-items: center; gap: 0.5rem;">
+                                Equipment Type
+                                <button type="button" onclick="openCategoryManager('equipment')" class="category-gear-btn" style="display: none; background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Equipment Categories (Admin)">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </label>
                             <select id="newEquipmentType" onchange="toggleCustomEquipmentType()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                 <option value="">Select Type</option>
                                 <option value="Autoclave">Autoclave</option>
@@ -54560,7 +54574,12 @@ document.addEventListener('keydown', function(e) {
                             <input type="text" id="newInstrumentName" required placeholder="e.g., Explorer #23, Scaler H6/7" maxlength="200">
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newInstrumentCategory">Category *</label>
+                            <label for="newInstrumentCategory" style="display: flex; align-items: center; gap: 0.5rem;">
+                                Category *
+                                <button type="button" onclick="openCategoryManager('instruments')" class="category-gear-btn" style="display: none; background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Instrument Categories (Admin)">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </label>
                             <select id="newInstrumentCategory" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);" onchange="toggleCustomInstrumentCategory()">
                                 <option value="">Select Category</option>
                                 <option value="Diagnostic">Diagnostic</option>
@@ -54734,7 +54753,12 @@ document.addEventListener('keydown', function(e) {
                             <input type="text" id="newSupplyName" required placeholder="e.g., Gloves (Medium), Cotton Rolls" maxlength="200">
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newSupplyCategory">Category *</label>
+                            <label for="newSupplyCategory" style="display: flex; align-items: center; gap: 0.5rem;">
+                                Category *
+                                <button type="button" onclick="openCategoryManager('supplies')" class="category-gear-btn" style="display: none; background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Supply Categories (Admin)">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </label>
                             <select id="newSupplyCategory" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                 <option value="">Select Category</option>
                                 <option value="Disposables">Disposables</option>
@@ -54870,6 +54894,30 @@ document.addEventListener('keydown', function(e) {
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Category Manager Modal (Admin Only) -->
+<div id="categoryManagerModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.6); z-index: 10002; align-items: center; justify-content: center;">
+    <div style="background: var(--card-bg); border-radius: 12px; width: 550px; max-width: 95vw; max-height: 85vh; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); background: var(--bg-secondary);">
+            <h3 id="categoryManagerTitle" style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-cog" style="color: #8b5cf6;"></i>
+                Manage Categories
+            </h3>
+            <button onclick="closeCategoryManager()" style="background: #ef4444; color: white; border: none; width: 36px; height: 36px; border-radius: 8px; font-size: 1.25rem; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Close">&times;</button>
+        </div>
+        <div style="padding: 1.5rem; overflow-y: auto; max-height: calc(85vh - 70px);">
+            <div style="display: flex; gap: 0.75rem; margin-bottom: 1rem;">
+                <input type="text" id="newCategoryName" placeholder="Enter new category name..." maxlength="200" style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                <button onclick="addCategory()" style="padding: 0.75rem 1.25rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; white-space: nowrap;">
+                    <i class="fas fa-plus" style="margin-right: 0.25rem;"></i> Add
+                </button>
+            </div>
+            <div id="categoryListContainer" style="border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
+                <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">Loading categories...</div>
             </div>
         </div>
     </div>
@@ -56924,6 +56972,265 @@ function showSyncStatus(message, isSuccess = true) {
     
     setTimeout(() => statusDiv.remove(), 3000);
 }
+
+// ============ CATEGORY MANAGEMENT FUNCTIONS ============
+let currentCategoryType = '';
+
+function loadCategoriesFromStorage() {
+    try {
+        return JSON.parse(localStorage.getItem('categories') || '[]');
+    } catch (e) { return []; }
+}
+
+function saveCategoriesStorage(categories) {
+    localStorage.setItem('categories', JSON.stringify(categories));
+}
+
+// Initialize default categories in localStorage if not present
+function initDefaultCategories() {
+    const existing = loadCategoriesFromStorage();
+    if (existing.length > 0) return;
+    
+    const defaults = [
+        // Equipment
+        { id: 1, name: 'Autoclave', categoryType: 'equipment', sortOrder: 1, isActive: true },
+        { id: 2, name: 'Ultrasonic Cleaner', categoryType: 'equipment', sortOrder: 2, isActive: true },
+        { id: 3, name: 'X-Ray Unit', categoryType: 'equipment', sortOrder: 3, isActive: true },
+        { id: 4, name: 'Panoramic X-Ray', categoryType: 'equipment', sortOrder: 4, isActive: true },
+        { id: 5, name: 'Intraoral Camera', categoryType: 'equipment', sortOrder: 5, isActive: true },
+        { id: 6, name: 'Dental Chair', categoryType: 'equipment', sortOrder: 6, isActive: true },
+        { id: 7, name: 'High-Speed Handpiece', categoryType: 'equipment', sortOrder: 7, isActive: true },
+        { id: 8, name: 'Low-Speed Handpiece', categoryType: 'equipment', sortOrder: 8, isActive: true },
+        { id: 9, name: 'Curing Light', categoryType: 'equipment', sortOrder: 9, isActive: true },
+        { id: 10, name: 'Computer/Workstation', categoryType: 'equipment', sortOrder: 10, isActive: true },
+        { id: 11, name: 'Server', categoryType: 'equipment', sortOrder: 11, isActive: true },
+        { id: 12, name: 'Compressor', categoryType: 'equipment', sortOrder: 12, isActive: true },
+        { id: 13, name: 'Vacuum Pump', categoryType: 'equipment', sortOrder: 13, isActive: true },
+        { id: 14, name: 'HVAC System', categoryType: 'equipment', sortOrder: 14, isActive: true },
+        // Instruments
+        { id: 100, name: 'Diagnostic', categoryType: 'instruments', sortOrder: 1, isActive: true },
+        { id: 101, name: 'Surgical', categoryType: 'instruments', sortOrder: 2, isActive: true },
+        { id: 102, name: 'Restorative', categoryType: 'instruments', sortOrder: 3, isActive: true },
+        { id: 103, name: 'Endodontic', categoryType: 'instruments', sortOrder: 4, isActive: true },
+        { id: 104, name: 'Periodontal', categoryType: 'instruments', sortOrder: 5, isActive: true },
+        { id: 105, name: 'Orthodontic', categoryType: 'instruments', sortOrder: 6, isActive: true },
+        { id: 106, name: 'Prosthodontic', categoryType: 'instruments', sortOrder: 7, isActive: true },
+        { id: 107, name: 'Hygiene', categoryType: 'instruments', sortOrder: 8, isActive: true },
+        // Supplies
+        { id: 200, name: 'Disposables', categoryType: 'supplies', sortOrder: 1, isActive: true },
+        { id: 201, name: 'Dental Materials', categoryType: 'supplies', sortOrder: 2, isActive: true },
+        { id: 202, name: 'Anesthetics', categoryType: 'supplies', sortOrder: 3, isActive: true },
+        { id: 203, name: 'Infection Control', categoryType: 'supplies', sortOrder: 4, isActive: true },
+        { id: 204, name: 'Office Supplies', categoryType: 'supplies', sortOrder: 5, isActive: true },
+        { id: 205, name: 'Lab Supplies', categoryType: 'supplies', sortOrder: 6, isActive: true },
+        { id: 206, name: 'PPE', categoryType: 'supplies', sortOrder: 7, isActive: true },
+        { id: 207, name: 'Impression Materials', categoryType: 'supplies', sortOrder: 8, isActive: true },
+        { id: 208, name: 'Cements & Adhesives', categoryType: 'supplies', sortOrder: 9, isActive: true },
+    ];
+    saveCategoriesStorage(defaults);
+}
+
+function getCategoriesForType(type) {
+    const all = loadCategoriesFromStorage();
+    return all.filter(c => c.categoryType === type && c.isActive !== false).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+}
+
+// Populate a category dropdown from the categories table
+function populateCategoryDropdown(selectId, categoryType, includeOther) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    const currentVal = select.value;
+    // Keep the first option (placeholder)
+    const firstOption = select.options[0];
+    select.innerHTML = '';
+    select.appendChild(firstOption);
+    
+    const cats = getCategoriesForType(categoryType);
+    cats.forEach(cat => {
+        const option = document.createElement('option');
+        option.value = cat.name;
+        option.textContent = cat.name;
+        select.appendChild(option);
+    });
+    
+    if (includeOther) {
+        const otherOpt = document.createElement('option');
+        otherOpt.value = 'Other';
+        otherOpt.textContent = 'Other (Add New)';
+        select.appendChild(otherOpt);
+    }
+    
+    // Restore previous value if it exists
+    if (currentVal) select.value = currentVal;
+}
+
+// Refresh all three category dropdowns
+function refreshAllCategoryDropdowns() {
+    populateCategoryDropdown('newEquipmentType', 'equipment', true);
+    populateCategoryDropdown('newInstrumentCategory', 'instruments', true);
+    populateCategoryDropdown('newSupplyCategory', 'supplies', false);
+}
+
+// Show/hide gear icons based on admin role
+function updateCategoryGearVisibility() {
+    const isAdmin = isAdminUser();
+    document.querySelectorAll('.category-gear-btn').forEach(btn => {
+        btn.style.display = isAdmin ? 'inline-flex' : 'none';
+    });
+}
+
+// Open category manager modal
+function openCategoryManager(type) {
+    currentCategoryType = type;
+    const typeLabels = { equipment: 'Equipment', instruments: 'Instrument', supplies: 'Supply' };
+    document.getElementById('categoryManagerTitle').innerHTML = '<i class="fas fa-cog" style="color: #8b5cf6;"></i> Manage ' + (typeLabels[type] || '') + ' Categories';
+    document.getElementById('categoryManagerModal').style.display = 'flex';
+    document.getElementById('newCategoryName').value = '';
+    renderCategoryList();
+}
+
+function closeCategoryManager() {
+    document.getElementById('categoryManagerModal').style.display = 'none';
+    currentCategoryType = '';
+    // Refresh dropdowns after closing
+    refreshAllCategoryDropdowns();
+}
+
+function renderCategoryList() {
+    const container = document.getElementById('categoryListContainer');
+    const cats = getCategoriesForType(currentCategoryType);
+    
+    if (cats.length === 0) {
+        container.innerHTML = '<div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">No categories yet. Add one above.</div>';
+        return;
+    }
+    
+    let html = '';
+    cats.forEach((cat, idx) => {
+        html += '<div style="display: flex; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-color); gap: 0.75rem;" id="catRow_' + cat.id + '">';
+        html += '<span style="color: var(--text-tertiary); font-size: 0.8rem; min-width: 24px;">' + (idx + 1) + '.</span>';
+        html += '<span style="flex: 1; color: var(--text-primary); font-weight: 500;" id="catName_' + cat.id + '">' + cat.name + '</span>';
+        html += '<button onclick="editCategoryInline(' + cat.id + ')" style="background: none; border: none; color: var(--accent-primary); cursor: pointer; padding: 4px 8px;" title="Edit"><i class="fas fa-pencil-alt"></i></button>';
+        html += '<button onclick="deleteCategory(' + cat.id + ')" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px;" title="Delete"><i class="fas fa-trash"></i></button>';
+        html += '</div>';
+    });
+    container.innerHTML = html;
+}
+
+function addCategory() {
+    const input = document.getElementById('newCategoryName');
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    
+    const all = loadCategoriesFromStorage();
+    // Check for duplicate
+    const exists = all.find(c => c.categoryType === currentCategoryType && c.name.toLowerCase() === name.toLowerCase() && c.isActive !== false);
+    if (exists) {
+        alert('Category "' + name + '" already exists.');
+        return;
+    }
+    
+    const maxId = all.reduce((max, c) => Math.max(max, c.id || 0), 0);
+    const maxSort = all.filter(c => c.categoryType === currentCategoryType).reduce((max, c) => Math.max(max, c.sortOrder || 0), 0);
+    
+    all.push({
+        id: maxId + 1,
+        name: name,
+        categoryType: currentCategoryType,
+        sortOrder: maxSort + 1,
+        isActive: true,
+        createdDate: new Date().toISOString()
+    });
+    
+    saveCategoriesStorage(all);
+    // Sync to API
+    if (typeof API_BASE_URL !== 'undefined') {
+        fetch(API_BASE_URL + '/categories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name, categoryType: currentCategoryType, sortOrder: maxSort + 1 })
+        }).catch(err => console.error('Category API sync error:', err));
+    }
+    
+    input.value = '';
+    renderCategoryList();
+}
+
+function editCategoryInline(catId) {
+    const all = loadCategoriesFromStorage();
+    const cat = all.find(c => c.id === catId);
+    if (!cat) return;
+    
+    const nameSpan = document.getElementById('catName_' + catId);
+    if (!nameSpan) return;
+    
+    const currentName = cat.name;
+    nameSpan.innerHTML = '<input type="text" id="editCatInput_' + catId + '" value="' + currentName + '" maxlength="200" style="width: 100%; padding: 0.4rem 0.6rem; border: 1px solid var(--accent-primary); border-radius: 6px; background: var(--card-bg); color: var(--text-primary); font-size: 0.9rem;">';
+    
+    const editInput = document.getElementById('editCatInput_' + catId);
+    editInput.focus();
+    editInput.select();
+    
+    const saveEdit = function() {
+        const newName = editInput.value.trim();
+        if (!newName) {
+            nameSpan.textContent = currentName;
+            return;
+        }
+        // Check for duplicate
+        const dup = all.find(c => c.categoryType === currentCategoryType && c.name.toLowerCase() === newName.toLowerCase() && c.id !== catId && c.isActive !== false);
+        if (dup) {
+            alert('Category "' + newName + '" already exists.');
+            nameSpan.textContent = currentName;
+            return;
+        }
+        cat.name = newName;
+        cat.modifiedDate = new Date().toISOString();
+        saveCategoriesStorage(all);
+        // Sync to API
+        if (typeof API_BASE_URL !== 'undefined') {
+            fetch(API_BASE_URL + '/categories/' + catId, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: newName, categoryType: currentCategoryType, sortOrder: cat.sortOrder, isActive: true })
+            }).catch(err => console.error('Category API update error:', err));
+        }
+        renderCategoryList();
+    };
+    
+    editInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); saveEdit(); }
+        if (e.key === 'Escape') { nameSpan.textContent = currentName; }
+    });
+    editInput.addEventListener('blur', saveEdit);
+}
+
+function deleteCategory(catId) {
+    if (!confirm('Are you sure you want to delete this category?')) return;
+    
+    const all = loadCategoriesFromStorage();
+    const idx = all.findIndex(c => c.id === catId);
+    if (idx > -1) {
+        all[idx].isActive = false;
+        saveCategoriesStorage(all);
+        // Sync to API
+        if (typeof API_BASE_URL !== 'undefined') {
+            fetch(API_BASE_URL + '/categories/' + catId, { method: 'DELETE' })
+                .catch(err => console.error('Category API delete error:', err));
+        }
+    }
+    renderCategoryList();
+}
+
+// Initialize categories on page load
+(function() {
+    initDefaultCategories();
+    // Delay dropdown population to ensure DOM is ready
+    setTimeout(function() {
+        refreshAllCategoryDropdowns();
+        updateCategoryGearVisibility();
+    }, 500);
+})();
 
 // ============ EQUIPMENT API FUNCTIONS ============
 async function saveEquipmentToAPI(equipmentData) {

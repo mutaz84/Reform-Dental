@@ -61,8 +61,12 @@ module.exports = async function (context, req) {
                 .input('purchaseDate', sql.Date, body.purchaseDate || null)
                 .input('purchasePrice', sql.Decimal, body.purchasePrice || null)
                 .input('warrantyExpiry', sql.Date, body.warrantyExpiry || null)
-                .query(`INSERT INTO Equipment (Name, Category, Brand, Model, SerialNumber, Description, Status, ClinicId, PurchaseDate, PurchasePrice, WarrantyExpiry) 
-                        OUTPUT INSERTED.Id VALUES (@name, @category, @brand, @model, @serialNumber, @description, @status, @clinicId, @purchaseDate, @purchasePrice, @warrantyExpiry)`);
+                .input('notes', sql.NVarChar, body.notes || null)
+                .input('warnings', sql.NVarChar, body.warnings || null)
+                .input('imageUrl', sql.NVarChar, body.imageUrl || null)
+                .input('documentUrl', sql.NVarChar, body.documentUrl || null)
+                .query(`INSERT INTO Equipment (Name, Category, Brand, Model, SerialNumber, Description, Status, ClinicId, PurchaseDate, PurchasePrice, WarrantyExpiry, Notes, Warnings, ImageUrl, DocumentUrl) 
+                        OUTPUT INSERTED.Id VALUES (@name, @category, @brand, @model, @serialNumber, @description, @status, @clinicId, @purchaseDate, @purchasePrice, @warrantyExpiry, @notes, @warnings, @imageUrl, @documentUrl)`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
@@ -72,7 +76,11 @@ module.exports = async function (context, req) {
                 .input('category', sql.NVarChar, body.category)
                 .input('status', sql.NVarChar, body.status)
                 .input('description', sql.NVarChar, body.description)
-                .query(`UPDATE Equipment SET Name=@name, Category=@category, Status=@status, Description=@description, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+                .input('notes', sql.NVarChar, body.notes)
+                .input('warnings', sql.NVarChar, body.warnings)
+                .input('imageUrl', sql.NVarChar, body.imageUrl)
+                .input('documentUrl', sql.NVarChar, body.documentUrl)
+                .query(`UPDATE Equipment SET Name=@name, Category=@category, Status=@status, Description=@description, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Equipment updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()

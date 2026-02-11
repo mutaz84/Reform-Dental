@@ -37,53 +37,49 @@ module.exports = async function (context, req) {
         const id = req.params.id;
 
         if (req.method === 'GET') {
+            // Optional query param: ?type=equipment|instruments|supplies
+            const categoryType = req.query.type;
             if (id) {
                 const result = await pool.request()
                     .input('id', sql.Int, id)
-                    .query('SELECT * FROM Instruments WHERE Id = @id');
+                    .query('SELECT * FROM Categories WHERE Id = @id');
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
+            } else if (categoryType) {
+                const result = await pool.request()
+                    .input('categoryType', sql.NVarChar, categoryType)
+                    .query('SELECT * FROM Categories WHERE CategoryType = @categoryType AND IsActive = 1 ORDER BY SortOrder, Name');
+                context.res = { status: 200, headers, body: result.recordset };
             } else {
                 const result = await pool.request()
-                    .query('SELECT * FROM Instruments ORDER BY Name');
+                    .query('SELECT * FROM Categories WHERE IsActive = 1 ORDER BY CategoryType, SortOrder, Name');
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {
             const body = req.body;
             const result = await pool.request()
                 .input('name', sql.NVarChar, body.name)
-                .input('category', sql.NVarChar, body.category)
-                .input('description', sql.NVarChar, body.description)
-                .input('quantity', sql.Int, body.quantity || 1)
-                .input('status', sql.NVarChar, body.status || 'available')
-                .input('clinicId', sql.Int, body.clinicId || null)
-                .input('sterilizationRequired', sql.Bit, body.sterilizationRequired !== false)
-                .input('icon', sql.NVarChar, body.icon)
-                .input('notes', sql.NVarChar, body.notes || null)
-                .input('warnings', sql.NVarChar, body.warnings || null)
-                .input('imageUrl', sql.NVarChar, body.imageUrl || null)
-                .input('documentUrl', sql.NVarChar, body.documentUrl || null)
-                .query(`INSERT INTO Instruments (Name, Category, Description, Quantity, Status, ClinicId, SterilizationRequired, Icon, Notes, Warnings, ImageUrl, DocumentUrl) 
-                        OUTPUT INSERTED.Id VALUES (@name, @category, @description, @quantity, @status, @clinicId, @sterilizationRequired, @icon, @notes, @warnings, @imageUrl, @documentUrl)`);
+                .input('categoryType', sql.NVarChar, body.categoryType)
+                .input('description', sql.NVarChar, body.description || null)
+                .input('sortOrder', sql.Int, body.sortOrder || 0)
+                .query(`INSERT INTO Categories (Name, CategoryType, Description, SortOrder) 
+                        OUTPUT INSERTED.Id VALUES (@name, @categoryType, @description, @sortOrder)`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
             await pool.request()
                 .input('id', sql.Int, id)
                 .input('name', sql.NVarChar, body.name)
-                .input('category', sql.NVarChar, body.category)
-                .input('quantity', sql.Int, body.quantity)
-                .input('status', sql.NVarChar, body.status)
-                .input('notes', sql.NVarChar, body.notes)
-                .input('warnings', sql.NVarChar, body.warnings)
-                .input('imageUrl', sql.NVarChar, body.imageUrl)
-                .input('documentUrl', sql.NVarChar, body.documentUrl)
-                .query(`UPDATE Instruments SET Name=@name, Category=@category, Quantity=@quantity, Status=@status, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
-            context.res = { status: 200, headers, body: { message: 'Instrument updated' } };
+                .input('categoryType', sql.NVarChar, body.categoryType)
+                .input('description', sql.NVarChar, body.description || null)
+                .input('sortOrder', sql.Int, body.sortOrder || 0)
+                .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0)
+                .query(`UPDATE Categories SET Name=@name, CategoryType=@categoryType, Description=@description, SortOrder=@sortOrder, IsActive=@isActive, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+            context.res = { status: 200, headers, body: { message: 'Category updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()
                 .input('id', sql.Int, id)
-                .query('DELETE FROM Instruments WHERE Id = @id');
-            context.res = { status: 200, headers, body: { message: 'Instrument deleted' } };
+                .query('UPDATE Categories SET IsActive = 0, ModifiedDate=GETUTCDATE() WHERE Id = @id');
+            context.res = { status: 200, headers, body: { message: 'Category deleted' } };
         }
 
         await pool.close();

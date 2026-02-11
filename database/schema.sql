@@ -206,7 +206,9 @@ CREATE TABLE Equipment (
     NextMaintenanceDate DATE,
     VendorId INT,
     Notes NVARCHAR(MAX),
+    Warnings NVARCHAR(MAX),
     ImageUrl NVARCHAR(MAX),
+    DocumentUrl NVARCHAR(MAX),
     CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
     ModifiedDate DATETIME2 DEFAULT GETUTCDATE()
 );
@@ -232,6 +234,10 @@ CREATE TABLE Supplies (
     StorageLocation NVARCHAR(100),
     VendorId INT,
     ExpirationDate DATE,
+    Notes NVARCHAR(MAX),
+    Warnings NVARCHAR(MAX),
+    ImageUrl NVARCHAR(MAX),
+    DocumentUrl NVARCHAR(MAX),
     IsActive BIT DEFAULT 1,
     CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
     ModifiedDate DATETIME2 DEFAULT GETUTCDATE()
@@ -255,7 +261,10 @@ CREATE TABLE Instruments (
     PurchaseDate DATE,
     UnitCost DECIMAL(10,2),
     VendorId INT,
+    Notes NVARCHAR(MAX),
+    Warnings NVARCHAR(MAX),
     ImageUrl NVARCHAR(MAX),
+    DocumentUrl NVARCHAR(MAX),
     Icon NVARCHAR(50),
     CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
     ModifiedDate DATETIME2 DEFAULT GETUTCDATE()
@@ -265,7 +274,24 @@ CREATE INDEX IX_Instruments_Category ON Instruments(Category);
 CREATE INDEX IX_Instruments_ClinicId ON Instruments(ClinicId);
 
 -- =============================================
--- 11. PROCEDURES TABLE
+-- 11. CATEGORIES TABLE
+-- =============================================
+CREATE TABLE Categories (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    Name NVARCHAR(200) NOT NULL,
+    CategoryType NVARCHAR(50) NOT NULL, -- 'equipment', 'instruments', 'supplies'
+    Description NVARCHAR(MAX),
+    SortOrder INT DEFAULT 0,
+    IsActive BIT DEFAULT 1,
+    CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
+    ModifiedDate DATETIME2 DEFAULT GETUTCDATE()
+);
+
+CREATE INDEX IX_Categories_CategoryType ON Categories(CategoryType);
+CREATE INDEX IX_Categories_IsActive ON Categories(IsActive);
+
+-- =============================================
+-- 12. PROCEDURES TABLE
 -- =============================================
 CREATE TABLE Procedures (
     Id INT IDENTITY(1,1) PRIMARY KEY,

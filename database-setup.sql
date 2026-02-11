@@ -53,6 +53,10 @@ BEGIN
         PurchaseDate DATE,
         PurchasePrice DECIMAL(10,2),
         WarrantyExpiry DATE,
+        Notes NVARCHAR(MAX),
+        Warnings NVARCHAR(MAX),
+        ImageUrl NVARCHAR(MAX),
+        DocumentUrl NVARCHAR(MAX),
         CreatedDate DATETIME DEFAULT GETUTCDATE(),
         ModifiedDate DATETIME,
         FOREIGN KEY (ClinicId) REFERENCES Clinics(Id)
@@ -77,6 +81,10 @@ BEGIN
         Status NVARCHAR(50) DEFAULT 'available',
         ClinicId INT,
         SterilizationRequired BIT DEFAULT 1,
+        Notes NVARCHAR(MAX),
+        Warnings NVARCHAR(MAX),
+        ImageUrl NVARCHAR(MAX),
+        DocumentUrl NVARCHAR(MAX),
         Icon NVARCHAR(100),
         CreatedDate DATETIME DEFAULT GETUTCDATE(),
         ModifiedDate DATETIME,
@@ -105,6 +113,10 @@ BEGIN
         ReorderPoint INT DEFAULT 0,
         UnitCost DECIMAL(10,2),
         ClinicId INT,
+        Notes NVARCHAR(MAX),
+        Warnings NVARCHAR(MAX),
+        ImageUrl NVARCHAR(MAX),
+        DocumentUrl NVARCHAR(MAX),
         IsActive BIT DEFAULT 1,
         CreatedDate DATETIME DEFAULT GETUTCDATE(),
         ModifiedDate DATETIME,
@@ -205,6 +217,66 @@ BEGIN
 END
 ELSE
     PRINT 'Duties table already exists';
+GO
+
+-- =============================================
+-- 8. CATEGORIES TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Categories' AND xtype='U')
+BEGIN
+    CREATE TABLE Categories (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        Name NVARCHAR(200) NOT NULL,
+        CategoryType NVARCHAR(50) NOT NULL, -- 'equipment', 'instruments', 'supplies'
+        Description NVARCHAR(MAX),
+        SortOrder INT DEFAULT 0,
+        IsActive BIT DEFAULT 1,
+        CreatedDate DATETIME DEFAULT GETUTCDATE(),
+        ModifiedDate DATETIME
+    );
+    CREATE INDEX IX_Categories_CategoryType ON Categories(CategoryType);
+    
+    -- Insert default Equipment categories
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Autoclave', 'equipment', 1);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Ultrasonic Cleaner', 'equipment', 2);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('X-Ray Unit', 'equipment', 3);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Panoramic X-Ray', 'equipment', 4);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Intraoral Camera', 'equipment', 5);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Dental Chair', 'equipment', 6);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('High-Speed Handpiece', 'equipment', 7);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Low-Speed Handpiece', 'equipment', 8);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Curing Light', 'equipment', 9);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Computer/Workstation', 'equipment', 10);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Server', 'equipment', 11);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Compressor', 'equipment', 12);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Vacuum Pump', 'equipment', 13);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('HVAC System', 'equipment', 14);
+    
+    -- Insert default Instruments categories
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Diagnostic', 'instruments', 1);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Surgical', 'instruments', 2);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Restorative', 'instruments', 3);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Endodontic', 'instruments', 4);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Periodontal', 'instruments', 5);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Orthodontic', 'instruments', 6);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Prosthodontic', 'instruments', 7);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Hygiene', 'instruments', 8);
+    
+    -- Insert default Supplies categories
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Disposables', 'supplies', 1);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Dental Materials', 'supplies', 2);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Anesthetics', 'supplies', 3);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Infection Control', 'supplies', 4);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Office Supplies', 'supplies', 5);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Lab Supplies', 'supplies', 6);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('PPE', 'supplies', 7);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Impression Materials', 'supplies', 8);
+    INSERT INTO Categories (Name, CategoryType, SortOrder) VALUES ('Cements & Adhesives', 'supplies', 9);
+    
+    PRINT 'Created Categories table with default data';
+END
+ELSE
+    PRINT 'Categories table already exists';
 GO
 
 -- =============================================
@@ -431,7 +503,7 @@ SELECT
 FROM sys.tables t
 WHERE t.name IN ('Clinics', 'Rooms', 'Users', 'Vendors', 'Equipment', 'Instruments', 
                  'Supplies', 'Schedules', 'Tasks', 'Duties', 'Settings', 'Events', 'ChatMessages', 'StickyNotes',
-                 'Requests', 'RequestComments', 'RequestAttachments', 'RequestRoutingLog', 'RequestNotifications')
+                 'Requests', 'RequestComments', 'RequestAttachments', 'RequestRoutingLog', 'RequestNotifications', 'Categories')
 ORDER BY t.name;
 
 PRINT '';

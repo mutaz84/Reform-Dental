@@ -60,8 +60,12 @@ module.exports = async function (context, req) {
                 .input('reorderPoint', sql.Int, body.reorderPoint || 0)
                 .input('unitCost', sql.Decimal, body.unitCost || null)
                 .input('clinicId', sql.Int, body.clinicId || null)
-                .query(`INSERT INTO Supplies (Name, Category, SKU, Description, Unit, QuantityInStock, MinimumStock, ReorderPoint, UnitCost, ClinicId) 
-                        OUTPUT INSERTED.Id VALUES (@name, @category, @sku, @description, @unit, @quantityInStock, @minimumStock, @reorderPoint, @unitCost, @clinicId)`);
+                .input('notes', sql.NVarChar, body.notes || null)
+                .input('warnings', sql.NVarChar, body.warnings || null)
+                .input('imageUrl', sql.NVarChar, body.imageUrl || null)
+                .input('documentUrl', sql.NVarChar, body.documentUrl || null)
+                .query(`INSERT INTO Supplies (Name, Category, SKU, Description, Unit, QuantityInStock, MinimumStock, ReorderPoint, UnitCost, ClinicId, Notes, Warnings, ImageUrl, DocumentUrl) 
+                        OUTPUT INSERTED.Id VALUES (@name, @category, @sku, @description, @unit, @quantityInStock, @minimumStock, @reorderPoint, @unitCost, @clinicId, @notes, @warnings, @imageUrl, @documentUrl)`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
@@ -72,7 +76,11 @@ module.exports = async function (context, req) {
                 .input('quantityInStock', sql.Int, body.quantityInStock)
                 .input('minimumStock', sql.Int, body.minimumStock)
                 .input('reorderPoint', sql.Int, body.reorderPoint)
-                .query(`UPDATE Supplies SET Name=@name, Category=@category, QuantityInStock=@quantityInStock, MinimumStock=@minimumStock, ReorderPoint=@reorderPoint, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+                .input('notes', sql.NVarChar, body.notes)
+                .input('warnings', sql.NVarChar, body.warnings)
+                .input('imageUrl', sql.NVarChar, body.imageUrl)
+                .input('documentUrl', sql.NVarChar, body.documentUrl)
+                .query(`UPDATE Supplies SET Name=@name, Category=@category, QuantityInStock=@quantityInStock, MinimumStock=@minimumStock, ReorderPoint=@reorderPoint, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Supply updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()
