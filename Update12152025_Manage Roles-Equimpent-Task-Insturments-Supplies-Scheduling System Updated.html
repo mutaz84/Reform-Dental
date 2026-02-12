@@ -13962,6 +13962,22 @@
         to { opacity: 1; transform: translateY(0) scale(1); }
     }
 
+    /* Copilot Draggable States */
+    .copilot-fab.dragging,
+    .copilot-panel.dragging {
+        transition: none !important;
+        user-select: none;
+    }
+    .copilot-fab.dragged {
+        /* Override bottom/right with top/left when user has dragged */
+        bottom: auto !important;
+        right: auto !important;
+    }
+    .copilot-panel.dragged {
+        bottom: auto !important;
+        right: auto !important;
+    }
+
     /* Copilot Header */
     .copilot-header {
         background: linear-gradient(135deg, #8b5cf6, #6d28d9);
@@ -13971,6 +13987,10 @@
         align-items: center;
         justify-content: space-between;
         flex-shrink: 0;
+        cursor: grab;
+    }
+    .copilot-header:active {
+        cursor: grabbing;
     }
     .copilot-header-left {
         display: flex;
@@ -60436,6 +60456,215 @@ console.log('✅ Global functions exported to window object');
         const input = getEl('copilotInput');
         sendMessage(input.value);
     }
+
+    // ===== DRAGGABLE FAB BUTTON =====
+    (function initFabDrag() {
+        const fab = getEl('copilotFab');
+        if (!fab) return;
+        let isDragging = false, wasDragged = false;
+        let startX, startY, startLeft, startTop;
+        const DRAG_THRESHOLD = 5;
+
+        // Restore saved position
+        const savedPos = localStorage.getItem('copilotFabPos');
+        if (savedPos) {
+            try {
+                const pos = JSON.parse(savedPos);
+                fab.style.left = pos.left + 'px';
+                fab.style.top = pos.top + 'px';
+                fab.classList.add('dragged');
+            } catch(e) {}
+        }
+
+        fab.addEventListener('mousedown', function(e) {
+            if (e.button !== 0) return;
+            const rect = fab.getBoundingClientRect();
+            startX = e.clientX;
+            startY = e.clientY;
+            startLeft = rect.left;
+            startTop = rect.top;
+            isDragging = true;
+            wasDragged = false;
+            fab.classList.add('dragging');
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', function(e) {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            if (!wasDragged && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+            wasDragged = true;
+            let newLeft = startLeft + dx;
+            let newTop = startTop + dy;
+            // Keep within viewport
+            newLeft = Math.max(0, Math.min(window.innerWidth - fab.offsetWidth, newLeft));
+            newTop = Math.max(0, Math.min(window.innerHeight - fab.offsetHeight, newTop));
+            fab.style.left = newLeft + 'px';
+            fab.style.top = newTop + 'px';
+            fab.classList.add('dragged');
+        });
+
+        document.addEventListener('mouseup', function(e) {
+            if (!isDragging) return;
+            isDragging = false;
+            fab.classList.remove('dragging');
+            if (wasDragged) {
+                // Save position
+                localStorage.setItem('copilotFabPos', JSON.stringify({
+                    left: parseInt(fab.style.left),
+                    top: parseInt(fab.style.top)
+                }));
+                e.stopPropagation();
+            }
+        });
+
+        // Override onclick - only toggle if not dragged
+        fab.removeAttribute('onclick');
+        fab.addEventListener('click', function(e) {
+            if (wasDragged) {
+                wasDragged = false;
+                e.stopPropagation();
+                return;
+            }
+            window.ReformCopilot.toggle();
+        });
+
+        // Touch support for mobile
+        fab.addEventListener('touchstart', function(e) {
+            const touch = e.touches[0];
+            const rect = fab.getBoundingClientRect();
+            startX = touch.clientX;
+            startY = touch.clientY;
+            startLeft = rect.left;
+            startTop = rect.top;
+            isDragging = true;
+            wasDragged = false;
+            fab.classList.add('dragging');
+        }, { passive: true });
+
+        document.addEventListener('touchmove', function(e) {
+            if (!isDragging) return;
+            const touch = e.touches[0];
+            const dx = touch.clientX - startX;
+            const dy = touch.clientY - startY;
+            if (!wasDragged && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+            wasDragged = true;
+            let newLeft = startLeft + dx;
+            let newTop = startTop + dy;
+            newLeft = Math.max(0, Math.min(window.innerWidth - fab.offsetWidth, newLeft));
+            newTop = Math.max(0, Math.min(window.innerHeight - fab.offsetHeight, newTop));
+            fab.style.left = newLeft + 'px';
+            fab.style.top = newTop + 'px';
+            fab.classList.add('dragged');
+            e.preventDefault();
+        }, { passive: false });
+
+        document.addEventListener('touchend', function(e) {
+            if (!isDragging) return;
+            isDragging = false;
+            fab.classList.remove('dragging');
+            if (wasDragged) {
+                localStorage.setItem('copilotFabPos', JSON.stringify({
+                    left: parseInt(fab.style.left),
+                    top: parseInt(fab.style.top)
+                }));
+            }
+        });
+    })();
+
+    // ===== DRAGGABLE PANEL (drag by header) =====
+    (function initPanelDrag() {
+        const panel = getEl('copilotPanel');
+        const header = panel ? panel.querySelector('.copilot-header') : null;
+        if (!panel || !header) return;
+        let isDragging = false;
+        let startX, startY, startLeft, startTop;
+
+        // Restore saved position
+        const savedPos = localStorage.getItem('copilotPanelPos');
+        if (savedPos) {
+            try {
+                const pos = JSON.parse(savedPos);
+                panel.style.left = pos.left + 'px';
+                panel.style.top = pos.top + 'px';
+                panel.classList.add('dragged');
+            } catch(e) {}
+        }
+
+        header.addEventListener('mousedown', function(e) {
+            // Don't drag if clicking buttons inside header
+            if (e.target.closest('button')) return;
+            if (e.button !== 0) return;
+            const rect = panel.getBoundingClientRect();
+            startX = e.clientX;
+            startY = e.clientY;
+            startLeft = rect.left;
+            startTop = rect.top;
+            isDragging = true;
+            panel.classList.add('dragging');
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', function(e) {
+            if (!isDragging) return;
+            let newLeft = startLeft + (e.clientX - startX);
+            let newTop = startTop + (e.clientY - startY);
+            // Keep within viewport
+            newLeft = Math.max(0, Math.min(window.innerWidth - panel.offsetWidth, newLeft));
+            newTop = Math.max(0, Math.min(window.innerHeight - 50, newTop));
+            panel.style.left = newLeft + 'px';
+            panel.style.top = newTop + 'px';
+            panel.classList.add('dragged');
+        });
+
+        document.addEventListener('mouseup', function() {
+            if (!isDragging) return;
+            isDragging = false;
+            panel.classList.remove('dragging');
+            // Save position
+            localStorage.setItem('copilotPanelPos', JSON.stringify({
+                left: parseInt(panel.style.left),
+                top: parseInt(panel.style.top)
+            }));
+        });
+
+        // Touch support
+        header.addEventListener('touchstart', function(e) {
+            if (e.target.closest('button')) return;
+            const touch = e.touches[0];
+            const rect = panel.getBoundingClientRect();
+            startX = touch.clientX;
+            startY = touch.clientY;
+            startLeft = rect.left;
+            startTop = rect.top;
+            isDragging = true;
+            panel.classList.add('dragging');
+        }, { passive: true });
+
+        document.addEventListener('touchmove', function(e) {
+            if (!isDragging) return;
+            const touch = e.touches[0];
+            let newLeft = startLeft + (touch.clientX - startX);
+            let newTop = startTop + (touch.clientY - startY);
+            newLeft = Math.max(0, Math.min(window.innerWidth - panel.offsetWidth, newLeft));
+            newTop = Math.max(0, Math.min(window.innerHeight - 50, newTop));
+            panel.style.left = newLeft + 'px';
+            panel.style.top = newTop + 'px';
+            panel.classList.add('dragged');
+            e.preventDefault();
+        }, { passive: false });
+
+        document.addEventListener('touchend', function() {
+            if (!isDragging) return;
+            isDragging = false;
+            panel.classList.remove('dragging');
+            localStorage.setItem('copilotPanelPos', JSON.stringify({
+                left: parseInt(panel.style.left),
+                top: parseInt(panel.style.top)
+            }));
+        });
+    })();
 
     // ===== EXPOSE PUBLIC API =====
     window.ReformCopilot = {
