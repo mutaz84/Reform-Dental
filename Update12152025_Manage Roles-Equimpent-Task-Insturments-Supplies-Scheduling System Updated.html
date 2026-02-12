@@ -34833,6 +34833,8 @@
                 console.error('Error switching content view:', error);
             }
         }
+        // Expose switchContentView globally so Copilot and other modules can call it
+        window.switchContentView = switchContentView;
 
         // ===================== REQUESTS MODULE =====================
         const REQUEST_STORAGE_KEY = 'requestsDatabase';
@@ -60039,12 +60041,15 @@ console.log('✅ Global functions exported to window object');
                 navLink.click();
                 return true;
             }
-            // Method 3: Directly toggle content views via DOM
+            // Method 3: Directly toggle content views via DOM (using classList like the real function)
             const allViews = document.querySelectorAll('.content-view');
             const targetView = document.getElementById('view-' + viewName);
             if (targetView) {
-                allViews.forEach(v => v.style.display = 'none');
-                targetView.style.display = '';
+                allViews.forEach(v => v.classList.remove('active'));
+                targetView.classList.add('active');
+                // Scroll to top
+                const mainContent = document.querySelector('.main-content');
+                if (mainContent) mainContent.scrollTop = 0;
                 // Update nav active states
                 document.querySelectorAll('.nav-item').forEach(item => {
                     if (item.getAttribute('onclick') && item.getAttribute('onclick').includes(viewName)) {
@@ -60053,6 +60058,19 @@ console.log('✅ Global functions exported to window object');
                         item.classList.remove('active');
                     }
                 });
+                // Call view initializers if available
+                const initMap = {
+                    'equipment': 'initializeEquipmentView',
+                    'instruments': 'initializeInstrumentsView',
+                    'supplies': 'initializeSuppliesView',
+                    'vendors': 'initializeVendorsView',
+                    'requests': 'initializeRequestsView',
+                    'task-hub': 'initTaskHub'
+                };
+                const initFn = initMap[viewName];
+                if (initFn && typeof window[initFn] === 'function') {
+                    setTimeout(() => window[initFn](), 50);
+                }
                 return true;
             }
             return false;
