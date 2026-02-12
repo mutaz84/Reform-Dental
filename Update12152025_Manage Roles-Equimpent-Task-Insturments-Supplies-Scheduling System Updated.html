@@ -14318,6 +14318,103 @@
         text-align: center;
     }
 
+    /* Copilot Inline Forms */
+    .copilot-inline-form {
+        background: var(--bg-primary, #ffffff);
+        border: 1.5px solid #8b5cf6;
+        border-radius: 12px;
+        padding: 16px;
+        margin: 8px 0;
+        max-width: 100%;
+    }
+    .copilot-form-title {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: #6d28d9;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .copilot-form-title i {
+        font-size: 1rem;
+    }
+    .copilot-form-group {
+        margin-bottom: 10px;
+    }
+    .copilot-form-group label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-secondary, #6b7280);
+        margin-bottom: 3px;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    .copilot-form-group label .required {
+        color: #ef4444;
+    }
+    .copilot-form-group input,
+    .copilot-form-group select,
+    .copilot-form-group textarea {
+        width: 100%;
+        padding: 7px 10px;
+        border: 1px solid var(--border-color, #d1d5db);
+        border-radius: 6px;
+        font-size: 0.82rem;
+        background: var(--bg-secondary, #f9fafb);
+        color: var(--text-primary, #374151);
+        transition: border-color 0.2s;
+        box-sizing: border-box;
+    }
+    .copilot-form-group input:focus,
+    .copilot-form-group select:focus,
+    .copilot-form-group textarea:focus {
+        outline: none;
+        border-color: #8b5cf6;
+        box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.15);
+    }
+    .copilot-form-group textarea {
+        resize: vertical;
+        min-height: 50px;
+    }
+    .copilot-form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+    .copilot-form-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 14px;
+    }
+    .copilot-form-btn {
+        padding: 8px 18px;
+        border: none;
+        border-radius: 8px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        flex: 1;
+    }
+    .copilot-form-btn.primary {
+        background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+        color: white;
+    }
+    .copilot-form-btn.primary:hover {
+        box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+        transform: translateY(-1px);
+    }
+    .copilot-form-btn.secondary {
+        background: var(--bg-secondary, #f3f4f6);
+        color: var(--text-secondary, #6b7280);
+        border: 1px solid var(--border-color, #d1d5db);
+    }
+    .copilot-form-btn.secondary:hover {
+        background: var(--bg-tertiary, #e5e7eb);
+    }
+
     @media (max-width: 480px) {
         .copilot-panel {
             width: calc(100vw - 20px);
@@ -60026,6 +60123,384 @@ console.log('✅ Global functions exported to window object');
     // ===== ACTION EXECUTOR =====
     // Executes actions returned by the AI (navigation, alerts, etc.)
 
+    // ===== INLINE FORM DEFINITIONS =====
+    const FormDefinitions = {
+        instrument: {
+            title: 'New Instrument',
+            icon: 'fa-syringe',
+            storageKey: 'instruments',
+            idField: 'instrumentID',
+            fields: [
+                { name: 'instrumentName', label: 'Instrument Name', type: 'text', required: true, placeholder: 'e.g., Dental Mirror #5' },
+                { name: 'category', label: 'Category', type: 'select', required: true, options: ['Diagnostic','Surgical','Restorative','Endodontic','Periodontal','Orthodontic','Prosthodontic','Hygiene','Other'] },
+                { name: 'instrumentType', label: 'Type', type: 'text', placeholder: 'e.g., Mirror, Probe, Forceps', row: 1 },
+                { name: 'skuNumber', label: 'SKU Number', type: 'text', placeholder: 'SKU-001', row: 1 },
+                { name: 'manufacturer', label: 'Manufacturer', type: 'text', placeholder: 'e.g., Hu-Friedy', row: 2 },
+                { name: 'vendorId', label: 'Vendor', type: 'vendor-select', row: 2 },
+                { name: 'officeId', label: 'Office', type: 'office-select', row: 3 },
+                { name: 'roomId', label: 'Room', type: 'room-select', row: 3 },
+                { name: 'notes', label: 'Notes', type: 'textarea', placeholder: 'Any additional notes...' }
+            ],
+            buildItem(formData) {
+                // Resolve names from IDs
+                let vendorName = '', officeName = '', roomName = '';
+                try {
+                    const vendors = JSON.parse(localStorage.getItem('vendors') || '[]');
+                    const v = vendors.find(x => String(x.vendorID) === formData.vendorId);
+                    if (v) vendorName = v.vendorName || v.name || '';
+                } catch(e) {}
+                try {
+                    const clinics = JSON.parse(localStorage.getItem('clinics') || '[]');
+                    const o = clinics.find(x => String(x.clinicId || x.id) === formData.officeId);
+                    if (o) officeName = o.clinicName || o.name || '';
+                } catch(e) {}
+                try {
+                    const rooms = JSON.parse(localStorage.getItem('rooms') || '[]');
+                    const r = rooms.find(x => String(r.roomId || r.id) === formData.roomId);
+                    if (r) roomName = r.roomName || r.name || '';
+                } catch(e) {}
+                return {
+                    instrumentID: Date.now(),
+                    instrumentName: formData.instrumentName,
+                    category: formData.category,
+                    instrumentType: formData.instrumentType || '',
+                    skuNumber: formData.skuNumber || '',
+                    manufacturer: formData.manufacturer || '',
+                    officeId: formData.officeId || '',
+                    officeName: officeName,
+                    roomId: formData.roomId || '',
+                    roomName: roomName,
+                    vendorId: formData.vendorId || '',
+                    vendorName: vendorName,
+                    notes: formData.notes || '',
+                    warnings: '',
+                    imageData: null,
+                    documentData: null,
+                    createdDate: new Date().toISOString(),
+                    modifiedDate: new Date().toISOString()
+                };
+            }
+        },
+        equipment: {
+            title: 'New Equipment',
+            icon: 'fa-tools',
+            storageKey: 'equipment',
+            idField: 'equipmentID',
+            fields: [
+                { name: 'equipmentName', label: 'Equipment Name', type: 'text', required: true, placeholder: 'e.g., Dental Chair Unit' },
+                { name: 'equipmentType', label: 'Type / Category', type: 'select', required: true, options: ['Autoclave','Ultrasonic Cleaner','X-Ray Unit','Panoramic X-Ray','Intraoral Camera','Dental Chair','High-Speed Handpiece','Low-Speed Handpiece','Curing Light','Computer/Workstation','Server','Compressor','Vacuum Pump','HVAC System','Other'] },
+                { name: 'manufacturer', label: 'Manufacturer', type: 'text', placeholder: 'e.g., A-dec', row: 1 },
+                { name: 'model', label: 'Model', type: 'text', placeholder: 'Model number', row: 1 },
+                { name: 'serialNumber', label: 'Serial Number', type: 'text', placeholder: 'SN-12345', row: 2 },
+                { name: 'price', label: 'Price ($)', type: 'number', placeholder: '0.00', row: 2 },
+                { name: 'status', label: 'Status', type: 'select', options: ['Operational','Needs Service','Under Repair','Out of Service','Retired'], row: 3 },
+                { name: 'condition', label: 'Condition', type: 'select', options: ['Excellent','Good','Fair','Poor'], row: 3 },
+                { name: 'vendorId', label: 'Vendor', type: 'vendor-select', row: 4 },
+                { name: 'officeId', label: 'Office', type: 'office-select', row: 4 },
+                { name: 'purchaseDate', label: 'Purchase Date', type: 'date', row: 5 },
+                { name: 'warrantyExpiry', label: 'Warranty Expiry', type: 'date', row: 5 },
+                { name: 'notes', label: 'Notes', type: 'textarea', placeholder: 'Any additional notes...' }
+            ],
+            buildItem(formData) {
+                let vendorName = '', officeName = '', roomName = '';
+                try {
+                    const vendors = JSON.parse(localStorage.getItem('vendors') || '[]');
+                    const v = vendors.find(x => String(x.vendorID) === formData.vendorId);
+                    if (v) vendorName = v.vendorName || v.name || '';
+                } catch(e) {}
+                try {
+                    const clinics = JSON.parse(localStorage.getItem('clinics') || '[]');
+                    const o = clinics.find(x => String(x.clinicId || x.id) === formData.officeId);
+                    if (o) officeName = o.clinicName || o.name || '';
+                } catch(e) {}
+                return {
+                    equipmentID: Date.now(),
+                    equipmentName: formData.equipmentName,
+                    equipmentType: formData.equipmentType,
+                    category: formData.equipmentType,
+                    manufacturer: formData.manufacturer || '',
+                    model: formData.model || '',
+                    serialNumber: formData.serialNumber || '',
+                    price: parseFloat(formData.price) || 0,
+                    status: formData.status || 'Operational',
+                    condition: formData.condition || 'Good',
+                    purchaseDate: formData.purchaseDate || '',
+                    warrantyExpiry: formData.warrantyExpiry || '',
+                    lastServiceDate: '',
+                    nextServiceDate: '',
+                    officeId: formData.officeId || '',
+                    officeName: officeName,
+                    roomId: formData.roomId || '',
+                    roomName: roomName,
+                    vendorId: formData.vendorId || '',
+                    vendorName: vendorName,
+                    notes: formData.notes || '',
+                    warnings: '',
+                    isActive: true,
+                    imageData: null,
+                    documentData: null,
+                    createdDate: new Date().toISOString(),
+                    modifiedDate: new Date().toISOString()
+                };
+            }
+        },
+        supply: {
+            title: 'New Supply',
+            icon: 'fa-boxes-stacked',
+            storageKey: 'supplies',
+            idField: 'supplyID',
+            fields: [
+                { name: 'supplyName', label: 'Supply Name', type: 'text', required: true, placeholder: 'e.g., Nitrile Gloves Medium' },
+                { name: 'category', label: 'Category', type: 'select', required: true, options: ['Disposables','Dental Materials','Anesthetics','Infection Control','Office Supplies','Lab Supplies','PPE','Impression Materials','Cements & Adhesives','Other'] },
+                { name: 'sku', label: 'SKU', type: 'text', placeholder: 'SKU-001', row: 1 },
+                { name: 'manufacturer', label: 'Manufacturer', type: 'text', placeholder: 'e.g., 3M', row: 1 },
+                { name: 'quantityInStock', label: 'Quantity in Stock', type: 'number', placeholder: '0', row: 2 },
+                { name: 'unit', label: 'Unit', type: 'text', placeholder: 'e.g., boxes, packs', row: 2 },
+                { name: 'reorderLevel', label: 'Reorder Level', type: 'number', placeholder: '0', row: 3 },
+                { name: 'unitCost', label: 'Unit Cost ($)', type: 'number', placeholder: '0.00', row: 3 },
+                { name: 'vendorId', label: 'Vendor', type: 'vendor-select', row: 4 },
+                { name: 'officeId', label: 'Office', type: 'office-select', row: 4 },
+                { name: 'location', label: 'Storage Location', type: 'text', placeholder: 'e.g., Cabinet A, Shelf 2', row: 5 },
+                { name: 'expirationDate', label: 'Expiration Date', type: 'date', row: 5 },
+                { name: 'notes', label: 'Notes', type: 'textarea', placeholder: 'Any additional notes...' }
+            ],
+            buildItem(formData) {
+                let vendorName = '', officeName = '', roomName = '';
+                try {
+                    const vendors = JSON.parse(localStorage.getItem('vendors') || '[]');
+                    const v = vendors.find(x => String(x.vendorID) === formData.vendorId);
+                    if (v) vendorName = v.vendorName || v.name || '';
+                } catch(e) {}
+                try {
+                    const clinics = JSON.parse(localStorage.getItem('clinics') || '[]');
+                    const o = clinics.find(x => String(x.clinicId || x.id) === formData.officeId);
+                    if (o) officeName = o.clinicName || o.name || '';
+                } catch(e) {}
+                return {
+                    supplyID: Date.now(),
+                    supplyName: formData.supplyName,
+                    category: formData.category,
+                    sku: formData.sku || '',
+                    manufacturer: formData.manufacturer || '',
+                    quantityInStock: parseInt(formData.quantityInStock) || 0,
+                    unit: formData.unit || '',
+                    reorderLevel: parseInt(formData.reorderLevel) || 0,
+                    unitCost: parseFloat(formData.unitCost) || 0,
+                    officeId: formData.officeId || '',
+                    officeName: officeName,
+                    roomId: formData.roomId || '',
+                    roomName: roomName,
+                    location: formData.location || '',
+                    vendorId: formData.vendorId || '',
+                    vendorName: vendorName,
+                    expirationDate: formData.expirationDate || '',
+                    notes: formData.notes || '',
+                    warnings: '',
+                    isActive: true,
+                    imageData: null,
+                    documentData: null,
+                    documentName: null,
+                    createdDate: new Date().toISOString(),
+                    modifiedDate: new Date().toISOString()
+                };
+            }
+        }
+    };
+
+    // ===== INLINE FORM RENDERER =====
+    const FormRenderer = {
+        _formCounter: 0,
+
+        // Load dynamic dropdown data (vendors, offices, rooms)
+        _getDynamicOptions(type) {
+            try {
+                if (type === 'vendor-select') {
+                    const vendors = JSON.parse(localStorage.getItem('vendors') || '[]');
+                    return vendors.map(v => ({ value: String(v.vendorID), label: v.vendorName || v.name || 'Unknown' }));
+                }
+                if (type === 'office-select') {
+                    const clinics = JSON.parse(localStorage.getItem('clinics') || '[]');
+                    return clinics.map(c => ({ value: String(c.clinicId || c.id), label: c.clinicName || c.name || 'Unknown' }));
+                }
+                if (type === 'room-select') {
+                    const rooms = JSON.parse(localStorage.getItem('rooms') || '[]');
+                    return rooms.map(r => ({ value: String(r.roomId || r.id), label: r.roomName || r.name || 'Unknown' }));
+                }
+            } catch(e) {}
+            return [];
+        },
+
+        _renderField(field, formId) {
+            const id = `${formId}-${field.name}`;
+            const req = field.required ? '<span class="required">*</span>' : '';
+            let input = '';
+
+            if (field.type === 'select' && field.options) {
+                const opts = field.options.map(o => `<option value="${o}">${o}</option>`).join('');
+                input = `<select id="${id}" name="${field.name}"><option value="">Select...</option>${opts}</select>`;
+            } else if (field.type === 'vendor-select' || field.type === 'office-select' || field.type === 'room-select') {
+                const dynOpts = this._getDynamicOptions(field.type);
+                const opts = dynOpts.map(o => `<option value="${o.value}">${o.label}</option>`).join('');
+                const emptyLabel = field.type === 'vendor-select' ? 'Select vendor...' : field.type === 'office-select' ? 'Select office...' : 'Select room...';
+                input = `<select id="${id}" name="${field.name}"><option value="">${emptyLabel}</option>${opts}</select>`;
+            } else if (field.type === 'textarea') {
+                input = `<textarea id="${id}" name="${field.name}" placeholder="${field.placeholder || ''}" rows="2"></textarea>`;
+            } else {
+                const typeAttr = field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text';
+                const step = field.type === 'number' ? ' step="any"' : '';
+                input = `<input type="${typeAttr}" id="${id}" name="${field.name}" placeholder="${field.placeholder || ''}"${step}${field.required ? ' required' : ''}>`;
+            }
+
+            return `<div class="copilot-form-group"><label for="${id}">${field.label} ${req}</label>${input}</div>`;
+        },
+
+        renderForm(entityType, prefillData) {
+            const def = FormDefinitions[entityType];
+            if (!def) return `<p>Unknown form type: ${entityType}</p>`;
+
+            this._formCounter++;
+            const formId = `copilot-form-${this._formCounter}`;
+
+            // Group fields by row for 2-column layout
+            let html = `<div class="copilot-inline-form" id="${formId}">`;
+            html += `<div class="copilot-form-title"><i class="fas ${def.icon}"></i> ${def.title}</div>`;
+
+            const rowGroups = {};
+            const noRowFields = [];
+            def.fields.forEach(f => {
+                if (f.row !== undefined) {
+                    if (!rowGroups[f.row]) rowGroups[f.row] = [];
+                    rowGroups[f.row].push(f);
+                } else {
+                    noRowFields.push(f);
+                }
+            });
+
+            // Render fields - full width first, then row groups
+            const allParts = [];
+            def.fields.forEach(f => {
+                if (f.row === undefined) {
+                    allParts.push({ row: null, html: this._renderField(f, formId) });
+                } else {
+                    // Check if we already added this row group
+                    if (!allParts.find(p => p.row === f.row)) {
+                        const rowFields = rowGroups[f.row];
+                        const rowHtml = `<div class="copilot-form-row">${rowFields.map(rf => this._renderField(rf, formId)).join('')}</div>`;
+                        allParts.push({ row: f.row, html: rowHtml });
+                    }
+                }
+            });
+
+            // Render in the order fields appear in the definition
+            const rendered = new Set();
+            def.fields.forEach(f => {
+                if (f.row === undefined) {
+                    html += this._renderField(f, formId);
+                } else if (!rendered.has(f.row)) {
+                    rendered.add(f.row);
+                    const rowFields = rowGroups[f.row];
+                    html += `<div class="copilot-form-row">${rowFields.map(rf => this._renderField(rf, formId)).join('')}</div>`;
+                }
+            });
+
+            html += `<div class="copilot-form-actions">`;
+            html += `<button class="copilot-form-btn secondary" onclick="window._copilotCancelForm('${formId}')">Cancel</button>`;
+            html += `<button class="copilot-form-btn primary" onclick="window._copilotSubmitForm('${formId}', '${entityType}')"><i class="fas fa-plus"></i> Create</button>`;
+            html += `</div></div>`;
+
+            // Pre-fill data if AI provided partial info
+            if (prefillData && Object.keys(prefillData).length > 0) {
+                setTimeout(() => {
+                    Object.entries(prefillData).forEach(([key, val]) => {
+                        const el = document.getElementById(`${formId}-${key}`);
+                        if (el && val) el.value = val;
+                    });
+                }, 100);
+            }
+
+            return html;
+        }
+    };
+
+    // Global form submission/cancel handlers
+    window._copilotSubmitForm = function(formId, entityType) {
+        const formEl = document.getElementById(formId);
+        if (!formEl) return;
+
+        const def = FormDefinitions[entityType];
+        if (!def) return;
+
+        // Collect form data
+        const formData = {};
+        const inputs = formEl.querySelectorAll('input, select, textarea');
+        inputs.forEach(input => {
+            formData[input.name] = input.value;
+        });
+
+        // Validate required fields
+        const missing = def.fields.filter(f => f.required && !formData[f.name]);
+        if (missing.length > 0) {
+            const names = missing.map(f => f.label).join(', ');
+            // Highlight missing fields
+            missing.forEach(f => {
+                const el = formEl.querySelector(`[name="${f.name}"]`);
+                if (el) {
+                    el.style.borderColor = '#ef4444';
+                    el.style.boxShadow = '0 0 0 2px rgba(239,68,68,0.15)';
+                    setTimeout(() => { el.style.borderColor = ''; el.style.boxShadow = ''; }, 3000);
+                }
+            });
+            ActionExecutor.showToast(`Please fill in: ${names}`, 'fa-exclamation-triangle');
+            return;
+        }
+
+        // Build the item using the definition's builder
+        const newItem = def.buildItem(formData);
+
+        // Save to localStorage
+        try {
+            const existing = JSON.parse(localStorage.getItem(def.storageKey) || '[]');
+            existing.push(newItem);
+            localStorage.setItem(def.storageKey, JSON.stringify(existing));
+        } catch(e) {
+            ActionExecutor.showToast('Error saving — please try again', 'fa-exclamation-circle');
+            return;
+        }
+
+        // Get the display name for the toast
+        const displayName = newItem[Object.keys(newItem).find(k => k.toLowerCase().includes('name') && k !== 'officeName' && k !== 'vendorName' && k !== 'roomName')] || 'Item';
+
+        // Replace form with success message
+        formEl.innerHTML = `
+            <div style="text-align:center; padding: 16px 8px;">
+                <i class="fas fa-check-circle" style="font-size: 2rem; color: #10b981; margin-bottom: 8px;"></i>
+                <div style="font-weight: 600; color: #10b981; font-size: 0.95rem;">${def.title.replace('New ', '')} Created!</div>
+                <div style="font-size: 0.82rem; color: var(--text-secondary, #6b7280); margin-top: 4px;">"${displayName}" has been added successfully.</div>
+            </div>`;
+        formEl.style.borderColor = '#10b981';
+
+        ActionExecutor.showToast(`${def.title.replace('New ', '')} "${displayName}" created!`, 'fa-check-circle');
+
+        // Refresh the view if currently on it
+        const viewKey = entityType === 'supply' ? 'supplies' : def.storageKey;
+        const initMap = { 'equipment': 'initializeEquipmentView', 'instruments': 'initializeInstrumentsView', 'supplies': 'initializeSuppliesView' };
+        const initFn = initMap[viewKey];
+        if (initFn && typeof window[initFn] === 'function') {
+            setTimeout(() => window[initFn](), 300);
+        }
+    };
+
+    window._copilotCancelForm = function(formId) {
+        const formEl = document.getElementById(formId);
+        if (formEl) {
+            formEl.innerHTML = `
+                <div style="text-align:center; padding: 10px; color: var(--text-secondary, #6b7280); font-size: 0.82rem;">
+                    <i class="fas fa-times-circle"></i> Form cancelled
+                </div>`;
+            formEl.style.borderColor = 'var(--border-color, #d1d5db)';
+        }
+    };
+
     const ActionExecutor = {
         // Helper to call switchContentView which lives in another scope
         navigateToView(viewName) {
@@ -60212,6 +60687,19 @@ console.log('✅ Global functions exported to window object');
                     } else {
                         this.showToast('Chat is not available', 'fa-exclamation-circle');
                     }
+                },
+
+                'show_create_form': (data) => {
+                    const entityType = data.entity_type; // 'instrument', 'equipment', or 'supply'
+                    const prefill = data.prefill || {};
+                    const formHtml = FormRenderer.renderForm(entityType, prefill);
+                    if (formHtml) {
+                        // Insert the form as a special message in the chat
+                        CopilotUI.addMessage('form', formHtml);
+                        // Scroll to the form
+                        const msgArea = getEl('copilotMessages');
+                        if (msgArea) setTimeout(() => msgArea.scrollTop = msgArea.scrollHeight, 150);
+                    }
                 }
             };
 
@@ -60286,6 +60774,15 @@ console.log('✅ Global functions exported to window object');
                         <i class="fas fa-wand-magic-sparkles"></i> Copilot
                     </div>
                     <div class="msg-content">${formatted}</div>
+                `;
+            } else if (role === 'form') {
+                // Inline form — content is raw HTML
+                msgDiv.className = 'copilot-msg assistant';
+                msgDiv.innerHTML = `
+                    <div class="msg-header">
+                        <i class="fas fa-wand-magic-sparkles"></i> Copilot
+                    </div>
+                    <div class="msg-content">${content}</div>
                 `;
             } else {
                 msgDiv.innerHTML = `<div class="msg-content">${this.escapeHtml(content)}</div>`;

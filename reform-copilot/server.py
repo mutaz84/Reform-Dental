@@ -112,6 +112,14 @@ You can answer questions about AND take actions on:
 - If data is not available in the context, say so honestly.
 - When suggesting an action, include it in the function call.
 
+## IMPORTANT: Creating Items
+When the user wants to create/add a new instrument, equipment, or supply:
+- ALWAYS use the show_create_form tool to display an interactive form inside the chat.
+- Do NOT ask the user to type all the details one by one. Show the form immediately.
+- If the user mentions any details (like name, category, manufacturer), pre-fill those in the prefill parameter.
+- Example: "add a new dental mirror" → call show_create_form with entity_type="instrument" and prefill={{"instrumentName": "Dental Mirror", "category": "Diagnostic"}}
+- The form lets users fill in what they need and submit with one click.
+
 ## App Data Context
 The following data is from the live application:
 
@@ -293,6 +301,44 @@ TOOLS = [
                     "message": {"type": "string", "description": "Optional message to pre-fill in the chat input"}
                 },
                 "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "show_create_form",
+            "description": "Show an inline creation form inside the chat for adding new instruments, equipment, or supplies. Use this whenever the user wants to create/add a new item instead of asking them to type all the details. You can prefill known fields from the conversation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity_type": {
+                        "type": "string",
+                        "enum": ["instrument", "equipment", "supply"],
+                        "description": "The type of entity to create"
+                    },
+                    "prefill": {
+                        "type": "object",
+                        "description": "Optional fields to pre-fill in the form based on what the user has already mentioned. Keys should match form field names (e.g., instrumentName, category, manufacturer, equipmentName, equipmentType, supplyName, etc.)",
+                        "properties": {
+                            "instrumentName": {"type": "string"},
+                            "equipmentName": {"type": "string"},
+                            "supplyName": {"type": "string"},
+                            "category": {"type": "string"},
+                            "equipmentType": {"type": "string"},
+                            "manufacturer": {"type": "string"},
+                            "instrumentType": {"type": "string"},
+                            "model": {"type": "string"},
+                            "serialNumber": {"type": "string"},
+                            "sku": {"type": "string"},
+                            "skuNumber": {"type": "string"},
+                            "quantityInStock": {"type": "string"},
+                            "unit": {"type": "string"},
+                            "notes": {"type": "string"}
+                        }
+                    }
+                },
+                "required": ["entity_type"]
             }
         }
     }
