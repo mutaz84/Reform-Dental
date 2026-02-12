@@ -60005,15 +60005,49 @@ console.log('✅ Global functions exported to window object');
     // Executes actions returned by the AI (navigation, alerts, etc.)
 
     const ActionExecutor = {
+        // Helper to call switchContentView which lives in another scope
+        navigateToView(viewName) {
+            // Method 1: Try direct function call (if globally accessible)
+            if (typeof window.switchContentView === 'function') {
+                window.switchContentView(viewName, null);
+                return true;
+            }
+            // Method 2: Find and click the nav-item that triggers this view
+            const navLink = document.querySelector(`.nav-item[onclick*="'${viewName}'"]`) ||
+                            document.querySelector(`.nav-item[onclick*="${viewName}"]`);
+            if (navLink) {
+                navLink.click();
+                return true;
+            }
+            // Method 3: Directly toggle content views via DOM
+            const allViews = document.querySelectorAll('.content-view');
+            const targetView = document.getElementById('view-' + viewName);
+            if (targetView) {
+                allViews.forEach(v => v.style.display = 'none');
+                targetView.style.display = '';
+                // Update nav active states
+                document.querySelectorAll('.nav-item').forEach(item => {
+                    if (item.getAttribute('onclick') && item.getAttribute('onclick').includes(viewName)) {
+                        item.classList.add('active');
+                    } else {
+                        item.classList.remove('active');
+                    }
+                });
+                return true;
+            }
+            return false;
+        },
+
         execute(action) {
             if (!action || !action.type) return;
 
             const handlers = {
                 'navigate_to_view': (data) => {
                     const view = data.view;
-                    if (typeof switchContentView === 'function') {
-                        switchContentView(view, null);
+                    if (this.navigateToView(view)) {
                         this.showToast(`Navigated to ${view}`, 'fa-location-arrow');
+                    } else {
+                        this.showToast(`Could not navigate to ${view}`, 'fa-exclamation-circle');
                     }
                 },
 
@@ -60033,20 +60067,22 @@ console.log('✅ Global functions exported to window object');
                     if (fnName && typeof window[fnName] === 'function') {
                         window[fnName]();
                         this.showToast(`Opened ${data.panel}`, 'fa-gear');
+                    } else {
+                        // Try clicking the settings menu item
+                        const settingsLink = document.querySelector(`[onclick*="${fnName}"]`);
+                        if (settingsLink) {
+                            settingsLink.click();
+                            this.showToast(`Opened ${data.panel}`, 'fa-gear');
+                        }
                     }
                 },
 
                 'create_task': (data) => {
-                    // Store as pending action for user confirmation
                     this.showToast(`Task "${data.title}" ready to create`, 'fa-plus-circle');
-                    // Navigate to task hub
-                    if (typeof switchContentView === 'function') {
-                        switchContentView('task-hub', null);
-                    }
+                    this.navigateToView('task-hub');
                 },
 
                 'highlight_item': (data) => {
-                    // Navigate to the relevant view
                     const viewMap = {
                         'equipment': 'equipment',
                         'instrument': 'instruments',
@@ -60056,8 +60092,7 @@ console.log('✅ Global functions exported to window object');
                         'user': 'schedule'
                     };
                     const view = viewMap[data.itemType];
-                    if (view && typeof switchContentView === 'function') {
-                        switchContentView(view, null);
+                    if (view && this.navigateToView(view)) {
                         this.showToast(`Showing ${data.itemType}: ${data.itemName}`, 'fa-search');
                     }
                 },
