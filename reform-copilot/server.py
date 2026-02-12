@@ -261,6 +261,25 @@ TOOLS = [
                 "required": ["reportType"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_sticky_note",
+            "description": "Create a new sticky note on the sticky notes board",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "The text content of the sticky note"},
+                    "color": {
+                        "type": "string",
+                        "enum": ["yellow", "pink", "blue", "green", "purple", "orange"],
+                        "description": "Color of the sticky note"
+                    }
+                },
+                "required": ["text"]
+            }
+        }
     }
 ]
 
