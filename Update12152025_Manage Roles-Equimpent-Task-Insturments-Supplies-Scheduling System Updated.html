@@ -60128,6 +60128,52 @@ console.log('✅ Global functions exported to window object');
                             this.showToast('Could not create sticky note — view not loaded', 'fa-exclamation-circle');
                         }
                     }, 500);
+                },
+
+                'open_chat': (data) => {
+                    // Open the Team Chat modal
+                    if (typeof window.openChat === 'function') {
+                        window.openChat();
+                        this.showToast('Chat opened!', 'fa-comments');
+
+                        // If a specific username was provided, try to open DM with them
+                        if (data.username) {
+                            setTimeout(() => {
+                                // Try to find and start chat with the user
+                                if (typeof window.startChatWithLocal === 'function') {
+                                    // Look up user info from appUsers
+                                    try {
+                                        const appUsers = JSON.parse(localStorage.getItem('appUsers') || '{}');
+                                        const userEntry = Object.entries(appUsers).find(([key, u]) => {
+                                            const uname = (u.username || key || '').toLowerCase();
+                                            const fname = (u.fullName || u.name || '').toLowerCase();
+                                            const target = data.username.toLowerCase();
+                                            return uname === target || fname.includes(target) || target.includes(uname);
+                                        });
+                                        if (userEntry) {
+                                            const [key, user] = userEntry;
+                                            const firstName = (user.fullName || user.name || key).split(' ')[0];
+                                            const lastName = (user.fullName || user.name || '').split(' ').slice(1).join(' ');
+                                            window.startChatWithLocal(user.username || key, firstName, lastName);
+                                            this.showToast(`Opened chat with ${firstName}`, 'fa-user');
+                                        }
+                                    } catch (e) {
+                                        console.warn('Copilot: Could not find user for chat', e);
+                                    }
+                                }
+                                // Pre-fill message if provided
+                                if (data.message) {
+                                    const input = document.getElementById('messageInput');
+                                    if (input) {
+                                        input.value = data.message;
+                                        input.focus();
+                                    }
+                                }
+                            }, 600);
+                        }
+                    } else {
+                        this.showToast('Chat is not available', 'fa-exclamation-circle');
+                    }
                 }
             };
 

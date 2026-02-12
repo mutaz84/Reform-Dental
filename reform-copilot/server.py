@@ -280,6 +280,21 @@ TOOLS = [
                 "required": ["text"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_chat",
+            "description": "Open the Team Chat modal, optionally starting a direct message conversation with a specific user",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "username": {"type": "string", "description": "The username of the person to chat with. If omitted, just opens the chat modal."},
+                    "message": {"type": "string", "description": "Optional message to pre-fill in the chat input"}
+                },
+                "required": []
+            }
+        }
     }
 ]
 
