@@ -52699,7 +52699,7 @@ function toggleCopilotFullscreen() {
 
 // ============ CHAT PANEL DRAGGABLE ============
 function initChatModalDrag() {
-    // No-op now — drag is attached inside openChat directly
+    // No-op — drag is attached inside openChat directly
 }
 
 function attachChatDrag() {
@@ -52708,34 +52708,31 @@ function attachChatDrag() {
     if (!header || !panel || panel._dragAttached) return;
     panel._dragAttached = true;
 
-    let isDragging = false, wasDragged = false;
+    let isDragging = false;
     let startX, startY, startLeft, startTop;
-    const DRAG_THRESHOLD = 5;
 
     header.addEventListener('mousedown', function(e) {
         if (panel.classList.contains('fullscreen')) return;
         if (e.target.closest('button')) return;
+        if (e.button !== 0) return;
         const rect = panel.getBoundingClientRect();
         startX = e.clientX;
         startY = e.clientY;
         startLeft = rect.left;
         startTop = rect.top;
         isDragging = true;
-        wasDragged = false;
         panel.classList.add('dragging');
+        header.style.cursor = 'grabbing';
         e.preventDefault();
     });
 
     document.addEventListener('mousemove', function(e) {
         if (!isDragging) return;
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-        if (!wasDragged && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
-        wasDragged = true;
-        let newLeft = startLeft + dx;
-        let newTop = startTop + dy;
+        let newLeft = startLeft + (e.clientX - startX);
+        let newTop = startTop + (e.clientY - startY);
+        // Keep within viewport
         newLeft = Math.max(0, Math.min(window.innerWidth - panel.offsetWidth, newLeft));
-        newTop = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, newTop));
+        newTop = Math.max(0, Math.min(window.innerHeight - 50, newTop));
         panel.style.left = newLeft + 'px';
         panel.style.top = newTop + 'px';
         panel.classList.add('dragged');
@@ -52745,6 +52742,7 @@ function attachChatDrag() {
         if (!isDragging) return;
         isDragging = false;
         panel.classList.remove('dragging');
+        header.style.cursor = 'grab';
     });
 
     // Touch support
@@ -52758,21 +52756,16 @@ function attachChatDrag() {
         startLeft = rect.left;
         startTop = rect.top;
         isDragging = true;
-        wasDragged = false;
         panel.classList.add('dragging');
     }, { passive: true });
 
     document.addEventListener('touchmove', function(e) {
         if (!isDragging) return;
         const touch = e.touches[0];
-        const dx = touch.clientX - startX;
-        const dy = touch.clientY - startY;
-        if (!wasDragged && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
-        wasDragged = true;
-        let newLeft = startLeft + dx;
-        let newTop = startTop + dy;
+        let newLeft = startLeft + (touch.clientX - startX);
+        let newTop = startTop + (touch.clientY - startY);
         newLeft = Math.max(0, Math.min(window.innerWidth - panel.offsetWidth, newLeft));
-        newTop = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, newTop));
+        newTop = Math.max(0, Math.min(window.innerHeight - 50, newTop));
         panel.style.left = newLeft + 'px';
         panel.style.top = newTop + 'px';
         panel.classList.add('dragged');
@@ -55395,7 +55388,7 @@ document.addEventListener('keydown', function(e) {
 <!-- Team Chat Panel (floating, non-blocking) -->
 <div id="chatPanel">
         <!-- Chat Header -->
-        <div id="chatPanelHeader" style="display: flex; justify-content: space-between; align-items: center; background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 0.75rem 1.25rem; cursor: move; user-select: none; border-radius: 16px 16px 0 0;">
+        <div id="chatPanelHeader" style="display: flex; justify-content: space-between; align-items: center; background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 0.75rem 1.25rem; cursor: grab; user-select: none; border-radius: 16px 16px 0 0;">
             <h3 style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; font-size: 1rem;">
                 <i class="fas fa-comments" style="color: var(--accent-primary);"></i>
                 Team Chat
