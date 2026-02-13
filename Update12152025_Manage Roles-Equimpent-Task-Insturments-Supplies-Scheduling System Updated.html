@@ -9847,6 +9847,26 @@
         .floating-chat-btn.has-messages {
             animation: chat-bounce 1s ease infinite, chat-pulse 2s infinite;
         }
+
+        /* Chat modal fullscreen */
+        #chatModal .chat-modal-inner.fullscreen {
+            width: 100vw !important;
+            max-width: 100vw !important;
+            height: 100vh !important;
+            max-height: 100vh !important;
+            border-radius: 0 !important;
+        }
+
+        /* Chat modal dragged state */
+        #chatModal .chat-modal-inner.dragged {
+            position: fixed;
+            margin: 0;
+        }
+
+        #chatModal .chat-modal-inner.dragging {
+            transition: none !important;
+            user-select: none;
+        }
         
         /* Unread badge on floating button */
         .floating-chat-badge {
@@ -14079,6 +14099,16 @@
     }
     .copilot-panel.open {
         display: flex;
+    }
+    .copilot-panel.fullscreen {
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        border-radius: 0 !important;
     }
     body.right-rail-enabled:not(.right-rail-collapsed) .copilot-panel {
         right: calc(var(--right-rail-width) + 24px);
@@ -52589,7 +52619,138 @@ document.addEventListener('DOMContentLoaded', function() {
     updateToggleButtons();
     initMobileMenu();
     initChatHighlight();
+    initChatModalDrag();
 });
+
+// ============ CHAT FULLSCREEN TOGGLE ============
+function toggleChatFullscreen() {
+    const inner = document.querySelector('#chatModal .chat-modal-inner');
+    const btn = document.getElementById('chatFullscreenBtn');
+    if (!inner) return;
+    inner.classList.toggle('fullscreen');
+    if (btn) {
+        const icon = btn.querySelector('i');
+        if (icon) {
+            icon.className = inner.classList.contains('fullscreen') ? 'fas fa-compress' : 'fas fa-expand';
+        }
+    }
+}
+
+// ============ COPILOT FULLSCREEN TOGGLE ============
+function toggleCopilotFullscreen() {
+    const panel = document.getElementById('copilotPanel');
+    const btn = document.getElementById('copilotFullscreenBtn');
+    if (!panel) return;
+    panel.classList.toggle('fullscreen');
+    if (btn) {
+        const icon = btn.querySelector('i');
+        if (icon) {
+            icon.className = panel.classList.contains('fullscreen') ? 'fas fa-compress' : 'fas fa-expand';
+        }
+    }
+}
+
+// ============ CHAT MODAL DRAGGABLE ============
+function initChatModalDrag() {
+    const modal = document.getElementById('chatModal');
+    if (!modal) return;
+
+    // Use a MutationObserver to attach drag when the modal becomes visible
+    const observer = new MutationObserver(function() {
+        if (modal.style.display === 'flex') {
+            attachChatDrag();
+        }
+    });
+    observer.observe(modal, { attributes: true, attributeFilter: ['style'] });
+}
+
+function attachChatDrag() {
+    const header = document.getElementById('chatModalHeader');
+    const inner = document.querySelector('#chatModal .chat-modal-inner');
+    if (!header || !inner || inner._dragAttached) return;
+    inner._dragAttached = true;
+
+    let isDragging = false, wasDragged = false;
+    let startX, startY, startLeft, startTop;
+    const DRAG_THRESHOLD = 5;
+
+    header.addEventListener('mousedown', function(e) {
+        if (inner.classList.contains('fullscreen')) return;
+        if (e.target.closest('button')) return;
+        const rect = inner.getBoundingClientRect();
+        startX = e.clientX;
+        startY = e.clientY;
+        startLeft = rect.left;
+        startTop = rect.top;
+        isDragging = true;
+        wasDragged = false;
+        inner.classList.add('dragging');
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if (!wasDragged && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+        wasDragged = true;
+        let newLeft = startLeft + dx;
+        let newTop = startTop + dy;
+        newLeft = Math.max(0, Math.min(window.innerWidth - inner.offsetWidth, newLeft));
+        newTop = Math.max(0, Math.min(window.innerHeight - inner.offsetHeight, newTop));
+        inner.style.position = 'fixed';
+        inner.style.left = newLeft + 'px';
+        inner.style.top = newTop + 'px';
+        inner.style.margin = '0';
+        inner.classList.add('dragged');
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (!isDragging) return;
+        isDragging = false;
+        inner.classList.remove('dragging');
+    });
+
+    // Touch support
+    header.addEventListener('touchstart', function(e) {
+        if (inner.classList.contains('fullscreen')) return;
+        if (e.target.closest('button')) return;
+        const touch = e.touches[0];
+        const rect = inner.getBoundingClientRect();
+        startX = touch.clientX;
+        startY = touch.clientY;
+        startLeft = rect.left;
+        startTop = rect.top;
+        isDragging = true;
+        wasDragged = false;
+        inner.classList.add('dragging');
+    }, { passive: true });
+
+    document.addEventListener('touchmove', function(e) {
+        if (!isDragging) return;
+        const touch = e.touches[0];
+        const dx = touch.clientX - startX;
+        const dy = touch.clientY - startY;
+        if (!wasDragged && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+        wasDragged = true;
+        let newLeft = startLeft + dx;
+        let newTop = startTop + dy;
+        newLeft = Math.max(0, Math.min(window.innerWidth - inner.offsetWidth, newLeft));
+        newTop = Math.max(0, Math.min(window.innerHeight - inner.offsetHeight, newTop));
+        inner.style.position = 'fixed';
+        inner.style.left = newLeft + 'px';
+        inner.style.top = newTop + 'px';
+        inner.style.margin = '0';
+        inner.classList.add('dragged');
+        e.preventDefault();
+    }, { passive: false });
+
+    document.addEventListener('touchend', function() {
+        if (!isDragging) return;
+        isDragging = false;
+        inner.classList.remove('dragging');
+    });
+}
 
 // ============ CHAT HIGHLIGHT FUNCTIONS ============
 function initChatHighlight() {
@@ -55153,6 +55314,9 @@ document.addEventListener('keydown', function(e) {
             <button onclick="window.ReformCopilot.clearChat()" title="New conversation">
                 <i class="fas fa-rotate-right"></i>
             </button>
+            <button onclick="toggleCopilotFullscreen()" id="copilotFullscreenBtn" title="Toggle fullscreen">
+                <i class="fas fa-expand"></i>
+            </button>
             <button onclick="window.ReformCopilot.toggle()" title="Close">
                 <i class="fas fa-times"></i>
             </button>
@@ -55196,14 +55360,17 @@ document.addEventListener('keydown', function(e) {
 
 <!-- Team Chat Modal -->
 <div id="chatModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 10003; align-items: center; justify-content: center;">
-    <div style="width: 90vw; max-width: 900px; height: 80vh; max-height: 700px; background: var(--bg-primary); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);">
+    <div class="chat-modal-inner" style="width: 90vw; max-width: 900px; height: 80vh; max-height: 700px; background: var(--bg-primary); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);">
         <!-- Chat Header -->
-        <div style="display: flex; justify-content: space-between; align-items: center; background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 1rem 1.5rem;">
+        <div id="chatModalHeader" style="display: flex; justify-content: space-between; align-items: center; background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 1rem 1.5rem; cursor: move; user-select: none;">
             <h3 style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
                 <i class="fas fa-comments" style="color: var(--accent-primary);"></i>
                 Team Chat
             </h3>
-            <button onclick="closeChat()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-tertiary);">&times;</button>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <button onclick="toggleChatFullscreen()" id="chatFullscreenBtn" title="Toggle fullscreen" style="background: none; border: none; font-size: 1.1rem; cursor: pointer; color: var(--text-tertiary); padding: 0.25rem;"><i class="fas fa-expand"></i></button>
+                <button onclick="closeChat()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-tertiary);">&times;</button>
+            </div>
         </div>
         
         <!-- Chat Content -->
