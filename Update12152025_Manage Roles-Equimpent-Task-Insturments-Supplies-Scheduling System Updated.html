@@ -6865,6 +6865,54 @@
         #view-task-hub .sidebar-right {
             display: none !important;
         }
+        /* Hide unassigned-tasks-panel from Teams sidebar-right (moved to Manager tab) */
+        .sidebar-right .unassigned-tasks-panel {
+            display: none !important;
+        }
+        /* Unassigned Tasks in Manager tab */
+        .manager-unassigned-tasks {
+            margin: 0.75rem;
+            padding: 0.75rem;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+        }
+        .manager-unassigned-tasks .manager-ut-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+        .manager-unassigned-tasks .manager-ut-title {
+            font-weight: 700;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+        }
+        .manager-unassigned-tasks .manager-ut-dropzone {
+            border: 2px dashed #94a3b8;
+            border-radius: 8px;
+            padding: 0.75rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            background: var(--bg-secondary);
+            transition: all 0.2s ease;
+        }
+        .manager-unassigned-tasks .manager-ut-dropzone.drag-over {
+            border-color: var(--accent-primary);
+            background: #eef2ff;
+            color: var(--accent-primary);
+        }
+        .manager-unassigned-tasks .manager-ut-task-item {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.5rem 0.6rem;
+            margin-top: 0.5rem;
+            cursor: grab;
+            font-size: 0.8rem;
+            color: var(--text-primary);
+        }
 
         /* Manager Panel Styles */
         .manager-panel-content {
@@ -31417,6 +31465,74 @@
                     unassignTask(taskId);
                 }
             });
+
+            // Also update the Manager tab copy
+            try { renderManagerUnassignedTasks(); } catch(_) {}
+        }
+
+        // Render unassigned tasks in the Manager tab panel
+        function renderManagerUnassignedTasks() {
+            const list = document.getElementById('managerUnassignedTasksList');
+            const countEl = document.getElementById('managerUnassignedTasksCount');
+            const dropzone = document.getElementById('managerUnassignedTasksDropzone');
+            if (!list || !dropzone) return;
+
+            const tasks = getUnassignedTasksForSidebar();
+            if (countEl) countEl.textContent = tasks.length ? tasks.length + ' task(s)' : '';
+
+            if (!tasks.length) {
+                list.innerHTML = '<div style="margin-top:0.5rem; font-size:0.75rem; color: var(--text-secondary); text-align:center;">No unassigned tasks</div>';
+            } else {
+                list.innerHTML = tasks.map(function(task) {
+                    return '<div class="manager-ut-task-item" draggable="true" data-task-id="' + task.id + '">' +
+                        '<div style="font-weight:600; margin-bottom:0.15rem;">' + task.title + '</div>' +
+                        '<div style="font-size:0.7rem; color: var(--text-secondary);">' +
+                            (task.taskType || 'Regular') + ' &bull; ' + (task.priority || 'Medium') +
+                        '</div>' +
+                    '</div>';
+                }).join('');
+            }
+
+            // Drag events for task items
+            list.querySelectorAll('.manager-ut-task-item').forEach(function(item) {
+                if (item.__mgrDragInit) return;
+                item.__mgrDragInit = true;
+                item.addEventListener('dragstart', function(e) {
+                    var taskId = item.getAttribute('data-task-id');
+                    if (!taskId || !e.dataTransfer) return;
+                    e.dataTransfer.setData('text/plain', 'task:' + taskId);
+                    e.dataTransfer.setData('application/x-task-id', taskId);
+                    e.dataTransfer.effectAllowed = 'move';
+                });
+            });
+
+            // Tooltip
+            list.querySelectorAll('.manager-ut-task-item').forEach(function(itemEl) {
+                if (itemEl.__taskTooltipInit) return;
+                var tid = itemEl.getAttribute('data-task-id');
+                if (tid && typeof window.attachTaskHoverTooltip === 'function') {
+                    window.attachTaskHoverTooltip(itemEl, tid, null);
+                }
+            });
+
+            if (!dropzone.__mgrDropInit) {
+                dropzone.__mgrDropInit = true;
+                dropzone.addEventListener('dragover', function(e) {
+                    e.preventDefault();
+                    dropzone.classList.add('drag-over');
+                });
+                dropzone.addEventListener('dragleave', function() {
+                    dropzone.classList.remove('drag-over');
+                });
+                dropzone.addEventListener('drop', function(e) {
+                    dropzone.classList.remove('drag-over');
+                    var taskIdRaw = (e.dataTransfer && e.dataTransfer.getData('application/x-task-id')) || (e.dataTransfer && e.dataTransfer.getData('text/plain')) || '';
+                    var taskId = String(taskIdRaw).replace(/^task:/, '').replace(/^event:/, '');
+                    if (taskId) {
+                        unassignTask(taskId);
+                    }
+                });
+            }
         }
 
         function unassignTask(taskId) {
@@ -59672,6 +59788,21 @@ console.log('✅ Global functions exported to window object');
                             <i class="fas fa-user-tie"></i>
                             <span>Manager Tools</span>
                         </div>
+                        <!-- Unassigned Tasks Panel (Manager only) -->
+                        <div class="manager-unassigned-tasks">
+                            <div class="manager-ut-header">
+                                <span class="manager-ut-title">
+                                    <i class="fas fa-inbox" style="color: var(--accent-primary); margin-right: 0.35rem;"></i>
+                                    Unassigned Tasks
+                                </span>
+                                <span id="managerUnassignedTasksCount" style="font-size: 0.7rem; color: var(--text-secondary);"></span>
+                            </div>
+                            <div id="managerUnassignedTasksDropzone" class="manager-ut-dropzone">
+                                Drop here to unassign<br/>
+                                <span style="font-size: 0.7rem;">(clears date, time, employee, room)</span>
+                            </div>
+                            <div id="managerUnassignedTasksList"></div>
+                        </div>
                         <div class="manager-panel-links">
                             <button class="manager-link" onclick="window.switchContentView('duties'); return false;">
                                 <div class="manager-link-icon"><i class="fas fa-clipboard-list"></i></div>
@@ -59830,6 +59961,9 @@ console.log('✅ Global functions exported to window object');
 
         // Expose a global toggle used by existing arrow buttons (toggleSidebarRight)
         window.toggleUnifiedRightRail = toggleRailCollapsed;
+
+        // Initialize Manager tab unassigned tasks
+        try { if (typeof renderManagerUnassignedTasks === 'function') renderManagerUnassignedTasks(); } catch(_) {}
 
         // Keep header height var in sync on resize
         window.addEventListener('resize', () => {
