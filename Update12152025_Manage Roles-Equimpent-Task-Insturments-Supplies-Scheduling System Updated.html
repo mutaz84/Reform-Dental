@@ -9810,48 +9810,7 @@
             z-index: 9999;
         }
 
-        /* When the chat button is hosted inside the unified right rail header, style it like a header action (not floating) */
-        .unified-right-rail .urr-tabs-settings #floatingChatBtn.floating-chat-btn {
-            position: relative;
-            bottom: auto;
-            right: auto;
-            width: 34px;
-            height: 34px;
-            border-radius: 10px;
-            border: 1px solid var(--border-color);
-            background: transparent;
-            color: var(--text-primary);
-            font-size: 1rem;
-            box-shadow: none;
-            animation: none;
-            transition: background 0.15s ease, border-color 0.15s ease;
-        }
-
-        .unified-right-rail .urr-tabs-settings #floatingChatBtn.floating-chat-btn:hover {
-            border-color: var(--accent-primary);
-            background: var(--bg-secondary);
-            transform: none;
-        }
-
-        .unified-right-rail .urr-tabs-settings #floatingChatBtn.floating-chat-btn:active {
-            transform: none;
-        }
-
-        .unified-right-rail .urr-tabs-settings #floatingChatBtn.floating-chat-btn.has-messages {
-            animation: none;
-        }
-
-        .unified-right-rail .urr-tabs-settings #floatingChatBadge.floating-chat-badge {
-            top: -5px;
-            right: -5px;
-            min-width: 18px;
-            height: 18px;
-            border-radius: 9px;
-            font-size: 0.65rem;
-            line-height: 1;
-            padding: 0 4px;
-            z-index: 2;
-        }
+        /* Chat button is now always floating (not hosted in rail) */
 
         
         .floating-chat-btn:hover {
@@ -13613,6 +13572,27 @@
         height: 40px;
         border-radius: 8px;
         margin-left: 70px;
+        position: relative;
+    }
+
+    .logo-chat-badge {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        background: #ef4444;
+        color: white;
+        font-size: 0.6rem;
+        font-weight: 700;
+        min-width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 3px;
+        z-index: 2;
+        border: 2px solid var(--card-bg, #fff);
+        line-height: 1;
     }
 
     .unified-right-rail .logo-placeholder {
@@ -14119,6 +14099,16 @@
         bottom: auto !important;
         right: auto !important;
     }
+
+    /* Chat FAB Draggable States */
+    .floating-chat-btn.dragging {
+        transition: none !important;
+        user-select: none;
+    }
+    .floating-chat-btn.dragged {
+        bottom: auto !important;
+        right: auto !important;
+    }
     .copilot-panel.dragged {
         bottom: auto !important;
         right: auto !important;
@@ -14587,11 +14577,12 @@
             <i class="fas fa-bars"></i>
         </button>
         
-        <div class="logo-section" onclick="switchContentView('calendar', event)" style="cursor: pointer;" title="Go to Calendar">
+        <div class="logo-section" onclick="if(window.urrSetActiveTab){window.urrSetActiveTab('menu');}" style="cursor: pointer; position: relative;" title="Employee Menu">
             <div class="logo-container" id="appLogoContainer">
                 <!-- Dynamic logo will be inserted here -->
                 <i class="fas fa-tooth logo-placeholder" id="defaultLogoIcon"></i>
                 <img id="customLogoImg" src="" alt="Company Logo" style="display: none; width: 100%; height: 100%; object-fit: contain;">
+                <span class="logo-chat-badge" id="logoChatBadge" style="display: none;">0</span>
             </div>
             <div class="brand-text">
                 <h1 id="appCompanyName">ReformDental</h1>
@@ -52656,6 +52647,7 @@ async function fetchUnreadChatCount() {
 function updateChatBadges(unreadCount) {
     const floatingBadge = document.getElementById('floatingChatBadge');
     const floatingBtn = document.getElementById('floatingChatBtn');
+    const logoBadge = document.getElementById('logoChatBadge');
 
     // Keep tooltip/aria in sync whether the button is floating or hosted in the rail
     try {
@@ -52665,6 +52657,16 @@ function updateChatBadges(unreadCount) {
             floatingBtn.setAttribute('aria-label', label);
         }
     } catch (_) {}
+
+    // Update logo badge
+    if (logoBadge) {
+        if (unreadCount > 0) {
+            logoBadge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+            logoBadge.style.display = 'flex';
+        } else {
+            logoBadge.style.display = 'none';
+        }
+    }
     
     if (unreadCount > 0) {
         if (floatingBadge) {
@@ -59721,6 +59723,7 @@ console.log('✅ Global functions exported to window object');
             }
         }
     }
+    window.urrSetActiveTab = setActiveTab;
 
     function setRailCollapsed(collapsed) {
         const rail = document.getElementById('unifiedRightRail');
@@ -59771,9 +59774,6 @@ console.log('✅ Global functions exported to window object');
                     </button>
                     <button type="button" class="urr-tab" id="urrTabPanel" aria-controls="urrPanelPanel" aria-label="Teams" title="Teams" role="tab">
                         <i class="fas fa-users"></i>
-                    </button>
-                    <button type="button" class="urr-tab" id="urrTabCalendar" aria-label="Calendar" title="Calendar" role="tab">
-                        <i class="fas fa-calendar-alt"></i>
                     </button>
                     <button type="button" class="urr-tab manager-admin-only" id="urrTabManager" aria-controls="urrManagerPanel" aria-label="Manager" title="Manager" role="tab">
                         <i class="fas fa-user-tie"></i>
@@ -59851,12 +59851,7 @@ console.log('✅ Global functions exported to window object');
                 }
             }
 
-            // Host the chat button in the rail header (left of the settings gear)
-            const floatingChatBtn = document.getElementById('floatingChatBtn');
-            if (railTabsSettings && floatingChatBtn && floatingChatBtn.parentNode !== railTabsSettings) {
-                try { floatingChatBtn.style.animation = 'none'; } catch (_) {}
-                railTabsSettings.insertBefore(floatingChatBtn, railTabsSettings.firstChild);
-            }
+            // Chat button stays floating (not hosted in rail)
         } catch (_) {}
 
         // Move the main sidebar into the rail
@@ -59869,7 +59864,6 @@ console.log('✅ Global functions exported to window object');
         state.panelHost = panelHost;
         state.menuTabBtn = rail.querySelector('#urrTabMenu');
         state.panelTabBtn = rail.querySelector('#urrTabPanel');
-        state.calendarTabBtn = rail.querySelector('#urrTabCalendar');
         state.managerTabBtn = rail.querySelector('#urrTabManager');
         state.managerHost = rail.querySelector('#urrManagerPanel');
 
@@ -59892,14 +59886,6 @@ console.log('✅ Global functions exported to window object');
         }
         const dividerToggle = rail.querySelector('#railDividerToggle');
         if (dividerToggle) dividerToggle.addEventListener('click', () => toggleSidebarRight());
-        if (state.calendarTabBtn) {
-            state.calendarTabBtn.addEventListener('click', () => {
-                switchContentView('calendar');
-                detachPanelForActiveView();
-                setActiveTab('panel');
-                updateCalendarTabState();
-            });
-        }
 
         return true;
     }
@@ -61381,6 +61367,120 @@ console.log('✅ Global functions exported to window object');
                 localStorage.setItem('copilotFabPos', JSON.stringify({
                     left: parseInt(fab.style.left),
                     top: parseInt(fab.style.top)
+                }));
+            }
+        });
+    })();
+
+    // ===== DRAGGABLE CHAT FAB BUTTON =====
+    (function initChatFabDrag() {
+        const chatFab = document.getElementById('floatingChatBtn');
+        if (!chatFab) return;
+        let isDragging = false, wasDragged = false;
+        let startX, startY, startLeft, startTop;
+        const DRAG_THRESHOLD = 5;
+
+        // Restore saved position
+        const savedPos = localStorage.getItem('chatFabPos');
+        if (savedPos) {
+            try {
+                const pos = JSON.parse(savedPos);
+                chatFab.style.left = pos.left + 'px';
+                chatFab.style.top = pos.top + 'px';
+                chatFab.classList.add('dragged');
+            } catch(e) {}
+        }
+
+        chatFab.addEventListener('mousedown', function(e) {
+            if (e.button !== 0) return;
+            const rect = chatFab.getBoundingClientRect();
+            startX = e.clientX;
+            startY = e.clientY;
+            startLeft = rect.left;
+            startTop = rect.top;
+            isDragging = true;
+            wasDragged = false;
+            chatFab.classList.add('dragging');
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', function(e) {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            if (!wasDragged && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+            wasDragged = true;
+            let newLeft = startLeft + dx;
+            let newTop = startTop + dy;
+            newLeft = Math.max(0, Math.min(window.innerWidth - chatFab.offsetWidth, newLeft));
+            newTop = Math.max(0, Math.min(window.innerHeight - chatFab.offsetHeight, newTop));
+            chatFab.style.left = newLeft + 'px';
+            chatFab.style.top = newTop + 'px';
+            chatFab.classList.add('dragged');
+        });
+
+        document.addEventListener('mouseup', function(e) {
+            if (!isDragging) return;
+            isDragging = false;
+            chatFab.classList.remove('dragging');
+            if (wasDragged) {
+                localStorage.setItem('chatFabPos', JSON.stringify({
+                    left: parseInt(chatFab.style.left),
+                    top: parseInt(chatFab.style.top)
+                }));
+                e.stopPropagation();
+            }
+        });
+
+        // Override onclick - only open chat if not dragged
+        chatFab.removeAttribute('onclick');
+        chatFab.addEventListener('click', function(e) {
+            if (wasDragged) {
+                wasDragged = false;
+                e.stopPropagation();
+                return;
+            }
+            openChat();
+        });
+
+        // Touch support
+        chatFab.addEventListener('touchstart', function(e) {
+            const touch = e.touches[0];
+            const rect = chatFab.getBoundingClientRect();
+            startX = touch.clientX;
+            startY = touch.clientY;
+            startLeft = rect.left;
+            startTop = rect.top;
+            isDragging = true;
+            wasDragged = false;
+            chatFab.classList.add('dragging');
+        }, { passive: true });
+
+        document.addEventListener('touchmove', function(e) {
+            if (!isDragging) return;
+            const touch = e.touches[0];
+            const dx = touch.clientX - startX;
+            const dy = touch.clientY - startY;
+            if (!wasDragged && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+            wasDragged = true;
+            let newLeft = startLeft + dx;
+            let newTop = startTop + dy;
+            newLeft = Math.max(0, Math.min(window.innerWidth - chatFab.offsetWidth, newLeft));
+            newTop = Math.max(0, Math.min(window.innerHeight - chatFab.offsetHeight, newTop));
+            chatFab.style.left = newLeft + 'px';
+            chatFab.style.top = newTop + 'px';
+            chatFab.classList.add('dragged');
+            e.preventDefault();
+        }, { passive: false });
+
+        document.addEventListener('touchend', function(e) {
+            if (!isDragging) return;
+            isDragging = false;
+            chatFab.classList.remove('dragging');
+            if (wasDragged) {
+                localStorage.setItem('chatFabPos', JSON.stringify({
+                    left: parseInt(chatFab.style.left),
+                    top: parseInt(chatFab.style.top)
                 }));
             }
         });
