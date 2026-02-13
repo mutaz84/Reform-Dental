@@ -52652,16 +52652,23 @@ function toggleCopilotFullscreen() {
 
 // ============ CHAT MODAL DRAGGABLE ============
 function initChatModalDrag() {
-    const modal = document.getElementById('chatModal');
-    if (!modal) return;
-
-    // Use a MutationObserver to attach drag when the modal becomes visible
-    const observer = new MutationObserver(function() {
-        if (modal.style.display === 'flex') {
-            attachChatDrag();
-        }
-    });
-    observer.observe(modal, { attributes: true, attributeFilter: ['style'] });
+    // Wrap the global openChat so we attach drag every time the modal opens
+    const _origOpenChat = window.openChat;
+    if (typeof _origOpenChat === 'function') {
+        window.openChat = function() {
+            _origOpenChat.apply(this, arguments);
+            // Reset dragged position so it opens centered each time
+            const inner = document.querySelector('#chatModal .chat-modal-inner');
+            if (inner) {
+                inner.classList.remove('dragged');
+                inner.style.position = '';
+                inner.style.left = '';
+                inner.style.top = '';
+                inner.style.margin = '';
+            }
+            setTimeout(attachChatDrag, 50);
+        };
+    }
 }
 
 function attachChatDrag() {
