@@ -9848,24 +9848,62 @@
             animation: chat-bounce 1s ease infinite, chat-pulse 2s infinite;
         }
 
-        /* Chat modal fullscreen */
-        #chatModal .chat-modal-inner.fullscreen {
+        /* ============ FLOATING CHAT PANEL ============ */
+        #chatPanel {
+            position: fixed;
+            bottom: 100px;
+            left: 24px;
+            width: 800px;
+            height: 560px;
+            max-height: calc(100vh - 140px);
+            max-width: calc(100vw - 48px);
+            background: var(--bg-primary);
+            border-radius: 16px;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(6, 182, 212, 0.2);
+            z-index: 10004;
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            animation: chat-panel-in 0.3s ease-out;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        #chatPanel.open {
+            display: flex;
+        }
+        @keyframes chat-panel-in {
+            from { opacity: 0; transform: translateY(20px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        #chatPanel.fullscreen {
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
             width: 100vw !important;
-            max-width: 100vw !important;
             height: 100vh !important;
             max-height: 100vh !important;
+            max-width: 100vw !important;
             border-radius: 0 !important;
         }
-
-        /* Chat modal dragged state */
-        #chatModal .chat-modal-inner.dragged {
-            position: fixed;
-            margin: 0;
+        #chatPanel.dragged {
+            bottom: auto !important;
+            left: auto !important;
         }
-
-        #chatModal .chat-modal-inner.dragging {
+        #chatPanel.dragging {
             transition: none !important;
             user-select: none;
+        }
+        body.right-rail-enabled:not(.right-rail-collapsed) #chatPanel {
+            left: 24px;
+        }
+        @media (max-width: 860px) {
+            #chatPanel {
+                left: 8px;
+                right: 8px;
+                bottom: 80px;
+                width: auto;
+                max-width: none;
+            }
         }
         
         /* Unread badge on floating button */
@@ -10176,13 +10214,13 @@
                 min-width: 600px;
             }
             
-            /* Chat modal */
-            #chatModal > div:first-child {
-                width: 100% !important;
-                height: 100% !important;
+            /* Chat panel mobile */
+            #chatPanel {
+                width: auto !important;
+                left: 8px !important;
+                right: 8px !important;
+                bottom: 80px !important;
                 max-width: none !important;
-                max-height: none !important;
-                border-radius: 0 !important;
             }
         }
         
@@ -43848,21 +43886,30 @@ window.addEventListener('load', function() {
         window.chatUsersCache = [];
         
         function openChat() {
-            const modal = document.getElementById('chatModal');
-            if (modal) {
-                modal.style.display = 'flex';
+            const panel = document.getElementById('chatPanel');
+            if (panel) {
+                panel.classList.add('open');
                 window.currentChatTab = 'direct';
                 window.currentChatType = 'direct';
                 loadConversations();
                 startChatPolling();
                 updateOnlineStatus(true);
+                // Attach drag handler
+                setTimeout(attachChatDrag, 50);
             }
         }
         
         function closeChat() {
-            const modal = document.getElementById('chatModal');
-            if (modal) {
-                modal.style.display = 'none';
+            const panel = document.getElementById('chatPanel');
+            if (panel) {
+                panel.classList.remove('open', 'fullscreen');
+                // Reset position
+                panel.classList.remove('dragged');
+                panel.style.left = '';
+                panel.style.top = '';
+                // Reset fullscreen icon
+                const btn = document.getElementById('chatFullscreenBtn');
+                if (btn) { const i = btn.querySelector('i'); if (i) i.className = 'fas fa-expand'; }
             }
             stopChatPolling();
             window.currentChatUserId = null;
@@ -52624,14 +52671,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ============ CHAT FULLSCREEN TOGGLE ============
 function toggleChatFullscreen() {
-    const inner = document.querySelector('#chatModal .chat-modal-inner');
+    const panel = document.getElementById('chatPanel');
     const btn = document.getElementById('chatFullscreenBtn');
-    if (!inner) return;
-    inner.classList.toggle('fullscreen');
+    if (!panel) return;
+    panel.classList.toggle('fullscreen');
     if (btn) {
         const icon = btn.querySelector('i');
         if (icon) {
-            icon.className = inner.classList.contains('fullscreen') ? 'fas fa-compress' : 'fas fa-expand';
+            icon.className = panel.classList.contains('fullscreen') ? 'fas fa-compress' : 'fas fa-expand';
         }
     }
 }
@@ -52650,48 +52697,32 @@ function toggleCopilotFullscreen() {
     }
 }
 
-// ============ CHAT MODAL DRAGGABLE ============
+// ============ CHAT PANEL DRAGGABLE ============
 function initChatModalDrag() {
-    // Wrap the global openChat so we attach drag every time the modal opens
-    const _origOpenChat = window.openChat;
-    if (typeof _origOpenChat === 'function') {
-        window.openChat = function() {
-            _origOpenChat.apply(this, arguments);
-            // Reset dragged position so it opens centered each time
-            const inner = document.querySelector('#chatModal .chat-modal-inner');
-            if (inner) {
-                inner.classList.remove('dragged');
-                inner.style.position = '';
-                inner.style.left = '';
-                inner.style.top = '';
-                inner.style.margin = '';
-            }
-            setTimeout(attachChatDrag, 50);
-        };
-    }
+    // No-op now — drag is attached inside openChat directly
 }
 
 function attachChatDrag() {
-    const header = document.getElementById('chatModalHeader');
-    const inner = document.querySelector('#chatModal .chat-modal-inner');
-    if (!header || !inner || inner._dragAttached) return;
-    inner._dragAttached = true;
+    const header = document.getElementById('chatPanelHeader');
+    const panel = document.getElementById('chatPanel');
+    if (!header || !panel || panel._dragAttached) return;
+    panel._dragAttached = true;
 
     let isDragging = false, wasDragged = false;
     let startX, startY, startLeft, startTop;
     const DRAG_THRESHOLD = 5;
 
     header.addEventListener('mousedown', function(e) {
-        if (inner.classList.contains('fullscreen')) return;
+        if (panel.classList.contains('fullscreen')) return;
         if (e.target.closest('button')) return;
-        const rect = inner.getBoundingClientRect();
+        const rect = panel.getBoundingClientRect();
         startX = e.clientX;
         startY = e.clientY;
         startLeft = rect.left;
         startTop = rect.top;
         isDragging = true;
         wasDragged = false;
-        inner.classList.add('dragging');
+        panel.classList.add('dragging');
         e.preventDefault();
     });
 
@@ -52703,34 +52734,32 @@ function attachChatDrag() {
         wasDragged = true;
         let newLeft = startLeft + dx;
         let newTop = startTop + dy;
-        newLeft = Math.max(0, Math.min(window.innerWidth - inner.offsetWidth, newLeft));
-        newTop = Math.max(0, Math.min(window.innerHeight - inner.offsetHeight, newTop));
-        inner.style.position = 'fixed';
-        inner.style.left = newLeft + 'px';
-        inner.style.top = newTop + 'px';
-        inner.style.margin = '0';
-        inner.classList.add('dragged');
+        newLeft = Math.max(0, Math.min(window.innerWidth - panel.offsetWidth, newLeft));
+        newTop = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, newTop));
+        panel.style.left = newLeft + 'px';
+        panel.style.top = newTop + 'px';
+        panel.classList.add('dragged');
     });
 
     document.addEventListener('mouseup', function() {
         if (!isDragging) return;
         isDragging = false;
-        inner.classList.remove('dragging');
+        panel.classList.remove('dragging');
     });
 
     // Touch support
     header.addEventListener('touchstart', function(e) {
-        if (inner.classList.contains('fullscreen')) return;
+        if (panel.classList.contains('fullscreen')) return;
         if (e.target.closest('button')) return;
         const touch = e.touches[0];
-        const rect = inner.getBoundingClientRect();
+        const rect = panel.getBoundingClientRect();
         startX = touch.clientX;
         startY = touch.clientY;
         startLeft = rect.left;
         startTop = rect.top;
         isDragging = true;
         wasDragged = false;
-        inner.classList.add('dragging');
+        panel.classList.add('dragging');
     }, { passive: true });
 
     document.addEventListener('touchmove', function(e) {
@@ -52742,20 +52771,18 @@ function attachChatDrag() {
         wasDragged = true;
         let newLeft = startLeft + dx;
         let newTop = startTop + dy;
-        newLeft = Math.max(0, Math.min(window.innerWidth - inner.offsetWidth, newLeft));
-        newTop = Math.max(0, Math.min(window.innerHeight - inner.offsetHeight, newTop));
-        inner.style.position = 'fixed';
-        inner.style.left = newLeft + 'px';
-        inner.style.top = newTop + 'px';
-        inner.style.margin = '0';
-        inner.classList.add('dragged');
+        newLeft = Math.max(0, Math.min(window.innerWidth - panel.offsetWidth, newLeft));
+        newTop = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, newTop));
+        panel.style.left = newLeft + 'px';
+        panel.style.top = newTop + 'px';
+        panel.classList.add('dragged');
         e.preventDefault();
     }, { passive: false });
 
     document.addEventListener('touchend', function() {
         if (!isDragging) return;
         isDragging = false;
-        inner.classList.remove('dragging');
+        panel.classList.remove('dragging');
     });
 }
 
@@ -55365,18 +55392,17 @@ document.addEventListener('keydown', function(e) {
     </div>
 </div>
 
-<!-- Team Chat Modal -->
-<div id="chatModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 10003; align-items: center; justify-content: center;">
-    <div class="chat-modal-inner" style="width: 90vw; max-width: 900px; height: 80vh; max-height: 700px; background: var(--bg-primary); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);">
+<!-- Team Chat Panel (floating, non-blocking) -->
+<div id="chatPanel">
         <!-- Chat Header -->
-        <div id="chatModalHeader" style="display: flex; justify-content: space-between; align-items: center; background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 1rem 1.5rem; cursor: move; user-select: none;">
-            <h3 style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+        <div id="chatPanelHeader" style="display: flex; justify-content: space-between; align-items: center; background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 0.75rem 1.25rem; cursor: move; user-select: none; border-radius: 16px 16px 0 0;">
+            <h3 style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; font-size: 1rem;">
                 <i class="fas fa-comments" style="color: var(--accent-primary);"></i>
                 Team Chat
             </h3>
             <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <button onclick="toggleChatFullscreen()" id="chatFullscreenBtn" title="Toggle fullscreen" style="background: none; border: none; font-size: 1.1rem; cursor: pointer; color: var(--text-tertiary); padding: 0.25rem;"><i class="fas fa-expand"></i></button>
-                <button onclick="closeChat()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-tertiary);">&times;</button>
+                <button onclick="toggleChatFullscreen()" id="chatFullscreenBtn" title="Toggle fullscreen" style="background: none; border: none; font-size: 1rem; cursor: pointer; color: var(--text-tertiary); padding: 0.25rem;"><i class="fas fa-expand"></i></button>
+                <button onclick="closeChat()" style="background: none; border: none; font-size: 1.3rem; cursor: pointer; color: var(--text-tertiary); padding: 0.25rem;">&times;</button>
             </div>
         </div>
         
@@ -55466,7 +55492,6 @@ document.addEventListener('keydown', function(e) {
                 </div>
             </div>
         </div>
-    </div>
 </div>
 
 <!-- Equipment Management Modal -->
