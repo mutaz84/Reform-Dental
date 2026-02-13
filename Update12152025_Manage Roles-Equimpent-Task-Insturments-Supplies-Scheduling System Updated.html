@@ -6851,6 +6851,93 @@
         [data-role="user"] .admin-only {
             display: none !important;
         }
+        /* Manager tab: visible to admin, owner, and manager roles only */
+        [data-role="user"] .manager-admin-only {
+            display: none !important;
+        }
+
+        /* Manager Panel Styles */
+        .manager-panel-content {
+            padding: 16px 12px;
+        }
+        .manager-panel-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            padding: 8px 8px 16px 8px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 12px;
+        }
+        .manager-panel-header i {
+            color: var(--accent-primary, #3b82f6);
+            font-size: 1.1rem;
+        }
+        .manager-panel-links {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .manager-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border: 1px solid var(--border-color, #e5e7eb);
+            border-radius: 10px;
+            background: var(--card-bg, #fff);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+            text-align: left;
+            font-family: inherit;
+            color: inherit;
+        }
+        .manager-link:hover {
+            border-color: var(--accent-primary, #3b82f6);
+            background: var(--bg-secondary, #f8f9fa);
+            transform: translateX(2px);
+        }
+        .manager-link-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: var(--accent-light, rgba(59, 130, 246, 0.1));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .manager-link-icon i {
+            font-size: 1rem;
+            color: var(--accent-primary, #3b82f6);
+        }
+        .manager-link-text {
+            flex: 1;
+            min-width: 0;
+        }
+        .manager-link-title {
+            font-weight: 600;
+            font-size: 0.88rem;
+            color: var(--text-primary);
+        }
+        .manager-link-desc {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+        .manager-link-arrow {
+            color: var(--text-secondary);
+            font-size: 0.7rem;
+            opacity: 0.5;
+            transition: opacity 0.2s;
+        }
+        .manager-link:hover .manager-link-arrow {
+            opacity: 1;
+            color: var(--accent-primary, #3b82f6);
+        }
 
         /* Disable the top measures cards (My Tasks / Completed Today / Overdue / Weekly Completion) */
         .stats-grid[data-user-stats],
@@ -18841,6 +18928,13 @@
             // Re-render tasks list to apply user filtering
             if (typeof renderTasksList === 'function') {
                 renderTasksList();
+            }
+
+            // Update Manager tab visibility in right rail
+            const managerTab = document.getElementById('urrTabManager');
+            if (managerTab) {
+                const isManagerOrAdmin = userRole === 'admin' || userRole === 'owner' || userRole === 'manager' || userRole === 'administrator' || userRole === 'superadmin';
+                managerTab.style.display = isManagerOrAdmin ? '' : 'none';
             }
         }
 
@@ -59475,13 +59569,17 @@ console.log('✅ Global functions exported to window object');
     }
 
     function setActiveTab(tab) {
+        const isManager = tab === 'manager';
         const isPanel = tab === 'panel';
+        const isMenu = !isPanel && !isManager;
         if (!state.menuTabBtn || !state.panelTabBtn) return;
-        state.menuTabBtn.classList.toggle('active', !isPanel);
+        state.menuTabBtn.classList.toggle('active', isMenu);
         state.panelTabBtn.classList.toggle('active', isPanel);
-        state.menuHost.classList.toggle('active', !isPanel);
+        state.menuHost.classList.toggle('active', isMenu);
         state.panelHost.classList.toggle('active', isPanel);
-        try { localStorage.setItem(TAB_KEY, isPanel ? 'panel' : 'menu'); } catch (_) {}
+        if (state.managerTabBtn) state.managerTabBtn.classList.toggle('active', isManager);
+        if (state.managerHost) state.managerHost.classList.toggle('active', isManager);
+        try { localStorage.setItem(TAB_KEY, tab); } catch (_) {}
 
         // If user wants Panel but there isn't one, fallback to Menu.
         if (isPanel) {
@@ -59546,11 +59644,48 @@ console.log('✅ Global functions exported to window object');
                     <button type="button" class="urr-tab" id="urrTabCalendar" aria-label="Calendar" title="Calendar" role="tab">
                         <i class="fas fa-calendar-alt"></i>
                     </button>
+                    <button type="button" class="urr-tab manager-admin-only" id="urrTabManager" aria-controls="urrManagerPanel" aria-label="Manager" title="Manager" role="tab">
+                        <i class="fas fa-user-tie"></i>
+                    </button>
                 </div>
             </div>
             <div class="urr-content">
                 <div class="urr-panel" id="urrMenuPanel"></div>
                 <div class="urr-panel" id="urrPanelPanel"></div>
+                <div class="urr-panel" id="urrManagerPanel">
+                    <div class="manager-panel-content">
+                        <div class="manager-panel-header">
+                            <i class="fas fa-user-tie"></i>
+                            <span>Manager Tools</span>
+                        </div>
+                        <div class="manager-panel-links">
+                            <button class="manager-link" onclick="window.switchContentView('duties'); return false;">
+                                <div class="manager-link-icon"><i class="fas fa-clipboard-list"></i></div>
+                                <div class="manager-link-text">
+                                    <div class="manager-link-title">Manage Duties</div>
+                                    <div class="manager-link-desc">Assign and manage staff duties</div>
+                                </div>
+                                <i class="fas fa-chevron-right manager-link-arrow"></i>
+                            </button>
+                            <button class="manager-link" onclick="window.switchContentView('task-hub'); return false;">
+                                <div class="manager-link-icon"><i class="fas fa-tasks"></i></div>
+                                <div class="manager-link-text">
+                                    <div class="manager-link-title">Manage Tasks</div>
+                                    <div class="manager-link-desc">Create, assign and track tasks</div>
+                                </div>
+                                <i class="fas fa-chevron-right manager-link-arrow"></i>
+                            </button>
+                            <button class="manager-link" onclick="window.switchContentView('schedule'); return false;">
+                                <div class="manager-link-icon"><i class="fas fa-calendar-check"></i></div>
+                                <div class="manager-link-text">
+                                    <div class="manager-link-title">Manage Schedules</div>
+                                    <div class="manager-link-desc">Staff scheduling and shifts</div>
+                                </div>
+                                <i class="fas fa-chevron-right manager-link-arrow"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
             <button type="button" class="rail-divider-toggle" id="railDividerToggle" title="Hide Side Panel">–</button>
         `;
@@ -59589,12 +59724,26 @@ console.log('✅ Global functions exported to window object');
         state.menuTabBtn = rail.querySelector('#urrTabMenu');
         state.panelTabBtn = rail.querySelector('#urrTabPanel');
         state.calendarTabBtn = rail.querySelector('#urrTabCalendar');
+        state.managerTabBtn = rail.querySelector('#urrTabManager');
+        state.managerHost = rail.querySelector('#urrManagerPanel');
+
+        // Show/hide Manager tab based on role
+        (function updateManagerTabVisibility() {
+            const role = (localStorage.getItem('userRole') || '').toLowerCase();
+            const isManagerOrAdmin = role === 'admin' || role === 'owner' || role === 'manager' || role === 'administrator' || role === 'superadmin';
+            if (state.managerTabBtn) {
+                state.managerTabBtn.style.display = isManagerOrAdmin ? '' : 'none';
+            }
+        })();
 
         state.menuTabBtn.addEventListener('click', () => setActiveTab('menu'));
         state.panelTabBtn.addEventListener('click', () => {
             detachPanelForActiveView();
             setActiveTab('panel');
         });
+        if (state.managerTabBtn) {
+            state.managerTabBtn.addEventListener('click', () => setActiveTab('manager'));
+        }
         const dividerToggle = rail.querySelector('#railDividerToggle');
         if (dividerToggle) dividerToggle.addEventListener('click', () => toggleSidebarRight());
         if (state.calendarTabBtn) {
