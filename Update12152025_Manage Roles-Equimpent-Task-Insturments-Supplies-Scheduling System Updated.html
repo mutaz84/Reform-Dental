@@ -14629,6 +14629,146 @@
             height: 50px;
         }
     }
+
+    /* ============ FLOATING QUICK CALENDAR ============ */
+    .floating-calendar-btn {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #06b6d4, #0891b2);
+        color: white;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.4rem;
+        box-shadow: 0 4px 20px rgba(6, 182, 212, 0.45), 0 0 0 0 rgba(6, 182, 212, 0.4);
+        z-index: 9997;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        animation: calendar-pulse 3s ease-in-out infinite;
+    }
+    .floating-calendar-btn:hover {
+        transform: scale(1.1);
+        box-shadow: 0 6px 28px rgba(6, 182, 212, 0.6);
+    }
+    .floating-calendar-btn.active {
+        background: linear-gradient(135deg, #0891b2, #0e7490);
+        animation: none;
+    }
+    @keyframes calendar-pulse {
+        0%, 100% { box-shadow: 0 4px 20px rgba(6, 182, 212, 0.45), 0 0 0 0 rgba(6, 182, 212, 0.3); }
+        50% { box-shadow: 0 4px 20px rgba(6, 182, 212, 0.45), 0 0 0 8px rgba(6, 182, 212, 0); }
+    }
+    body.right-rail-enabled:not(.right-rail-collapsed) .floating-calendar-btn {
+        right: calc(var(--right-rail-width) + 24px);
+        z-index: 10002;
+    }
+    body.right-rail-enabled.right-rail-collapsed .floating-calendar-btn {
+        right: 24px;
+    }
+
+    /* Floating Calendar Panel */
+    .floating-calendar-panel {
+        position: fixed;
+        bottom: 88px;
+        right: 24px;
+        width: 320px;
+        max-height: calc(100vh - 120px);
+        background: var(--bg-primary, #ffffff);
+        border-radius: 16px;
+        box-shadow: 0 25px 60px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(6, 182, 212, 0.2);
+        z-index: 10001;
+        display: none;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--border-color, #e5e7eb);
+    }
+    body.right-rail-enabled:not(.right-rail-collapsed) .floating-calendar-panel {
+        right: calc(var(--right-rail-width) + 24px);
+    }
+    body.right-rail-enabled.right-rail-collapsed .floating-calendar-panel {
+        right: 24px;
+    }
+
+    .floating-calendar-header {
+        background: linear-gradient(135deg, #06b6d4, #0891b2);
+        color: white;
+        padding: 14px 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-shrink: 0;
+        cursor: grab;
+    }
+    .floating-calendar-header:active {
+        cursor: grabbing;
+    }
+    .floating-calendar-header-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .floating-calendar-header-left .calendar-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .floating-calendar-header-title {
+        font-size: 1rem;
+        font-weight: 600;
+        margin: 0;
+    }
+    .floating-calendar-header-subtitle {
+        font-size: 0.75rem;
+        opacity: 0.9;
+        margin: 0;
+    }
+    .floating-calendar-header-actions {
+        display: flex;
+        gap: 8px;
+    }
+    .floating-calendar-header-actions button {
+        background: none;
+        border: none;
+        color: white;
+        cursor: pointer;
+        padding: 6px;
+        border-radius: 6px;
+        transition: background 0.2s;
+    }
+    .floating-calendar-header-actions button:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .floating-calendar-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px;
+    }
+
+    /* Mobile adjustments */
+    @media (max-width: 768px) {
+        .floating-calendar-btn {
+            right: 16px;
+            bottom: 16px;
+            width: 50px;
+            height: 50px;
+        }
+        .floating-calendar-panel {
+            right: 16px;
+            bottom: 72px;
+            width: calc(100vw - 32px);
+            max-height: calc(100vh - 100px);
+        }
+    }
 </style>
 </head>
 <body>
@@ -35203,6 +35343,177 @@
             });
         }
 
+        // ============ FLOATING QUICK CALENDAR FUNCTIONS ============
+
+        // Toggle Floating Calendar Panel
+        function toggleFloatingCalendar() {
+            const panel = document.getElementById('floatingCalendarPanel');
+            const button = document.getElementById('floatingCalendarBtn');
+            
+            if (!panel) return;
+            
+            const isOpen = panel.style.display === 'flex';
+            
+            if (isOpen) {
+                closeFloatingCalendar();
+            } else {
+                // Close other floating panels first
+                closeFloatingChat();
+                if (window.ReformCopilot && typeof window.ReformCopilot.close === 'function') {
+                    window.ReformCopilot.close();
+                }
+                
+                // Open floating calendar
+                panel.style.display = 'flex';
+                button.classList.add('active');
+                
+                // Initialize calendar content if not already done
+                if (!panel.hasAttribute('data-initialized')) {
+                    renderFloatingCalendar();
+                    panel.setAttribute('data-initialized', 'true');
+                }
+            }
+        }
+
+        // Close Floating Calendar Panel
+        function closeFloatingCalendar() {
+            const panel = document.getElementById('floatingCalendarPanel');
+            const button = document.getElementById('floatingCalendarBtn');
+            
+            if (panel) {
+                panel.style.display = 'none';
+            }
+            if (button) {
+                button.classList.remove('active');
+            }
+        }
+
+        // Render Floating Calendar Content
+        function renderFloatingCalendar() {
+            const container = document.getElementById('floatingCalendarBody');
+            if (!container) return;
+            
+            const year = quickCalendarDate.getFullYear();
+            const month = quickCalendarDate.getMonth();
+            
+            // Update month/year display
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                              'July', 'August', 'September', 'October', 'November', 'December'];
+            const monthYearText = `${monthNames[month]} ${year}`;
+            
+            container.innerHTML = `
+                <!-- Month Navigation -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 0.5rem;">
+                    <button onclick="quickCalendarPrevMonth(); renderFloatingCalendar();" style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem; cursor: pointer; color: var(--text-primary);" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <h4 style="margin: 0; color: var(--text-primary); font-size: 1rem; font-weight: 600;" id="floatingCalendarMonth">${monthYearText}</h4>
+                    <button onclick="quickCalendarNextMonth(); renderFloatingCalendar();" style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem; cursor: pointer; color: var(--text-primary);" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+                
+                <!-- Today Button -->
+                <div style="margin-bottom: 1rem;">
+                    <button onclick="quickCalendarToday(); renderFloatingCalendar();" style="width: 100%; background: linear-gradient(135deg, #06b6d4, #0891b2); color: white; border: none; border-radius: 8px; padding: 0.75rem; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                        <i class="fas fa-calendar-day"></i>
+                        Today
+                    </button>
+                </div>
+                
+                <!-- Calendar Grid -->
+                <div style="background: var(--bg-secondary); border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
+                    <!-- Day Headers -->
+                    <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.25rem; margin-bottom: 0.5rem;">
+                        ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => 
+                            `<div style="text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); padding: 0.25rem;">${day}</div>`
+                        ).join('')}
+                    </div>
+                    
+                    <!-- Calendar Days -->
+                    <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.25rem;" id="floatingCalendarGrid">
+                        <!-- Days will be populated by JavaScript -->
+                    </div>
+                </div>
+            `;
+            
+            // Populate calendar days
+            populateFloatingCalendarDays();
+        }
+
+        // Populate Floating Calendar Days
+        function populateFloatingCalendarDays() {
+            const grid = document.getElementById('floatingCalendarGrid');
+            if (!grid) return;
+            
+            const year = quickCalendarDate.getFullYear();
+            const month = quickCalendarDate.getMonth();
+            
+            // Clear existing days
+            grid.innerHTML = '';
+            
+            // Get first day of month and last day of month
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const startDate = new Date(firstDay);
+            startDate.setDate(startDate.getDate() - firstDay.getDay());
+            
+            // Generate 6 weeks of days
+            for (let week = 0; week < 6; week++) {
+                for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+                    const currentDate = new Date(startDate);
+                    currentDate.setDate(startDate.getDate() + (week * 7) + dayOfWeek);
+                    
+                    const day = currentDate.getDate();
+                    const isCurrentMonth = currentDate.getMonth() === month;
+                    const isToday = currentDate.toDateString() === new Date().toDateString();
+                    
+                    const dayEl = document.createElement('button');
+                    dayEl.textContent = day;
+                    dayEl.style.cssText = `
+                        padding: 0.5rem;
+                        border: 1px solid ${isToday ? '#06b6d4' : 'transparent'};
+                        border-radius: 8px;
+                        background: ${isCurrentMonth ? (isToday ? '#06b6d4' : 'var(--bg-primary)') : 'var(--bg-tertiary)'};
+                        color: ${isCurrentMonth ? (isToday ? 'white' : 'var(--text-primary)') : 'var(--text-secondary)'};
+                        cursor: pointer;
+                        font-size: 0.8rem;
+                        font-weight: ${isToday ? '600' : '400'};
+                        transition: all 0.2s;
+                        text-align: center;
+                        min-height: 36px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    `;
+                    
+                    if (isCurrentMonth) {
+                        dayEl.onmouseover = () => {
+                            dayEl.style.background = isToday ? '#0891b2' : 'var(--accent-primary)';
+                            dayEl.style.color = 'white';
+                        };
+                        dayEl.onmouseout = () => {
+                            dayEl.style.background = isToday ? '#06b6d4' : 'var(--bg-primary)';
+                            dayEl.style.color = isToday ? 'white' : 'var(--text-primary)';
+                        };
+                        
+                        dayEl.onclick = ((day) => {
+                            return () => {
+                                goToCalendarDate(day);
+                                // Close the floating calendar after selection
+                                setTimeout(() => closeFloatingCalendar(), 300);
+                            };
+                        })(day);
+                    } else {
+                        dayEl.style.cursor = 'default';
+                        dayEl.style.opacity = '0.5';
+                    }
+                    
+                    grid.appendChild(dayEl);
+                }
+            }
+        }
+
         // Content View Toggle (Calendar vs Duties)
         function switchContentView(viewName, event) {
             if (event) {
@@ -55500,6 +55811,32 @@ document.addEventListener('keydown', function(e) {
 <button class="copilot-fab" id="copilotFab" onclick="window.ReformCopilot.toggle()" title="DentaBrain">
     <span class="copilot-sparkle"><i class="fas fa-brain"></i></span>
 </button>
+
+<!-- Floating Quick Calendar Button -->
+<button class="floating-calendar-btn" id="floatingCalendarBtn" onclick="toggleFloatingCalendar()" title="Quick Calendar">
+    <i class="fas fa-calendar-alt"></i>
+</button>
+
+<!-- Floating Quick Calendar Panel -->
+<div class="floating-calendar-panel" id="floatingCalendarPanel">
+    <div class="floating-calendar-header">
+        <div class="floating-calendar-header-left">
+            <span class="calendar-icon"><i class="fas fa-calendar-alt"></i></span>
+            <div>
+                <div class="floating-calendar-header-title">Quick Calendar</div>
+                <div class="floating-calendar-header-subtitle">Navigate dates across all pages</div>
+            </div>
+        </div>
+        <div class="floating-calendar-header-actions">
+            <button onclick="closeFloatingCalendar()" title="Close">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+    <div class="floating-calendar-body" id="floatingCalendarBody">
+        <!-- Calendar content will be inserted here -->
+    </div>
+</div>
 
 <!-- Copilot AI Panel -->
 <div class="copilot-panel" id="copilotPanel">
