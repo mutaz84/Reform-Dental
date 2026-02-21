@@ -18275,6 +18275,23 @@
         </div>
     </div>
 
+    <!-- Schedule Manager Modal Dynamic -->
+    <div class="modal-overlay" id="scheduleManagerModalDynamic" onclick="if(event.target === this) closeScheduleManagerModal()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title">Schedule Builder</h3>
+                </div>
+                <button class="modal-close" onclick="closeScheduleManagerModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="scheduleManagerModalBody">
+                <!-- Content will be dynamically inserted here -->
+            </div>
+        </div>
+    </div>
+
     <!-- Manage Tasks View -->
     <div class="content-view" id="view-manage-tasks" style="display: none;">
         <div class="dashboard-grid">
@@ -21986,47 +22003,61 @@
             switchContentView('manage-schedules');
         }
         
+        // Close schedule manager modal
+        function closeScheduleManagerModal() {
+            const modal = document.getElementById('scheduleManagerModalDynamic');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.classList.remove('active');
+            }
+        }
+        
         // Open Step-by-Step Builder (existing relational builder)
         function openStepByStepBuilder() {
+            console.log('openStepByStepBuilder called');
             const modal = document.getElementById('scheduleManagerModalDynamic');
             if (modal) {
                 modal.innerHTML = `
-                    <div style="background: white; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15); padding: 2.5rem; border-radius: 16px; color: #1e293b; text-align: center; max-width: 550px; border: 1px solid #e2e8f0;">
-                        <div style="width: 70px; height: 70px; background: linear-gradient(135deg, #0891b2, #0e7490); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
-                            <i class="fas fa-project-diagram" style="font-size: 1.8rem; color: white;"></i>
-                        </div>
-                        <h2 style="color: #0f172a; margin-bottom: 0.5rem; font-size: 1.6rem;">Relational Builder</h2>
-                        <p style="margin-bottom: 1.5rem; color: #64748b; line-height: 1.6; font-size: 0.95rem;">Build schedules step-by-step with visual conflict detection.</p>
-                        
-                        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem;">
-                            <p style="margin-bottom: 1rem; font-weight: 600; color: #475569; font-size: 0.9rem;"><i class="fas fa-hand-pointer" style="color: #0891b2; margin-right: 0.5rem;"></i> Select scheduling mode:</p>
+                    <div class="modal-content">
+                        <div style="background: white; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15); padding: 2.5rem; border-radius: 16px; color: #1e293b; text-align: center; max-width: 550px; border: 1px solid #e2e8f0;">
+                            <div style="width: 70px; height: 70px; background: linear-gradient(135deg, #0891b2, #0e7490); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
+                                <i class="fas fa-project-diagram" style="font-size: 1.8rem; color: white;"></i>
+                            </div>
+                            <h2 style="color: #0f172a; margin-bottom: 0.5rem; font-size: 1.6rem;">Relational Builder</h2>
+                            <p style="margin-bottom: 1.5rem; color: #64748b; line-height: 1.6; font-size: 0.95rem;">Build schedules step-by-step with visual conflict detection.</p>
+                            
+                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem;">
+                                <p style="margin-bottom: 1rem; font-weight: 600; color: #475569; font-size: 0.9rem;"><i class="fas fa-hand-pointer" style="color: #0891b2; margin-right: 0.5rem;"></i> Select scheduling mode:</p>
+                                <div style="display: flex; gap: 1rem; justify-content: center;">
+                                    <button id="sbModeProvider" onclick="sbSelectMode('provider')" style="flex: 1; background: #0891b2; color: white; border: 2px solid #0891b2; padding: 1rem; border-radius: 10px; cursor: pointer; transition: all 0.3s;">
+                                        <i class="fas fa-user-md" style="font-size: 1.8rem; display: block; margin-bottom: 0.5rem;"></i>
+                                        <strong style="font-size: 0.95rem;">Provider First</strong>
+                                    </button>
+                                    <button id="sbModeEmployee" onclick="sbSelectMode('employee')" style="flex: 1; background: white; color: #64748b; border: 2px solid #e2e8f0; padding: 1rem; border-radius: 10px; cursor: pointer; transition: all 0.3s;">
+                                        <i class="fas fa-user-nurse" style="font-size: 1.8rem; display: block; margin-bottom: 0.5rem;"></i>
+                                        <strong style="font-size: 0.95rem;">Employee First</strong>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div id="sbModeSteps" style="font-size: 0.8rem; margin-bottom: 1.5rem; padding: 0.75rem 1rem; background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 8px; color: #0f766e;">
+                                <i class="fas fa-route" style="margin-right: 0.5rem;"></i>
+                                <strong>Workflow:</strong> Provider → Clinic → Room → Assistant(s) → Dates → Time
+                            </div>
+                            
                             <div style="display: flex; gap: 1rem; justify-content: center;">
-                                <button id="sbModeProvider" onclick="sbSelectMode('provider')" style="flex: 1; background: #0891b2; color: white; border: 2px solid #0891b2; padding: 1rem; border-radius: 10px; cursor: pointer; transition: all 0.3s;">
-                                    <i class="fas fa-user-md" style="font-size: 1.8rem; display: block; margin-bottom: 0.5rem;"></i>
-                                    <strong style="font-size: 0.95rem;">Provider First</strong>
+                                <button onclick="startScheduleBuilderGame()" style="background: linear-gradient(135deg, #0891b2, #0e7490); color: white; border: none; padding: 0.9rem 2rem; font-size: 1rem; font-weight: 600; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(8,145,178,0.3);">
+                                    <i class="fas fa-play" style="margin-right: 0.5rem;"></i> Start Building
                                 </button>
-                                <button id="sbModeEmployee" onclick="sbSelectMode('employee')" style="flex: 1; background: white; color: #64748b; border: 2px solid #e2e8f0; padding: 1rem; border-radius: 10px; cursor: pointer; transition: all 0.3s;">
-                                    <i class="fas fa-user-nurse" style="font-size: 1.8rem; display: block; margin-bottom: 0.5rem;"></i>
-                                    <strong style="font-size: 0.95rem;">Employee First</strong>
+                                <button onclick="openScheduleManager()" style="background: white; color: #64748b; border: 2px solid #e2e8f0; padding: 0.9rem 1.5rem; font-size: 1rem; font-weight: 600; border-radius: 8px; cursor: pointer;">
+                                    <i class="fas fa-arrow-left" style="margin-right: 0.5rem;"></i> Back
                                 </button>
                             </div>
                         </div>
-                        
-                        <div id="sbModeSteps" style="font-size: 0.8rem; margin-bottom: 1.5rem; padding: 0.75rem 1rem; background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 8px; color: #0f766e;">
-                            <i class="fas fa-route" style="margin-right: 0.5rem;"></i>
-                            <strong>Workflow:</strong> Provider → Clinic → Room → Assistant(s) → Dates → Time
-                        </div>
-                        
-                        <div style="display: flex; gap: 1rem; justify-content: center;">
-                            <button onclick="startScheduleBuilderGame()" style="background: linear-gradient(135deg, #0891b2, #0e7490); color: white; border: none; padding: 0.9rem 2rem; font-size: 1rem; font-weight: 600; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(8,145,178,0.3);">
-                                <i class="fas fa-play" style="margin-right: 0.5rem;"></i> Start Building
-                            </button>
-                            <button onclick="openScheduleManager()" style="background: white; color: #64748b; border: 2px solid #e2e8f0; padding: 0.9rem 1.5rem; font-size: 1rem; font-weight: 600; border-radius: 8px; cursor: pointer;">
-                                <i class="fas fa-arrow-left" style="margin-right: 0.5rem;"></i> Back
-                            </button>
-                        </div>
                     </div>
                 `;
+                modal.style.display = 'flex';
+                modal.classList.add('active');
             }
         }
         
@@ -22259,6 +22290,10 @@
             // Render the initial row
             tsbLoadExistingSchedules();
             tsbRenderTable();
+            
+            // Show the modal
+            modal.style.display = 'flex';
+            modal.classList.add('active');
         }
         
         function createEmptyRow() {
@@ -23624,7 +23659,10 @@
         
         function closeScheduleManagerDynamic() {
             const modal = document.getElementById('scheduleManagerModalDynamic');
-            if (modal) modal.remove();
+            if (modal) {
+                modal.style.display = 'none';
+                modal.classList.remove('active');
+            }
         }
         
         function startScheduleBuilderGame() {
