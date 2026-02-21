@@ -35420,6 +35420,12 @@
                     </button>
                 </div>
                 
+                <!-- Go to Date -->
+                <div style="margin-bottom: 1rem;">
+                    <input type="date" id="floatingCalendarDateInput" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); margin-bottom: 0.5rem;">
+                    <button onclick="goToFloatingCalendarDate()" style="width: 100%; background: linear-gradient(135deg, #0891b2, #0e7490); color: white; border: none; border-radius: 8px; padding: 0.75rem; cursor: pointer; font-weight: 600;">Go to Date</button>
+                </div>
+                
                 <!-- Calendar Grid -->
                 <div style="background: var(--bg-secondary); border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
                     <!-- Day Headers -->
@@ -35435,6 +35441,12 @@
                     </div>
                 </div>
             `;
+            
+            // Set the date input value
+            const input = document.getElementById('floatingCalendarDateInput');
+            if (input) {
+                input.value = quickCalendarDate.toISOString().split('T')[0];
+            }
             
             // Populate calendar days
             populateFloatingCalendarDays();
@@ -35509,6 +35521,38 @@
                     }
                     
                     grid.appendChild(dayEl);
+                }
+            }
+        }
+
+        // Go to specific date from floating calendar input
+        function goToFloatingCalendarDate() {
+            const input = document.getElementById('floatingCalendarDateInput');
+            if (input && input.value) {
+                const date = new Date(input.value);
+                if (!isNaN(date.getTime())) {
+                    // Set quick calendar to the selected month
+                    quickCalendarDate = new Date(date.getFullYear(), date.getMonth(), 1);
+                    renderFloatingCalendar();
+                    
+                    // Sync main calendar
+                    if (window.calendarInstance) {
+                        window.calendarInstance.currentDate = new Date(date);
+                        window.calendarInstance.render();
+                    }
+                    
+                    // Sync FullCalendar if exists
+                    if (window.calendar && typeof window.calendar.gotoDate === 'function') {
+                        window.calendar.gotoDate(date);
+                    }
+                    
+                    // Sync My Schedule calendar
+                    if (typeof window.renderMyScheduleCalendar === 'function') {
+                        window.renderMyScheduleCalendar();
+                    }
+                    
+                    // Close the floating calendar after navigation
+                    setTimeout(() => closeFloatingCalendar(), 300);
                 }
             }
         }
