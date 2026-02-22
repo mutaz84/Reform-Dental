@@ -18926,11 +18926,6 @@
             
             // Initialize master settings (logo, company name, etc.)
             initMasterSettings();
-            
-            // Initialize calendar if it exists
-            if (window.calendarInstance && typeof window.calendarInstance.render === 'function') {
-                window.calendarInstance.render();
-            }
         });
 
         // ============ USER MANAGEMENT SYSTEM ============
@@ -29739,82 +29734,6 @@
         let selectedEmployee = 'all';
         let currentViewMode = 'date'; // 'date', 'employee', or 'room'
         
-        // Quick Calendar State
-        let quickCalendarDate = new Date(); // Global variable for quick calendar date
-        let quickCalendarOpen = false;
-        
-        // Quick Calendar Navigation Functions
-        function quickCalendarPrevMonth() {
-            quickCalendarDate.setMonth(quickCalendarDate.getMonth() - 1);
-            
-            // Sync main calendar
-            if (window.calendarInstance) {
-                window.calendarInstance.currentDate = new Date(quickCalendarDate);
-                window.calendarInstance.render();
-            }
-            
-            // Update quick calendars
-            if (window.calendarInstance && window.calendarInstance.updateQuickCalendars) {
-                window.calendarInstance.updateQuickCalendars();
-            }
-            
-            // Refresh table view if active
-            if (typeof isTableView !== 'undefined' && isTableView && typeof populateTable === 'function') {
-                populateTable();
-            }
-        }
-        
-        function quickCalendarNextMonth() {
-            quickCalendarDate.setMonth(quickCalendarDate.getMonth() + 1);
-            
-            // Sync main calendar
-            if (window.calendarInstance) {
-                window.calendarInstance.currentDate = new Date(quickCalendarDate);
-                window.calendarInstance.render();
-            }
-            
-            // Update quick calendars
-            if (window.calendarInstance && window.calendarInstance.updateQuickCalendars) {
-                window.calendarInstance.updateQuickCalendars();
-            }
-            
-            // Refresh table view if active
-            if (typeof isTableView !== 'undefined' && isTableView && typeof populateTable === 'function') {
-                populateTable();
-            }
-        }
-        
-        function quickCalendarToday() {
-            const today = new Date();
-            quickCalendarDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-            // Sync the main custom calendar (if present)
-            if (window.calendarInstance) {
-                window.calendarInstance.currentDate = new Date(today);
-                window.calendarInstance.render();
-            }
-
-            // Sync any FullCalendar-style instance attached globally
-            if (window.calendar && typeof window.calendar.gotoDate === 'function') {
-                window.calendar.gotoDate(today);
-            }
-
-            // Sync My Schedule calendar if it exists
-            if (typeof window.myScheduleGoToDate === 'function') {
-                window.myScheduleGoToDate(today);
-            }
-
-            // Update quick calendars
-            if (window.calendarInstance && window.calendarInstance.updateQuickCalendars) {
-                window.calendarInstance.updateQuickCalendars();
-            }
-
-            // Refresh table view if active
-            if (typeof isTableView !== 'undefined' && isTableView && typeof populateTable === 'function') {
-                populateTable();
-            }
-        }
-        
         // Table View State
         let isTableView = false;
         let currentSortColumn = 0;
@@ -32556,128 +32475,12 @@
                 render: function() {
                     this.renderCalendar();
                     
-                    // Sync quick calendar date
-                    quickCalendarDate = new Date(this.currentDate);
-                    
-                    // Update any open quick calendar dropdowns
-                    this.updateQuickCalendars();
-                },
-                
-                updateQuickCalendars: function() {
-                    // Update month/year display in quick calendar buttons
-                    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
-                                      'July', 'August', 'September', 'October', 'November', 'December'];
-                    const monthYear = `${monthNames[quickCalendarDate.getMonth()]} ${quickCalendarDate.getFullYear()}`;
-                    
-                    // Update all quick calendar month displays
-                    document.querySelectorAll('#quickCalendarMonth').forEach(el => {
-                        el.textContent = monthYear;
-                    });
-                    
-                    // Update all quick calendar button dates
-                    document.querySelectorAll('#quickCalendarButtonDate').forEach(el => {
-                        el.textContent = monthYear;
-                    });
-                    
-                    // Update calendar grids for active dropdowns
-                    document.querySelectorAll('.quick-calendar-dropdown.active #quickCalendarGrid').forEach(grid => {
-                        if (grid.children.length > 7) { // Has day headers
-                            // Clear existing days (keep headers)
-                            while (grid.children.length > 7) {
-                                grid.removeChild(grid.lastChild);
-                            }
-                            
-                            // Re-render the calendar grid
-                            this.renderQuickCalendarGrid(grid);
+                    // Sync quick calendar if it exists
+                    if (typeof quickCalendarDate !== 'undefined') {
+                        quickCalendarDate = new Date(this.currentDate);
+                        if (typeof renderQuickCalendar === 'function') {
+                            renderQuickCalendar();
                         }
-                    });
-                },
-                
-                renderQuickCalendarGrid: function(grid) {
-                    const year = quickCalendarDate.getFullYear();
-                    const month = quickCalendarDate.getMonth();
-                    const today = new Date();
-                    const isCurrentMonth = today.getMonth() === month && today.getFullYear() === year;
-                    
-                    // Get first day of month and number of days
-                    const firstDay = new Date(year, month, 1).getDay();
-                    const daysInMonth = new Date(year, month + 1, 0).getDate();
-                    const daysInPrevMonth = new Date(year, month, 0).getDate();
-                    
-                    // Add days from previous month
-                    for (let i = firstDay - 1; i >= 0; i--) {
-                        const day = daysInPrevMonth - i;
-                        const dayEl = document.createElement('div');
-                        dayEl.style.cssText = 'padding: 0.4rem; color: var(--text-secondary); opacity: 0.4; font-size: 0.8rem; text-align: center;';
-                        dayEl.textContent = day;
-                        grid.appendChild(dayEl);
-                    }
-                    
-                    // Add days of current month
-                    for (let day = 1; day <= daysInMonth; day++) {
-                        const dayEl = document.createElement('div');
-                        const isToday = isCurrentMonth && day === today.getDate();
-                        
-                        dayEl.style.cssText = `
-                            padding: 0.4rem;
-                            cursor: pointer;
-                            border-radius: 6px;
-                            transition: all 0.2s;
-                            font-size: 0.8rem;
-                            font-weight: 500;
-                            text-align: center;
-                            color: ${isToday ? 'white' : '#2d3748'};
-                            ${isToday ? 'background: var(--accent-primary); font-weight: 600;' : ''}
-                        `;
-                        
-                        dayEl.textContent = day;
-                        dayEl.onmouseover = function() {
-                            if (!isToday) this.style.background = 'var(--accent-light)';
-                        };
-                        dayEl.onmouseout = function() {
-                            if (!isToday) this.style.background = 'transparent';
-                        };
-                        
-                        // Use closure to capture the day value
-                        (function(selectedDay) {
-                            dayEl.onclick = function(e) {
-                                e.stopPropagation(); // Prevent closing the dropdown
-                                quickCalendarDate = new Date(year, month, selectedDay);
-                                
-                                // Sync main calendar
-                                if (window.calendarInstance) {
-                                    window.calendarInstance.currentDate = new Date(quickCalendarDate);
-                                    window.calendarInstance.render();
-                                }
-                                
-                                // Sync My Schedule calendar if it exists
-                                if (typeof window.myScheduleGoToDate === 'function') {
-                                    window.myScheduleGoToDate(quickCalendarDate);
-                                }
-                                
-                                // Update quick calendars
-                                if (window.calendarInstance && window.calendarInstance.updateQuickCalendars) {
-                                    window.calendarInstance.updateQuickCalendars();
-                                }
-                                
-                                // Refresh table view if active
-                                if (typeof isTableView !== 'undefined' && isTableView && typeof populateTable === 'function') {
-                                    populateTable();
-                                }
-                            };
-                        })(day);
-                        
-                        grid.appendChild(dayEl);
-                    }
-                    
-                    // Add days from next month
-                    const totalCells = grid.children.length - 7; // Subtract day headers
-                    const remainingCells = 42 - totalCells; // 6 rows * 7 days
-                    for (let day = 1; day <= remainingCells; day++) {
-                        const dayEl = document.createElement('div');
-                        dayEl.style.cssText = 'padding: 0.4rem; color: var(--text-secondary); opacity: 0.4; font-size: 0.8rem; text-align: center;';
-                        dayEl.textContent = day;
-                        grid.appendChild(dayEl);
                     }
                 },
                 
@@ -35205,6 +35008,7 @@
         // Navigate to date from small calendar widget
         
         // Quick Calendar State
+        let quickCalendarDate = new Date(); // Use current date
         let quickCalendarOpen = false;
 
         // Toggle Quick Calendar Dropdown
@@ -35367,6 +35171,11 @@
                             }
                             
                             renderQuickCalendar();
+                            
+                            // Refresh table view if active
+                            if (typeof isTableView !== 'undefined' && isTableView && typeof populateTable === 'function') {
+                                populateTable();
+                            }
                         };
                     })(day);
                     
@@ -35384,6 +35193,71 @@
                 }
             });
         }
+
+        // Previous Month
+        function quickCalendarPrevMonth() {
+            quickCalendarDate.setMonth(quickCalendarDate.getMonth() - 1);
+            
+            // Sync main calendar
+            if (window.calendarInstance) {
+                window.calendarInstance.currentDate = new Date(quickCalendarDate);
+                window.calendarInstance.render();
+            }
+            
+            renderQuickCalendar();
+            
+            // Refresh table view if active
+            if (typeof isTableView !== 'undefined' && isTableView && typeof populateTable === 'function') {
+                populateTable();
+            }
+        }
+
+        // Next Month
+        function quickCalendarNextMonth() {
+            quickCalendarDate.setMonth(quickCalendarDate.getMonth() + 1);
+            
+            // Sync main calendar
+            if (window.calendarInstance) {
+                window.calendarInstance.currentDate = new Date(quickCalendarDate);
+                window.calendarInstance.render();
+            }
+            
+            renderQuickCalendar();
+            
+            // Refresh table view if active
+            if (typeof isTableView !== 'undefined' && isTableView && typeof populateTable === 'function') {
+                populateTable();
+            }
+        }
+        
+                // Jump quick calendar to today
+                function quickCalendarToday() {
+                    const today = new Date();
+                    quickCalendarDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+                    // Sync the main custom calendar (if present)
+                    if (window.calendarInstance) {
+                        window.calendarInstance.currentDate = new Date(today);
+                        window.calendarInstance.render();
+                    }
+
+                    // Sync any FullCalendar-style instance attached globally
+                    if (window.calendar && typeof window.calendar.gotoDate === 'function') {
+                        window.calendar.gotoDate(today);
+                    }
+
+                    // Sync My Schedule calendar if it exists
+                    if (typeof window.myScheduleGoToDate === 'function') {
+                        window.myScheduleGoToDate(today);
+                    }
+
+                    renderQuickCalendar();
+
+                    // Refresh table view if active
+                    if (typeof isTableView !== 'undefined' && isTableView && typeof populateTable === 'function') {
+                        populateTable();
+                    }
+                }
         
         // Navigate to date from small calendar widget (original function)
         function goToCalendarDate(day) {
