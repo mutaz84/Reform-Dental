@@ -21617,15 +21617,44 @@
             }
 
             const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
-            const localUserCompliances = compliances[userId] || [];
-            const localCompliance = (index >= 0 && index < localUserCompliances.length) ? localUserCompliances[index] : null;
+            let resolvedUserId = userId;
+            let resolvedIndex = Number.isFinite(Number(index)) ? Number(index) : -1;
+            let localCompliance = null;
+            let apiComplianceId = null;
 
-            // Resolve compliance ID for API delete (prefer explicit compliance.id, fallback to provided index)
-            let apiComplianceId = localCompliance?.id || null;
-            if (!apiComplianceId) {
-                const parsedIndex = Number(index);
-                if (Number.isFinite(parsedIndex) && parsedIndex > 0) {
-                    apiComplianceId = parsedIndex;
+            // Support legacy/single-arg calls: deleteCompliance(complianceId)
+            const isSingleArgCall = (index === undefined || index === null);
+            if (isSingleArgCall) {
+                const parsedId = Number(userId);
+                if (Number.isFinite(parsedId) && parsedId > 0) {
+                    apiComplianceId = parsedId;
+                }
+
+                if (apiComplianceId) {
+                    Object.keys(compliances).forEach(uid => {
+                        if (localCompliance) return;
+                        const list = compliances[uid] || [];
+                        const idx = list.findIndex(c => Number(c?.id) === Number(apiComplianceId));
+                        if (idx >= 0) {
+                            resolvedUserId = uid;
+                            resolvedIndex = idx;
+                            localCompliance = list[idx];
+                        }
+                    });
+                }
+            } else {
+                const localUserCompliances = compliances[userId] || [];
+                if (resolvedIndex >= 0 && resolvedIndex < localUserCompliances.length) {
+                    localCompliance = localUserCompliances[resolvedIndex];
+                }
+
+                // Resolve compliance ID for API delete (prefer explicit compliance.id, fallback to provided index)
+                apiComplianceId = localCompliance?.id || null;
+                if (!apiComplianceId) {
+                    const parsedIndex = Number(index);
+                    if (Number.isFinite(parsedIndex) && parsedIndex > 0) {
+                        apiComplianceId = parsedIndex;
+                    }
                 }
             }
 
@@ -21645,8 +21674,8 @@
                         if (typeof loadAllCompliances === 'function') {
                             loadAllCompliances();
                         }
-                        if (typeof loadUserCompliances === 'function' && userId !== undefined && userId !== null && compliances[userId]) {
-                            loadUserCompliances(userId);
+                        if (typeof loadUserCompliances === 'function' && resolvedUserId !== undefined && resolvedUserId !== null && compliances[resolvedUserId]) {
+                            loadUserCompliances(resolvedUserId);
                         }
                         if (typeof showNotification === 'function') {
                             showNotification('Compliance deleted successfully!', 'success');
@@ -21660,12 +21689,12 @@
 
             // Fallback to localStorage
             console.log('Using localStorage fallback for deleting compliance');
-            const userCompliances = compliances[userId] || [];
+            const userCompliances = compliances[resolvedUserId] || [];
             let deleted = false;
 
-            if (index >= 0 && index < userCompliances.length) {
-                userCompliances.splice(index, 1);
-                compliances[userId] = userCompliances;
+            if (resolvedIndex >= 0 && resolvedIndex < userCompliances.length) {
+                userCompliances.splice(resolvedIndex, 1);
+                compliances[resolvedUserId] = userCompliances;
                 deleted = true;
             } else if (apiComplianceId) {
                 // When called from compliance management view, remove by ID across all users
@@ -21685,8 +21714,8 @@
                 if (typeof loadAllCompliances === 'function') {
                     loadAllCompliances();
                 }
-                if (typeof loadUserCompliances === 'function' && compliances[userId]) {
-                    loadUserCompliances(userId);
+                if (typeof loadUserCompliances === 'function' && compliances[resolvedUserId]) {
+                    loadUserCompliances(resolvedUserId);
                 }
                 if (typeof showNotification === 'function') {
                     showNotification('Compliance deleted successfully!', 'success');
@@ -21701,12 +21730,24 @@
         // Edit Compliance
         async function editCompliance(userId, index) {
             const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
+            let resolvedUserId = userId;
+            let resolvedIndex = Number.isFinite(Number(index)) ? Number(index) : -1;
             const userCompliances = compliances[userId] || [];
-            let compliance = (index >= 0 && index < userCompliances.length) ? userCompliances[index] : null;
-            let resolvedLocalIndex = (index >= 0 && index < userCompliances.length) ? index : null;
+            let compliance = (resolvedIndex >= 0 && resolvedIndex < userCompliances.length) ? userCompliances[resolvedIndex] : null;
+            let resolvedLocalIndex = (resolvedIndex >= 0 && resolvedIndex < userCompliances.length) ? resolvedIndex : null;
 
             // Resolve API compliance ID for records coming from compliance management view
             let apiComplianceId = compliance?.id || null;
+
+            // Support legacy/single-arg calls: editCompliance(complianceId)
+            const isSingleArgCall = (index === undefined || index === null);
+            if (isSingleArgCall) {
+                const parsedId = Number(userId);
+                if (Number.isFinite(parsedId) && parsedId > 0) {
+                    apiComplianceId = parsedId;
+                }
+            }
+
             if (!apiComplianceId) {
                 const parsedIndex = Number(index);
                 if (Number.isFinite(parsedIndex) && parsedIndex > 0) {
@@ -21730,7 +21771,7 @@
                         document.getElementById('complianceType').value = fullCompliance.complianceTypeId || '';
                         document.getElementById('complianceIssueDate').value = fullCompliance.issueDate ? new Date(fullCompliance.issueDate).toISOString().split('T')[0] : '';
                         document.getElementById('complianceExpiryDate').value = fullCompliance.expiryDate ? new Date(fullCompliance.expiryDate).toISOString().split('T')[0] : '';
-                        document.getElementById('complianceEmployeeId').value = fullCompliance.userId || userId || '';
+                        document.getElementById('complianceEmployeeId').value = fullCompliance.userId || resolvedUserId || '';
                         document.getElementById('complianceId').value = fullCompliance.id;
 
                         document.getElementById('complianceModal').style.display = 'flex';
@@ -21752,7 +21793,7 @@
                     if (foundIndex >= 0) {
                         compliance = list[foundIndex];
                         resolvedLocalIndex = foundIndex;
-                        userId = uid;
+                        resolvedUserId = uid;
                     }
                 });
             }
@@ -21764,7 +21805,7 @@
                 document.getElementById('complianceType').value = compliance.complianceTypeId || '';
                 document.getElementById('complianceIssueDate').value = compliance.issueDate ? new Date(compliance.issueDate).toISOString().split('T')[0] : '';
                 document.getElementById('complianceExpiryDate').value = compliance.expiryDate ? new Date(compliance.expiryDate).toISOString().split('T')[0] : '';
-                document.getElementById('complianceEmployeeId').value = userId;
+                document.getElementById('complianceEmployeeId').value = resolvedUserId;
                 document.getElementById('complianceId').value = (resolvedLocalIndex !== null ? resolvedLocalIndex : index); // Use local index for localStorage
 
                 document.getElementById('complianceModal').style.display = 'flex';
