@@ -43699,9 +43699,19 @@ window.addEventListener('load', function() {
                 modal.setAttribute('data-from-user-creation', 'true');
                 modal.style.display = 'flex';
                 modal.style.zIndex = '10200'; // Higher than user creation modal
+                
+                // Ensure master data is loaded
+                if (!window.masterData || !window.masterData.clinics) {
+                    if (typeof syncAllData === 'function') {
+                        syncAllData();
+                    }
+                }
+                
                 populateDutyOfficeDropdown();
                 populateDutyTypeDropdown();
-                renderDutiesList();
+                loadDutiesFromAPI().then(() => {
+                    renderDutiesList();
+                });
                 // Change close button behavior
                 const closeBtn = document.querySelector('#dutiesManagementModal .login-header button[onclick*="closeDutiesManagement"]');
                 if (closeBtn) {
@@ -43710,9 +43720,19 @@ window.addEventListener('load', function() {
             } else {
                 // Open as full page view
                 switchContentView('manage-duties');
+                
+                // Ensure master data is loaded
+                if (!window.masterData || !window.masterData.clinics) {
+                    if (typeof syncAllData === 'function') {
+                        syncAllData();
+                    }
+                }
+                
                 populateDutyOfficeDropdown();
                 populateDutyTypeDropdown();
-                renderDutiesList();
+                loadDutiesFromAPI().then(() => {
+                    renderDutiesList();
+                });
             }
         }
         
@@ -43722,6 +43742,7 @@ window.addEventListener('load', function() {
             const dropdown = document.getElementById('dutyOffice');
             if (dropdown) {
                 dropdown.innerHTML = '<option value="">Select Office</option>';
+                console.log('Populating offices:', offices.length); // Debug logging
                 offices.forEach(office => {
                     const option = document.createElement('option');
                     option.value = office.officeID;
@@ -44487,6 +44508,8 @@ window.addEventListener('load', function() {
                 location: roomName !== 'Select Room' ? roomName : '',
                 priority: document.getElementById('dutyPriority').value
             };
+            
+            console.log('Duty data:', dutyData); // Debug logging
             
             if (!dutyData.name) {
                 showNotification('Please enter a duty name', 'error');
