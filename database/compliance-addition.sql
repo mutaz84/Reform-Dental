@@ -133,15 +133,13 @@ GO
 -- View: Expiring Compliances (next 30 days)
 CREATE VIEW vw_ExpiringCompliances AS
 SELECT * FROM vw_ActiveCompliances
-WHERE DaysUntilExpiry <= 30 AND DaysUntilExpiry >= 0
-ORDER BY DaysUntilExpiry ASC;
+WHERE DaysUntilExpiry <= 30 AND DaysUntilExpiry >= 0;
 GO
 
 -- View: Expired Compliances
 CREATE VIEW vw_ExpiredCompliances AS
 SELECT * FROM vw_ActiveCompliances
-WHERE DaysUntilExpiry < 0
-ORDER BY DaysUntilExpiry ASC;
+WHERE DaysUntilExpiry < 0;
 GO
 
 -- View: Compliances by Employee
