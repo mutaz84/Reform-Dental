@@ -98,6 +98,7 @@ INSERT INTO ComplianceTypes (Name, Description, Category, RequiresEmployee, Requ
 ('Waste Disposal License', 'Medical waste disposal certification', 'facility', 0, 1, 12, '#365314', 'fas fa-trash-alt'),
 ('Water Quality Test', 'Drinking water quality testing and certification', 'facility', 0, 1, 12, '#0c4a6e', 'fas fa-tint'),
 ('HVAC Maintenance', 'Heating, ventilation, and air conditioning maintenance certification', 'facility', 0, 1, 12, '#7c2d12', 'fas fa-wind');
+GO
 
 -- =============================================
 -- COMPLIANCE VIEWS
@@ -127,18 +128,21 @@ JOIN ComplianceTypes ct ON c.ComplianceTypeId = ct.Id
 LEFT JOIN Users u ON c.UserId = u.Id
 LEFT JOIN Clinics cl ON c.ClinicId = cl.Id
 WHERE c.Status = 'active' AND ct.IsActive = 1;
+GO
 
 -- View: Expiring Compliances (next 30 days)
 CREATE VIEW vw_ExpiringCompliances AS
 SELECT * FROM vw_ActiveCompliances
 WHERE DaysUntilExpiry <= 30 AND DaysUntilExpiry >= 0
 ORDER BY DaysUntilExpiry ASC;
+GO
 
 -- View: Expired Compliances
 CREATE VIEW vw_ExpiredCompliances AS
 SELECT * FROM vw_ActiveCompliances
 WHERE DaysUntilExpiry < 0
 ORDER BY DaysUntilExpiry ASC;
+GO
 
 -- View: Compliances by Employee
 CREATE VIEW vw_EmployeeCompliances AS
@@ -154,6 +158,7 @@ FROM Users u
 LEFT JOIN Compliances c ON u.Id = c.UserId AND c.Status = 'active'
 WHERE u.IsActive = 1 AND u.EmployeeStatus = 'active'
 GROUP BY u.Id, u.FirstName, u.LastName, u.JobTitle;
+GO
 
 PRINT 'Compliance Management Schema Added Successfully!';</content>
 <parameter name="filePath">C:\Users\MaxRa\OneDrive\Desktop\Application Development\Deployment\Reform-Dental\database\compliance-addition.sql
