@@ -18472,7 +18472,7 @@
                                 <button type="button" onclick="resetDutyForm()" style="padding: 0.75rem 1rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">
                                     <i class="fas fa-undo"></i>
                                 </button>
-                                <button type="button" onclick="switchContentView('dashboard')" style="padding: 0.75rem 1rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">
+                                <button type="button" onclick="closeDutiesManagement()" style="padding: 0.75rem 1rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">
                                     <i class="fas fa-times"></i> Close
                                 </button>
                             </div>
@@ -43695,10 +43695,13 @@ window.addEventListener('load', function() {
         // Duties Management Modal Functions
         let editingDutyId = null;
         
-        function openDutiesManagement(fromUserCreation = false) {
-            console.log('Opening duties management, fromUserCreation:', fromUserCreation);
+        function openDutiesManagement(fromUserCreation = false, returnView = 'dashboard') {
+            console.log('Opening duties management, fromUserCreation:', fromUserCreation, 'returnView:', returnView);
             // Always open as full page view for consistency
             switchContentView('manage-duties');
+
+            // Store return destination for close button
+            window.dutiesReturnView = returnView;
 
             // Ensure master data is loaded
             const loadData = async () => {
@@ -43800,14 +43803,24 @@ window.addEventListener('load', function() {
             resetDutyForm();
         }
         
-        function closeDutiesManagementFromUserCreation() {
-            const modal = document.getElementById('dutiesManagementModal');
-            modal.style.display = 'none';
-            modal.style.zIndex = '10001'; // Reset to default z-index
-            // Refresh duties in user creation form
-            loadDutiesFromAPI().then(() => {
-                renderDutiesCheckboxes();
-            });
+        function closeDutiesManagement() {
+            const returnView = window.dutiesReturnView || 'dashboard';
+
+            // If coming from user creation, show the user creation modal instead
+            if (returnView === 'user-creation') {
+                const addUserModal = document.getElementById('addUserModal');
+                if (addUserModal) {
+                    addUserModal.style.display = 'flex';
+                    // Refresh duties checkboxes in the user creation form
+                    loadDutiesFromAPI().then(() => {
+                        renderDutiesCheckboxes();
+                    });
+                } else {
+                    switchContentView('dashboard');
+                }
+            } else {
+                switchContentView(returnView);
+            }
         }
         
         // ============ ROLES MANAGEMENT ============
@@ -54242,7 +54255,7 @@ document.addEventListener('keydown', function(e) {
                     <div style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
                         <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
                             <i class="fas fa-clipboard-check" style="margin-right: 0.5rem;"></i>Assigned Duties
-                            <button type="button" onclick="openDutiesManagement(true); return false;" class="category-gear-btn" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0; margin-left: 0.5rem;" title="Manage Duties">
+                            <button type="button" onclick="openDutiesManagement(true, 'user-creation'); return false;" class="category-gear-btn" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0; margin-left: 0.5rem;" title="Manage Duties">
                                 <i class="fas fa-cog"></i>
                             </button>
                         </h5>
