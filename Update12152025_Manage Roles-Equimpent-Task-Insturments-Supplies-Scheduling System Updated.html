@@ -21343,7 +21343,7 @@
                         </td>
                         <td style="padding: 1rem; text-align: center;">
                             <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                                ${compliance.attachment ? `<button onclick="viewComplianceAttachment('${userId}', ${index})" style="padding: 0.5rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;" title="View Attachment">
+                                ${(compliance.attachmentData || compliance.attachment) ? `<button onclick="viewComplianceAttachment('${userId}', ${index})" style="padding: 0.5rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;" title="View Attachment">
                                     <i class="fas fa-paperclip"></i>
                                 </button>` : ''}
                                 <button onclick="editCompliance('${userId}', ${index})" style="padding: 0.5rem; background: #f59e0b; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Edit">
@@ -21448,21 +21448,39 @@
             document.getElementById('complianceExpiryDate').value = '';
             document.getElementById('complianceReminderDate').value = '';
             document.getElementById('compliancePriority').value = 'medium';
+            document.getElementById('complianceEmployeeId').value = '';
+            document.getElementById('complianceId').value = '';
+
+            // Reset file input
             document.getElementById('complianceAttachment').value = '';
-            document.getElementById('complianceAttachmentName').value = '';
-            document.getElementById('complianceDocumentType').value = '';
-            
+            document.getElementById('attachmentPreview').innerHTML = '';
+
+            // Load compliance types
+            loadComplianceTypes();
+
+            // Show modal
+            ensureUnifiedRightRailExpandedForModal();
+            document.getElementById('complianceModal').style.display = 'flex';
+        }
+
+        // Save Compliance
+        async function saveCompliance(event) {
+            event.preventDefault();
+
+            const username = document.getElementById('complianceEmployeeId').value;
+            const complianceId = document.getElementById('complianceId').value;
+
             // Handle file attachment
             let attachmentData = null;
             let attachmentName = '';
             let attachmentType = '';
-            
+
             const fileInput = document.getElementById('complianceAttachment');
             if (fileInput.files && fileInput.files[0]) {
                 const file = fileInput.files[0];
                 attachmentName = file.name;
                 attachmentType = file.type;
-                
+
                 // Convert file to base64 for storage
                 attachmentData = await new Promise((resolve) => {
                     const reader = new FileReader();
@@ -21485,28 +21503,6 @@
                 attachmentData: attachmentData, // Base64 encoded file data
                 attachmentName: attachmentName, // Original file name
                 attachmentType: attachmentType, // MIME type
-        }
-
-        // Save Compliance
-        async function saveCompliance(event) {
-            event.preventDefault();
-
-            const username = document.getElementById('complianceEmployeeId').value;
-            const complianceId = document.getElementById('complianceId').value;
-
-            const compliance = {
-                title: document.getElementById('complianceTitle').value,
-                complianceTypeId: parseInt(document.getElementById('complianceType').value) || document.getElementById('complianceType').value,
-                description: document.getElementById('complianceDescription').value,
-                userId: username ? parseInt(username) : null, // For employee compliances
-                clinicId: null, // For clinic compliances (can be set if needed)
-                issueDate: document.getElementById('complianceIssueDate').value,
-                expiryDate: document.getElementById('complianceExpiryDate').value,
-                reminderDate: document.getElementById('complianceReminderDate').value,
-                status: 'active',
-                priority: document.getElementById('compliancePriority').value || 'medium',
-                attachmentUrl: document.getElementById('complianceAttachment').value,
-                attachmentName: document.getElementById('complianceAttachmentName').value,
                 documentType: document.getElementById('complianceDocumentType').value,
                 referenceNumber: document.getElementById('complianceReferenceNumber').value,
                 issuingAuthority: document.getElementById('complianceIssuingAuthority').value,
@@ -21929,6 +21925,10 @@
             document.getElementById('complianceExpiryDate').value = '';
             document.getElementById('complianceEmployeeId').value = '';
             document.getElementById('complianceId').value = '';
+            
+            // Reset file input
+            document.getElementById('complianceAttachment').value = '';
+            document.getElementById('attachmentPreview').innerHTML = '';
 
             // Load compliance types
             loadComplianceTypes();
@@ -22079,16 +22079,21 @@
         }
 
         // Handle file attachment preview
-        document.getElementById('complianceAttachment').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            const preview = document.getElementById('attachmentPreview');
-            
-            if (file) {
-                const fileSize = (file.size / 1024 / 1024).toFixed(2);
-                preview.innerHTML = `<i class="fas fa-file"></i> ${file.name} (${fileSize} MB)`;
-                preview.style.color = 'var(--accent-primary)';
-            } else {
-                preview.innerHTML = '';
+        document.addEventListener('DOMContentLoaded', function() {
+            const attachmentInput = document.getElementById('complianceAttachment');
+            if (attachmentInput) {
+                attachmentInput.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    const preview = document.getElementById('attachmentPreview');
+                    
+                    if (file) {
+                        const fileSize = (file.size / 1024 / 1024).toFixed(2);
+                        preview.innerHTML = `<i class="fas fa-file"></i> ${file.name} (${fileSize} MB)`;
+                        preview.style.color = 'var(--accent-primary)';
+                    } else {
+                        preview.innerHTML = '';
+                    }
+                });
             }
         });
 
@@ -22099,6 +22104,10 @@
         window.displayComplianceTypes = displayComplianceTypes;
         window.addComplianceType = addComplianceType;
         window.deleteComplianceType = deleteComplianceType;
+        </script>
+
+        <script>
+        // User management functions
         function saveEditedUser(event) {
             event.preventDefault();
             
