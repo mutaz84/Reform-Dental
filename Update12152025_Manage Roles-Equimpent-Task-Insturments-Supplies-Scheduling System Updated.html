@@ -21616,22 +21616,42 @@
                 return;
             }
 
+            const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
+            const localUserCompliances = compliances[userId] || [];
+            const localCompliance = (index >= 0 && index < localUserCompliances.length) ? localUserCompliances[index] : null;
+
+            // Resolve compliance ID for API delete (prefer explicit compliance.id, fallback to provided index)
+            let apiComplianceId = localCompliance?.id || null;
+            if (!apiComplianceId) {
+                const parsedIndex = Number(index);
+                if (Number.isFinite(parsedIndex) && parsedIndex > 0) {
+                    apiComplianceId = parsedIndex;
+                }
+            }
+
             // Check if API is available
             if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
                 try {
-                    // Get the compliance from localStorage to find its ID
-                    const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
-                    const userCompliances = compliances[userId] || [];
-                    const compliance = userCompliances[index];
-
-                    if (compliance && compliance.id) {
-                        const response = await fetch(`${API_BASE_URL}/compliances/${compliance.id}`, {
+                    if (apiComplianceId) {
+                        const response = await fetch(`${API_BASE_URL}/compliances/${apiComplianceId}`, {
                             method: 'DELETE'
                         });
 
                         if (!response.ok) {
                             throw new Error(`HTTP error! status: ${response.status}`);
                         }
+
+                        // Refresh both views when API delete succeeds
+                        if (typeof loadAllCompliances === 'function') {
+                            loadAllCompliances();
+                        }
+                        if (typeof loadUserCompliances === 'function' && userId !== undefined && userId !== null && compliances[userId]) {
+                            loadUserCompliances(userId);
+                        }
+                        if (typeof showNotification === 'function') {
+                            showNotification('Compliance deleted successfully!', 'success');
+                        }
+                        return;
                     }
                 } catch (error) {
                     console.log('API not available for delete, using localStorage fallback:', error.message);
@@ -21640,14 +21660,34 @@
 
             // Fallback to localStorage
             console.log('Using localStorage fallback for deleting compliance');
-            const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
             const userCompliances = compliances[userId] || [];
+            let deleted = false;
 
             if (index >= 0 && index < userCompliances.length) {
                 userCompliances.splice(index, 1);
                 compliances[userId] = userCompliances;
+                deleted = true;
+            } else if (apiComplianceId) {
+                // When called from compliance management view, remove by ID across all users
+                Object.keys(compliances).forEach(uid => {
+                    const list = compliances[uid] || [];
+                    const idx = list.findIndex(c => Number(c?.id) === Number(apiComplianceId));
+                    if (idx >= 0) {
+                        list.splice(idx, 1);
+                        compliances[uid] = list;
+                        deleted = true;
+                    }
+                });
+            }
+
+            if (deleted) {
                 localStorage.setItem('userCompliances', JSON.stringify(compliances));
-                loadUserCompliances(userId);
+                if (typeof loadAllCompliances === 'function') {
+                    loadAllCompliances();
+                }
+                if (typeof loadUserCompliances === 'function' && compliances[userId]) {
+                    loadUserCompliances(userId);
+                }
                 if (typeof showNotification === 'function') {
                     showNotification('Compliance deleted successfully!', 'success');
                 }
@@ -21660,16 +21700,25 @@
 
         // Edit Compliance
         async function editCompliance(userId, index) {
+            const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
+            const userCompliances = compliances[userId] || [];
+            let compliance = (index >= 0 && index < userCompliances.length) ? userCompliances[index] : null;
+            let resolvedLocalIndex = (index >= 0 && index < userCompliances.length) ? index : null;
+
+            // Resolve API compliance ID for records coming from compliance management view
+            let apiComplianceId = compliance?.id || null;
+            if (!apiComplianceId) {
+                const parsedIndex = Number(index);
+                if (Number.isFinite(parsedIndex) && parsedIndex > 0) {
+                    apiComplianceId = parsedIndex;
+                }
+            }
+
             // Check if API is available
             if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
                 try {
-                    // Get the compliance from localStorage to find its ID
-                    const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
-                    const userCompliances = compliances[userId] || [];
-                    const compliance = userCompliances[index];
-
-                    if (compliance && compliance.id) {
-                        const response = await fetch(`${API_BASE_URL}/compliances/${compliance.id}`);
+                    if (apiComplianceId) {
+                        const response = await fetch(`${API_BASE_URL}/compliances/${apiComplianceId}`);
                         if (!response.ok) {
                             throw new Error(`HTTP error! status: ${response.status}`);
                         }
@@ -21681,7 +21730,7 @@
                         document.getElementById('complianceType').value = fullCompliance.complianceTypeId || '';
                         document.getElementById('complianceIssueDate').value = fullCompliance.issueDate ? new Date(fullCompliance.issueDate).toISOString().split('T')[0] : '';
                         document.getElementById('complianceExpiryDate').value = fullCompliance.expiryDate ? new Date(fullCompliance.expiryDate).toISOString().split('T')[0] : '';
-                        document.getElementById('complianceEmployeeId').value = userId;
+                        document.getElementById('complianceEmployeeId').value = fullCompliance.userId || userId || '';
                         document.getElementById('complianceId').value = fullCompliance.id;
 
                         document.getElementById('complianceModal').style.display = 'flex';
@@ -21694,9 +21743,19 @@
 
             // Fallback to localStorage
             console.log('Using localStorage fallback for editing compliance');
-            const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
-            const userCompliances = compliances[userId] || [];
-            const compliance = userCompliances[index];
+            if (!compliance && apiComplianceId) {
+                // Attempt to find by ID across all users when invoked from aggregate view
+                Object.keys(compliances).forEach(uid => {
+                    if (compliance) return;
+                    const list = compliances[uid] || [];
+                    const foundIndex = list.findIndex(c => Number(c?.id) === Number(apiComplianceId));
+                    if (foundIndex >= 0) {
+                        compliance = list[foundIndex];
+                        resolvedLocalIndex = foundIndex;
+                        userId = uid;
+                    }
+                });
+            }
 
             if (compliance) {
                 // Populate the modal with existing data
@@ -21704,11 +21763,9 @@
                 document.getElementById('complianceDescription').value = compliance.description || '';
                 document.getElementById('complianceType').value = compliance.complianceTypeId || '';
                 document.getElementById('complianceIssueDate').value = compliance.issueDate ? new Date(compliance.issueDate).toISOString().split('T')[0] : '';
-                if (typeof showNotification === 'function') {
-                    showNotification('Error: Compliance not found.', 'error');
-                }mpliance.expiryDate ? new Date(compliance.expiryDate).toISOString().split('T')[0] : '';
+                document.getElementById('complianceExpiryDate').value = compliance.expiryDate ? new Date(compliance.expiryDate).toISOString().split('T')[0] : '';
                 document.getElementById('complianceEmployeeId').value = userId;
-                document.getElementById('complianceId').value = index; // Use index for localStorage
+                document.getElementById('complianceId').value = (resolvedLocalIndex !== null ? resolvedLocalIndex : index); // Use local index for localStorage
 
                 document.getElementById('complianceModal').style.display = 'flex';
             } else {
