@@ -35420,103 +35420,12 @@
                     <input type="date" id="floatingCalendarDateInput" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); margin-bottom: 0.5rem;">
                     <button onclick="goToFloatingCalendarDate()" style="width: 100%; background: linear-gradient(135deg, #0891b2, #0e7490); color: white; border: none; border-radius: 8px; padding: 0.75rem; cursor: pointer; font-weight: 600;">Go to Date</button>
                 </div>
-                
-                <!-- Calendar Grid -->
-                <div style="background: var(--bg-secondary); border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
-                    <!-- Day Headers -->
-                    <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.25rem; margin-bottom: 0.5rem;">
-                        ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => 
-                            `<div style="text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); padding: 0.25rem;">${day}</div>`
-                        ).join('')}
-                    </div>
-                    
-                    <!-- Calendar Days -->
-                    <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.25rem;" id="floatingCalendarGrid">
-                        <!-- Days will be populated by JavaScript -->
-                    </div>
-                </div>
             `;
             
             // Set the date input value
             const input = document.getElementById('floatingCalendarDateInput');
             if (input) {
                 input.value = quickCalendarDate.toISOString().split('T')[0];
-            }
-            
-            // Populate calendar days
-            populateFloatingCalendarDays();
-        }
-
-        // Populate Floating Calendar Days
-        function populateFloatingCalendarDays() {
-            const grid = document.getElementById('floatingCalendarGrid');
-            if (!grid) return;
-            
-            const year = quickCalendarDate.getFullYear();
-            const month = quickCalendarDate.getMonth();
-            
-            // Clear existing days
-            grid.innerHTML = '';
-            
-            // Get first day of month and last day of month
-            const firstDay = new Date(year, month, 1);
-            const lastDay = new Date(year, month + 1, 0);
-            const startDate = new Date(firstDay);
-            startDate.setDate(startDate.getDate() - firstDay.getDay());
-            
-            // Generate 6 weeks of days
-            for (let week = 0; week < 6; week++) {
-                for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
-                    const currentDate = new Date(startDate);
-                    currentDate.setDate(startDate.getDate() + (week * 7) + dayOfWeek);
-                    
-                    const day = currentDate.getDate();
-                    const isCurrentMonth = currentDate.getMonth() === month;
-                    const isToday = currentDate.toDateString() === new Date().toDateString();
-                    
-                    const dayEl = document.createElement('button');
-                    dayEl.textContent = day;
-                    dayEl.style.cssText = `
-                        padding: 0.5rem;
-                        border: 1px solid ${isToday ? '#06b6d4' : 'transparent'};
-                        border-radius: 8px;
-                        background: ${isCurrentMonth ? (isToday ? '#06b6d4' : 'var(--bg-primary)') : 'var(--bg-tertiary)'};
-                        color: ${isCurrentMonth ? (isToday ? 'white' : 'var(--text-primary)') : 'var(--text-secondary)'};
-                        cursor: pointer;
-                        font-size: 0.8rem;
-                        font-weight: ${isToday ? '600' : '400'};
-                        transition: all 0.2s;
-                        text-align: center;
-                        min-height: 36px;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                    `;
-                    
-                    if (isCurrentMonth) {
-                        dayEl.onmouseover = () => {
-                            dayEl.style.background = isToday ? '#0891b2' : 'var(--accent-primary)';
-                            dayEl.style.color = 'white';
-                        };
-                        dayEl.onmouseout = () => {
-                            dayEl.style.background = isToday ? '#06b6d4' : 'var(--bg-primary)';
-                            dayEl.style.color = isToday ? 'white' : 'var(--text-primary)';
-                        };
-                        
-                        dayEl.onclick = ((day) => {
-                            return () => {
-                                goToCalendarDate(day);
-                                // Close the floating calendar after selection
-                                setTimeout(() => closeFloatingCalendar(), 300);
-                            };
-                        })(day);
-                    } else {
-                        dayEl.style.cursor = 'default';
-                        dayEl.style.opacity = '0.5';
-                    }
-                    
-                    grid.appendChild(dayEl);
-                }
             }
         }
 
@@ -35526,10 +35435,6 @@
             if (input && input.value) {
                 const date = new Date(input.value);
                 if (!isNaN(date.getTime())) {
-                    // Set quick calendar to the selected month
-                    quickCalendarDate = new Date(date.getFullYear(), date.getMonth(), 1);
-                    renderFloatingCalendar();
-                    
                     // Sync main calendar
                     if (window.calendarInstance) {
                         window.calendarInstance.currentDate = new Date(date);
