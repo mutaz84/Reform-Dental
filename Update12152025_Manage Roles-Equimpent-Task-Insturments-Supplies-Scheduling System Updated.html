@@ -19041,6 +19041,9 @@
                         <span>Compliance Management</span>
                     </h2>
                     <div class="section-actions">
+                        <button onclick="openComplianceTypesManager()" class="btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.9rem; margin-right: 0.5rem;">
+                            <i class="fas fa-cog" style="margin-right: 0.5rem;"></i>Manage Types
+                        </button>
                         <button onclick="openNewComplianceModal()" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">
                             <i class="fas fa-plus" style="margin-right: 0.5rem;"></i>Add Compliance
                         </button>
@@ -21275,7 +21278,7 @@
                         </td>
                         <td style="padding: 1rem; text-align: center;">
                             <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                                ${compliance.attachmentUrl ? `<button onclick="viewComplianceAttachment(${compliance.id})" style="padding: 0.5rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;" title="View Attachment">
+                                ${(compliance.attachmentData || compliance.attachmentUrl) ? `<button onclick="viewComplianceAttachment(${compliance.id})" style="padding: 0.5rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;" title="View Attachment">
                                     <i class="fas fa-paperclip"></i>
                                 </button>` : ''}
                                 <button onclick="editCompliance(${compliance.id})" style="padding: 0.5rem; background: #f59e0b; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Edit">
@@ -21370,7 +21373,7 @@
             try {
                 // Check if API_BASE_URL is defined
                 if (typeof API_BASE_URL === 'undefined' || !API_BASE_URL) {
-                    console.log('API_BASE_URL not defined, using fallback compliance types');
+                    console.log('API_BASE_URL not defined, using localStorage fallback');
                     throw new Error('API_BASE_URL not defined');
                 }
 
@@ -21390,26 +21393,48 @@
                     select.appendChild(option);
                 });
             } catch (error) {
-                console.log('Using fallback compliance types:', error.message);
-                // Fallback to basic options with proper IDs
-                const select = document.getElementById('complianceType');
-                select.innerHTML = `
-                    <option value="">Select Compliance Type</option>
-                    <option value="1">CPR Certification</option>
-                    <option value="2">BLS Certification</option>
-                    <option value="3">HIPAA Training</option>
-                    <option value="4">OSHA Training</option>
-                    <option value="5">Infection Control</option>
-                    <option value="6">DEA License</option>
-                    <option value="7">State Dental License</option>
-                    <option value="8">Malpractice Insurance</option>
-                    <option value="9">Business License</option>
-                    <option value="10">Fire Safety Inspection</option>
-                    <option value="11">X-Ray Machine Registration</option>
-                    <option value="12">Waste Disposal License</option>
-                    <option value="13">Water Quality Test</option>
-                    <option value="14">HVAC Maintenance</option>
-                `;
+                console.log('Using localStorage fallback for compliance types');
+                // Fallback to localStorage
+                const storedTypes = JSON.parse(localStorage.getItem('complianceTypes') || '[]');
+                
+                // If no stored types, use defaults
+                if (storedTypes.length === 0) {
+                    const defaultTypes = [
+                        { id: 1, name: 'CPR Certification' },
+                        { id: 2, name: 'BLS Certification' },
+                        { id: 3, name: 'HIPAA Training' },
+                        { id: 4, name: 'OSHA Training' },
+                        { id: 5, name: 'Infection Control' },
+                        { id: 6, name: 'DEA License' },
+                        { id: 7, name: 'State Dental License' },
+                        { id: 8, name: 'Malpractice Insurance' },
+                        { id: 9, name: 'Business License' },
+                        { id: 10, name: 'Fire Safety Inspection' },
+                        { id: 11, name: 'X-Ray Machine Registration' },
+                        { id: 12, name: 'Waste Disposal License' },
+                        { id: 13, name: 'Water Quality Test' },
+                        { id: 14, name: 'HVAC Maintenance' }
+                    ];
+                    localStorage.setItem('complianceTypes', JSON.stringify(defaultTypes));
+                    
+                    const select = document.getElementById('complianceType');
+                    select.innerHTML = '<option value="">Select Compliance Type</option>';
+                    defaultTypes.forEach(type => {
+                        const option = document.createElement('option');
+                        option.value = type.id;
+                        option.textContent = type.name;
+                        select.appendChild(option);
+                    });
+                } else {
+                    const select = document.getElementById('complianceType');
+                    select.innerHTML = '<option value="">Select Compliance Type</option>';
+                    storedTypes.forEach(type => {
+                        const option = document.createElement('option');
+                        option.value = type.id;
+                        option.textContent = type.name;
+                        select.appendChild(option);
+                    });
+                }
             }
         }
 
@@ -21426,20 +21451,40 @@
             document.getElementById('complianceAttachment').value = '';
             document.getElementById('complianceAttachmentName').value = '';
             document.getElementById('complianceDocumentType').value = '';
-            document.getElementById('complianceReferenceNumber').value = '';
-            document.getElementById('complianceIssuingAuthority').value = '';
-            document.getElementById('complianceCost').value = '';
-            document.getElementById('complianceNotes').value = '';
+            
+            // Handle file attachment
+            let attachmentData = null;
+            let attachmentName = '';
+            let attachmentType = '';
+            
+            const fileInput = document.getElementById('complianceAttachment');
+            if (fileInput.files && fileInput.files[0]) {
+                const file = fileInput.files[0];
+                attachmentName = file.name;
+                attachmentType = file.type;
+                
+                // Convert file to base64 for storage
+                attachmentData = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.readAsDataURL(file);
+                });
+            }
 
-            // Load compliance types
-            await loadComplianceTypes();
-
-            document.getElementById('complianceModal').style.display = 'flex';
-        }
-
-        // Close Compliance Modal
-        function closeComplianceModal() {
-            document.getElementById('complianceModal').style.display = 'none';
+            const compliance = {
+                title: document.getElementById('complianceTitle').value,
+                complianceTypeId: parseInt(document.getElementById('complianceType').value) || document.getElementById('complianceType').value,
+                description: document.getElementById('complianceDescription').value,
+                userId: username ? parseInt(username) : null, // For employee compliances
+                clinicId: null, // For clinic compliances (can be set if needed)
+                issueDate: document.getElementById('complianceIssueDate').value,
+                expiryDate: document.getElementById('complianceExpiryDate').value,
+                reminderDate: document.getElementById('complianceReminderDate').value,
+                status: 'active',
+                priority: document.getElementById('compliancePriority').value || 'medium',
+                attachmentData: attachmentData, // Base64 encoded file data
+                attachmentName: attachmentName, // Original file name
+                attachmentType: attachmentType, // MIME type
         }
 
         // Save Compliance
@@ -21636,21 +21681,61 @@
 
         // View Compliance Attachment
         function viewComplianceAttachment(complianceId) {
-            // For now, we'll need to fetch the compliance to get the attachment URL
-            // In a real implementation, you might want to pass the URL directly
-            fetch(`${API_BASE_URL}/compliances/${complianceId}`)
-                .then(response => response.json())
-                .then(compliance => {
-                    if (compliance.attachmentUrl) {
-                        window.open(compliance.attachmentUrl, '_blank');
-                    } else {
-                        showNotification('No attachment found for this compliance.', 'warning');
+            // First try to find the compliance in the current view data
+            // For API-based compliances
+            if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
+                fetch(`${API_BASE_URL}/compliances/${complianceId}`)
+                    .then(response => response.json())
+                    .then(compliance => {
+                        if (compliance.attachmentData) {
+                            // Create a download link for base64 data
+                            const link = document.createElement('a');
+                            link.href = compliance.attachmentData;
+                            link.download = compliance.attachmentName || 'attachment';
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                        } else if (compliance.attachmentUrl) {
+                            // Fallback for URL-based attachments
+                            window.open(compliance.attachmentUrl, '_blank');
+                        } else {
+                            showNotification('No attachment found for this compliance.', 'warning');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error loading compliance attachment:', error);
+                        showNotification('Error loading attachment.', 'error');
+                    });
+            } else {
+                // Fallback to localStorage
+                const allCompliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
+                let foundCompliance = null;
+                
+                // Search through all users' compliances
+                for (const userId in allCompliances) {
+                    const userCompliances = allCompliances[userId];
+                    const compliance = userCompliances.find(c => c.id === complianceId);
+                    if (compliance) {
+                        foundCompliance = compliance;
+                        break;
                     }
-                })
-                .catch(error => {
-                    console.error('Error loading compliance attachment:', error);
-                    showNotification('Error loading attachment.', 'error');
-                });
+                }
+                
+                if (foundCompliance && foundCompliance.attachmentData) {
+                    // Create a download link for base64 data
+                    const link = document.createElement('a');
+                    link.href = foundCompliance.attachmentData;
+                    link.download = foundCompliance.attachmentName || 'attachment';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                } else if (foundCompliance && foundCompliance.attachmentUrl) {
+                    // Fallback for URL-based attachments
+                    window.open(foundCompliance.attachmentUrl, '_blank');
+                } else {
+                    showNotification('No attachment found for this compliance.', 'warning');
+                }
+            }
         }
 
         // Load all compliances for the compliance management view
@@ -21855,18 +21940,165 @@
 
         // ========== END COMPLIANCES MANAGEMENT FUNCTIONS ==========
 
+        // Open Compliance Types Manager Modal
+        function openComplianceTypesManager() {
+            loadComplianceTypesForManager();
+            ensureUnifiedRightRailExpandedForModal();
+            document.getElementById('complianceTypesModal').style.display = 'flex';
+        }
+
+        // Close Compliance Types Manager Modal
+        function closeComplianceTypesModal() {
+            document.getElementById('complianceTypesModal').style.display = 'none';
+        }
+
+        // Load compliance types for the manager
+        async function loadComplianceTypesForManager() {
+            const typesList = document.getElementById('complianceTypesList');
+            typesList.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-secondary);"><i class="fas fa-spinner fa-spin"></i> Loading types...</div>';
+
+            try {
+                let types = [];
+
+                // Try to load from API first
+                if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
+                    try {
+                        const response = await fetch(`${API_BASE_URL}/compliance-types`);
+                        if (response.ok) {
+                            types = await response.json();
+                        }
+                    } catch (apiError) {
+                        console.log('API not available for compliance types, using localStorage');
+                    }
+                }
+
+                // If no API data, load from localStorage
+                if (types.length === 0) {
+                    const storedTypes = localStorage.getItem('complianceTypes') || '[]';
+                    types = JSON.parse(storedTypes);
+                }
+
+                // If still no types, use default types
+                if (types.length === 0) {
+                    types = [
+                        { id: 1, name: 'CPR Certification' },
+                        { id: 2, name: 'BLS Certification' },
+                        { id: 3, name: 'HIPAA Training' },
+                        { id: 4, name: 'OSHA Training' },
+                        { id: 5, name: 'Infection Control' },
+                        { id: 6, name: 'DEA License' },
+                        { id: 7, name: 'State Dental License' },
+                        { id: 8, name: 'Malpractice Insurance' },
+                        { id: 9, name: 'Business License' },
+                        { id: 10, name: 'Fire Safety Inspection' },
+                        { id: 11, name: 'X-Ray Machine Registration' },
+                        { id: 12, name: 'Waste Disposal License' },
+                        { id: 13, name: 'Water Quality Test' },
+                        { id: 14, name: 'HVAC Maintenance' }
+                    ];
+                    // Save default types to localStorage
+                    localStorage.setItem('complianceTypes', JSON.stringify(types));
+                }
+
+                displayComplianceTypes(types);
+            } catch (error) {
+                console.error('Error loading compliance types:', error);
+                typesList.innerHTML = '<div style="text-align: center; padding: 2rem; color: #ef4444;"><i class="fas fa-exclamation-triangle"></i> Error loading types</div>';
+            }
+        }
+
+        // Display compliance types in the manager
+        function displayComplianceTypes(types) {
+            const typesList = document.getElementById('complianceTypesList');
+            
+            if (types.length === 0) {
+                typesList.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-secondary);"><i class="fas fa-info-circle"></i> No compliance types found</div>';
+                return;
+            }
+
+            typesList.innerHTML = types.map(type => `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid var(--border-color);">
+                    <span style="color: var(--text-primary); font-weight: 500;">${type.name}</span>
+                    <button onclick="deleteComplianceType(${type.id})" style="background: #ef4444; color: white; border: none; padding: 0.5rem; border-radius: 6px; cursor: pointer; font-size: 0.9rem;" title="Delete Type">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Add new compliance type
+        function addComplianceType() {
+            const typeName = document.getElementById('newComplianceTypeName').value.trim();
+            
+            if (!typeName) {
+                showNotification('Please enter a type name', 'error');
+                return;
+            }
+
+            // Load existing types
+            const storedTypes = JSON.parse(localStorage.getItem('complianceTypes') || '[]');
+            
+            // Check if type already exists
+            if (storedTypes.some(type => type.name.toLowerCase() === typeName.toLowerCase())) {
+                showNotification('This compliance type already exists', 'error');
+                return;
+            }
+
+            // Add new type
+            const newType = {
+                id: Date.now(), // Simple ID generation
+                name: typeName
+            };
+            
+            storedTypes.push(newType);
+            localStorage.setItem('complianceTypes', JSON.stringify(storedTypes));
+
+            // Clear input and reload
+            document.getElementById('newComplianceTypeName').value = '';
+            loadComplianceTypesForManager();
+            loadComplianceTypes(); // Also reload the dropdown in the form
+            
+            showNotification('Compliance type added successfully', 'success');
+        }
+
+        // Delete compliance type
+        function deleteComplianceType(typeId) {
+            if (!confirm('Are you sure you want to delete this compliance type? This action cannot be undone.')) {
+                return;
+            }
+
+            const storedTypes = JSON.parse(localStorage.getItem('complianceTypes') || '[]');
+            const filteredTypes = storedTypes.filter(type => type.id !== typeId);
+            
+            localStorage.setItem('complianceTypes', JSON.stringify(filteredTypes));
+            
+            loadComplianceTypesForManager();
+            loadComplianceTypes(); // Also reload the dropdown in the form
+            
+            showNotification('Compliance type deleted successfully', 'success');
+        }
+
+        // Handle file attachment preview
+        document.getElementById('complianceAttachment').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            const preview = document.getElementById('attachmentPreview');
+            
+            if (file) {
+                const fileSize = (file.size / 1024 / 1024).toFixed(2);
+                preview.innerHTML = `<i class="fas fa-file"></i> ${file.name} (${fileSize} MB)`;
+                preview.style.color = 'var(--accent-primary)';
+            } else {
+                preview.innerHTML = '';
+            }
+        });
+
         // Expose functions globally
-        window.openUserCompliancesModal = openUserCompliancesModal;
-        window.closeUserCompliancesModal = closeUserCompliancesModal;
-        window.openAddComplianceModal = openAddComplianceModal;
-        window.closeComplianceModal = closeComplianceModal;
-        window.saveCompliance = saveCompliance;
-        window.editCompliance = editCompliance;
-        window.deleteCompliance = deleteCompliance;
-        window.viewComplianceAttachment = viewComplianceAttachment;
-        window.loadAllCompliances = loadAllCompliances;
-        window.filterCompliances = filterCompliances;
-        window.openNewComplianceModal = openNewComplianceModal;
+        window.openComplianceTypesManager = openComplianceTypesManager;
+        window.closeComplianceTypesModal = closeComplianceTypesModal;
+        window.loadComplianceTypesForManager = loadComplianceTypesForManager;
+        window.displayComplianceTypes = displayComplianceTypes;
+        window.addComplianceType = addComplianceType;
+        window.deleteComplianceType = deleteComplianceType;
         function saveEditedUser(event) {
             event.preventDefault();
             
@@ -56300,9 +56532,10 @@ document.addEventListener('keydown', function(e) {
                     <div class="form-group" style="margin-bottom: 1rem;">
                         <label for="complianceAttachment">
                             Document Attachment
-                            <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Upload certificate, license, or training document"></i>
+                            <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Upload certificate, license, or training document (PDF, DOC, DOCX, JPG, PNG)"></i>
                         </label>
-                        <input type="url" id="complianceAttachment" placeholder="https://example.com/certificate.pdf" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                        <input type="file" id="complianceAttachment" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                        <div id="attachmentPreview" style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);"></div>
                     </div>
                     <div class="form-group" style="margin-bottom: 0;">
                         <label for="complianceNotes">
@@ -56323,6 +56556,52 @@ document.addEventListener('keydown', function(e) {
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Compliance Types Manager Modal -->
+    <div id="complianceTypesModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.6); z-index: 10006; align-items: center; justify-content: center;">
+        <div class="modal-content" style="background: var(--bg-primary); border-radius: 12px; width: 90%; max-width: 600px; max-height: 80vh; overflow: hidden; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);">
+            <div class="modal-header" style="padding: 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; color: var(--text-primary);">
+                    <i class="fas fa-cog" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+                    Manage Compliance Types
+                </h3>
+                <button onclick="closeComplianceTypesModal()" style="background: #ef4444; color: white; border: none; width: 40px; height: 40px; border-radius: 8px; font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Close">&times;</button>
+            </div>
+            
+            <div class="modal-body" style="padding: 2rem; max-height: 60vh; overflow-y: auto;">
+                <!-- Add New Type Form -->
+                <div style="background: var(--card-bg); border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; border: 1px solid var(--border-color);">
+                    <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">
+                        <i class="fas fa-plus" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+                        Add New Compliance Type
+                    </h4>
+                    <div style="display: flex; gap: 1rem; align-items: flex-end;">
+                        <div style="flex: 1;">
+                            <label for="newComplianceTypeName" style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: var(--text-primary);">Type Name</label>
+                            <input type="text" id="newComplianceTypeName" placeholder="e.g., OSHA Training" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary);">
+                        </div>
+                        <button onclick="addComplianceType()" style="padding: 0.75rem 1.5rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-plus"></i>
+                            Add Type
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Existing Types List -->
+                <div style="background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border-color);">
+                    <div style="padding: 1.5rem; border-bottom: 1px solid var(--border-color);">
+                        <h4 style="margin: 0; color: var(--text-primary);">
+                            <i class="fas fa-list" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+                            Existing Compliance Types
+                        </h4>
+                    </div>
+                    <div id="complianceTypesList" style="max-height: 300px; overflow-y: auto;">
+                        <!-- Types will be loaded here -->
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
