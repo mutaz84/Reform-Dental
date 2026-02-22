@@ -43692,10 +43692,35 @@ window.addEventListener('load', function() {
         // Duties Management Modal Functions
         let editingDutyId = null;
         
-        function openDutiesManagement() {
-            switchContentView('manage-duties');
-            populateDutyOfficeDropdown();
-            renderDutiesList();
+        function openDutiesManagement(fromUserCreation = false) {
+            if (fromUserCreation) {
+                // Open as modal from user creation
+                document.getElementById('dutiesManagementModal').setAttribute('data-from-user-creation', 'true');
+                document.getElementById('dutiesManagementModal').style.display = 'flex';
+                populateDutyOfficeDropdown();
+                renderDutiesList();
+                // Change close button behavior
+                const closeBtn = document.querySelector('#dutiesManagementModal .login-header button[onclick*="closeDutiesManagement"]');
+                if (closeBtn) {
+                    closeBtn.setAttribute('onclick', 'closeDutiesManagementFromUserCreation()');
+                }
+                // Add cancel button to form
+                const formActions = document.querySelector('#dutiesManagementModal form .form-group:last-child');
+                if (formActions && !formActions.querySelector('.cancel-from-user-creation')) {
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.type = 'button';
+                    cancelBtn.className = 'cancel-from-user-creation';
+                    cancelBtn.style.cssText = 'padding: 0.75rem 1rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;';
+                    cancelBtn.innerHTML = '<i class="fas fa-arrow-left"></i> Back to User Creation';
+                    cancelBtn.onclick = closeDutiesManagementFromUserCreation;
+                    formActions.appendChild(cancelBtn);
+                }
+            } else {
+                // Open as full page view
+                switchContentView('manage-duties');
+                populateDutyOfficeDropdown();
+                renderDutiesList();
+            }
         }
         
         // Populate office dropdown for duties
@@ -43758,13 +43783,40 @@ window.addEventListener('load', function() {
             resetDutyForm();
         }
         
+        function closeDutiesManagementFromUserCreation() {
+            document.getElementById('dutiesManagementModal').style.display = 'none';
+            // Refresh duties in user creation form
+            loadDutiesFromAPI().then(() => {
+                populateDutiesCheckboxContainer();
+            });
+        }
+        
         // ============ ROLES MANAGEMENT ============
         
         let editingRoleId = null;
         
-        async function openRolesManagement() {
+        async function openRolesManagement(fromUserCreation = false) {
             const modal = document.getElementById('rolesManagementModal');
             if (modal) {
+                if (fromUserCreation) {
+                    modal.setAttribute('data-from-user-creation', 'true');
+                    // Change close button behavior
+                    const closeBtn = document.querySelector('#rolesManagementModal .login-header button[onclick*="closeRolesManagement"]');
+                    if (closeBtn) {
+                        closeBtn.setAttribute('onclick', 'closeRolesManagementFromUserCreation()');
+                    }
+                    // Add cancel button to form if it exists
+                    const formActions = document.querySelector('#rolesManagementModal form .form-group:last-child');
+                    if (formActions && !formActions.querySelector('.cancel-from-user-creation')) {
+                        const cancelBtn = document.createElement('button');
+                        cancelBtn.type = 'button';
+                        cancelBtn.className = 'cancel-from-user-creation';
+                        cancelBtn.style.cssText = 'padding: 0.75rem 1rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;';
+                        cancelBtn.innerHTML = '<i class="fas fa-arrow-left"></i> Back to User Creation';
+                        cancelBtn.onclick = closeRolesManagementFromUserCreation;
+                        formActions.appendChild(cancelBtn);
+                    }
+                }
                 ensureUnifiedRightRailExpandedForModal();
                 modal.style.display = 'flex';
 
@@ -43785,6 +43837,14 @@ window.addEventListener('load', function() {
             }
             editingRoleId = null;
             closeRoleForm();
+        }
+        
+        function closeRolesManagementFromUserCreation() {
+            document.getElementById('rolesManagementModal').style.display = 'none';
+            // Refresh roles in user creation form
+            loadRolesFromAPI().then(() => {
+                populateRoleTypeDropdown();
+            });
         }
         
         function openAddRoleForm() {
@@ -43872,6 +43932,11 @@ window.addEventListener('load', function() {
                     displayRolesList();
                     closeRoleForm();
                     populateRoleDropdowns();
+                    
+                    // If opened from user creation, redirect back
+                    if (document.getElementById('rolesManagementModal').getAttribute('data-from-user-creation') === 'true') {
+                        closeRolesManagementFromUserCreation();
+                    }
                 } else {
                     throw new Error('API request failed');
                 }
@@ -43896,6 +43961,11 @@ window.addEventListener('load', function() {
                 displayRolesList();
                 closeRoleForm();
                 populateRoleDropdowns();
+                
+                // If opened from user creation, redirect back
+                if (document.getElementById('rolesManagementModal').getAttribute('data-from-user-creation') === 'true') {
+                    closeRolesManagementFromUserCreation();
+                }
             }
         }
         
@@ -44438,6 +44508,11 @@ window.addEventListener('load', function() {
                     resetDutyForm();
                     await loadDutiesFromAPI();
                     renderDutiesList();
+                    
+                    // If opened from user creation, redirect back
+                    if (document.getElementById('dutiesManagementModal').getAttribute('data-from-user-creation') === 'true') {
+                        closeDutiesManagementFromUserCreation();
+                    }
                 } else {
                     throw new Error('Failed to save duty');
                 }
@@ -54021,7 +54096,7 @@ document.addEventListener('keydown', function(e) {
                                     <select id="newJobRole" style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                         <option value="">--Select Role--</option>
                                     </select>
-                                    <button type="button" onclick="openRolesManagement(); return false;" class="category-gear-btn" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Job Roles">
+                                    <button type="button" onclick="openRolesManagement(true); return false;" class="category-gear-btn" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Job Roles">
                                         <i class="fas fa-cog"></i>
                                     </button>
                                 </div>
@@ -54137,7 +54212,7 @@ document.addEventListener('keydown', function(e) {
                     <div style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
                         <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
                             <i class="fas fa-clipboard-check" style="margin-right: 0.5rem;"></i>Assigned Duties
-                            <button type="button" onclick="openDutiesManagement(); return false;" class="category-gear-btn" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0; margin-left: 0.5rem;" title="Manage Duties">
+                            <button type="button" onclick="openDutiesManagement(true); return false;" class="category-gear-btn" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0; margin-left: 0.5rem;" title="Manage Duties">
                                 <i class="fas fa-cog"></i>
                             </button>
                         </h5>
