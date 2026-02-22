@@ -387,6 +387,7 @@ CREATE TABLE StickyNotes (
 CREATE INDEX IX_StickyNotes_UserId ON StickyNotes(UserId);
 
 -- =============================================
+DROP TABLE IF EXISTS AuditLog;
 -- 17. AUDIT LOG TABLE (for tracking changes)
 -- =============================================
 CREATE TABLE AuditLog (
@@ -409,6 +410,7 @@ CREATE INDEX IX_AuditLog_CreatedDate ON AuditLog(CreatedDate);
 -- Added: February 2026
 -- =============================================
 
+DROP TABLE IF EXISTS ComplianceTypes;
 -- =============================================
 -- 18. COMPLIANCE TYPES TABLE
 -- =============================================
@@ -430,6 +432,7 @@ CREATE TABLE ComplianceTypes (
 -- Create indexes
 CREATE INDEX IX_ComplianceTypes_Category ON ComplianceTypes(Category);
 CREATE INDEX IX_ComplianceTypes_IsActive ON ComplianceTypes(IsActive);
+DROP TABLE IF EXISTS Compliances;
 
 -- =============================================
 -- 19. COMPLIANCES TABLE
@@ -509,6 +512,7 @@ INSERT INTO ComplianceTypes (Name, Description, Category, RequiresEmployee, Requ
 ('HVAC Maintenance', 'Heating, ventilation, and air conditioning maintenance certification', 'facility', 0, 1, 12, '#7c2d12', 'fas fa-wind');
 GO
 
+DROP VIEW IF EXISTS vw_ActiveEmployees;
 -- =============================================
 -- HELPFUL VIEWS
 -- =============================================
@@ -524,6 +528,7 @@ SELECT
     u.Role,
     u.WorkEmail,
     u.CellPhone,
+DROP VIEW IF EXISTS vw_TodaySchedules;
     u.Color
 FROM Users u
 WHERE u.IsActive = 1 AND u.EmployeeStatus = 'active';
@@ -543,6 +548,7 @@ FROM Schedules s
 JOIN Users u ON s.UserId = u.Id
 JOIN Clinics c ON s.ClinicId = c.Id
 LEFT JOIN Rooms r ON s.RoomId = r.Id
+DROP VIEW IF EXISTS vw_PendingTasks;
 WHERE s.IsActive = 1
     AND CAST(GETDATE() AS DATE) BETWEEN s.StartDate AND ISNULL(s.EndDate, '2099-12-31')
     AND s.DaysOfWeek LIKE '%' + LEFT(DATENAME(WEEKDAY, GETDATE()), 3) + '%';
@@ -558,6 +564,7 @@ SELECT
     t.DueDate,
     u.FirstName + ' ' + ISNULL(u.LastName, '') AS AssignedTo,
     c.Name AS ClinicName
+DROP VIEW IF EXISTS vw_LowStockSupplies;
 FROM Tasks t
 LEFT JOIN Users u ON t.AssignedToId = u.Id
 LEFT JOIN Clinics c ON t.ClinicId = c.Id
@@ -572,6 +579,7 @@ SELECT
     s.Category,
     s.QuantityInStock,
     s.MinimumStock,
+DROP VIEW IF EXISTS vw_ActiveCompliances;
     s.ReorderPoint,
     c.Name AS ClinicName
 FROM Supplies s
@@ -597,18 +605,21 @@ SELECT
     END AS AssignedTo,
     c.AttachmentUrl,
     c.ReferenceNumber,
+DROP VIEW IF EXISTS vw_ExpiringCompliances;
     DATEDIFF(DAY, GETDATE(), c.ExpiryDate) AS DaysUntilExpiry
 FROM Compliances c
 JOIN ComplianceTypes ct ON c.ComplianceTypeId = ct.Id
 LEFT JOIN Users u ON c.UserId = u.Id
 LEFT JOIN Clinics cl ON c.ClinicId = cl.Id
 WHERE c.Status = 'active' AND ct.IsActive = 1;
+DROP VIEW IF EXISTS vw_ExpiredCompliances;
 GO
 
 -- View: Expiring Compliances (next 30 days)
 CREATE VIEW vw_ExpiringCompliances AS
 SELECT * FROM vw_ActiveCompliances
 WHERE DaysUntilExpiry <= 30 AND DaysUntilExpiry >= 0
+DROP VIEW IF EXISTS vw_EmployeeCompliances;
 ORDER BY DaysUntilExpiry ASC;
 GO
 
