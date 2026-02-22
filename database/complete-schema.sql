@@ -8,6 +8,7 @@
 -- =============================================
 -- 1. USERS TABLE
 -- =============================================
+DROP TABLE IF EXISTS Users;
 CREATE TABLE Users (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     Username NVARCHAR(50) NOT NULL UNIQUE,
@@ -50,6 +51,7 @@ CREATE INDEX IX_Users_Role ON Users(Role);
 -- =============================================
 -- 2. CLINICS TABLE
 -- =============================================
+DROP TABLE IF EXISTS Clinics;
 CREATE TABLE Clinics (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     Name NVARCHAR(200) NOT NULL,
@@ -70,6 +72,7 @@ CREATE TABLE Clinics (
 -- =============================================
 -- 3. ROOMS TABLE
 -- =============================================
+DROP TABLE IF EXISTS Rooms;
 CREATE TABLE Rooms (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     ClinicId INT NOT NULL FOREIGN KEY REFERENCES Clinics(Id),
@@ -87,6 +90,7 @@ CREATE INDEX IX_Rooms_ClinicId ON Rooms(ClinicId);
 -- =============================================
 -- 4. SCHEDULES/SHIFTS TABLE
 -- =============================================
+DROP TABLE IF EXISTS Schedules;
 CREATE TABLE Schedules (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     UserId INT NOT NULL FOREIGN KEY REFERENCES Users(Id),
@@ -112,6 +116,7 @@ CREATE INDEX IX_Schedules_StartDate ON Schedules(StartDate);
 -- =============================================
 -- 5. EVENTS TABLE (Calendar Events)
 -- =============================================
+DROP TABLE IF EXISTS Events;
 CREATE TABLE Events (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     Title NVARCHAR(255) NOT NULL,
@@ -139,6 +144,7 @@ CREATE INDEX IX_Events_ClinicId ON Events(ClinicId);
 -- =============================================
 -- 6. TASKS TABLE
 -- =============================================
+DROP TABLE IF EXISTS Tasks;
 CREATE TABLE Tasks (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     Title NVARCHAR(255) NOT NULL,
@@ -168,6 +174,7 @@ CREATE INDEX IX_Tasks_Category ON Tasks(Category);
 
 -- =============================================
 -- 7. TASK TEMPLATES TABLE
+DROP TABLE IF EXISTS TaskTemplates;
 -- =============================================
 CREATE TABLE TaskTemplates (
     Id INT IDENTITY(1,1) PRIMARY KEY,
@@ -186,6 +193,7 @@ CREATE TABLE TaskTemplates (
 );
 
 -- =============================================
+DROP TABLE IF EXISTS Equipment;
 -- 8. EQUIPMENT TABLE
 -- =============================================
 CREATE TABLE Equipment (
@@ -218,6 +226,7 @@ CREATE INDEX IX_Equipment_ClinicId ON Equipment(ClinicId);
 CREATE INDEX IX_Equipment_Status ON Equipment(Status);
 
 -- =============================================
+DROP TABLE IF EXISTS Supplies;
 -- 9. SUPPLIES TABLE
 -- =============================================
 CREATE TABLE Supplies (
@@ -247,6 +256,7 @@ CREATE TABLE Supplies (
 CREATE INDEX IX_Supplies_Category ON Supplies(Category);
 CREATE INDEX IX_Supplies_ClinicId ON Supplies(ClinicId);
 
+DROP TABLE IF EXISTS Instruments;
 -- =============================================
 -- 10. INSTRUMENTS TABLE
 -- =============================================
@@ -278,6 +288,7 @@ CREATE INDEX IX_Instruments_ClinicId ON Instruments(ClinicId);
 -- =============================================
 -- 11. CATEGORIES TABLE
 -- =============================================
+DROP TABLE IF EXISTS Categories;
 CREATE TABLE Categories (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     Name NVARCHAR(200) NOT NULL,
@@ -295,6 +306,7 @@ CREATE INDEX IX_Categories_IsActive ON Categories(IsActive);
 -- =============================================
 -- 12. VENDOR TYPES TABLE
 -- =============================================
+DROP TABLE IF EXISTS VendorTypes;
 CREATE TABLE VendorTypes (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     Name NVARCHAR(200) NOT NULL,
@@ -307,6 +319,7 @@ CREATE TABLE VendorTypes (
 -- =============================================
 -- 13. PROCEDURES TABLE
 -- =============================================
+DROP TABLE IF EXISTS Procedures;
 CREATE TABLE Procedures (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     Name NVARCHAR(200) NOT NULL,
@@ -322,6 +335,7 @@ CREATE TABLE Procedures (
 -- =============================================
 -- 14. PROCEDURE INSTRUMENTS (Many-to-Many)
 -- =============================================
+DROP TABLE IF EXISTS ProcedureInstruments;
 CREATE TABLE ProcedureInstruments (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     ProcedureId INT NOT NULL FOREIGN KEY REFERENCES Procedures(Id) ON DELETE CASCADE,
@@ -335,6 +349,7 @@ CREATE INDEX IX_ProcedureInstruments_ProcedureId ON ProcedureInstruments(Procedu
 
 -- =============================================
 -- 15. VENDORS TABLE
+DROP TABLE IF EXISTS Vendors;
 -- =============================================
 CREATE TABLE Vendors (
     Id INT IDENTITY(1,1) PRIMARY KEY,
@@ -356,6 +371,7 @@ CREATE TABLE Vendors (
 
 -- =============================================
 -- 16. STICKY NOTES TABLE
+DROP TABLE IF EXISTS StickyNotes;
 -- =============================================
 CREATE TABLE StickyNotes (
     Id INT IDENTITY(1,1) PRIMARY KEY,
