@@ -43693,15 +43693,18 @@ window.addEventListener('load', function() {
         let editingDutyId = null;
         
         function openDutiesManagement(fromUserCreation = false) {
+            console.log('Opening duties management, fromUserCreation:', fromUserCreation);
             if (fromUserCreation) {
                 // Open as modal from user creation
                 const modal = document.getElementById('dutiesManagementModal');
+                console.log('Modal element:', modal);
                 modal.setAttribute('data-from-user-creation', 'true');
                 modal.style.display = 'flex';
                 modal.style.zIndex = '10200'; // Higher than user creation modal
                 
                 // Ensure master data is loaded
                 if (!window.masterData || !window.masterData.clinics) {
+                    console.log('Master data not loaded, syncing...');
                     if (typeof syncAllData === 'function') {
                         syncAllData();
                     }
@@ -43739,7 +43742,7 @@ window.addEventListener('load', function() {
         // Populate office dropdown for duties
         function populateDutyOfficeDropdown() {
             const offices = loadOffices();
-            const dropdown = document.getElementById('dutyOffice');
+            const dropdown = document.querySelector('#dutiesManagementModal #dutyOffice');
             if (dropdown) {
                 dropdown.innerHTML = '<option value="">Select Office</option>';
                 console.log('Populating offices:', offices.length); // Debug logging
@@ -43754,8 +43757,8 @@ window.addEventListener('load', function() {
         
         // Populate room dropdown for duties based on selected office
         function populateDutyRoomDropdown() {
-            const officeId = document.getElementById('dutyOffice').value;
-            const roomSelect = document.getElementById('dutyRoom');
+            const officeId = document.querySelector('#dutiesManagementModal #dutyOffice').value;
+            const roomSelect = document.querySelector('#dutiesManagementModal #dutyRoom');
             if (!roomSelect) return;
             
             roomSelect.innerHTML = '<option value="">Select Room</option>';
@@ -44445,17 +44448,17 @@ window.addEventListener('load', function() {
         }
         
         function resetDutyForm() {
-            document.getElementById('dutyName').value = '';
-            document.getElementById('dutyDescription').value = '';
-            document.getElementById('dutyType').value = '';
-            document.getElementById('dutySchedule').value = 'Daily';
-            document.getElementById('dutyScheduleTime').value = '';
-            document.getElementById('dutyScheduleDay').value = '';
-            document.getElementById('dutyOffice').value = '';
-            document.getElementById('dutyRoom').innerHTML = '<option value="">Select Room</option>';
-            document.getElementById('dutyPriority').value = 'Medium';
-            document.getElementById('dutyFormTitle').textContent = 'Add New Duty';
-            document.getElementById('saveDutyBtn').innerHTML = '<i class="fas fa-plus"></i> Add Duty';
+            document.querySelector('#dutiesManagementModal #dutyName').value = '';
+            document.querySelector('#dutiesManagementModal #dutyDescription').value = '';
+            document.querySelector('#dutiesManagementModal #dutyType').value = '';
+            document.querySelector('#dutiesManagementModal #dutySchedule').value = 'Daily';
+            document.querySelector('#dutiesManagementModal #dutyScheduleTime').value = '';
+            document.querySelector('#dutiesManagementModal #dutyScheduleDay').value = '';
+            document.querySelector('#dutiesManagementModal #dutyOffice').value = '';
+            document.querySelector('#dutiesManagementModal #dutyRoom').innerHTML = '<option value="">Select Room</option>';
+            document.querySelector('#dutiesManagementModal #dutyPriority').value = 'Medium';
+            document.querySelector('#dutiesManagementModal #dutyFormTitle').textContent = 'Add New Duty';
+            document.querySelector('#dutiesManagementModal #saveDutyBtn').innerHTML = '<i class="fas fa-plus"></i> Add Duty';
             editingDutyId = null;
         }
         
@@ -44464,30 +44467,30 @@ window.addEventListener('load', function() {
             if (!duty) return;
             
             editingDutyId = dutyId;
-            document.getElementById('dutyName').value = duty.Name || '';
-            document.getElementById('dutyDescription').value = duty.Description || '';
-            document.getElementById('dutyType').value = duty.DutyType || '';
-            document.getElementById('dutySchedule').value = duty.Schedule || 'Daily';
-            document.getElementById('dutyScheduleTime').value = duty.ScheduleTime || '';
-            document.getElementById('dutyScheduleDay').value = duty.ScheduleDay || '';
+            document.querySelector('#dutiesManagementModal #dutyName').value = duty.Name || '';
+            document.querySelector('#dutiesManagementModal #dutyDescription').value = duty.Description || '';
+            document.querySelector('#dutiesManagementModal #dutyType').value = duty.DutyType || '';
+            document.querySelector('#dutiesManagementModal #dutySchedule').value = duty.Schedule || 'Daily';
+            document.querySelector('#dutiesManagementModal #dutyScheduleTime').value = duty.ScheduleTime || '';
+            document.querySelector('#dutiesManagementModal #dutyScheduleDay').value = duty.ScheduleDay || '';
             
             // Set office and room
             if (duty.RoomId) {
                 const rooms = loadRooms();
                 const room = rooms.find(r => String(r.roomID) === String(duty.RoomId));
                 if (room) {
-                    document.getElementById('dutyOffice').value = room.officeID || room.clinicId || '';
+                    document.querySelector('#dutiesManagementModal #dutyOffice').value = room.officeID || room.clinicId || '';
                     populateDutyRoomDropdown();
-                    document.getElementById('dutyRoom').value = duty.RoomId;
+                    document.querySelector('#dutiesManagementModal #dutyRoom').value = duty.RoomId;
                 }
             } else {
-                document.getElementById('dutyOffice').value = '';
-                document.getElementById('dutyRoom').innerHTML = '<option value="">Select Room</option>';
+                document.querySelector('#dutiesManagementModal #dutyOffice').value = '';
+                document.querySelector('#dutiesManagementModal #dutyRoom').innerHTML = '<option value="">Select Room</option>';
             }
             
-            document.getElementById('dutyPriority').value = duty.Priority || 'Medium';
-            document.getElementById('dutyFormTitle').textContent = 'Edit Duty';
-            document.getElementById('saveDutyBtn').innerHTML = '<i class="fas fa-save"></i> Update Duty';
+            document.querySelector('#dutiesManagementModal #dutyPriority').value = duty.Priority || 'Medium';
+            document.querySelector('#dutiesManagementModal #dutyFormTitle').textContent = 'Edit Duty';
+            document.querySelector('#dutiesManagementModal #saveDutyBtn').innerHTML = '<i class="fas fa-save"></i> Update Duty';
         }
         
         async function saveDuty(event) {
@@ -44498,15 +44501,15 @@ window.addEventListener('load', function() {
             const roomName = roomSelect.options[roomSelect.selectedIndex]?.text || '';
             
             const dutyData = {
-                name: document.getElementById('dutyName').value.trim(),
-                description: document.getElementById('dutyDescription').value.trim(),
-                dutyType: document.getElementById('dutyType').value.trim(),
-                schedule: document.getElementById('dutySchedule').value,
-                scheduleTime: document.getElementById('dutyScheduleTime').value.trim(),
-                scheduleDay: document.getElementById('dutyScheduleDay').value.trim(),
+                name: document.querySelector('#dutiesManagementModal #dutyName').value.trim(),
+                description: document.querySelector('#dutiesManagementModal #dutyDescription').value.trim(),
+                dutyType: document.querySelector('#dutiesManagementModal #dutyType').value.trim(),
+                schedule: document.querySelector('#dutiesManagementModal #dutySchedule').value,
+                scheduleTime: document.querySelector('#dutiesManagementModal #dutyScheduleTime').value.trim(),
+                scheduleDay: document.querySelector('#dutiesManagementModal #dutyScheduleDay').value.trim(),
                 roomId: roomId || null,
                 location: roomName !== 'Select Room' ? roomName : '',
-                priority: document.getElementById('dutyPriority').value
+                priority: document.querySelector('#dutiesManagementModal #dutyPriority').value
             };
             
             console.log('Duty data:', dutyData); // Debug logging
@@ -59797,7 +59800,7 @@ function getActiveDutyTypes() {
 }
 
 function populateDutyTypeDropdown() {
-    const select = document.getElementById('dutyType');
+    const select = document.querySelector('#dutiesManagementModal #dutyType');
     if (!select) return;
     const currentVal = select.value;
     const firstOption = select.options[0];
