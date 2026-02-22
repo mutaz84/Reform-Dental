@@ -21068,24 +21068,24 @@
             closeComplianceModal();
 
             showNotification('Compliance saved successfully!', 'success');
-                const compliance = await response.json();
+                const complianceData = await response.json();
 
                 document.getElementById('complianceFormTitle').textContent = 'Edit Compliance';
-                document.getElementById('complianceId').value = compliance.id;
-                document.getElementById('complianceTitle').value = compliance.title || '';
-                document.getElementById('complianceType').value = compliance.complianceTypeId || '';
-                document.getElementById('complianceDescription').value = compliance.description || '';
-                document.getElementById('complianceIssueDate').value = compliance.issueDate ? new Date(compliance.issueDate).toISOString().split('T')[0] : '';
-                document.getElementById('complianceExpiryDate').value = compliance.expiryDate ? new Date(compliance.expiryDate).toISOString().split('T')[0] : '';
-                document.getElementById('complianceReminderDate').value = compliance.reminderDate ? new Date(compliance.reminderDate).toISOString().split('T')[0] : '';
-                document.getElementById('compliancePriority').value = compliance.priority || 'medium';
-                document.getElementById('complianceAttachment').value = compliance.attachmentUrl || '';
-                document.getElementById('complianceAttachmentName').value = compliance.attachmentName || '';
-                document.getElementById('complianceDocumentType').value = compliance.documentType || '';
-                document.getElementById('complianceReferenceNumber').value = compliance.referenceNumber || '';
-                document.getElementById('complianceIssuingAuthority').value = compliance.issuingAuthority || '';
-                document.getElementById('complianceCost').value = compliance.cost || '';
-                document.getElementById('complianceNotes').value = compliance.notes || '';
+                document.getElementById('complianceId').value = complianceData.id;
+                document.getElementById('complianceTitle').value = complianceData.title || '';
+                document.getElementById('complianceType').value = complianceData.complianceTypeId || '';
+                document.getElementById('complianceDescription').value = complianceData.description || '';
+                document.getElementById('complianceIssueDate').value = complianceData.issueDate ? new Date(complianceData.issueDate).toISOString().split('T')[0] : '';
+                document.getElementById('complianceExpiryDate').value = complianceData.expiryDate ? new Date(complianceData.expiryDate).toISOString().split('T')[0] : '';
+                document.getElementById('complianceReminderDate').value = complianceData.reminderDate ? new Date(complianceData.reminderDate).toISOString().split('T')[0] : '';
+                document.getElementById('compliancePriority').value = complianceData.priority || 'medium';
+                document.getElementById('complianceAttachment').value = complianceData.attachmentUrl || '';
+                document.getElementById('complianceAttachmentName').value = complianceData.attachmentName || '';
+                document.getElementById('complianceDocumentType').value = complianceData.documentType || '';
+                document.getElementById('complianceReferenceNumber').value = complianceData.referenceNumber || '';
+                document.getElementById('complianceIssuingAuthority').value = complianceData.issuingAuthority || '';
+                document.getElementById('complianceCost').value = complianceData.cost || '';
+                document.getElementById('complianceNotes').value = complianceData.notes || '';
 
                 document.getElementById('complianceModal').style.display = 'flex';
             } catch (error) {
@@ -33043,6 +33043,9 @@
     }
 };
 
+// Expose initializeCalendar function globally
+window.initializeCalendar = initializeCalendar;
+
 // Custom Calendar Implementation
             let calendar = window.calendarInstance = {
                 currentDate: new Date(),
@@ -39686,6 +39689,10 @@
             }
         };
 
+        // Expose additional functions to window
+        window.createStickyNote = createStickyNote;
+        window.initStickyNotesBoard = initStickyNotesBoard;
+
         function updateStickyStats() {
             const totalDisplay = document.getElementById('stickytotalNotes');
             if (totalDisplay) {
@@ -42288,7 +42295,7 @@ function markAsCompleted() {
 
 // Get dynamic instrument database from localStorage
 function getInstrumentDatabase() {
-    const savedInstruments = loadInstruments();
+    const savedInstruments = typeof loadInstruments === 'function' ? loadInstruments() : [];
     const dynamicDatabase = {};
     
     // All available categories (always show these)
@@ -44025,7 +44032,9 @@ window.addEventListener('load', function() {
                     if (typeof renderThisWeekTasks === 'function') {
                         renderThisWeekTasks();
                     }
-                    renderUnassignedTasksSidebar();
+                    if (typeof renderUnassignedTasksSidebar === 'function') {
+                        renderUnassignedTasksSidebar();
+                    }
                 } else {
                     console.error('❌ Failed to load tasks from API:', response.status);
                 }
@@ -53868,15 +53877,15 @@ function updateToggleButtons() {
         }
     }
 
-    if (cornerRightBtn && rightSidebar) {
+    cornerRightBtns.forEach(btn => {
         if (rightSidebar.classList.contains('hidden')) {
-            cornerRightBtn.setAttribute('title', 'Show Right Sidebar (Alt + R)');
-            cornerRightBtn.innerHTML = '<i class="fas fa-chevron-left" style="font-size: 0.6rem;"></i>';
+            btn.setAttribute('title', 'Show Right Sidebar (Alt + R)');
+            btn.innerHTML = '<i class="fas fa-chevron-left" style="font-size: 0.6rem;"></i>';
         } else {
-            cornerRightBtn.setAttribute('title', 'Hide Right Sidebar (Alt + R)');
-            cornerRightBtn.innerHTML = '<i class="fas fa-chevron-right" style="font-size: 0.6rem;"></i>';
+            btn.setAttribute('title', 'Hide Right Sidebar (Alt + R)');
+            btn.innerHTML = '<i class="fas fa-chevron-right" style="font-size: 0.6rem;"></i>';
         }
-    }
+    });
 }
 
 // Initialize on page load
@@ -59620,7 +59629,7 @@ async function syncUsersFromAPI() {
             hourlyRate: user.HourlyRate || user.hourlyRate || '',
             salary: user.Salary || user.salary || '',
             color: user.Color || user.color || '#3b82f6',
-            permissions: getDefaultPermissions(user.Role || user.role || 'user')
+            permissions: typeof getDefaultPermissions === 'function' ? getDefaultPermissions(user.Role || user.role || 'user') : {}
         };
     });
     
@@ -59942,10 +59951,12 @@ function refreshAllCategoryDropdowns() {
 
 // Show/hide gear icons based on admin role
 function updateCategoryGearVisibility() {
-    const isAdmin = isAdminUser();
-    document.querySelectorAll('.category-gear-btn').forEach(btn => {
-        btn.style.display = isAdmin ? 'inline-flex' : 'none';
-    });
+    if (typeof isAdminUser === 'function') {
+        const isAdmin = isAdminUser();
+        document.querySelectorAll('.category-gear-btn').forEach(btn => {
+            btn.style.display = isAdmin ? 'inline-flex' : 'none';
+        });
+    }
 }
 
 // Open Rooms management from gear icon (admin only)
@@ -62596,6 +62607,56 @@ console.log('✅ Global functions exported to window object');
             };
         }
     };
+
+    // ===== CONTENT VIEW SWITCHING =====
+    // Global function to switch between content views
+    function switchContentView(viewName, event) {
+        if (event) {
+            event.preventDefault();
+        }
+
+        // Hide all content views
+        const allViews = document.querySelectorAll('.content-view');
+        allViews.forEach(view => view.classList.remove('active'));
+
+        // Show target view
+        const targetView = document.getElementById('view-' + viewName);
+        if (targetView) {
+            targetView.classList.add('active');
+
+            // Scroll to top
+            const mainContent = document.querySelector('.main-content');
+            if (mainContent) mainContent.scrollTop = 0;
+
+            // Update navigation active states
+            document.querySelectorAll('.nav-item').forEach(item => {
+                if (item.getAttribute('onclick') && item.getAttribute('onclick').includes(viewName)) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+
+            // Call view initializers if available
+            const initMap = {
+                'equipment': 'initializeEquipmentView',
+                'instruments': 'initializeInstrumentsView',
+                'supplies': 'initializeSuppliesView',
+                'vendors': 'initializeVendorsView',
+                'requests': 'initializeRequestsView',
+                'task-hub': 'initTaskHub',
+                'procedures': 'initProceduresModule'
+            };
+
+            const initFn = initMap[viewName];
+            if (initFn && typeof window[initFn] === 'function') {
+                setTimeout(() => window[initFn](), 50);
+            }
+        }
+    }
+
+    // Make function globally available
+    window.switchContentView = switchContentView;
 
     // ===== ACTION EXECUTOR =====
     // Executes actions returned by the AI (navigation, alerts, etc.)
