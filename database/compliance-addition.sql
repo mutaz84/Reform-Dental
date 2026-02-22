@@ -11,6 +11,8 @@
 -- =============================================
 -- 1. COMPLIANCE TYPES TABLE
 -- =============================================
+DROP TABLE IF EXISTS Compliances;
+DROP TABLE IF EXISTS ComplianceTypes;
 CREATE TABLE ComplianceTypes (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     Name NVARCHAR(100) NOT NULL UNIQUE,
@@ -103,6 +105,12 @@ GO
 -- =============================================
 -- COMPLIANCE VIEWS
 -- =============================================
+
+-- Drop existing views first
+DROP VIEW IF EXISTS vw_EmployeeCompliances;
+DROP VIEW IF EXISTS vw_ExpiredCompliances;
+DROP VIEW IF EXISTS vw_ExpiringCompliances;
+DROP VIEW IF EXISTS vw_ActiveCompliances;
 
 -- View: Active Compliances
 CREATE VIEW vw_ActiveCompliances AS
