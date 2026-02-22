@@ -21069,7 +21069,6 @@
 
             showNotification('Compliance saved successfully!', 'success');
         }
-        }
 
         // Delete Compliance
         async function deleteCompliance(userId, index) {
@@ -30293,6 +30292,10 @@
         let isTableView = false;
         let currentSortColumn = 0;
         let sortAscending = true;
+
+        // Working hours filter initialization
+        let filterInitRetries = 0;
+        const MAX_FILTER_RETRIES = 10;
 
         // Declare openWorkingHours early so it's available for HTML onclick handlers
         function openWorkingHours() {
@@ -51138,16 +51141,21 @@ window.addEventListener('load', function() {
         };
         
         // Initialize tasks when switching to tasks view
-        const originalSwitchContent = window.switchContentView || switchContentView;
-        if (typeof switchContentView === 'function') {
-            const _origSwitch = switchContentView;
-            switchContentView = function(viewName, event) {
-                _origSwitch(viewName, event);
-                if (viewName === 'tasks') {
-                    setTimeout(initTasksView, 100);
-                }
-            };
+        function setupTaskViewInitialization() {
+            if (typeof window.switchContentView === 'function') {
+                const originalSwitchContent = window.switchContentView;
+                window.switchContentView = function(viewName, event) {
+                    originalSwitchContent(viewName, event);
+                    if (viewName === 'tasks') {
+                        setTimeout(initTasksView, 100);
+                    }
+                };
+            } else {
+                // Try again later
+                setTimeout(setupTaskViewInitialization, 100);
+            }
         }
+        setupTaskViewInitialization();
 
         // Show working hours detail from schedule list (legacy - keeping for compatibility)
         function showWorkingHoursDetail(employeeName, role, startTime, endTime, clinic, room, assistant) {
@@ -53145,12 +53153,8 @@ window.addEventListener('load', function() {
                 firstBadge.click();
             } else {
                 console.log('No shift badges found! Make sure working hours are visible.');
-            }
-        };
-
+        
         // Initialize filters when DOM is ready
-        let filterInitRetries = 0;
-        const MAX_FILTER_RETRIES = 10;
         
         function ensureFilterInitialization() {
             // Wait for DOM and employee resources to be ready
@@ -61571,8 +61575,8 @@ async function initializeApp() {
     }
 
     // Initialize the main calendar
-    if (typeof initializeCalendar === 'function') {
-        initializeCalendar();
+    if (typeof window.initializeCalendar === 'function') {
+        window.initializeCalendar();
     } else {
         console.error('initializeCalendar function not found!');
     }
