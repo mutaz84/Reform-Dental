@@ -111,6 +111,7 @@ DROP VIEW IF EXISTS vw_EmployeeCompliances;
 DROP VIEW IF EXISTS vw_ExpiredCompliances;
 DROP VIEW IF EXISTS vw_ExpiringCompliances;
 DROP VIEW IF EXISTS vw_ActiveCompliances;
+GO
 
 -- View: Active Compliances
 CREATE VIEW vw_ActiveCompliances AS
