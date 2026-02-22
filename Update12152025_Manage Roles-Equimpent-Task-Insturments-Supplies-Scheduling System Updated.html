@@ -43560,18 +43560,36 @@ window.addEventListener('load', function() {
         // Load Duties from API
         async function loadDutiesFromAPI() {
             try {
-                const response = await fetch('/api/duties');
+                console.log('Loading duties from API...');
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+                
+                const response = await fetch('/api/duties', {
+                    signal: controller.signal,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                clearTimeout(timeoutId);
+                
                 if (response.ok) {
                     window.dutiesData = await response.json();
                     console.log('Loaded duties from API:', window.dutiesData.length);
                     renderDutiesCheckboxes();
                     renderMyDuties();
                     return window.dutiesData;
+                } else {
+                    console.warn('API returned status:', response.status);
+                    throw new Error(`API returned ${response.status}`);
                 }
             } catch (error) {
                 console.error('Error loading duties:', error);
+                // Fallback to localStorage or empty array
+                window.dutiesData = [];
+                renderDutiesCheckboxes();
+                renderMyDuties();
             }
-            return [];
+            return window.dutiesData || [];
         }
         
         // Render duties checkboxes in user creation form
@@ -43712,6 +43730,18 @@ window.addEventListener('load', function() {
                 
                 populateDutyOfficeDropdown();
                 populateDutyTypeDropdown();
+                
+                // Show loading state
+                const listContainer = document.querySelector('#dutiesManagementModal #dutiesListContainer');
+                if (listContainer) {
+                    listContainer.innerHTML = `
+                        <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                            <i class="fas fa-spinner fa-spin" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+                            <p>Loading duties...</p>
+                        </div>
+                    `;
+                }
+                
                 loadDutiesFromAPI().then(() => {
                     renderDutiesList();
                 });
@@ -43733,6 +43763,18 @@ window.addEventListener('load', function() {
                 
                 populateDutyOfficeDropdown();
                 populateDutyTypeDropdown();
+                
+                // Show loading state
+                const listContainer = document.getElementById('dutiesListContainer');
+                if (listContainer) {
+                    listContainer.innerHTML = `
+                        <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                            <i class="fas fa-spinner fa-spin" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+                            <p>Loading duties...</p>
+                        </div>
+                    `;
+                }
+                
                 loadDutiesFromAPI().then(() => {
                     renderDutiesList();
                 });
@@ -44397,11 +44439,16 @@ window.addEventListener('load', function() {
         }
         
         function renderDutiesList() {
-            const container = document.getElementById('dutiesListContainer');
-            if (!container) return;
+            const container = document.querySelector('#dutiesManagementModal #dutiesListContainer');
+            if (!container) {
+                console.error('dutiesListContainer not found in modal');
+                return;
+            }
+            
+            console.log('Rendering duties list with', window.dutiesData.length, 'duties');
             
             // Update count
-            const countEl = document.getElementById('dutiesCount');
+            const countEl = document.querySelector('#dutiesManagementModal #dutiesCount');
             if (countEl) countEl.textContent = window.dutiesData.length;
             
             if (window.dutiesData.length === 0) {
