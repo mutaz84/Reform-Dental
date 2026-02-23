@@ -21322,6 +21322,7 @@
         // Load compliances for a specific user
         async function loadUserCompliances(userId) {
             try {
+                await syncLocalCompliancesToApi({ silent: true });
                 const response = await fetch(`${API_BASE_URL}/compliances?userId=${encodeURIComponent(userId)}`);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -21390,6 +21391,9 @@
                 });
             } catch (error) {
                 console.error('Error loading compliances:', error);
+                if (typeof showNotification === 'function') {
+                    showNotification('Server unavailable. Showing cached compliance data (read-only).', 'warning');
+                }
                 // Fallback to localStorage if API fails
                 const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
                 const userCompliances = compliances[userId] || [];
@@ -21495,6 +21499,123 @@
             return null;
         }
 
+        async function syncLocalCompliancesToApi(options = {}) {
+            const { silent = true } = options;
+
+            if (!isComplianceApiConfigured() || window.__complianceSyncInProgress) {
+                return { synced: 0, skipped: 0, failed: 0 };
+            }
+
+            const localRaw = localStorage.getItem('userCompliances');
+            if (!localRaw) {
+                return { synced: 0, skipped: 0, failed: 0 };
+            }
+
+            let localCompliances;
+            try {
+                localCompliances = JSON.parse(localRaw);
+            } catch (parseError) {
+                console.error('Unable to parse local compliances for sync:', parseError);
+                return { synced: 0, skipped: 0, failed: 0 };
+            }
+
+            if (!localCompliances || typeof localCompliances !== 'object') {
+                return { synced: 0, skipped: 0, failed: 0 };
+            }
+
+            window.__complianceSyncInProgress = true;
+
+            let synced = 0;
+            let skipped = 0;
+            let failed = 0;
+
+            try {
+                for (const [localUserKey, complianceList] of Object.entries(localCompliances)) {
+                    if (!Array.isArray(complianceList) || complianceList.length === 0) {
+                        continue;
+                    }
+
+                    const resolvedUserId = resolveComplianceUserId(localUserKey);
+                    if (!resolvedUserId) {
+                        skipped += complianceList.length;
+                        continue;
+                    }
+
+                    for (const compliance of complianceList) {
+                        if (!compliance || typeof compliance !== 'object') {
+                            skipped += 1;
+                            continue;
+                        }
+
+                        const alreadySynced = !!compliance.__syncedToApi || (Number.isFinite(Number(compliance.id)) && Number(compliance.id) > 0);
+                        if (alreadySynced) {
+                            skipped += 1;
+                            continue;
+                        }
+
+                        const payload = {
+                            title: compliance.title || '',
+                            complianceTypeId: Number.isFinite(Number(compliance.complianceTypeId))
+                                ? Number(compliance.complianceTypeId)
+                                : (compliance.complianceTypeId || compliance.type || ''),
+                            description: compliance.description || '',
+                            userId: resolvedUserId,
+                            clinicId: null,
+                            issueDate: compliance.issueDate || '',
+                            expiryDate: compliance.expiryDate || '',
+                            reminderDate: compliance.reminderDate || '',
+                            status: compliance.status || 'active',
+                            attachmentData: compliance.attachmentData || null,
+                            attachmentName: compliance.attachmentName || '',
+                            attachmentType: compliance.attachmentType || '',
+                            documentType: compliance.documentType || '',
+                            referenceNumber: compliance.referenceNumber || '',
+                            issuingAuthority: compliance.issuingAuthority || '',
+                            cost: parseFloat(compliance.cost) || 0,
+                            notes: compliance.notes || '',
+                            createdById: getCurrentUserId(),
+                            modifiedById: getCurrentUserId()
+                        };
+
+                        try {
+                            const response = await fetch(`${API_BASE_URL}/compliances`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify(payload)
+                            });
+
+                            if (!response.ok) {
+                                failed += 1;
+                                continue;
+                            }
+
+                            const saved = await response.json().catch(() => null);
+                            compliance.__syncedToApi = true;
+                            if (saved && (saved.id || saved.Id)) {
+                                compliance.id = saved.id || saved.Id;
+                            }
+                            synced += 1;
+                        } catch (syncError) {
+                            console.error('Compliance sync failed for item:', syncError);
+                            failed += 1;
+                        }
+                    }
+                }
+
+                localStorage.setItem('userCompliances', JSON.stringify(localCompliances));
+
+                if (!silent && synced > 0 && typeof showNotification === 'function') {
+                    showNotification(`Synced ${synced} local compliance record(s) to server.`, 'success');
+                }
+
+                return { synced, skipped, failed };
+            } finally {
+                window.__complianceSyncInProgress = false;
+            }
+        }
+
         // Load Compliance Types for dropdown
         async function loadComplianceTypes() {
             try {
@@ -21521,6 +21642,9 @@
                 });
             } catch (error) {
                 console.log('Using localStorage fallback for compliance types');
+                if (typeof showNotification === 'function') {
+                    showNotification('Server unavailable. Showing cached compliance types.', 'warning');
+                }
                 // Fallback to localStorage
                 const storedTypes = JSON.parse(localStorage.getItem('complianceTypes') || '[]');
                 
@@ -21936,6 +22060,7 @@
             try {
                 // Check if API is available
                 if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
+                    await syncLocalCompliancesToApi({ silent: false });
                     const response = await fetch(`${API_BASE_URL}/compliances`);
                     if (!response.ok) {
                         throw new Error(`HTTP error! status: ${response.status}`);
@@ -21952,6 +22077,9 @@
                 }
             } catch (error) {
                 console.log('API not available, using localStorage fallback for loadAllCompliances');
+                if (typeof showNotification === 'function') {
+                    showNotification('Server unavailable. Showing cached compliance list (read-only).', 'warning');
+                }
                 // Fallback to localStorage
                 const allCompliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
                 const compliances = [];
