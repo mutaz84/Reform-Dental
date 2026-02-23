@@ -58,6 +58,20 @@ function hasColumn(columns, name) {
     return columns.has(String(name).toLowerCase());
 }
 
+function normalizeTypeRecord(row) {
+    if (!row || typeof row !== 'object') {
+        return row;
+    }
+
+    return {
+        ...row,
+        id: row.id ?? row.Id,
+        name: row.name ?? row.Name,
+        sortOrder: row.sortOrder ?? row.SortOrder,
+        isActive: row.isActive ?? row.IsActive
+    };
+}
+
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
@@ -82,7 +96,7 @@ module.exports = async function (context, req) {
 
         if (req.method === 'GET') {
             if (!hasTypesTable) {
-                context.res = { status: 200, headers, body: DEFAULT_TYPES };
+                context.res = { status: 200, headers, body: DEFAULT_TYPES.map(normalizeTypeRecord) };
                 return;
             }
 
@@ -97,14 +111,14 @@ module.exports = async function (context, req) {
                 context.res = {
                     status: result.recordset.length ? 200 : 404,
                     headers,
-                    body: result.recordset.length ? result.recordset[0] : { error: 'Compliance type not found' }
+                    body: result.recordset.length ? normalizeTypeRecord(result.recordset[0]) : { error: 'Compliance type not found' }
                 };
                 return;
             }
 
             const result = await pool.request()
                 .query(`SELECT * FROM ComplianceTypes ${hasIsActive ? 'WHERE IsActive = 1' : ''} ORDER BY ${hasColumn(typeColumns, 'SortOrder') ? 'SortOrder, ' : ''}Name`);
-            context.res = { status: 200, headers, body: result.recordset };
+            context.res = { status: 200, headers, body: (result.recordset || []).map(normalizeTypeRecord) };
             return;
         }
 
@@ -122,7 +136,7 @@ INSERT INTO ComplianceTypes (Name${hasColumn(typeColumns, 'SortOrder') ? ', Sort
 OUTPUT INSERTED.*
 VALUES (@name${hasColumn(typeColumns, 'SortOrder') ? ', @sortOrder' : ''})`);
 
-            context.res = { status: 201, headers, body: result.recordset[0] };
+            context.res = { status: 201, headers, body: normalizeTypeRecord(result.recordset[0]) };
             return;
         }
 
