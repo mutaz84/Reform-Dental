@@ -25327,6 +25327,52 @@
                 switchContentView('manage-tasks');
             }
         }
+
+        if (typeof window.openDutiesManagement !== 'function') {
+            window.openDutiesManagement = function(fromUserCreation = false, returnView = 'dashboard') {
+                console.log('Opening duties management (global shim), fromUserCreation:', fromUserCreation, 'returnView:', returnView);
+
+                if (typeof activateManagementView === 'function' && !activateManagementView('manage-duties')) {
+                    if (typeof switchContentView === 'function') {
+                        switchContentView('manage-duties');
+                    }
+                } else if (typeof switchContentView === 'function') {
+                    switchContentView('manage-duties');
+                }
+
+                window.dutiesReturnView = returnView;
+
+                const listContainer = document.getElementById('dutiesListContainer');
+                if (listContainer) {
+                    listContainer.innerHTML = `
+                        <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                            <i class="fas fa-spinner fa-spin" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+                            <p>Loading duties...</p>
+                        </div>
+                    `;
+                }
+
+                Promise.resolve(typeof loadDutiesFromAPI === 'function' ? loadDutiesFromAPI() : [])
+                    .catch(error => {
+                        console.error('Failed loading duties list (global shim):', error);
+                        return [];
+                    })
+                    .finally(() => {
+                        if (!Array.isArray(window.dutiesData)) {
+                            window.dutiesData = [];
+                        }
+                        if (typeof renderDutiesList === 'function') {
+                            renderDutiesList();
+                        }
+                        if (typeof populateDutyOfficeDropdown === 'function') {
+                            populateDutyOfficeDropdown();
+                        }
+                        if (typeof populateDutyTypeDropdown === 'function') {
+                            populateDutyTypeDropdown();
+                        }
+                    });
+            };
+        }
         
         // Render task management list
         function renderTaskManagementList(tasks) {
