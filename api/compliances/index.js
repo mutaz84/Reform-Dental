@@ -51,6 +51,45 @@ function toNullableDecimal(value) {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeComplianceRow(row) {
+    if (!row || typeof row !== 'object') {
+        return row;
+    }
+
+    const pick = (camel, pascal, fallback = null) => {
+        if (row[camel] !== undefined && row[camel] !== null) return row[camel];
+        if (row[pascal] !== undefined && row[pascal] !== null) return row[pascal];
+        return fallback;
+    };
+
+    return {
+        ...row,
+        id: pick('id', 'Id'),
+        complianceTypeId: pick('complianceTypeId', 'ComplianceTypeId'),
+        complianceTypeName: pick('complianceTypeName', 'ComplianceTypeName', ''),
+        title: pick('title', 'Title', ''),
+        description: pick('description', 'Description', ''),
+        userId: pick('userId', 'UserId'),
+        clinicId: pick('clinicId', 'ClinicId'),
+        issueDate: pick('issueDate', 'IssueDate'),
+        expiryDate: pick('expiryDate', 'ExpiryDate'),
+        reminderDate: pick('reminderDate', 'ReminderDate'),
+        status: pick('status', 'Status', 'active'),
+        priority: pick('priority', 'Priority', ''),
+        attachmentUrl: pick('attachmentUrl', 'AttachmentUrl'),
+        attachmentName: pick('attachmentName', 'AttachmentName', ''),
+        documentType: pick('documentType', 'DocumentType', ''),
+        referenceNumber: pick('referenceNumber', 'ReferenceNumber', ''),
+        issuingAuthority: pick('issuingAuthority', 'IssuingAuthority', ''),
+        cost: pick('cost', 'Cost'),
+        notes: pick('notes', 'Notes', ''),
+        createdById: pick('createdById', 'CreatedById'),
+        createdDate: pick('createdDate', 'CreatedDate'),
+        modifiedById: pick('modifiedById', 'ModifiedById'),
+        modifiedDate: pick('modifiedDate', 'ModifiedDate')
+    };
+}
+
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
@@ -107,10 +146,12 @@ SELECT c.*, ${selectTypeName}
 ${fromClause}
 WHERE ${whereById.join(' AND ')}`);
 
+                const normalizedRow = result.recordset.length ? normalizeComplianceRow(result.recordset[0]) : null;
+
                 context.res = {
-                    status: result.recordset.length ? 200 : 404,
+                    status: normalizedRow ? 200 : 404,
                     headers,
-                    body: result.recordset.length ? result.recordset[0] : { error: 'Compliance not found' }
+                    body: normalizedRow || { error: 'Compliance not found' }
                 };
                 return;
             }
@@ -146,7 +187,7 @@ ${fromClause}
 ${whereClause}
 ${orderBy}`);
 
-            context.res = { status: 200, headers, body: result.recordset };
+            context.res = { status: 200, headers, body: (result.recordset || []).map(normalizeComplianceRow) };
             return;
         }
 
