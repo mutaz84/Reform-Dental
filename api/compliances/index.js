@@ -26,49 +26,29 @@ function getConfig() {
     };
 }
 
-async function ensureComplianceTables(pool) {
-    await pool.request().query(`
-IF OBJECT_ID('dbo.ComplianceTypes', 'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.ComplianceTypes (
-        Id INT IDENTITY(1,1) PRIMARY KEY,
-        Name NVARCHAR(200) NOT NULL,
-        SortOrder INT NOT NULL DEFAULT(0),
-        IsActive BIT NOT NULL DEFAULT(1),
-        CreatedDate DATETIME2 NOT NULL DEFAULT(SYSUTCDATETIME()),
-        ModifiedDate DATETIME2 NULL
-    );
-END
+async function getTableColumns(pool, tableName) {
+    const result = await pool.request()
+        .input('tableName', sql.NVarChar(128), tableName)
+        .query(`
+SELECT COLUMN_NAME
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = @tableName`);
 
-IF OBJECT_ID('dbo.Compliances', 'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.Compliances (
-        Id INT IDENTITY(1,1) PRIMARY KEY,
-        Title NVARCHAR(255) NOT NULL,
-        ComplianceTypeId INT NULL,
-        Description NVARCHAR(MAX) NULL,
-        UserId INT NULL,
-        ClinicId INT NULL,
-        IssueDate DATE NULL,
-        ExpiryDate DATE NULL,
-        ReminderDate DATE NULL,
-        Status NVARCHAR(50) NULL,
-        AttachmentData NVARCHAR(MAX) NULL,
-        AttachmentName NVARCHAR(255) NULL,
-        AttachmentType NVARCHAR(255) NULL,
-        DocumentType NVARCHAR(255) NULL,
-        ReferenceNumber NVARCHAR(255) NULL,
-        IssuingAuthority NVARCHAR(255) NULL,
-        Cost DECIMAL(18,2) NULL,
-        Notes NVARCHAR(MAX) NULL,
-        CreatedById INT NULL,
-        ModifiedById INT NULL,
-        IsActive BIT NOT NULL DEFAULT(1),
-        CreatedDate DATETIME2 NOT NULL DEFAULT(SYSUTCDATETIME()),
-        ModifiedDate DATETIME2 NULL
-    );
-END
-`);
+    return new Set((result.recordset || []).map((row) => String(row.COLUMN_NAME || '').toLowerCase()));
+}
+
+function hasColumn(columns, name) {
+    return columns.has(String(name).toLowerCase());
+}
+
+function toNullableInt(value) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isInteger(parsed) ? parsed : null;
+}
+
+function toNullableDecimal(value) {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
 }
 
 module.exports = async function (context, req) {
@@ -87,19 +67,45 @@ module.exports = async function (context, req) {
     let pool;
     try {
         pool = await sql.connect(getConfig());
-        await ensureComplianceTables(pool);
+
+        const complianceColumns = await getTableColumns(pool, 'Compliances');
+        if (complianceColumns.size === 0) {
+            context.res = {
+                status: 500,
+                headers,
+                body: { error: 'Compliances table not found in database.' }
+            };
+            return;
+        }
+
+        const complianceTypeColumns = await getTableColumns(pool, 'ComplianceTypes');
+        const hasComplianceTypesTable = complianceTypeColumns.size > 0;
+        const hasComplianceTypeJoin = hasComplianceTypesTable && hasColumn(complianceColumns, 'ComplianceTypeId') && hasColumn(complianceTypeColumns, 'Id') && hasColumn(complianceTypeColumns, 'Name');
+        const hasIsActive = hasColumn(complianceColumns, 'IsActive');
+        const hasModifiedDate = hasColumn(complianceColumns, 'ModifiedDate');
 
         const id = req.params.id ? Number.parseInt(req.params.id, 10) : null;
 
         if (req.method === 'GET') {
+            const selectTypeName = hasComplianceTypeJoin
+                ? 'ct.Name AS ComplianceTypeName'
+                : 'CAST(NULL AS NVARCHAR(200)) AS ComplianceTypeName';
+            const fromClause = hasComplianceTypeJoin
+                ? 'FROM Compliances c LEFT JOIN ComplianceTypes ct ON ct.Id = c.ComplianceTypeId'
+                : 'FROM Compliances c';
+
             if (id) {
-                const result = await pool.request()
+                const idRequest = pool.request()
                     .input('id', sql.Int, id)
-                    .query(`
-SELECT c.*, ct.Name AS ComplianceTypeName
-FROM Compliances c
-LEFT JOIN ComplianceTypes ct ON ct.Id = c.ComplianceTypeId
-WHERE c.Id = @id AND c.IsActive = 1`);
+                const whereById = ['c.Id = @id'];
+                if (hasIsActive) {
+                    whereById.push('c.IsActive = 1');
+                }
+
+                const result = await idRequest.query(`
+SELECT c.*, ${selectTypeName}
+${fromClause}
+WHERE ${whereById.join(' AND ')}`);
 
                 context.res = {
                     status: result.recordset.length ? 200 : 404,
@@ -109,26 +115,36 @@ WHERE c.Id = @id AND c.IsActive = 1`);
                 return;
             }
 
-            const userId = req.query.userId ? Number.parseInt(req.query.userId, 10) : null;
-            const clinicId = req.query.clinicId ? Number.parseInt(req.query.clinicId, 10) : null;
+            const userId = toNullableInt(req.query.userId);
+            const clinicId = toNullableInt(req.query.clinicId);
 
             const request = pool.request();
-            const where = ['c.IsActive = 1'];
-            if (Number.isInteger(userId) && userId > 0) {
+            const where = [];
+            if (hasIsActive) {
+                where.push('c.IsActive = 1');
+            }
+
+            if (Number.isInteger(userId) && userId > 0 && hasColumn(complianceColumns, 'UserId')) {
                 request.input('userId', sql.Int, userId);
                 where.push('c.UserId = @userId');
             }
-            if (Number.isInteger(clinicId) && clinicId > 0) {
+
+            if (Number.isInteger(clinicId) && clinicId > 0 && hasColumn(complianceColumns, 'ClinicId')) {
                 request.input('clinicId', sql.Int, clinicId);
                 where.push('c.ClinicId = @clinicId');
             }
 
+            const orderBy = hasColumn(complianceColumns, 'ExpiryDate')
+                ? 'ORDER BY c.ExpiryDate ASC'
+                : (hasColumn(complianceColumns, 'CreatedDate') ? 'ORDER BY c.CreatedDate DESC' : 'ORDER BY c.Id DESC');
+
+            const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
             const result = await request.query(`
-SELECT c.*, ct.Name AS ComplianceTypeName
-FROM Compliances c
-LEFT JOIN ComplianceTypes ct ON ct.Id = c.ComplianceTypeId
-WHERE ${where.join(' AND ')}
-ORDER BY c.ExpiryDate ASC, c.CreatedDate DESC`);
+SELECT c.*, ${selectTypeName}
+${fromClause}
+${whereClause}
+${orderBy}`);
 
             context.res = { status: 200, headers, body: result.recordset };
             return;
@@ -136,38 +152,43 @@ ORDER BY c.ExpiryDate ASC, c.CreatedDate DESC`);
 
         if (req.method === 'POST') {
             const body = req.body || {};
-            const result = await pool.request()
-                .input('title', sql.NVarChar(255), body.title || '')
-                .input('complianceTypeId', sql.Int, Number.isFinite(Number(body.complianceTypeId)) ? Number(body.complianceTypeId) : null)
-                .input('description', sql.NVarChar(sql.MAX), body.description || null)
-                .input('userId', sql.Int, Number.isFinite(Number(body.userId)) ? Number(body.userId) : null)
-                .input('clinicId', sql.Int, Number.isFinite(Number(body.clinicId)) ? Number(body.clinicId) : null)
-                .input('issueDate', sql.Date, body.issueDate || null)
-                .input('expiryDate', sql.Date, body.expiryDate || null)
-                .input('reminderDate', sql.Date, body.reminderDate || null)
-                .input('status', sql.NVarChar(50), body.status || 'active')
-                .input('attachmentData', sql.NVarChar(sql.MAX), body.attachmentData || null)
-                .input('attachmentName', sql.NVarChar(255), body.attachmentName || null)
-                .input('attachmentType', sql.NVarChar(255), body.attachmentType || null)
-                .input('documentType', sql.NVarChar(255), body.documentType || null)
-                .input('referenceNumber', sql.NVarChar(255), body.referenceNumber || null)
-                .input('issuingAuthority', sql.NVarChar(255), body.issuingAuthority || null)
-                .input('cost', sql.Decimal(18, 2), body.cost || 0)
-                .input('notes', sql.NVarChar(sql.MAX), body.notes || null)
-                .input('createdById', sql.Int, Number.isFinite(Number(body.createdById)) ? Number(body.createdById) : null)
-                .input('modifiedById', sql.Int, Number.isFinite(Number(body.modifiedById)) ? Number(body.modifiedById) : null)
-                .query(`
-INSERT INTO Compliances (
-    Title, ComplianceTypeId, Description, UserId, ClinicId, IssueDate, ExpiryDate, ReminderDate,
-    Status, AttachmentData, AttachmentName, AttachmentType, DocumentType, ReferenceNumber,
-    IssuingAuthority, Cost, Notes, CreatedById, ModifiedById
-)
+            if (!hasColumn(complianceColumns, 'Title')) {
+                context.res = { status: 500, headers, body: { error: 'Compliances schema mismatch: Title column is missing.' } };
+                return;
+            }
+
+            const fieldDefs = [
+                { column: 'Title', param: 'title', type: sql.NVarChar(255), value: body.title || '' },
+                { column: 'ComplianceTypeId', param: 'complianceTypeId', type: sql.Int, value: toNullableInt(body.complianceTypeId) },
+                { column: 'Description', param: 'description', type: sql.NVarChar(sql.MAX), value: body.description || null },
+                { column: 'UserId', param: 'userId', type: sql.Int, value: toNullableInt(body.userId) },
+                { column: 'ClinicId', param: 'clinicId', type: sql.Int, value: toNullableInt(body.clinicId) },
+                { column: 'IssueDate', param: 'issueDate', type: sql.Date, value: body.issueDate || null },
+                { column: 'ExpiryDate', param: 'expiryDate', type: sql.Date, value: body.expiryDate || null },
+                { column: 'ReminderDate', param: 'reminderDate', type: sql.Date, value: body.reminderDate || null },
+                { column: 'Status', param: 'status', type: sql.NVarChar(50), value: body.status || 'active' },
+                { column: 'AttachmentData', param: 'attachmentData', type: sql.NVarChar(sql.MAX), value: body.attachmentData || null },
+                { column: 'AttachmentName', param: 'attachmentName', type: sql.NVarChar(255), value: body.attachmentName || null },
+                { column: 'AttachmentType', param: 'attachmentType', type: sql.NVarChar(255), value: body.attachmentType || null },
+                { column: 'DocumentType', param: 'documentType', type: sql.NVarChar(255), value: body.documentType || null },
+                { column: 'ReferenceNumber', param: 'referenceNumber', type: sql.NVarChar(255), value: body.referenceNumber || null },
+                { column: 'IssuingAuthority', param: 'issuingAuthority', type: sql.NVarChar(255), value: body.issuingAuthority || null },
+                { column: 'Cost', param: 'cost', type: sql.Decimal(18, 2), value: toNullableDecimal(body.cost) },
+                { column: 'Notes', param: 'notes', type: sql.NVarChar(sql.MAX), value: body.notes || null },
+                { column: 'CreatedById', param: 'createdById', type: sql.Int, value: toNullableInt(body.createdById) },
+                { column: 'ModifiedById', param: 'modifiedById', type: sql.Int, value: toNullableInt(body.modifiedById) }
+            ].filter((def) => hasColumn(complianceColumns, def.column));
+
+            const insertRequest = pool.request();
+            fieldDefs.forEach((def) => insertRequest.input(def.param, def.type, def.value));
+
+            const insertColumns = fieldDefs.map((def) => `[${def.column}]`).join(', ');
+            const insertValues = fieldDefs.map((def) => `@${def.param}`).join(', ');
+
+            const result = await insertRequest.query(`
+INSERT INTO Compliances (${insertColumns})
 OUTPUT INSERTED.*
-VALUES (
-    @title, @complianceTypeId, @description, @userId, @clinicId, @issueDate, @expiryDate, @reminderDate,
-    @status, @attachmentData, @attachmentName, @attachmentType, @documentType, @referenceNumber,
-    @issuingAuthority, @cost, @notes, @createdById, @modifiedById
-)`);
+VALUES (${insertValues})`);
 
             context.res = { status: 201, headers, body: result.recordset[0] };
             return;
@@ -175,58 +196,67 @@ VALUES (
 
         if (req.method === 'PUT' && id) {
             const body = req.body || {};
-            await pool.request()
-                .input('id', sql.Int, id)
-                .input('title', sql.NVarChar(255), body.title || '')
-                .input('complianceTypeId', sql.Int, Number.isFinite(Number(body.complianceTypeId)) ? Number(body.complianceTypeId) : null)
-                .input('description', sql.NVarChar(sql.MAX), body.description || null)
-                .input('userId', sql.Int, Number.isFinite(Number(body.userId)) ? Number(body.userId) : null)
-                .input('clinicId', sql.Int, Number.isFinite(Number(body.clinicId)) ? Number(body.clinicId) : null)
-                .input('issueDate', sql.Date, body.issueDate || null)
-                .input('expiryDate', sql.Date, body.expiryDate || null)
-                .input('reminderDate', sql.Date, body.reminderDate || null)
-                .input('status', sql.NVarChar(50), body.status || 'active')
-                .input('attachmentData', sql.NVarChar(sql.MAX), body.attachmentData || null)
-                .input('attachmentName', sql.NVarChar(255), body.attachmentName || null)
-                .input('attachmentType', sql.NVarChar(255), body.attachmentType || null)
-                .input('documentType', sql.NVarChar(255), body.documentType || null)
-                .input('referenceNumber', sql.NVarChar(255), body.referenceNumber || null)
-                .input('issuingAuthority', sql.NVarChar(255), body.issuingAuthority || null)
-                .input('cost', sql.Decimal(18, 2), body.cost || 0)
-                .input('notes', sql.NVarChar(sql.MAX), body.notes || null)
-                .input('modifiedById', sql.Int, Number.isFinite(Number(body.modifiedById)) ? Number(body.modifiedById) : null)
-                .query(`
+
+            const updateDefs = [
+                { column: 'Title', param: 'title', type: sql.NVarChar(255), value: body.title || '' },
+                { column: 'ComplianceTypeId', param: 'complianceTypeId', type: sql.Int, value: toNullableInt(body.complianceTypeId) },
+                { column: 'Description', param: 'description', type: sql.NVarChar(sql.MAX), value: body.description || null },
+                { column: 'UserId', param: 'userId', type: sql.Int, value: toNullableInt(body.userId) },
+                { column: 'ClinicId', param: 'clinicId', type: sql.Int, value: toNullableInt(body.clinicId) },
+                { column: 'IssueDate', param: 'issueDate', type: sql.Date, value: body.issueDate || null },
+                { column: 'ExpiryDate', param: 'expiryDate', type: sql.Date, value: body.expiryDate || null },
+                { column: 'ReminderDate', param: 'reminderDate', type: sql.Date, value: body.reminderDate || null },
+                { column: 'Status', param: 'status', type: sql.NVarChar(50), value: body.status || 'active' },
+                { column: 'AttachmentData', param: 'attachmentData', type: sql.NVarChar(sql.MAX), value: body.attachmentData || null },
+                { column: 'AttachmentName', param: 'attachmentName', type: sql.NVarChar(255), value: body.attachmentName || null },
+                { column: 'AttachmentType', param: 'attachmentType', type: sql.NVarChar(255), value: body.attachmentType || null },
+                { column: 'DocumentType', param: 'documentType', type: sql.NVarChar(255), value: body.documentType || null },
+                { column: 'ReferenceNumber', param: 'referenceNumber', type: sql.NVarChar(255), value: body.referenceNumber || null },
+                { column: 'IssuingAuthority', param: 'issuingAuthority', type: sql.NVarChar(255), value: body.issuingAuthority || null },
+                { column: 'Cost', param: 'cost', type: sql.Decimal(18, 2), value: toNullableDecimal(body.cost) },
+                { column: 'Notes', param: 'notes', type: sql.NVarChar(sql.MAX), value: body.notes || null },
+                { column: 'ModifiedById', param: 'modifiedById', type: sql.Int, value: toNullableInt(body.modifiedById) }
+            ].filter((def) => hasColumn(complianceColumns, def.column));
+
+            if (updateDefs.length === 0 && !hasModifiedDate) {
+                context.res = { status: 500, headers, body: { error: 'No updatable compliance columns found in database schema.' } };
+                return;
+            }
+
+            const updateRequest = pool.request().input('id', sql.Int, id);
+            updateDefs.forEach((def) => updateRequest.input(def.param, def.type, def.value));
+
+            const setClauses = updateDefs.map((def) => `${def.column} = @${def.param}`);
+            if (hasModifiedDate) {
+                setClauses.push('ModifiedDate = SYSUTCDATETIME()');
+            }
+
+            const whereClauses = ['Id = @id'];
+            if (hasIsActive) {
+                whereClauses.push('IsActive = 1');
+            }
+
+            await updateRequest.query(`
 UPDATE Compliances
-SET
-    Title = @title,
-    ComplianceTypeId = @complianceTypeId,
-    Description = @description,
-    UserId = @userId,
-    ClinicId = @clinicId,
-    IssueDate = @issueDate,
-    ExpiryDate = @expiryDate,
-    ReminderDate = @reminderDate,
-    Status = @status,
-    AttachmentData = @attachmentData,
-    AttachmentName = @attachmentName,
-    AttachmentType = @attachmentType,
-    DocumentType = @documentType,
-    ReferenceNumber = @referenceNumber,
-    IssuingAuthority = @issuingAuthority,
-    Cost = @cost,
-    Notes = @notes,
-    ModifiedById = @modifiedById,
-    ModifiedDate = SYSUTCDATETIME()
-WHERE Id = @id AND IsActive = 1`);
+SET ${setClauses.join(', ')}
+WHERE ${whereClauses.join(' AND ')}`);
 
             context.res = { status: 200, headers, body: { message: 'Compliance updated' } };
             return;
         }
 
         if (req.method === 'DELETE' && id) {
-            await pool.request()
-                .input('id', sql.Int, id)
-                .query('UPDATE Compliances SET IsActive = 0, ModifiedDate = SYSUTCDATETIME() WHERE Id = @id');
+            const deleteRequest = pool.request().input('id', sql.Int, id);
+
+            if (hasIsActive) {
+                const setParts = ['IsActive = 0'];
+                if (hasModifiedDate) {
+                    setParts.push('ModifiedDate = SYSUTCDATETIME()');
+                }
+                await deleteRequest.query(`UPDATE Compliances SET ${setParts.join(', ')} WHERE Id = @id`);
+            } else {
+                await deleteRequest.query('DELETE FROM Compliances WHERE Id = @id');
+            }
 
             context.res = { status: 200, headers, body: { message: 'Compliance deleted' } };
             return;

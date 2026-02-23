@@ -26,39 +26,36 @@ function getConfig() {
     };
 }
 
-async function ensureComplianceTypesTable(pool) {
-    await pool.request().query(`
-IF OBJECT_ID('dbo.ComplianceTypes', 'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.ComplianceTypes (
-        Id INT IDENTITY(1,1) PRIMARY KEY,
-        Name NVARCHAR(200) NOT NULL,
-        SortOrder INT NOT NULL DEFAULT(0),
-        IsActive BIT NOT NULL DEFAULT(1),
-        CreatedDate DATETIME2 NOT NULL DEFAULT(SYSUTCDATETIME()),
-        ModifiedDate DATETIME2 NULL
-    );
-END
+const DEFAULT_TYPES = [
+    { Id: 1, Name: 'CPR Certification', SortOrder: 1 },
+    { Id: 2, Name: 'BLS Certification', SortOrder: 2 },
+    { Id: 3, Name: 'HIPAA Training', SortOrder: 3 },
+    { Id: 4, Name: 'OSHA Training', SortOrder: 4 },
+    { Id: 5, Name: 'Infection Control', SortOrder: 5 },
+    { Id: 6, Name: 'DEA License', SortOrder: 6 },
+    { Id: 7, Name: 'State Dental License', SortOrder: 7 },
+    { Id: 8, Name: 'Malpractice Insurance', SortOrder: 8 },
+    { Id: 9, Name: 'Business License', SortOrder: 9 },
+    { Id: 10, Name: 'Fire Safety Inspection', SortOrder: 10 },
+    { Id: 11, Name: 'X-Ray Machine Registration', SortOrder: 11 },
+    { Id: 12, Name: 'Waste Disposal License', SortOrder: 12 },
+    { Id: 13, Name: 'Water Quality Test', SortOrder: 13 },
+    { Id: 14, Name: 'HVAC Maintenance', SortOrder: 14 }
+];
 
-IF NOT EXISTS (SELECT 1 FROM ComplianceTypes)
-BEGIN
-    INSERT INTO ComplianceTypes (Name, SortOrder) VALUES
-    ('CPR Certification', 1),
-    ('BLS Certification', 2),
-    ('HIPAA Training', 3),
-    ('OSHA Training', 4),
-    ('Infection Control', 5),
-    ('DEA License', 6),
-    ('State Dental License', 7),
-    ('Malpractice Insurance', 8),
-    ('Business License', 9),
-    ('Fire Safety Inspection', 10),
-    ('X-Ray Machine Registration', 11),
-    ('Waste Disposal License', 12),
-    ('Water Quality Test', 13),
-    ('HVAC Maintenance', 14);
-END
-`);
+async function getTableColumns(pool, tableName) {
+    const result = await pool.request()
+        .input('tableName', sql.NVarChar(128), tableName)
+        .query(`
+SELECT COLUMN_NAME
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = @tableName`);
+
+    return new Set((result.recordset || []).map((row) => String(row.COLUMN_NAME || '').toLowerCase()));
+}
+
+function hasColumn(columns, name) {
+    return columns.has(String(name).toLowerCase());
 }
 
 module.exports = async function (context, req) {
@@ -77,15 +74,25 @@ module.exports = async function (context, req) {
     let pool;
     try {
         pool = await sql.connect(getConfig());
-        await ensureComplianceTypesTable(pool);
+
+        const typeColumns = await getTableColumns(pool, 'ComplianceTypes');
+        const hasTypesTable = typeColumns.size > 0;
 
         const id = req.params.id ? Number.parseInt(req.params.id, 10) : null;
 
         if (req.method === 'GET') {
+            if (!hasTypesTable) {
+                context.res = { status: 200, headers, body: DEFAULT_TYPES };
+                return;
+            }
+
+            const hasIsActive = hasColumn(typeColumns, 'IsActive');
+            const whereActive = hasIsActive ? ' AND IsActive = 1' : '';
+
             if (id) {
                 const result = await pool.request()
                     .input('id', sql.Int, id)
-                    .query('SELECT * FROM ComplianceTypes WHERE Id = @id AND IsActive = 1');
+                    .query(`SELECT * FROM ComplianceTypes WHERE Id = @id${whereActive}`);
 
                 context.res = {
                     status: result.recordset.length ? 200 : 404,
@@ -96,39 +103,74 @@ module.exports = async function (context, req) {
             }
 
             const result = await pool.request()
-                .query('SELECT * FROM ComplianceTypes WHERE IsActive = 1 ORDER BY SortOrder, Name');
+                .query(`SELECT * FROM ComplianceTypes ${hasIsActive ? 'WHERE IsActive = 1' : ''} ORDER BY ${hasColumn(typeColumns, 'SortOrder') ? 'SortOrder, ' : ''}Name`);
             context.res = { status: 200, headers, body: result.recordset };
             return;
         }
 
         if (req.method === 'POST') {
+            if (!hasTypesTable) {
+                context.res = { status: 501, headers, body: { error: 'ComplianceTypes table does not exist in database.' } };
+                return;
+            }
             const body = req.body || {};
             const result = await pool.request()
                 .input('name', sql.NVarChar(200), body.name || '')
                 .input('sortOrder', sql.Int, Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0)
-                .query('INSERT INTO ComplianceTypes (Name, SortOrder) OUTPUT INSERTED.* VALUES (@name, @sortOrder)');
+                .query(`
+INSERT INTO ComplianceTypes (Name${hasColumn(typeColumns, 'SortOrder') ? ', SortOrder' : ''})
+OUTPUT INSERTED.*
+VALUES (@name${hasColumn(typeColumns, 'SortOrder') ? ', @sortOrder' : ''})`);
 
             context.res = { status: 201, headers, body: result.recordset[0] };
             return;
         }
 
         if (req.method === 'PUT' && id) {
+            if (!hasTypesTable) {
+                context.res = { status: 501, headers, body: { error: 'ComplianceTypes table does not exist in database.' } };
+                return;
+            }
             const body = req.body || {};
-            await pool.request()
+            const request = pool.request()
                 .input('id', sql.Int, id)
-                .input('name', sql.NVarChar(200), body.name || '')
-                .input('sortOrder', sql.Int, Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0)
-                .input('isActive', sql.Bit, body.isActive === false ? 0 : 1)
-                .query('UPDATE ComplianceTypes SET Name=@name, SortOrder=@sortOrder, IsActive=@isActive, ModifiedDate=SYSUTCDATETIME() WHERE Id=@id');
+                .input('name', sql.NVarChar(200), body.name || '');
+
+            const updates = ['Name=@name'];
+            if (hasColumn(typeColumns, 'SortOrder')) {
+                request.input('sortOrder', sql.Int, Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0);
+                updates.push('SortOrder=@sortOrder');
+            }
+            if (hasColumn(typeColumns, 'IsActive')) {
+                request.input('isActive', sql.Bit, body.isActive === false ? 0 : 1);
+                updates.push('IsActive=@isActive');
+            }
+            if (hasColumn(typeColumns, 'ModifiedDate')) {
+                updates.push('ModifiedDate=SYSUTCDATETIME()');
+            }
+
+            await request.query(`UPDATE ComplianceTypes SET ${updates.join(', ')} WHERE Id=@id`);
 
             context.res = { status: 200, headers, body: { message: 'Compliance type updated' } };
             return;
         }
 
         if (req.method === 'DELETE' && id) {
-            await pool.request()
-                .input('id', sql.Int, id)
-                .query('UPDATE ComplianceTypes SET IsActive = 0, ModifiedDate = SYSUTCDATETIME() WHERE Id = @id');
+            if (!hasTypesTable) {
+                context.res = { status: 501, headers, body: { error: 'ComplianceTypes table does not exist in database.' } };
+                return;
+            }
+
+            const request = pool.request().input('id', sql.Int, id);
+            if (hasColumn(typeColumns, 'IsActive')) {
+                const setParts = ['IsActive = 0'];
+                if (hasColumn(typeColumns, 'ModifiedDate')) {
+                    setParts.push('ModifiedDate = SYSUTCDATETIME()');
+                }
+                await request.query(`UPDATE ComplianceTypes SET ${setParts.join(', ')} WHERE Id = @id`);
+            } else {
+                await request.query('DELETE FROM ComplianceTypes WHERE Id = @id');
+            }
 
             context.res = { status: 200, headers, body: { message: 'Compliance type deleted' } };
             return;
