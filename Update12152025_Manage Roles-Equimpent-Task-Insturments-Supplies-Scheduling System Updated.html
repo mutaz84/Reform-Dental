@@ -37220,7 +37220,7 @@ window.initializeCalendar = initializeCalendar;
         });
 
         // Content View Toggle (Calendar vs Duties)
-        function switchContentView(viewName, event) {
+        function switchContentView(viewName, event, options) {
             if (event) {
                 event.preventDefault();
             }
@@ -37411,6 +37411,17 @@ window.initializeCalendar = initializeCalendar;
                             switchTaskHubTab('my-tasks');
                         }, 50);
                     }
+                }
+
+                // Run optional post-switch hooks without re-wrapping switchContentView.
+                if (Array.isArray(window.__onSwitchContentViewHooks)) {
+                    window.__onSwitchContentViewHooks.forEach((hook) => {
+                        try {
+                            if (typeof hook === 'function') hook(viewName, event, options);
+                        } catch (hookError) {
+                            console.error('switchContentView hook error:', hookError);
+                        }
+                    });
                 }
 
             } catch (error) {
@@ -52271,19 +52282,17 @@ window.addEventListener('load', function() {
         
         // Initialize tasks when switching to tasks view
         function setupTaskViewInitialization() {
-            if (typeof window.switchContentView === 'function') {
-                const originalSwitchContent = window.switchContentView;
-                window.switchContentView = function(viewName, event) {
-                    const result = originalSwitchContent.apply(this, arguments);
-                    if (viewName === 'tasks') {
-                        setTimeout(initTasksView, 100);
-                    }
-                    return result;
-                };
-            } else {
-                // Try again later
-                setTimeout(setupTaskViewInitialization, 100);
-            }
+            window.__onSwitchContentViewHooks = window.__onSwitchContentViewHooks || [];
+            const exists = window.__onSwitchContentViewHooks.some(h => h && h.__hookName === 'initTasksViewHook');
+            if (exists) return;
+
+            const hook = function(viewName) {
+                if (viewName === 'tasks') {
+                    setTimeout(initTasksView, 100);
+                }
+            };
+            hook.__hookName = 'initTasksViewHook';
+            window.__onSwitchContentViewHooks.push(hook);
         }
         setupTaskViewInitialization();
 
@@ -54546,11 +54555,9 @@ window.addEventListener('load', function() {
         });
 
         // Re-initialize when switching to projects view
-        if (typeof switchContentView !== 'undefined') {
-            const originalSwitchContentView = switchContentView;
-            switchContentView = function(viewName, event) {
-                const result = originalSwitchContentView.apply(this, arguments);
-            
+        window.__onSwitchContentViewHooks = window.__onSwitchContentViewHooks || [];
+        if (!window.__onSwitchContentViewHooks.some(h => h && h.__hookName === 'projectsKanbanInitHook')) {
+            const hook = function(viewName) {
                 if (viewName === 'projects') {
                     setTimeout(() => {
                         initializeKanbanDragDrop();
@@ -54558,8 +54565,9 @@ window.addEventListener('load', function() {
                         updateKanbanStats();
                     }, 100);
                 }
-                return result;
             };
+            hook.__hookName = 'projectsKanbanInitHook';
+            window.__onSwitchContentViewHooks.push(hook);
         }
 
         </script>
@@ -63203,15 +63211,15 @@ console.log('✅ Global functions exported to window object');
                             <div id="managerUnassignedTasksList"></div>
                         </div>
                         <div class="manager-panel-links">
-                            <a href="#" class="nav-item" onclick="switchContentView('manage-duties', event); return false;">
+                            <a href="#" class="nav-item" onclick="openDutiesManagement(); return false;">
                                 <i class="fas fa-clipboard-list"></i>
                                 <span>Manage Duties</span>
                             </a>
-                            <a href="#" class="nav-item" onclick="switchContentView('manage-tasks', event); return false;">
+                            <a href="#" class="nav-item" onclick="openTasksManagement(); return false;">
                                 <i class="fas fa-tasks"></i>
                                 <span>Manage Tasks</span>
                             </a>
-                            <a href="#" class="nav-item" onclick="switchContentView('manage-schedules', event); return false;">
+                            <a href="#" class="nav-item" onclick="openScheduleManager(); return false;">
                                 <i class="fas fa-calendar-check"></i>
                                 <span>Manage Schedules</span>
                             </a>
