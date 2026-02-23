@@ -62934,8 +62934,18 @@ console.log('✅ Global functions exported to window object');
             const effectiveEvent = event || (typeof window !== 'undefined' ? window.event : null);
             const hasUserEvent = !!(effectiveEvent && typeof effectiveEvent === 'object' && typeof effectiveEvent.type === 'string');
             const force = !!(options && options.force);
+            const isManagerRoute = typeof viewName === 'string' && viewName.indexOf('manage-') === 0;
 
             const gestureRecent = (Date.now() - lastUserGestureTs) <= USER_GESTURE_WINDOW_MS;
+
+            // Manager pages are explicit admin tools and should never be blocked by the guard.
+            if (isManagerRoute) {
+                try {
+                    localStorage.setItem(LAST_VIEW_KEY, String(viewName || ''));
+                    localStorage.setItem(LAST_VIEW_TS_KEY, String(Date.now()));
+                } catch (_) {}
+                return original.apply(this, arguments);
+            }
 
             if (hasUserEvent || gestureRecent) {
                 try {
