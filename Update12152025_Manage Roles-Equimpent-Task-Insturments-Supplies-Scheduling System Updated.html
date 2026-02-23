@@ -23809,10 +23809,42 @@
         }
 
         // Open schedule manager modal
+        function activateManagementView(viewName) {
+            try {
+                const target = document.getElementById('view-' + viewName);
+                if (!target) return false;
+
+                const views = document.querySelectorAll('.content-view');
+                views.forEach(v => {
+                    v.classList.remove('active');
+                    v.style.display = 'none';
+                });
+
+                target.classList.add('active');
+                target.style.display = 'block';
+
+                const mainContent = document.querySelector('.main-content');
+                if (mainContent) mainContent.scrollTop = 0;
+
+                if (viewName === 'manage-tasks') {
+                    if (typeof initializeTaskManagementView === 'function') initializeTaskManagementView();
+                } else if (viewName === 'manage-duties') {
+                    if (typeof renderDutiesList === 'function') renderDutiesList();
+                }
+
+                return true;
+            } catch (e) {
+                console.error('activateManagementView failed:', e);
+                return false;
+            }
+        }
+
         function openScheduleManager() {
             // Close any open schedule builder modals first
             closeScheduleManagerModal();
-            switchContentView('manage-schedules');
+            if (!activateManagementView('manage-schedules')) {
+                switchContentView('manage-schedules');
+            }
         }
         
         // Close schedule manager modal
@@ -25293,7 +25325,9 @@
         
         // Open Task Management (Admin Full View)
         function openTasksManagement() {
-            switchContentView('manage-tasks');
+            if (!activateManagementView('manage-tasks')) {
+                switchContentView('manage-tasks');
+            }
         }
         
         // Render task management list
@@ -45335,7 +45369,9 @@ window.addEventListener('load', function() {
         function openDutiesManagement(fromUserCreation = false, returnView = 'dashboard') {
             console.log('Opening duties management, fromUserCreation:', fromUserCreation, 'returnView:', returnView);
             // Always open as full page view for consistency
-            switchContentView('manage-duties');
+            if (!activateManagementView('manage-duties')) {
+                switchContentView('manage-duties');
+            }
 
             // Store return destination for close button
             window.dutiesReturnView = returnView;
