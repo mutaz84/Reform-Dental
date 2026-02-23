@@ -15402,6 +15402,10 @@
                         <i class="fas fa-graduation-cap"></i>
                         <span>Onboarding</span>
                     </a>
+                    <a href="#" class="nav-item">
+                        <i class="fas fa-clipboard-check"></i>
+                        <span>Requirements</span>
+                    </a>
                 </div>
             </div>
         </div>
@@ -21289,13 +21293,21 @@
                 return;
             }
 
+            const complianceUserId = resolveComplianceUserId(username, user);
+            if (!complianceUserId) {
+                if (typeof showNotification === 'function') {
+                    showNotification('This user does not have a database ID yet. Save/sync the user first, then retry compliances.', 'error');
+                }
+                return;
+            }
+
             // Set employee info
-            document.getElementById('complianceEmployeeId').value = username;
+            document.getElementById('complianceEmployeeId').value = complianceUserId;
             document.getElementById('complianceEmployeeName').textContent = user.name || username;
             document.getElementById('complianceEmployeeJobTitle').textContent = `${user.jobTitle || 'No Title'} • ${user.department || 'No Department'}`;
 
             // Load compliances for this user
-            loadUserCompliances(username);
+            loadUserCompliances(complianceUserId);
 
             // Show modal
             ensureUnifiedRightRailExpandedForModal();
@@ -21310,7 +21322,7 @@
         // Load compliances for a specific user
         async function loadUserCompliances(userId) {
             try {
-                const response = await fetch(`${API_BASE_URL}/compliances?userId=${userId}`);
+                const response = await fetch(`${API_BASE_URL}/compliances?userId=${encodeURIComponent(userId)}`);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -21331,6 +21343,7 @@
                 }
 
                 compliances.forEach((compliance) => {
+                    const complianceId = compliance.id || compliance.Id;
                     const expiryDate = new Date(compliance.expiryDate);
                     const today = new Date();
                     const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
@@ -21360,13 +21373,13 @@
                         </td>
                         <td style="padding: 1rem; text-align: center;">
                             <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                                ${(compliance.attachmentData || compliance.attachmentUrl) ? `<button onclick="viewComplianceAttachment(${compliance.id})" style="padding: 0.5rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;" title="View Attachment">
+                                ${(compliance.attachmentData || compliance.attachmentUrl) ? `<button onclick="viewComplianceAttachment(${complianceId})" style="padding: 0.5rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;" title="View Attachment">
                                     <i class="fas fa-paperclip"></i>
                                 </button>` : ''}
-                                <button onclick="editCompliance(${compliance.id})" style="padding: 0.5rem; background: #f59e0b; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Edit">
+                                <button onclick="editCompliance(${complianceId})" style="padding: 0.5rem; background: #f59e0b; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Edit">
                                     <i class="fas fa-edit"></i>
                                 </button>
-                                <button onclick="deleteCompliance(${compliance.id})" style="padding: 0.5rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Delete">
+                                <button onclick="deleteCompliance(${complianceId})" style="padding: 0.5rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Delete">
                                     <i class="fas fa-trash"></i>
                                 </button>
                             </div>
@@ -21399,6 +21412,7 @@
                     const expiryDate = new Date(compliance.expiryDate);
                     const today = new Date();
                     const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+                    const complianceId = compliance.id || compliance.Id;
 
                     let statusColor = '#10b981'; // green
                     let statusText = 'Active';
@@ -21425,13 +21439,13 @@
                         </td>
                         <td style="padding: 1rem; text-align: center;">
                             <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                                ${(compliance.attachmentData || compliance.attachment) ? `<button onclick="viewComplianceAttachment('${userId}', ${index})" style="padding: 0.5rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;" title="View Attachment">
+                                ${(compliance.attachmentData || compliance.attachment) ? `<button ${complianceId ? `onclick="viewComplianceAttachment(${complianceId})"` : 'disabled'} style="padding: 0.5rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: ${complianceId ? 'pointer' : 'not-allowed'}; opacity: ${complianceId ? '1' : '0.5'};" title="${complianceId ? 'View Attachment' : 'Attachment unavailable in fallback mode'}">
                                     <i class="fas fa-paperclip"></i>
                                 </button>` : ''}
-                                <button onclick="editCompliance('${userId}', ${index})" style="padding: 0.5rem; background: #f59e0b; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Edit">
+                                <button disabled style="padding: 0.5rem; background: #f59e0b; color: white; border: none; border-radius: 6px; cursor: not-allowed; opacity: 0.5;" title="Edit unavailable in fallback mode">
                                     <i class="fas fa-edit"></i>
                                 </button>
-                                <button onclick="deleteCompliance('${userId}', ${index})" style="padding: 0.5rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Delete">
+                                <button disabled style="padding: 0.5rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: not-allowed; opacity: 0.5;" title="Delete unavailable in fallback mode">
                                     <i class="fas fa-trash"></i>
                                 </button>
                             </div>
@@ -21448,6 +21462,37 @@
             // This should return the ID of the currently logged-in user
             // You'll need to implement this based on your authentication system
             return 1; // Default admin user for now
+        }
+
+        function isComplianceApiConfigured() {
+            return typeof API_BASE_URL !== 'undefined' && !!API_BASE_URL;
+        }
+
+        function resolveComplianceUserId(userIdentifier, userRecord = null) {
+            const numericCandidate = Number(userIdentifier);
+            if (Number.isFinite(numericCandidate) && numericCandidate > 0) {
+                return numericCandidate;
+            }
+
+            let user = userRecord;
+            if (!user && userIdentifier !== undefined && userIdentifier !== null && userIdentifier !== '') {
+                const users = loadUsers();
+                user = users[userIdentifier] || null;
+            }
+
+            const resolvedId = Number(user?.id || user?.dbId || user?.Id);
+            if (Number.isFinite(resolvedId) && resolvedId > 0) {
+                return resolvedId;
+            }
+
+            if (userIdentifier === localStorage.getItem('loggedInUser')) {
+                const currentId = Number(window.currentDbUserId);
+                if (Number.isFinite(currentId) && currentId > 0) {
+                    return currentId;
+                }
+            }
+
+            return null;
         }
 
         // Load Compliance Types for dropdown
@@ -21497,7 +21542,6 @@
                         { id: 13, name: 'Water Quality Test' },
                         { id: 14, name: 'HVAC Maintenance' }
                     ];
-                    localStorage.setItem('complianceTypes', JSON.stringify(defaultTypes));
                     
                     const select = document.getElementById('complianceType');
                     select.innerHTML = '<option value="">Select Compliance Type</option>';
@@ -21566,8 +21610,16 @@
         async function saveCompliance(event) {
             event.preventDefault();
 
-            const username = document.getElementById('complianceEmployeeId')?.value;
+            const userFieldValue = document.getElementById('complianceEmployeeId')?.value;
+            const resolvedUserId = resolveComplianceUserId(userFieldValue);
             const complianceId = document.getElementById('complianceId')?.value;
+
+            if (userFieldValue && !resolvedUserId) {
+                if (typeof showNotification === 'function') {
+                    showNotification('Unable to resolve employee database ID. Please select a valid employee and try again.', 'error');
+                }
+                return;
+            }
 
             // Handle file attachment
             let attachmentData = null;
@@ -21592,7 +21644,7 @@
                 title: document.getElementById('complianceTitle')?.value || '',
                 complianceTypeId: parseInt(document.getElementById('complianceType')?.value) || document.getElementById('complianceType')?.value || '',
                 description: document.getElementById('complianceDescription')?.value || '',
-                userId: username ? parseInt(username) : null, // For employee compliances
+                userId: resolvedUserId, // For employee compliances
                 clinicId: null, // For clinic compliances (can be set if needed)
                 issueDate: document.getElementById('complianceIssueDate')?.value || '',
                 expiryDate: document.getElementById('complianceExpiryDate')?.value || '',
@@ -21610,8 +21662,7 @@
                 modifiedById: getCurrentUserId()
             };
 
-            // Check if API is available
-            if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
+            if (isComplianceApiConfigured()) {
                 try {
                     let response;
                     if (complianceId) {
@@ -21634,46 +21685,41 @@
                         });
                     }
 
-                    if (response.ok) {
-                        // Refresh the list
-                        loadUserCompliances(username);
-                        closeComplianceModal();
-                        if (typeof showNotification === 'function') {
-                            showNotification('Compliance saved successfully!', 'success');
+                    if (!response.ok) {
+                        let apiError = `HTTP ${response.status}`;
+                        try {
+                            const errorText = await response.text();
+                            if (errorText) {
+                                apiError = `${apiError}: ${errorText}`;
+                            }
+                        } catch (readError) {
+                            console.warn('Unable to read compliance API error response:', readError);
                         }
-                        return;
-                    } else {
-                        console.error('API error, falling back to localStorage');
+                        throw new Error(apiError);
                     }
+
+                    if (resolvedUserId) {
+                        loadUserCompliances(resolvedUserId);
+                    }
+                    if (typeof loadAllCompliances === 'function') {
+                        loadAllCompliances();
+                    }
+                    closeComplianceModal();
+                    if (typeof showNotification === 'function') {
+                        showNotification('Compliance saved successfully!', 'success');
+                    }
+                    return;
                 } catch (error) {
-                    console.error('Error saving compliance via API, falling back to localStorage:', error);
+                    console.error('Error saving compliance via API:', error);
+                    if (typeof showNotification === 'function') {
+                        showNotification(`Failed to save compliance to server: ${error.message}`, 'error');
+                    }
+                    return;
                 }
             }
 
-            // Fallback to localStorage
-            console.log('Using localStorage fallback for compliance save');
-            const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
-            if (!compliances[username]) {
-                compliances[username] = [];
-            }
-
-            if (complianceId) {
-                // Update existing
-                compliances[username][parseInt(complianceId)] = compliance;
-            } else {
-                // Add new
-                compliances[username].push(compliance);
-            }
-
-            // Save back to localStorage
-            localStorage.setItem('userCompliances', JSON.stringify(compliances));
-
-            // Refresh the list
-            loadUserCompliances(username);
-            closeComplianceModal();
-
             if (typeof showNotification === 'function') {
-                showNotification('Compliance saved successfully!', 'success');
+                showNotification('Compliance API is not configured. Save is disabled in API-only mode.', 'error');
             }
         }
 
@@ -21683,11 +21729,8 @@
                 return;
             }
 
-            const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
-            let resolvedUserId = userId;
-            let resolvedIndex = Number.isFinite(Number(index)) ? Number(index) : -1;
-            let localCompliance = null;
             let apiComplianceId = null;
+            let refreshUserId = document.getElementById('complianceEmployeeId')?.value || '';
 
             // Support legacy/single-arg calls: deleteCompliance(complianceId)
             const isSingleArgCall = (index === undefined || index === null);
@@ -21696,115 +21739,68 @@
                 if (Number.isFinite(parsedId) && parsedId > 0) {
                     apiComplianceId = parsedId;
                 }
-
-                if (apiComplianceId) {
-                    Object.keys(compliances).forEach(uid => {
-                        if (localCompliance) return;
-                        const list = compliances[uid] || [];
-                        const idx = list.findIndex(c => Number(c?.id) === Number(apiComplianceId));
-                        if (idx >= 0) {
-                            resolvedUserId = uid;
-                            resolvedIndex = idx;
-                            localCompliance = list[idx];
-                        }
-                    });
-                }
             } else {
-                const localUserCompliances = compliances[userId] || [];
-                if (resolvedIndex >= 0 && resolvedIndex < localUserCompliances.length) {
-                    localCompliance = localUserCompliances[resolvedIndex];
+                const parsedIndexAsId = Number(index);
+                if (Number.isFinite(parsedIndexAsId) && parsedIndexAsId > 0) {
+                    apiComplianceId = parsedIndexAsId;
+                } else {
+                    const parsedUserIdAsId = Number(userId);
+                    if (Number.isFinite(parsedUserIdAsId) && parsedUserIdAsId > 0) {
+                        apiComplianceId = parsedUserIdAsId;
+                    }
                 }
 
-                // Resolve compliance ID for API delete (prefer explicit compliance.id, fallback to provided index)
-                apiComplianceId = localCompliance?.id || null;
-                if (!apiComplianceId) {
-                    const parsedIndex = Number(index);
-                    if (Number.isFinite(parsedIndex) && parsedIndex > 0) {
-                        apiComplianceId = parsedIndex;
-                    }
+                const parsedUserId = Number(userId);
+                if (Number.isFinite(parsedUserId) && parsedUserId > 0) {
+                    refreshUserId = parsedUserId;
                 }
             }
 
             // Check if API is available
-            if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
+            if (isComplianceApiConfigured()) {
                 try {
-                    if (apiComplianceId) {
-                        const response = await fetch(`${API_BASE_URL}/compliances/${apiComplianceId}`, {
-                            method: 'DELETE'
-                        });
-
-                        if (!response.ok) {
-                            throw new Error(`HTTP error! status: ${response.status}`);
-                        }
-
-                        // Refresh both views when API delete succeeds
-                        if (typeof loadAllCompliances === 'function') {
-                            loadAllCompliances();
-                        }
-                        if (typeof loadUserCompliances === 'function' && resolvedUserId !== undefined && resolvedUserId !== null && compliances[resolvedUserId]) {
-                            loadUserCompliances(resolvedUserId);
-                        }
-                        if (typeof showNotification === 'function') {
-                            showNotification('Compliance deleted successfully!', 'success');
-                        }
-                        return;
+                    if (!apiComplianceId) {
+                        throw new Error('Compliance ID is required for server delete.');
                     }
+
+                    const response = await fetch(`${API_BASE_URL}/compliances/${apiComplianceId}`, {
+                        method: 'DELETE'
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    // Refresh both views when API delete succeeds
+                    if (typeof loadAllCompliances === 'function') {
+                        loadAllCompliances();
+                    }
+
+                    if (typeof loadUserCompliances === 'function' && refreshUserId !== undefined && refreshUserId !== null && refreshUserId !== '') {
+                        loadUserCompliances(refreshUserId);
+                    }
+                    if (typeof showNotification === 'function') {
+                        showNotification('Compliance deleted successfully!', 'success');
+                    }
+                    return;
                 } catch (error) {
-                    console.log('API not available for delete, using localStorage fallback:', error.message);
-                }
-            }
-
-            // Fallback to localStorage
-            console.log('Using localStorage fallback for deleting compliance');
-            const userCompliances = compliances[resolvedUserId] || [];
-            let deleted = false;
-
-            if (resolvedIndex >= 0 && resolvedIndex < userCompliances.length) {
-                userCompliances.splice(resolvedIndex, 1);
-                compliances[resolvedUserId] = userCompliances;
-                deleted = true;
-            } else if (apiComplianceId) {
-                // When called from compliance management view, remove by ID across all users
-                Object.keys(compliances).forEach(uid => {
-                    const list = compliances[uid] || [];
-                    const idx = list.findIndex(c => Number(c?.id) === Number(apiComplianceId));
-                    if (idx >= 0) {
-                        list.splice(idx, 1);
-                        compliances[uid] = list;
-                        deleted = true;
+                    console.error('Error deleting compliance via API:', error);
+                    if (typeof showNotification === 'function') {
+                        showNotification(`Failed to delete compliance from server: ${error.message}`, 'error');
                     }
-                });
+                    return;
+                }
             }
 
-            if (deleted) {
-                localStorage.setItem('userCompliances', JSON.stringify(compliances));
-                if (typeof loadAllCompliances === 'function') {
-                    loadAllCompliances();
-                }
-                if (typeof loadUserCompliances === 'function' && compliances[resolvedUserId]) {
-                    loadUserCompliances(resolvedUserId);
-                }
-                if (typeof showNotification === 'function') {
-                    showNotification('Compliance deleted successfully!', 'success');
-                }
-            } else {
-                if (typeof showNotification === 'function') {
-                    showNotification('Error: Compliance not found.', 'error');
-                }
+            if (typeof showNotification === 'function') {
+                showNotification('Compliance API is not configured. Delete is disabled in API-only mode.', 'error');
             }
         }
 
         // Edit Compliance
         async function editCompliance(userId, index) {
-            const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
-            let resolvedUserId = userId;
-            let resolvedIndex = Number.isFinite(Number(index)) ? Number(index) : -1;
-            const userCompliances = compliances[userId] || [];
-            let compliance = (resolvedIndex >= 0 && resolvedIndex < userCompliances.length) ? userCompliances[resolvedIndex] : null;
-            let resolvedLocalIndex = (resolvedIndex >= 0 && resolvedIndex < userCompliances.length) ? resolvedIndex : null;
-
-            // Resolve API compliance ID for records coming from compliance management view
-            let apiComplianceId = compliance?.id || null;
+            let apiComplianceId = null;
+            let resolvedUserId = document.getElementById('complianceEmployeeId')?.value || userId;
 
             // Support legacy/single-arg calls: editCompliance(complianceId)
             const isSingleArgCall = (index === undefined || index === null);
@@ -21816,68 +21812,57 @@
             }
 
             if (!apiComplianceId) {
-                const parsedIndex = Number(index);
-                if (Number.isFinite(parsedIndex) && parsedIndex > 0) {
-                    apiComplianceId = parsedIndex;
+                const parsedIndexAsId = Number(index);
+                if (Number.isFinite(parsedIndexAsId) && parsedIndexAsId > 0) {
+                    apiComplianceId = parsedIndexAsId;
+                } else {
+                    const parsedUserIdAsId = Number(userId);
+                    if (Number.isFinite(parsedUserIdAsId) && parsedUserIdAsId > 0) {
+                        apiComplianceId = parsedUserIdAsId;
+                    }
                 }
+            }
+
+            const parsedUserId = Number(userId);
+            if (Number.isFinite(parsedUserId) && parsedUserId > 0) {
+                resolvedUserId = parsedUserId;
             }
 
             // Check if API is available
-            if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
+            if (isComplianceApiConfigured()) {
                 try {
-                    if (apiComplianceId) {
-                        const response = await fetch(`${API_BASE_URL}/compliances/${apiComplianceId}`);
-                        if (!response.ok) {
-                            throw new Error(`HTTP error! status: ${response.status}`);
-                        }
-                        const fullCompliance = await response.json();
-
-                        // Populate the modal with existing data
-                        document.getElementById('complianceTitle').value = fullCompliance.title || '';
-                        document.getElementById('complianceDescription').value = fullCompliance.description || '';
-                        document.getElementById('complianceType').value = fullCompliance.complianceTypeId || '';
-                        document.getElementById('complianceIssueDate').value = fullCompliance.issueDate ? new Date(fullCompliance.issueDate).toISOString().split('T')[0] : '';
-                        document.getElementById('complianceExpiryDate').value = fullCompliance.expiryDate ? new Date(fullCompliance.expiryDate).toISOString().split('T')[0] : '';
-                        document.getElementById('complianceEmployeeId').value = fullCompliance.userId || resolvedUserId || '';
-                        document.getElementById('complianceId').value = fullCompliance.id;
-
-                        document.getElementById('complianceModal').style.display = 'flex';
-                        return;
+                    if (!apiComplianceId) {
+                        throw new Error('Compliance ID is required for server edit.');
                     }
+
+                    const response = await fetch(`${API_BASE_URL}/compliances/${apiComplianceId}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const fullCompliance = await response.json();
+
+                    // Populate the modal with existing data
+                    document.getElementById('complianceTitle').value = fullCompliance.title || '';
+                    document.getElementById('complianceDescription').value = fullCompliance.description || '';
+                    document.getElementById('complianceType').value = fullCompliance.complianceTypeId || '';
+                    document.getElementById('complianceIssueDate').value = fullCompliance.issueDate ? new Date(fullCompliance.issueDate).toISOString().split('T')[0] : '';
+                    document.getElementById('complianceExpiryDate').value = fullCompliance.expiryDate ? new Date(fullCompliance.expiryDate).toISOString().split('T')[0] : '';
+                    document.getElementById('complianceEmployeeId').value = fullCompliance.userId || resolvedUserId || '';
+                    document.getElementById('complianceId').value = fullCompliance.id || fullCompliance.Id || apiComplianceId;
+
+                    document.getElementById('complianceModal').style.display = 'flex';
+                    return;
                 } catch (error) {
-                    console.log('API not available for edit, using localStorage fallback:', error.message);
+                    console.error('Error loading compliance for edit via API:', error);
+                    if (typeof showNotification === 'function') {
+                        showNotification(`Failed to load compliance from server: ${error.message}`, 'error');
+                    }
+                    return;
                 }
             }
 
-            // Fallback to localStorage
-            console.log('Using localStorage fallback for editing compliance');
-            if (!compliance && apiComplianceId) {
-                // Attempt to find by ID across all users when invoked from aggregate view
-                Object.keys(compliances).forEach(uid => {
-                    if (compliance) return;
-                    const list = compliances[uid] || [];
-                    const foundIndex = list.findIndex(c => Number(c?.id) === Number(apiComplianceId));
-                    if (foundIndex >= 0) {
-                        compliance = list[foundIndex];
-                        resolvedLocalIndex = foundIndex;
-                        resolvedUserId = uid;
-                    }
-                });
-            }
-
-            if (compliance) {
-                // Populate the modal with existing data
-                document.getElementById('complianceTitle').value = compliance.title || '';
-                document.getElementById('complianceDescription').value = compliance.description || '';
-                document.getElementById('complianceType').value = compliance.complianceTypeId || '';
-                document.getElementById('complianceIssueDate').value = compliance.issueDate ? new Date(compliance.issueDate).toISOString().split('T')[0] : '';
-                document.getElementById('complianceExpiryDate').value = compliance.expiryDate ? new Date(compliance.expiryDate).toISOString().split('T')[0] : '';
-                document.getElementById('complianceEmployeeId').value = resolvedUserId;
-                document.getElementById('complianceId').value = (resolvedLocalIndex !== null ? resolvedLocalIndex : index); // Use local index for localStorage
-
-                document.getElementById('complianceModal').style.display = 'flex';
-            } else {
-                showNotification('Error: Compliance not found.', 'error');
+            if (typeof showNotification === 'function') {
+                showNotification('Compliance API is not configured. Edit is disabled in API-only mode.', 'error');
             }
         }
 
@@ -22032,6 +22017,15 @@
             }
 
             compliances.forEach((compliance) => {
+                const complianceId = compliance.id || compliance.Id;
+                const hasLocalIndex = compliance.localIndex !== undefined;
+                const actionsDisabled = hasLocalIndex || !complianceId || !isComplianceApiConfigured();
+                const editCall = hasLocalIndex
+                    ? `editCompliance('${compliance.userId || ''}', ${compliance.localIndex})`
+                    : `editCompliance(${complianceId})`;
+                const deleteCall = hasLocalIndex
+                    ? `deleteCompliance('${compliance.userId || ''}', ${compliance.localIndex})`
+                    : `deleteCompliance(${complianceId})`;
                 const expiryDate = new Date(compliance.expiryDate);
                 const today = new Date();
                 const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
@@ -22085,13 +22079,13 @@
                         ${compliance.description || 'No description provided.'}
                     </div>
                     <div class="compliance-actions">
-                        ${compliance.attachmentUrl ? `<button onclick="viewComplianceAttachment(${compliance.id})" class="action-btn" title="View Attachment">
+                        ${(compliance.attachmentUrl || compliance.attachmentData) ? `<button ${!actionsDisabled ? `onclick="viewComplianceAttachment(${complianceId})"` : 'disabled'} class="action-btn" style="${actionsDisabled ? 'opacity:0.5;cursor:not-allowed;' : ''}" title="${!actionsDisabled ? 'View Attachment' : 'Action unavailable in fallback mode'}">
                             <i class="fas fa-paperclip"></i>
                         </button>` : ''}
-                        <button onclick="editCompliance('${compliance.userId || compliance.id}', ${compliance.localIndex !== undefined ? compliance.localIndex : compliance.id})" class="action-btn" title="Edit">
+                        <button ${!actionsDisabled ? `onclick="${editCall}"` : 'disabled'} class="action-btn" style="${actionsDisabled ? 'opacity:0.5;cursor:not-allowed;' : ''}" title="${!actionsDisabled ? 'Edit' : 'Edit unavailable in fallback mode'}">
                             <i class="fas fa-edit"></i>
                         </button>
-                        <button onclick="deleteCompliance('${compliance.userId || compliance.id}', ${compliance.localIndex !== undefined ? compliance.localIndex : compliance.id})" class="action-btn delete" title="Delete">
+                        <button ${!actionsDisabled ? `onclick="${deleteCall}"` : 'disabled'} class="action-btn delete" style="${actionsDisabled ? 'opacity:0.5;cursor:not-allowed;' : ''}" title="${!actionsDisabled ? 'Delete' : 'Delete unavailable in fallback mode'}">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
@@ -22195,7 +22189,7 @@
                     types = JSON.parse(storedTypes);
                 }
 
-                // If still no types, use default types
+                // If still no types, use default types in-memory
                 if (types.length === 0) {
                     types = [
                         { id: 1, name: 'CPR Certification' },
@@ -22213,8 +22207,6 @@
                         { id: 13, name: 'Water Quality Test' },
                         { id: 14, name: 'HVAC Maintenance' }
                     ];
-                    // Save default types to localStorage
-                    localStorage.setItem('complianceTypes', JSON.stringify(types));
                 }
 
                 displayComplianceTypes(types);
@@ -22244,7 +22236,7 @@
         }
 
         // Add new compliance type
-        function addComplianceType() {
+        async function addComplianceType() {
             const typeName = document.getElementById('newComplianceTypeName').value.trim();
             
             if (!typeName) {
@@ -22252,47 +22244,81 @@
                 return;
             }
 
-            // Load existing types
-            const storedTypes = JSON.parse(localStorage.getItem('complianceTypes') || '[]');
-            
-            // Check if type already exists
-            if (storedTypes.some(type => type.name.toLowerCase() === typeName.toLowerCase())) {
-                showNotification('This compliance type already exists', 'error');
-                return;
+            if (typeof isComplianceApiConfigured === 'function' && isComplianceApiConfigured()) {
+                try {
+                    const createResponse = await fetch(`${API_BASE_URL}/compliance-types`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ name: typeName })
+                    });
+
+                    if (!createResponse.ok) {
+                        let errorMessage = `HTTP ${createResponse.status}`;
+                        try {
+                            const bodyText = await createResponse.text();
+                            if (bodyText) {
+                                errorMessage = `${errorMessage}: ${bodyText}`;
+                            }
+                        } catch (parseError) {
+                            console.warn('Unable to read compliance type add error body:', parseError);
+                        }
+                        throw new Error(errorMessage);
+                    }
+
+                    document.getElementById('newComplianceTypeName').value = '';
+                    await loadComplianceTypesForManager();
+                    await loadComplianceTypes();
+                    showNotification('Compliance type added successfully', 'success');
+                    return;
+                } catch (error) {
+                    console.error('Error adding compliance type via API:', error);
+                    showNotification(`Failed to add compliance type to server: ${error.message}`, 'error');
+                    return;
+                }
             }
 
-            // Add new type
-            const newType = {
-                id: Date.now(), // Simple ID generation
-                name: typeName
-            };
-            
-            storedTypes.push(newType);
-            localStorage.setItem('complianceTypes', JSON.stringify(storedTypes));
-
-            // Clear input and reload
-            document.getElementById('newComplianceTypeName').value = '';
-            loadComplianceTypesForManager();
-            loadComplianceTypes(); // Also reload the dropdown in the form
-            
-            showNotification('Compliance type added successfully', 'success');
+            showNotification('Compliance Types API is not configured. Add is disabled in API-only mode.', 'error');
         }
 
         // Delete compliance type
-        function deleteComplianceType(typeId) {
+        async function deleteComplianceType(typeId) {
             if (!confirm('Are you sure you want to delete this compliance type? This action cannot be undone.')) {
                 return;
             }
 
-            const storedTypes = JSON.parse(localStorage.getItem('complianceTypes') || '[]');
-            const filteredTypes = storedTypes.filter(type => type.id !== typeId);
-            
-            localStorage.setItem('complianceTypes', JSON.stringify(filteredTypes));
-            
-            loadComplianceTypesForManager();
-            loadComplianceTypes(); // Also reload the dropdown in the form
-            
-            showNotification('Compliance type deleted successfully', 'success');
+            if (typeof isComplianceApiConfigured === 'function' && isComplianceApiConfigured()) {
+                try {
+                    const deleteResponse = await fetch(`${API_BASE_URL}/compliance-types/${typeId}`, {
+                        method: 'DELETE'
+                    });
+
+                    if (!deleteResponse.ok) {
+                        let errorMessage = `HTTP ${deleteResponse.status}`;
+                        try {
+                            const bodyText = await deleteResponse.text();
+                            if (bodyText) {
+                                errorMessage = `${errorMessage}: ${bodyText}`;
+                            }
+                        } catch (parseError) {
+                            console.warn('Unable to read compliance type delete error body:', parseError);
+                        }
+                        throw new Error(errorMessage);
+                    }
+
+                    await loadComplianceTypesForManager();
+                    await loadComplianceTypes();
+                    showNotification('Compliance type deleted successfully', 'success');
+                    return;
+                } catch (error) {
+                    console.error('Error deleting compliance type via API:', error);
+                    showNotification(`Failed to delete compliance type from server: ${error.message}`, 'error');
+                    return;
+                }
+            }
+
+            showNotification('Compliance Types API is not configured. Delete is disabled in API-only mode.', 'error');
         }
 
         // Handle file attachment preview
