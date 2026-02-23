@@ -13874,6 +13874,7 @@
     body.right-rail-enabled #equipmentManagementModal,
     body.right-rail-enabled #instrumentsManagementModal,
     body.right-rail-enabled #suppliesManagementModal,
+    body.right-rail-enabled #officePlanModal,
     body.right-rail-enabled #userManagementModal,
     body.right-rail-enabled #addUserModal,
     body.right-rail-enabled #editUserModal,
@@ -13901,6 +13902,7 @@
     body.right-rail-enabled.right-rail-collapsed #equipmentManagementModal,
     body.right-rail-enabled.right-rail-collapsed #instrumentsManagementModal,
     body.right-rail-enabled.right-rail-collapsed #suppliesManagementModal,
+    body.right-rail-enabled.right-rail-collapsed #officePlanModal,
     body.right-rail-enabled.right-rail-collapsed #userManagementModal,
     body.right-rail-enabled.right-rail-collapsed #addUserModal,
     body.right-rail-enabled.right-rail-collapsed #editUserModal,
@@ -13960,6 +13962,11 @@
         max-width: 100% !important;
         max-height: 100% !important;
         border-radius: 0 !important;
+    }
+
+    /* Keep Office Plan fully above the right rail */
+    body.right-rail-enabled #officePlanModal {
+        z-index: 10030 !important;
     }
 
     body.right-rail-enabled #vendorsManagementModal,
@@ -63408,7 +63415,10 @@ console.log('✅ Global functions exported to window object');
                     registerPanels();
                     detachPanelForActiveView();
                     const saved = (() => { try { return localStorage.getItem(TAB_KEY) || 'menu'; } catch (_) { return 'menu'; } })();
-                    setActiveTab(saved);
+                    const activeViewId = getActiveViewId();
+                    const isManagerView = typeof activeViewId === 'string' && activeViewId.indexOf('view-manage-') === 0;
+                    const nextTab = (!isManagerView && saved === 'manager') ? 'menu' : saved;
+                    setActiveTab(nextTab);
                     updateCalendarTabState();
                 } catch (_) {}
             }, 0);
@@ -63442,7 +63452,9 @@ console.log('✅ Global functions exported to window object');
 
         // Restore selected tab
         const saved = (() => { try { return localStorage.getItem(TAB_KEY) || 'menu'; } catch (_) { return 'menu'; } })();
-        setActiveTab(saved);
+        const activeViewId = getActiveViewId();
+        const isManagerView = typeof activeViewId === 'string' && activeViewId.indexOf('view-manage-') === 0;
+        setActiveTab((!isManagerView && saved === 'manager') ? 'menu' : saved);
 
         // Restore collapsed state
         const savedCollapsed = (() => { try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch (_) { return false; } })();
@@ -63907,8 +63919,8 @@ console.log('✅ Global functions exported to window object');
     };
 
     // ===== CONTENT VIEW SWITCHING =====
-    // Global function to switch between content views
-    function switchContentView(viewName, event) {
+    // Legacy fallback used only when the main app router is unavailable.
+    function switchContentViewFallback(viewName, event) {
         if (event) {
             event.preventDefault();
         }
@@ -63953,8 +63965,10 @@ console.log('✅ Global functions exported to window object');
         }
     }
 
-    // Make function globally available
-    window.switchContentView = switchContentView;
+    // Never override the main app router if it already exists.
+    if (typeof window.switchContentView !== 'function') {
+        window.switchContentView = switchContentViewFallback;
+    }
 
     // ===== ACTION EXECUTOR =====
     // Executes actions returned by the AI (navigation, alerts, etc.)
