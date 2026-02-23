@@ -152,6 +152,7 @@ ${orderBy}`);
 
         if (req.method === 'POST') {
             const body = req.body || {};
+            const attachmentUrl = body.attachmentUrl || body.AttachmentUrl || body.attachmentData || body.AttachmentData || null;
             if (!hasColumn(complianceColumns, 'Title')) {
                 context.res = { status: 500, headers, body: { error: 'Compliances schema mismatch: Title column is missing.' } };
                 return;
@@ -167,9 +168,8 @@ ${orderBy}`);
                 { column: 'ExpiryDate', param: 'expiryDate', type: sql.Date, value: body.expiryDate || null },
                 { column: 'ReminderDate', param: 'reminderDate', type: sql.Date, value: body.reminderDate || null },
                 { column: 'Status', param: 'status', type: sql.NVarChar(50), value: body.status || 'active' },
-                { column: 'AttachmentData', param: 'attachmentData', type: sql.NVarChar(sql.MAX), value: body.attachmentData || null },
+                { column: 'AttachmentUrl', param: 'attachmentUrl', type: sql.NVarChar(sql.MAX), value: attachmentUrl },
                 { column: 'AttachmentName', param: 'attachmentName', type: sql.NVarChar(255), value: body.attachmentName || null },
-                { column: 'AttachmentType', param: 'attachmentType', type: sql.NVarChar(255), value: body.attachmentType || null },
                 { column: 'DocumentType', param: 'documentType', type: sql.NVarChar(255), value: body.documentType || null },
                 { column: 'ReferenceNumber', param: 'referenceNumber', type: sql.NVarChar(255), value: body.referenceNumber || null },
                 { column: 'IssuingAuthority', param: 'issuingAuthority', type: sql.NVarChar(255), value: body.issuingAuthority || null },
@@ -196,6 +196,7 @@ VALUES (${insertValues})`);
 
         if (req.method === 'PUT' && id) {
             const body = req.body || {};
+            const attachmentUrl = body.attachmentUrl || body.AttachmentUrl || body.attachmentData || body.AttachmentData || null;
 
             const updateDefs = [
                 { column: 'Title', param: 'title', type: sql.NVarChar(255), value: body.title || '' },
@@ -207,9 +208,8 @@ VALUES (${insertValues})`);
                 { column: 'ExpiryDate', param: 'expiryDate', type: sql.Date, value: body.expiryDate || null },
                 { column: 'ReminderDate', param: 'reminderDate', type: sql.Date, value: body.reminderDate || null },
                 { column: 'Status', param: 'status', type: sql.NVarChar(50), value: body.status || 'active' },
-                { column: 'AttachmentData', param: 'attachmentData', type: sql.NVarChar(sql.MAX), value: body.attachmentData || null },
+                { column: 'AttachmentUrl', param: 'attachmentUrl', type: sql.NVarChar(sql.MAX), value: attachmentUrl },
                 { column: 'AttachmentName', param: 'attachmentName', type: sql.NVarChar(255), value: body.attachmentName || null },
-                { column: 'AttachmentType', param: 'attachmentType', type: sql.NVarChar(255), value: body.attachmentType || null },
                 { column: 'DocumentType', param: 'documentType', type: sql.NVarChar(255), value: body.documentType || null },
                 { column: 'ReferenceNumber', param: 'referenceNumber', type: sql.NVarChar(255), value: body.referenceNumber || null },
                 { column: 'IssuingAuthority', param: 'issuingAuthority', type: sql.NVarChar(255), value: body.issuingAuthority || null },
