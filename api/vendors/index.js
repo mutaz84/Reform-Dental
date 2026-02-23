@@ -19,6 +19,17 @@ function getConfig() {
     return {};
 }
 
+async function getTableColumns(pool, tableName) {
+    const result = await pool.request()
+        .input('tableName', sql.NVarChar(128), tableName)
+        .query('SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @tableName');
+    return new Set((result.recordset || []).map((r) => String(r.COLUMN_NAME || '').toLowerCase()));
+}
+
+function hasColumn(columns, name) {
+    return columns.has(String(name).toLowerCase());
+}
+
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
@@ -34,17 +45,30 @@ module.exports = async function (context, req) {
 
     try {
         const pool = await sql.connect(getConfig());
+        const vendorColumns = await getTableColumns(pool, 'Vendors');
+        if (vendorColumns.size === 0) {
+            context.res = { status: 500, headers, body: { error: 'Vendors table not found.' } };
+            return;
+        }
+
+        const hasIsActive = hasColumn(vendorColumns, 'IsActive');
+        const orderBy = hasColumn(vendorColumns, 'Name') ? 'ORDER BY Name' : 'ORDER BY Id';
         const id = req.params.id;
 
         if (req.method === 'GET') {
             if (id) {
+                const where = ['Id = @id'];
+                if (hasIsActive) {
+                    where.push('IsActive = 1');
+                }
                 const result = await pool.request()
                     .input('id', sql.Int, id)
-                    .query('SELECT * FROM Vendors WHERE Id = @id AND IsActive = 1');
+                    .query(`SELECT * FROM Vendors WHERE ${where.join(' AND ')}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
+                const whereClause = hasIsActive ? 'WHERE IsActive = 1' : '';
                 const result = await pool.request()
-                    .query('SELECT * FROM Vendors WHERE IsActive = 1 ORDER BY Name');
+                    .query(`SELECT * FROM Vendors ${whereClause} ${orderBy}`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {

@@ -34,6 +34,17 @@ function getConfig() {
     return config;
 }
 
+async function getTableColumns(pool, tableName) {
+    const result = await pool.request()
+        .input('tableName', sql.NVarChar(128), tableName)
+        .query('SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @tableName');
+    return new Set((result.recordset || []).map((r) => String(r.COLUMN_NAME || '').toLowerCase()));
+}
+
+function hasColumn(columns, name) {
+    return columns.has(String(name).toLowerCase());
+}
+
 module.exports = async function (context, req) {
     // Handle CORS
     const headers = {
@@ -80,18 +91,49 @@ module.exports = async function (context, req) {
         };
 
         if (req.method === 'GET') {
+            const userColumns = await getTableColumns(pool, 'Users');
+            if (userColumns.size === 0) {
+                context.res = { status: 500, headers, body: { error: 'Users table not found.' } };
+                return;
+            }
+
+            const userClinicColumns = await getTableColumns(pool, 'UserClinics');
+            const clinicColumns = await getTableColumns(pool, 'Clinics');
+
+            const hasUserIsActive = hasColumn(userColumns, 'IsActive');
+            const hasUserClinics = userClinicColumns.size > 0 && hasColumn(userClinicColumns, 'UserId') && hasColumn(userClinicColumns, 'ClinicId');
+            const hasClinicsForJoin = clinicColumns.size > 0 && hasColumn(clinicColumns, 'Id') && hasColumn(clinicColumns, 'Name');
+            const hasClinicIsActive = hasColumn(clinicColumns, 'IsActive');
+
+            const preferredColumns = [
+                'Id', 'Username', 'FirstName', 'MiddleName', 'LastName', 'Gender', 'DateOfBirth',
+                'PersonalEmail', 'WorkEmail', 'HomePhone', 'CellPhone', 'Address', 'City', 'State', 'ZipCode',
+                'JobTitle', 'StaffType', 'EmployeeType', 'Department', 'EmployeeStatus', 'Role', 'HireDate',
+                'HourlyRate', 'Salary', 'Color', 'CreatedDate', 'ModifiedDate'
+            ].filter((name) => hasColumn(userColumns, name));
+
+            if (!preferredColumns.some((c) => c.toLowerCase() === 'id')) {
+                preferredColumns.unshift('Id');
+            }
+
+            const baseSelect = preferredColumns.map((c) => `u.${c}`).join(', ');
+            const clinicIdsJson = hasUserClinics
+                ? `, ISNULL((SELECT uc.ClinicId AS Id FROM UserClinics uc WHERE uc.UserId = u.Id FOR JSON PATH), '[]') AS ClinicIdsJson`
+                : `, '[]' AS ClinicIdsJson`;
+            const clinicsJson = (hasUserClinics && hasClinicsForJoin)
+                ? `, ISNULL((SELECT c.Id AS Id, c.Name AS Name FROM UserClinics uc JOIN Clinics c ON c.Id = uc.ClinicId WHERE uc.UserId = u.Id ${hasClinicIsActive ? 'AND c.IsActive = 1' : ''} FOR JSON PATH), '[]') AS ClinicsJson`
+                : `, '[]' AS ClinicsJson`;
+
             if (id) {
-                // Get single user with all fields
+                const where = ['u.Id = @id'];
+                if (hasUserIsActive) {
+                    where.push('u.IsActive = 1');
+                }
+
                 const result = await pool.request()
                     .input('id', sql.Int, id)
-                    .query(`SELECT Id, Username, FirstName, MiddleName, LastName, Gender, DateOfBirth, 
-                            PersonalEmail, WorkEmail, HomePhone, CellPhone, Address, City, State, ZipCode,
-                            JobTitle, StaffType, EmployeeType, Department, EmployeeStatus, Role, HireDate,
-                            HourlyRate, Salary, Color, CreatedDate, ModifiedDate
-                            , ISNULL((SELECT uc.ClinicId AS Id FROM UserClinics uc WHERE uc.UserId = Users.Id FOR JSON PATH), '[]') AS ClinicIdsJson
-                            , ISNULL((SELECT c.Id AS Id, c.Name AS Name FROM UserClinics uc JOIN Clinics c ON c.Id = uc.ClinicId WHERE uc.UserId = Users.Id AND c.IsActive = 1 FOR JSON PATH), '[]') AS ClinicsJson
-                            FROM Users WHERE Id = @id AND IsActive = 1`);
-                
+                    .query(`SELECT ${baseSelect}${clinicIdsJson}${clinicsJson} FROM Users u WHERE ${where.join(' AND ')}`);
+
                 if (result.recordset.length === 0) {
                     context.res = { status: 404, headers, body: { error: 'User not found' } };
                 } else {
@@ -116,15 +158,11 @@ module.exports = async function (context, req) {
                     };
                 }
             } else {
-                // Get all users with all fields
+                const whereClause = hasUserIsActive ? 'WHERE u.IsActive = 1' : '';
+                const orderBy = hasColumn(userColumns, 'FirstName') ? 'ORDER BY u.FirstName' : 'ORDER BY u.Id';
+
                 const result = await pool.request()
-                    .query(`SELECT u.Id, u.Username, u.FirstName, u.MiddleName, u.LastName, u.Gender, u.DateOfBirth,
-                            u.PersonalEmail, u.WorkEmail, u.HomePhone, u.CellPhone, u.Address, u.City, u.State, u.ZipCode,
-                            u.JobTitle, u.StaffType, u.EmployeeType, u.Department, u.EmployeeStatus, u.Role, u.HireDate,
-                            u.HourlyRate, u.Salary, u.Color, u.CreatedDate, u.ModifiedDate,
-                            ISNULL((SELECT uc.ClinicId AS Id FROM UserClinics uc WHERE uc.UserId = u.Id FOR JSON PATH), '[]') AS ClinicIdsJson,
-                            ISNULL((SELECT c.Id AS Id, c.Name AS Name FROM UserClinics uc JOIN Clinics c ON c.Id = uc.ClinicId WHERE uc.UserId = u.Id AND c.IsActive = 1 FOR JSON PATH), '[]') AS ClinicsJson
-                            FROM Users u WHERE u.IsActive = 1 ORDER BY u.FirstName`);
+                    .query(`SELECT ${baseSelect}${clinicIdsJson}${clinicsJson} FROM Users u ${whereClause} ${orderBy}`);
 
                 const users = (result.recordset || []).map((row) => {
                     const clinicIdObjs = parseJsonSafe(row.ClinicIdsJson, []);

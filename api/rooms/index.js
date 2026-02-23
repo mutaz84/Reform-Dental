@@ -19,6 +19,17 @@ function getConfig() {
     return {};
 }
 
+async function getTableColumns(pool, tableName) {
+    const result = await pool.request()
+        .input('tableName', sql.NVarChar(128), tableName)
+        .query('SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @tableName');
+    return new Set((result.recordset || []).map((r) => String(r.COLUMN_NAME || '').toLowerCase()));
+}
+
+function hasColumn(columns, name) {
+    return columns.has(String(name).toLowerCase());
+}
+
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
@@ -34,17 +45,47 @@ module.exports = async function (context, req) {
 
     try {
         const pool = await sql.connect(getConfig());
+        const roomColumns = await getTableColumns(pool, 'Rooms');
+        if (roomColumns.size === 0) {
+            context.res = { status: 500, headers, body: { error: 'Rooms table not found.' } };
+            return;
+        }
+
+        const clinicColumns = await getTableColumns(pool, 'Clinics');
+        const hasClinicJoin = hasColumn(roomColumns, 'ClinicId') && hasColumn(clinicColumns, 'Id') && hasColumn(clinicColumns, 'Name');
+        const hasRoomIsActive = hasColumn(roomColumns, 'IsActive');
+        const hasClinicIsActive = hasColumn(clinicColumns, 'IsActive');
+        const roomOrder = hasColumn(roomColumns, 'Name') ? 'r.Name' : 'r.Id';
         const id = req.params.id;
 
         if (req.method === 'GET') {
             if (id) {
+                const where = ['Id = @id'];
+                if (hasRoomIsActive) {
+                    where.push('IsActive = 1');
+                }
                 const result = await pool.request()
                     .input('id', sql.Int, id)
-                    .query('SELECT * FROM Rooms WHERE Id = @id AND IsActive = 1');
+                    .query(`SELECT * FROM Rooms WHERE ${where.join(' AND ')}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                const result = await pool.request()
-                    .query('SELECT r.*, c.Name as ClinicName FROM Rooms r LEFT JOIN Clinics c ON r.ClinicId = c.Id WHERE r.IsActive = 1 ORDER BY c.Name, r.Name');
+                let query;
+                if (hasClinicJoin) {
+                    const where = [];
+                    if (hasRoomIsActive) {
+                        where.push('r.IsActive = 1');
+                    }
+                    if (hasClinicIsActive) {
+                        where.push('(c.IsActive = 1 OR c.Id IS NULL)');
+                    }
+                    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+                    query = `SELECT r.*, c.Name as ClinicName FROM Rooms r LEFT JOIN Clinics c ON r.ClinicId = c.Id ${whereClause} ORDER BY c.Name, ${roomOrder}`;
+                } else {
+                    const whereClause = hasRoomIsActive ? 'WHERE IsActive = 1' : '';
+                    query = `SELECT * FROM Rooms ${whereClause} ORDER BY ${hasColumn(roomColumns, 'Name') ? 'Name' : 'Id'}`;
+                }
+
+                const result = await pool.request().query(query);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {
