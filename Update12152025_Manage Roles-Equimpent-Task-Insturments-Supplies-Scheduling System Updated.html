@@ -63067,16 +63067,15 @@ console.log('✅ Global functions exported to window object');
                 return original.apply(this, arguments);
             }
 
-            // Programmatic navigation: allow only if forced OR no active view OR same view.
+            // Programmatic navigation: only block snap-back attempts to calendar.
             const current = getActiveViewName();
-            const isCurrentManagerRoute = typeof current === 'string' && current.indexOf('manage-') === 0;
             if (!force && current && viewName && String(viewName) !== String(current)) {
-                // Never trap users inside manager pages: allow transitions out.
-                if (isCurrentManagerRoute) {
-                    return original.apply(this, arguments);
+                const next = String(viewName);
+                const cur = String(current);
+                if (next === 'calendar' && cur !== 'calendar') {
+                    // Ignore background-triggered switch to calendar to prevent snap-back.
+                    return;
                 }
-                // Ignore background-triggered view changes to prevent snapping back.
-                return;
             }
 
             return original.apply(this, arguments);
