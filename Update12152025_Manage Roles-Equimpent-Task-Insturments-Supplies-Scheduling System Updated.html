@@ -64998,16 +64998,34 @@ console.log('✅ Global functions exported to window object');
         document.head.appendChild(style);
     }
 
-    function ensureBar() {
-        const mainContent = document.querySelector('.main-content');
-        if (!mainContent) return null;
+    function resolveTabsHost() {
+        const activeView = document.querySelector('.content-view.active');
+        if (activeView) {
+            const directMain = Array.from(activeView.children || []).find((el) => el && el.classList && el.classList.contains('main-content'));
+            if (directMain) return directMain;
+
+            const dashboardGrid = Array.from(activeView.children || []).find((el) => el && el.classList && el.classList.contains('dashboard-grid'));
+            if (dashboardGrid) {
+                const nestedMain = Array.from(dashboardGrid.children || []).find((el) => el && el.classList && el.classList.contains('main-content'));
+                if (nestedMain) return nestedMain;
+            }
+        }
+
+        return document.querySelector('.container > .main-content') || document.querySelector('.main-content');
+    }
+
+    function ensureBar(targetHost) {
+        const host = targetHost || resolveTabsHost();
+        if (!host) return null;
         let bar = document.getElementById('rdViewTabsBar');
         if (!bar) {
             bar = document.createElement('div');
             bar.id = 'rdViewTabsBar';
             bar.className = 'rd-view-tabs-bar';
             bar.innerHTML = '<div id="rdViewTabsList" class="rd-view-tabs-list"></div>';
-            mainContent.insertBefore(bar, mainContent.firstChild);
+            host.insertBefore(bar, host.firstChild);
+        } else if (bar.parentNode !== host) {
+            host.insertBefore(bar, host.firstChild);
         }
         return bar;
     }
@@ -65303,11 +65321,24 @@ console.log('✅ Global functions exported to window object');
         if (!normalized) return;
         if (!getViewEl(normalized)) return;
 
+        const host = resolveTabsHost();
+        const bar = ensureBar(host);
+        if (host && bar) {
+            try {
+                host.scrollTop = 0;
+            } catch (_) {}
+        }
+
         if (!state.order.includes(normalized)) {
             state.order.push(normalized);
         }
         state.active = normalized;
         renderTabs();
+
+        setTimeout(() => {
+            const delayedHost = resolveTabsHost();
+            ensureBar(delayedHost);
+        }, 0);
     }
 
     function installSwitchHook() {
