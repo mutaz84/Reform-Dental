@@ -36162,7 +36162,23 @@ window.initializeCalendar = initializeCalendar;
                         filteredEvents = getFilteredEvents();
                     }
                     
-                    const dayEvents = filteredEvents.filter(e => e.start && e.start.startsWith(dateStr));
+                    const dayEvents = filteredEvents.filter(e => {
+                        if (!e || !e.start) return false;
+                        let startDateKey = '';
+
+                        if (typeof e.start === 'string') {
+                            startDateKey = (e.start.split('T')[0] || '').trim();
+                        } else if (e.start instanceof Date) {
+                            startDateKey = formatDateKey(e.start);
+                        } else if (typeof e.start === 'object') {
+                            const dt = e.start.dateTime || e.start.date || '';
+                            if (typeof dt === 'string') {
+                                startDateKey = (dt.split('T')[0] || '').trim();
+                            }
+                        }
+
+                        return startDateKey === dateStr;
+                    });
                     
                     if (dayEvents.length === 0) return '';
                     
@@ -36292,11 +36308,29 @@ window.initializeCalendar = initializeCalendar;
                     }
                     
                     return filteredEvents.filter(event => {
-                        if (!event.start) return false;
-                        const eventDate = event.start.split('T')[0];
-                        if (eventDate !== dateStr) return false;
-                        
-                        const eventTime = event.start.split('T')[1];
+                        if (!event || !event.start) return false;
+
+                        let eventDate = '';
+                        let eventTime = '';
+
+                        if (typeof event.start === 'string') {
+                            const parts = event.start.split('T');
+                            eventDate = (parts[0] || '').trim();
+                            eventTime = (parts[1] || '').trim();
+                        } else if (event.start instanceof Date) {
+                            eventDate = formatDateKey(event.start);
+                            eventTime = `${String(event.start.getHours()).padStart(2, '0')}:${String(event.start.getMinutes()).padStart(2, '0')}:00`;
+                        } else if (typeof event.start === 'object') {
+                            const dt = event.start.dateTime || event.start.date || '';
+                            if (typeof dt === 'string') {
+                                const parts = dt.split('T');
+                                eventDate = (parts[0] || '').trim();
+                                eventTime = (parts[1] || '').trim();
+                            }
+                        }
+
+                        if (!eventDate || eventDate !== dateStr) return false;
+
                         const isAllDay = !eventTime || /^00:00(?::00)?(?:\.\d+)?(?:Z)?$/.test(eventTime);
 
                         if (allDayOnly) {
@@ -36305,7 +36339,8 @@ window.initializeCalendar = initializeCalendar;
 
                         if (!eventTime || isAllDay) return false;
                         
-                        const [eventHour, eventMinute] = eventTime.split(':').map(n => parseInt(n));
+                        const [eventHour, eventMinute] = eventTime.split(':').map(n => parseInt(n, 10));
+                        if (Number.isNaN(eventHour) || Number.isNaN(eventMinute)) return false;
                         return eventHour === hour && Math.floor(eventMinute / 30) * 30 === minute;
                     });
                 },
