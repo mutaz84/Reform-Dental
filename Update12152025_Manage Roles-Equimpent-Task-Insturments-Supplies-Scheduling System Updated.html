@@ -19355,45 +19355,47 @@
                 let sessionUser = null;
 
                 // Try API login first (secure - passwords checked server-side)
-                if (typeof API_BASE_URL !== 'undefined') {
-                    try {
-                        const response = await fetch(`${API_BASE_URL}/login`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ username, password })
-                        });
+                try {
+                    const configuredApiBase = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL.trim())
+                        ? window.API_BASE_URL.trim()
+                        : '/api';
+                    const apiBase = configuredApiBase.replace(/\/+$/, '');
+                    const response = await fetch(`${apiBase}/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, password })
+                    });
 
-                        const result = await response.json().catch(() => null);
+                    const result = await response.json().catch(() => null);
 
-                        if (response.ok && result && result.success && result.user) {
-                            console.log('✅ API login successful');
+                    if (response.ok && result && result.success && result.user) {
+                        console.log('✅ API login successful');
 
-                            const role = result.user.role || 'user';
-                            const firstName = result.user.firstName || '';
-                            const lastName = result.user.lastName || '';
-                            const fullName = `${firstName} ${lastName}`.trim() || username;
-                            const dbUserId = result.user?.Id ?? result.user?.id;
-                            const officeLocation = (result.user.officeLocation || result.user.OfficeLocation || result.user.office || result.user.clinic || '').toString().trim();
+                        const role = result.user.role || 'user';
+                        const firstName = result.user.firstName || '';
+                        const lastName = result.user.lastName || '';
+                        const fullName = `${firstName} ${lastName}`.trim() || username;
+                        const dbUserId = result.user?.Id ?? result.user?.id;
+                        const officeLocation = (result.user.officeLocation || result.user.OfficeLocation || result.user.office || result.user.clinic || '').toString().trim();
 
-                            if (dbUserId) {
-                                window.currentDbUserId = dbUserId;
-                            }
-
-                            sessionUser = {
-                                username: username,
-                                role: role,
-                                name: fullName,
-                                firstName: firstName,
-                                lastName: lastName,
-                                dbId: dbUserId,
-                                officeLocation: officeLocation,
-                                clinics: (typeof getClinicsFromUser === 'function') ? getClinicsFromUser(result.user) : (officeLocation ? [officeLocation] : []),
-                                permissions: getDefaultPermissions(role)
-                            };
+                        if (dbUserId) {
+                            window.currentDbUserId = dbUserId;
                         }
-                    } catch (apiError) {
-                        console.log('API login unavailable, using local fallback');
+
+                        sessionUser = {
+                            username: username,
+                            role: role,
+                            name: fullName,
+                            firstName: firstName,
+                            lastName: lastName,
+                            dbId: dbUserId,
+                            officeLocation: officeLocation,
+                            clinics: (typeof getClinicsFromUser === 'function') ? getClinicsFromUser(result.user) : (officeLocation ? [officeLocation] : []),
+                            permissions: getDefaultPermissions(role)
+                        };
                     }
+                } catch (apiError) {
+                    console.log('API login unavailable, using local fallback');
                 }
 
                 // Fallback to localStorage (for offline/local testing)
