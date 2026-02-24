@@ -15402,7 +15402,7 @@
                         <i class="fas fa-graduation-cap"></i>
                         <span>Onboarding</span>
                     </a>
-                    <a href="#" class="nav-item">
+                    <a href="#" class="nav-item" onclick="if(window.switchContentView){window.switchContentView('requirements', event); return false;}">
                         <i class="fas fa-clipboard-check"></i>
                         <span>Requirements</span>
                     </a>
@@ -19187,6 +19187,56 @@
         </div>
     </div>
 
+    <!-- Requirements View (Employee-facing compliances) -->
+    <div class="content-view" id="view-requirements" style="display: none;">
+        <div class="dashboard-grid">
+            <div class="main-content">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-clipboard-check" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+                        <span>My Requirements</span>
+                    </h2>
+                    <div class="section-actions">
+                        <button onclick="initializeRequirementsView(true)" class="btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">
+                            <i class="fas fa-sync" style="margin-right: 0.5rem;"></i>Refresh
+                        </button>
+                        <button onclick="if(window.switchContentView){window.switchContentView('compliances', event);}" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">
+                            <i class="fas fa-external-link-alt" style="margin-right: 0.5rem;"></i>Open Compliance Manager
+                        </button>
+                    </div>
+                </div>
+
+                <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                    <div class="stat-card" style="background: var(--card-bg); border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
+                        <div class="stat-value" id="requirementsPendingCount" style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">0</div>
+                        <div class="stat-label" style="font-size: 0.8rem; color: var(--text-secondary);">Pending</div>
+                    </div>
+                    <div class="stat-card" style="background: var(--card-bg); border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
+                        <div class="stat-value" id="requirementsCompletedCount" style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">0</div>
+                        <div class="stat-label" style="font-size: 0.8rem; color: var(--text-secondary);">Completed</div>
+                    </div>
+                    <div class="stat-card" style="background: var(--card-bg); border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
+                        <div class="stat-value" id="requirementsDueSoonCount" style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">0</div>
+                        <div class="stat-label" style="font-size: 0.8rem; color: var(--text-secondary);">Due Soon (7/3/1)</div>
+                    </div>
+                    <div class="stat-card" style="background: var(--card-bg); border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
+                        <div class="stat-value" id="requirementsOverdueCount" style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">0</div>
+                        <div class="stat-label" style="font-size: 0.8rem; color: var(--text-secondary);">Overdue</div>
+                    </div>
+                </div>
+
+                <div class="compliances-container" style="background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color);">
+                    <div class="table-header" style="padding: 1rem; border-bottom: 1px solid var(--border-color);">
+                        <h3 style="margin: 0; color: var(--text-primary);">Assigned Requirements</h3>
+                    </div>
+                    <div id="requirementsList" style="max-height: 600px; overflow-y: auto; padding: 1rem;">
+                        <div style="padding: 1rem; text-align: center; color: var(--text-secondary);">Loading requirements...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Stationary View -->
     <div class="content-view" id="view-stationary" style="display: none;">
         <div class="dashboard-grid">
@@ -19257,6 +19307,10 @@
                 // Keep Requests nav badge updated even when not in the Requests view
                 if (typeof startRequestsBadgePolling === 'function') {
                     startRequestsBadgePolling();
+                }
+
+                if (typeof checkDueComplianceNotifications === 'function') {
+                    checkDueComplianceNotifications();
                 }
             } else {
                 // User is not logged in, show login screen
@@ -20594,6 +20648,17 @@
             const usersList = document.getElementById('usersList');
             
             if (!usersList) return;
+
+            const hasApi = typeof API_BASE_URL !== 'undefined' && !!API_BASE_URL;
+            if (hasApi && (!window.__complianceSummaryByUserId || Object.keys(window.__complianceSummaryByUserId).length === 0) && !window.__complianceSummaryLoadPromise) {
+                loadComplianceSummaryByUser(false)
+                    .then(() => {
+                        if (document.getElementById('usersList')) {
+                            displayUsersList();
+                        }
+                    })
+                    .catch(() => {});
+            }
             
             usersList.innerHTML = '';
             
@@ -20612,6 +20677,7 @@
             
             Object.keys(users).forEach(username => {
                 const user = users[username];
+                const complianceSummary = getComplianceSummaryForUser(user);
                 const row = document.createElement('tr');
                 row.style.cssText = 'border-bottom: 1px solid var(--border-color); transition: background 0.2s;';
                 row.onmouseover = function() { this.style.background = 'var(--bg-secondary)'; };
@@ -20631,6 +20697,7 @@
                     <td style="padding: 1rem;">
                         <span style="background: ${statusColors[status] || '#6b7280'}20; color: ${statusColors[status] || '#6b7280'}; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">${status}</span>
                     </td>
+                    <td style="padding: 1rem; color: var(--text-secondary);">${renderComplianceSummaryCell(complianceSummary)}</td>
                     <td style="padding: 1rem; text-align: center;">
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
                             <button onclick="openEditUserModal('${username}')" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit User">
@@ -21281,6 +21348,415 @@
 
         // ========== COMPLIANCES MANAGEMENT FUNCTIONS ==========
 
+        function normalizeComplianceRecord(record) {
+            if (!record || typeof record !== 'object') {
+                return null;
+            }
+
+            return {
+                ...record,
+                id: record.id ?? record.Id ?? null,
+                title: record.title ?? record.Title ?? '',
+                description: record.description ?? record.Description ?? '',
+                complianceTypeId: record.complianceTypeId ?? record.ComplianceTypeId ?? null,
+                complianceTypeName: record.complianceTypeName ?? record.ComplianceTypeName ?? '',
+                userId: record.userId ?? record.UserId ?? null,
+                clinicId: record.clinicId ?? record.ClinicId ?? null,
+                employeeName: record.employeeName ?? record.EmployeeName ?? record.userName ?? record.UserName ?? '',
+                issueDate: record.issueDate ?? record.IssueDate ?? null,
+                expiryDate: record.expiryDate ?? record.ExpiryDate ?? null,
+                reminderDate: record.reminderDate ?? record.ReminderDate ?? null,
+                status: record.status ?? record.Status ?? '',
+                attachmentData: record.attachmentData ?? record.AttachmentData ?? record.attachmentUrl ?? record.AttachmentUrl ?? null,
+                attachmentUrl: record.attachmentUrl ?? record.AttachmentUrl ?? null,
+                attachmentName: record.attachmentName ?? record.AttachmentName ?? '',
+                attachmentType: record.attachmentType ?? record.AttachmentType ?? '',
+                documentType: record.documentType ?? record.DocumentType ?? '',
+                referenceNumber: record.referenceNumber ?? record.ReferenceNumber ?? '',
+                issuingAuthority: record.issuingAuthority ?? record.IssuingAuthority ?? '',
+                cost: record.cost ?? record.Cost ?? null,
+                notes: record.notes ?? record.Notes ?? '',
+                createdById: record.createdById ?? record.CreatedById ?? null,
+                modifiedById: record.modifiedById ?? record.ModifiedById ?? null,
+                createdDate: record.createdDate ?? record.CreatedDate ?? null,
+                modifiedDate: record.modifiedDate ?? record.ModifiedDate ?? null,
+                isActive: record.isActive ?? record.IsActive ?? null
+            };
+        }
+
+        function toDateInputValue(dateValue) {
+            if (!dateValue) return '';
+            const parsedDate = new Date(dateValue);
+            if (Number.isNaN(parsedDate.getTime())) return '';
+            return parsedDate.toISOString().split('T')[0];
+        }
+
+        function formatComplianceDate(dateValue) {
+            if (!dateValue) return 'N/A';
+            const parsedDate = new Date(dateValue);
+            if (Number.isNaN(parsedDate.getTime())) return 'N/A';
+            return parsedDate.toLocaleDateString();
+        }
+
+        function getComplianceStatusPresentation(compliance) {
+            const explicitStatus = String(compliance?.status || '').toLowerCase();
+            if (explicitStatus === 'expired') {
+                return { color: '#ef4444', text: 'Expired', icon: 'fa-times-circle' };
+            }
+
+            const expiryDate = compliance?.expiryDate ? new Date(compliance.expiryDate) : null;
+            if (expiryDate && !Number.isNaN(expiryDate.getTime())) {
+                const today = new Date();
+                const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+
+                if (daysUntilExpiry < 0) {
+                    return { color: '#ef4444', text: 'Expired', icon: 'fa-times-circle' };
+                }
+                if (daysUntilExpiry <= 30) {
+                    return { color: '#f59e0b', text: `Expires in ${daysUntilExpiry} days`, icon: 'fa-exclamation-triangle' };
+                }
+            }
+
+            return { color: '#10b981', text: 'Active', icon: 'fa-check-circle' };
+        }
+
+        function getComplianceTypeDisplay(compliance) {
+            if (compliance?.complianceTypeName) return compliance.complianceTypeName;
+            if (compliance?.type) return compliance.type;
+            if (compliance?.complianceType) return compliance.complianceType;
+            if (compliance?.complianceTypeId) return `Type #${compliance.complianceTypeId}`;
+            return 'N/A';
+        }
+
+        function getComplianceEmployeeDisplay(compliance) {
+            if (compliance?.employeeName) return compliance.employeeName;
+            if (compliance?.userId) return `User #${compliance.userId}`;
+            return 'N/A';
+        }
+
+        async function loadComplianceSummaryByUser(silent = true) {
+            if (!isComplianceApiConfigured()) {
+                window.__complianceSummaryByUserId = {};
+                return window.__complianceSummaryByUserId;
+            }
+
+            if (window.__complianceSummaryLoadPromise) {
+                return window.__complianceSummaryLoadPromise;
+            }
+
+            window.__complianceSummaryLoadPromise = (async () => {
+                try {
+                    const response = await fetchComplianceApi('compliances', '?view=summary-by-user');
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    const rows = await response.json();
+                    const summaryByUserId = {};
+
+                    (Array.isArray(rows) ? rows : []).forEach((row) => {
+                        const userId = Number(row?.UserId ?? row?.userId);
+                        if (!Number.isInteger(userId) || userId <= 0) {
+                            return;
+                        }
+
+                        summaryByUserId[userId] = {
+                            userId,
+                            employeeName: row?.EmployeeName ?? row?.employeeName ?? '',
+                            totalCount: Number(row?.TotalCount ?? row?.totalCount ?? 0) || 0,
+                            completedCount: Number(row?.CompletedCount ?? row?.completedCount ?? 0) || 0,
+                            inProgressCount: Number(row?.InProgressCount ?? row?.inProgressCount ?? 0) || 0,
+                            pendingCount: Number(row?.PendingCount ?? row?.pendingCount ?? 0) || 0,
+                            overdueCount: Number(row?.OverdueCount ?? row?.overdueCount ?? 0) || 0
+                        };
+                    });
+
+                    window.__complianceSummaryByUserId = summaryByUserId;
+                    return summaryByUserId;
+                } catch (error) {
+                    if (!silent && typeof showNotification === 'function') {
+                        showNotification('Unable to load compliance summary. Showing local data only.', 'warning');
+                    }
+                    window.__complianceSummaryByUserId = window.__complianceSummaryByUserId || {};
+                    return window.__complianceSummaryByUserId;
+                } finally {
+                    window.__complianceSummaryLoadPromise = null;
+                }
+            })();
+
+            return window.__complianceSummaryLoadPromise;
+        }
+
+        function getComplianceSummaryForUser(user) {
+            const userId = resolveComplianceUserId(user?.id || user?.dbId || user?.Id, user);
+            if (!userId) {
+                return null;
+            }
+
+            const summaryByUserId = window.__complianceSummaryByUserId || {};
+            return summaryByUserId[userId] || {
+                userId,
+                totalCount: 0,
+                completedCount: 0,
+                inProgressCount: 0,
+                pendingCount: 0,
+                overdueCount: 0
+            };
+        }
+
+        function renderComplianceSummaryCell(summary) {
+            if (!summary) {
+                return '<span style="font-size: 0.8rem; color: var(--text-tertiary);">N/A</span>';
+            }
+
+            const total = Number(summary.totalCount || 0);
+            const completed = Number(summary.completedCount || 0);
+            const pending = Number(summary.pendingCount || 0) + Number(summary.inProgressCount || 0);
+            const overdue = Number(summary.overdueCount || 0);
+
+            return `<div style="display:flex; flex-direction:column; gap:0.2rem; min-width: 140px;">
+                <span style="font-size:0.78rem; color: var(--text-secondary);">${completed}/${total} completed</span>
+                <span style="font-size:0.78rem; color: var(--text-secondary);">${pending} pending</span>
+                <span style="font-size:0.78rem; color:${overdue > 0 ? '#ef4444' : 'var(--text-secondary)'}; font-weight:${overdue > 0 ? '600' : '400'};">${overdue} overdue</span>
+            </div>`;
+        }
+
+        function getCurrentComplianceUserId() {
+            const fromWindow = Number(window.currentDbUserId);
+            if (Number.isInteger(fromWindow) && fromWindow > 0) {
+                return fromWindow;
+            }
+
+            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
+            const fromCurrent = Number(currentUser?.dbId ?? currentUser?.id ?? currentUser?.Id);
+            if (Number.isInteger(fromCurrent) && fromCurrent > 0) {
+                return fromCurrent;
+            }
+
+            const loggedInUser = localStorage.getItem('loggedInUser');
+            if (loggedInUser) {
+                const users = loadUsers();
+                return resolveComplianceUserId(loggedInUser, users[loggedInUser]) || null;
+            }
+
+            return null;
+        }
+
+        async function initializeRequirementsView(forceRefresh = false) {
+            const listEl = document.getElementById('requirementsList');
+            if (!listEl) return;
+
+            listEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">Loading requirements...</div>';
+
+            const currentUserId = getCurrentComplianceUserId();
+            if (!currentUserId) {
+                listEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No employee ID found for current session.</div>';
+                return;
+            }
+
+            try {
+                if (forceRefresh || !window.__requirementsCache || !Array.isArray(window.__requirementsCache[currentUserId])) {
+                    const response = await fetchComplianceApi('compliances', `?userId=${encodeURIComponent(currentUserId)}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    const records = (await response.json())
+                        .map(normalizeComplianceRecord)
+                        .filter(Boolean);
+
+                    window.__requirementsCache = window.__requirementsCache || {};
+                    window.__requirementsCache[currentUserId] = records;
+                }
+
+                const requirements = (window.__requirementsCache[currentUserId] || []).slice();
+                renderRequirementsList(requirements);
+                renderRequirementsStats(requirements);
+            } catch (error) {
+                console.error('Failed to initialize requirements view:', error);
+                listEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">Unable to load requirements.</div>';
+            }
+        }
+
+        function renderRequirementsStats(requirements) {
+            const today = new Date();
+            const pending = requirements.filter((item) => String(item.status || '').toLowerCase() !== 'completed').length;
+            const completed = requirements.filter((item) => String(item.status || '').toLowerCase() === 'completed').length;
+            const dueSoon = requirements.filter((item) => {
+                const status = String(item.status || '').toLowerCase();
+                if (status === 'completed' || !item.expiryDate) return false;
+                const days = Math.ceil((new Date(item.expiryDate) - today) / (1000 * 60 * 60 * 24));
+                return [7, 3, 1].includes(days);
+            }).length;
+            const overdue = requirements.filter((item) => {
+                const status = String(item.status || '').toLowerCase();
+                if (status === 'completed' || !item.expiryDate) return false;
+                return new Date(item.expiryDate) < today;
+            }).length;
+
+            const setText = (id, value) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = String(value);
+            };
+
+            setText('requirementsPendingCount', pending);
+            setText('requirementsCompletedCount', completed);
+            setText('requirementsDueSoonCount', dueSoon);
+            setText('requirementsOverdueCount', overdue);
+        }
+
+        function renderRequirementsList(requirements) {
+            const listEl = document.getElementById('requirementsList');
+            if (!listEl) return;
+
+            if (!requirements.length) {
+                listEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No requirements assigned.</div>';
+                return;
+            }
+
+            listEl.innerHTML = '';
+            const sorted = requirements.sort((a, b) => {
+                const aDate = a.expiryDate ? new Date(a.expiryDate).getTime() : Number.MAX_SAFE_INTEGER;
+                const bDate = b.expiryDate ? new Date(b.expiryDate).getTime() : Number.MAX_SAFE_INTEGER;
+                return aDate - bDate;
+            });
+
+            sorted.forEach((item) => {
+                const status = String(item.status || 'pending').toLowerCase();
+                const isCompleted = status === 'completed';
+                const card = document.createElement('div');
+                card.style.cssText = 'border: 1px solid var(--border-color); border-radius: 10px; padding: 0.9rem; margin-bottom: 0.75rem; background: var(--bg-secondary);';
+                card.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.75rem;">
+                        <div>
+                            <div style="font-weight:600; color: var(--text-primary);">${item.title || '(Untitled Compliance)'}</div>
+                            <div style="font-size:0.8rem; color: var(--text-secondary); margin-top:0.15rem;">${getComplianceTypeDisplay(item)} • Due: ${formatComplianceDate(item.expiryDate)}</div>
+                        </div>
+                        <span style="font-size:0.75rem; padding:0.2rem 0.55rem; border-radius:999px; background:${isCompleted ? '#10b98120' : '#f59e0b20'}; color:${isCompleted ? '#10b981' : '#f59e0b'}; font-weight:600;">${isCompleted ? 'Completed' : (status || 'Pending')}</span>
+                    </div>
+                    <div style="font-size:0.85rem; color: var(--text-secondary); margin-top:0.5rem;">${item.description || 'No description provided.'}</div>
+                    <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
+                        <button onclick="openComplianceFromRequirement(${item.id || 0})" class="btn-secondary" style="padding:0.45rem 0.75rem;">Open</button>
+                        ${!isCompleted ? `<button onclick="markRequirementCompleted(${item.id || 0})" class="btn-primary" style="padding:0.45rem 0.75rem;">Mark Completed</button>` : ''}
+                    </div>
+                `;
+                listEl.appendChild(card);
+            });
+        }
+
+        function openComplianceFromRequirement(complianceId) {
+            if (!complianceId) return;
+            if (typeof switchContentView === 'function') {
+                switchContentView('compliances');
+            }
+            if (typeof editCompliance === 'function') {
+                setTimeout(() => editCompliance(complianceId), 150);
+            }
+        }
+
+        async function markRequirementCompleted(complianceId) {
+            if (!complianceId) return;
+            try {
+                const response = await fetchComplianceApi('compliances', `/${encodeURIComponent(complianceId)}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const compliance = normalizeComplianceRecord(await response.json());
+                const payload = {
+                    ...(compliance || {}),
+                    status: 'completed',
+                    modifiedById: getCurrentUserId()
+                };
+
+                const updateResponse = await fetchComplianceApi('compliances', `/${encodeURIComponent(complianceId)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!updateResponse.ok) {
+                    throw new Error(`HTTP ${updateResponse.status}`);
+                }
+
+                const currentUserId = getCurrentComplianceUserId();
+                if (currentUserId && window.__requirementsCache) {
+                    delete window.__requirementsCache[currentUserId];
+                }
+
+                if (typeof showNotification === 'function') {
+                    showNotification('Requirement marked as completed.', 'success');
+                }
+
+                await initializeRequirementsView(true);
+                loadComplianceSummaryByUser(true).then(() => {
+                    if (typeof displayUsersList === 'function') displayUsersList();
+                }).catch(() => {});
+            } catch (error) {
+                console.error('Failed to mark requirement completed:', error);
+                if (typeof showNotification === 'function') {
+                    showNotification('Unable to mark requirement as completed.', 'error');
+                }
+            }
+        }
+
+        async function checkDueComplianceNotifications() {
+            if (!isComplianceApiConfigured()) {
+                return;
+            }
+
+            const userId = getCurrentComplianceUserId();
+            if (!userId) {
+                return;
+            }
+
+            try {
+                const response = await fetchComplianceApi('compliances', `?view=due-soon&userId=${encodeURIComponent(userId)}&days=7,3,1&includeOverdue=true`);
+                if (!response.ok) {
+                    return;
+                }
+
+                const items = (await response.json())
+                    .map(normalizeComplianceRecord)
+                    .filter(Boolean)
+                    .slice(0, 5);
+
+                if (!items.length) {
+                    return;
+                }
+
+                const notificationKey = 'complianceDueNotificationsSeen';
+                const seenMap = safeParseLocalStorageJSON(notificationKey, {}, { expect: 'object' }) || {};
+                let updated = false;
+
+                items.forEach((item) => {
+                    const days = Number(item.daysUntilDue);
+                    const signature = `${item.id || item.Id}:${item.expiryDate || ''}:${days}`;
+                    if (seenMap[signature]) {
+                        return;
+                    }
+
+                    const title = item.title || 'Compliance';
+                    const dueText = Number.isFinite(days)
+                        ? (days < 0 ? `${Math.abs(days)} day(s) overdue` : `due in ${days} day(s)`)
+                        : 'approaching due date';
+
+                    if (typeof showNotification === 'function') {
+                        showNotification(`${title} is ${dueText}.`, days < 0 ? 'error' : 'warning');
+                    }
+
+                    seenMap[signature] = new Date().toISOString();
+                    updated = true;
+                });
+
+                if (updated) {
+                    localStorage.setItem(notificationKey, JSON.stringify(seenMap));
+                }
+            } catch (error) {
+                console.error('Failed to check due compliance notifications:', error);
+            }
+        }
+
         // Open User Compliances Modal
         function openUserCompliancesModal(username) {
             const users = loadUsers();
@@ -21323,11 +21799,13 @@
         async function loadUserCompliances(userId) {
             try {
                 await syncLocalCompliancesToApi({ silent: true });
-                const response = await fetch(`${API_BASE_URL}/compliances?userId=${encodeURIComponent(userId)}`);
+                const response = await fetchComplianceApi('compliances', `?userId=${encodeURIComponent(userId)}`);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                const compliances = await response.json();
+                const compliances = (await response.json())
+                    .map(normalizeComplianceRecord)
+                    .filter(Boolean);
 
                 const compliancesList = document.getElementById('userCompliancesList');
                 compliancesList.innerHTML = '';
@@ -21345,32 +21823,19 @@
 
                 compliances.forEach((compliance) => {
                     const complianceId = compliance.id || compliance.Id;
-                    const expiryDate = new Date(compliance.expiryDate);
-                    const today = new Date();
-                    const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-
-                    let statusColor = '#10b981'; // green
-                    let statusText = 'Active';
-
-                    if (daysUntilExpiry < 0) {
-                        statusColor = '#ef4444'; // red
-                        statusText = 'Expired';
-                    } else if (daysUntilExpiry <= 30) {
-                        statusColor = '#f59e0b'; // yellow
-                        statusText = `Expires in ${daysUntilExpiry} days`;
-                    }
+                    const statusPresentation = getComplianceStatusPresentation(compliance);
 
                     const row = document.createElement('tr');
                     row.innerHTML = `
                         <td style="padding: 1rem; color: var(--text-primary);">
-                            <div style="font-weight: 600;">${compliance.title}</div>
-                            <div style="font-size: 0.8rem; color: var(--text-secondary);">${compliance.complianceTypeName || compliance.complianceType}</div>
+                            <div style="font-weight: 600;">${compliance.title || '(Untitled Compliance)'}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-secondary);">${getComplianceTypeDisplay(compliance)}</div>
                         </td>
                         <td style="padding: 1rem; color: var(--text-secondary);">${compliance.description || '-'}</td>
-                        <td style="padding: 1rem; color: var(--text-secondary);">${new Date(compliance.issueDate).toLocaleDateString()}</td>
-                        <td style="padding: 1rem; color: var(--text-secondary);">${expiryDate.toLocaleDateString()}</td>
+                        <td style="padding: 1rem; color: var(--text-secondary);">${formatComplianceDate(compliance.issueDate)}</td>
+                        <td style="padding: 1rem; color: var(--text-secondary);">${formatComplianceDate(compliance.expiryDate)}</td>
                         <td style="padding: 1rem;">
-                            <span style="background: ${statusColor}20; color: ${statusColor}; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">${statusText}</span>
+                            <span style="background: ${statusPresentation.color}20; color: ${statusPresentation.color}; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">${statusPresentation.text}</span>
                         </td>
                         <td style="padding: 1rem; text-align: center;">
                             <div style="display: flex; gap: 0.5rem; justify-content: center;">
@@ -21412,34 +21877,22 @@
                     return;
                 }
 
-                userCompliances.forEach((compliance, index) => {
-                    const expiryDate = new Date(compliance.expiryDate);
-                    const today = new Date();
-                    const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+                userCompliances.forEach((rawCompliance, index) => {
+                    const compliance = normalizeComplianceRecord(rawCompliance) || rawCompliance;
                     const complianceId = compliance.id || compliance.Id;
-
-                    let statusColor = '#10b981'; // green
-                    let statusText = 'Active';
-
-                    if (daysUntilExpiry < 0) {
-                        statusColor = '#ef4444'; // red
-                        statusText = 'Expired';
-                    } else if (daysUntilExpiry <= 30) {
-                        statusColor = '#f59e0b'; // yellow
-                        statusText = `Expires in ${daysUntilExpiry} days`;
-                    }
+                    const statusPresentation = getComplianceStatusPresentation(compliance);
 
                     const row = document.createElement('tr');
                     row.innerHTML = `
                         <td style="padding: 1rem; color: var(--text-primary);">
-                            <div style="font-weight: 600;">${compliance.title}</div>
-                            <div style="font-size: 0.8rem; color: var(--text-secondary);">${compliance.type}</div>
+                            <div style="font-weight: 600;">${compliance.title || '(Untitled Compliance)'}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-secondary);">${getComplianceTypeDisplay(compliance)}</div>
                         </td>
                         <td style="padding: 1rem; color: var(--text-secondary);">${compliance.description || '-'}</td>
-                        <td style="padding: 1rem; color: var(--text-secondary);">${new Date(compliance.issueDate).toLocaleDateString()}</td>
-                        <td style="padding: 1rem; color: var(--text-secondary);">${expiryDate.toLocaleDateString()}</td>
+                        <td style="padding: 1rem; color: var(--text-secondary);">${formatComplianceDate(compliance.issueDate)}</td>
+                        <td style="padding: 1rem; color: var(--text-secondary);">${formatComplianceDate(compliance.expiryDate)}</td>
                         <td style="padding: 1rem;">
-                            <span style="background: ${statusColor}20; color: ${statusColor}; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">${statusText}</span>
+                            <span style="background: ${statusPresentation.color}20; color: ${statusPresentation.color}; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">${statusPresentation.text}</span>
                         </td>
                         <td style="padding: 1rem; text-align: center;">
                             <div style="display: flex; gap: 0.5rem; justify-content: center;">
@@ -21472,6 +21925,151 @@
             return typeof API_BASE_URL !== 'undefined' && !!API_BASE_URL;
         }
 
+        function getComplianceEndpointCandidates(resource) {
+            if (resource === 'compliances') {
+                return ['compliances', 'compliance'];
+            }
+            if (resource === 'compliance-types') {
+                return ['compliance-types', 'complianceTypes', 'compliancetypes'];
+            }
+            return [resource];
+        }
+
+        function getComplianceEndpointPreferenceKey(resource) {
+            return `complianceEndpointPreference:${resource}`;
+        }
+
+        function getComplianceBasePreferenceKey(resource) {
+            return `complianceBasePreference:${resource}`;
+        }
+
+        function normalizeComplianceBase(base) {
+            if (!base) return '';
+            if (base === '/') return '';
+            return String(base).replace(/\/+$/, '');
+        }
+
+        function getComplianceBaseCandidates() {
+            const configuredBase = normalizeComplianceBase((typeof API_BASE_URL !== 'undefined' && API_BASE_URL) ? API_BASE_URL : '/api');
+            const withoutApiSuffix = configuredBase.replace(/\/api$/i, '');
+
+            const baseCandidates = [configuredBase];
+            if (withoutApiSuffix !== configuredBase) {
+                baseCandidates.push(withoutApiSuffix);
+            }
+            baseCandidates.push('/api');
+            baseCandidates.push('');
+
+            const seen = new Set();
+            return baseCandidates
+                .map(normalizeComplianceBase)
+                .filter(base => {
+                    if (seen.has(base)) return false;
+                    seen.add(base);
+                    return true;
+                });
+        }
+
+        function getComplianceBasePreference(resource) {
+            if (window.__complianceBasePreference && window.__complianceBasePreference[resource] !== undefined) {
+                return window.__complianceBasePreference[resource];
+            }
+
+            try {
+                return normalizeComplianceBase(localStorage.getItem(getComplianceBasePreferenceKey(resource)));
+            } catch (storageError) {
+                return null;
+            }
+        }
+
+        function setComplianceBasePreference(resource, base) {
+            if (!window.__complianceBasePreference) {
+                window.__complianceBasePreference = {};
+            }
+
+            const normalizedBase = normalizeComplianceBase(base);
+            window.__complianceBasePreference[resource] = normalizedBase;
+
+            try {
+                localStorage.setItem(getComplianceBasePreferenceKey(resource), normalizedBase);
+            } catch (storageError) {
+                console.warn('Unable to persist compliance base preference in localStorage:', storageError);
+            }
+        }
+
+        function getComplianceEndpointPreference(resource) {
+            if (window.__complianceEndpointPreference && window.__complianceEndpointPreference[resource]) {
+                return window.__complianceEndpointPreference[resource];
+            }
+
+            try {
+                return localStorage.getItem(getComplianceEndpointPreferenceKey(resource));
+            } catch (storageError) {
+                return null;
+            }
+        }
+
+        function setComplianceEndpointPreference(resource, endpoint) {
+            if (!window.__complianceEndpointPreference) {
+                window.__complianceEndpointPreference = {};
+            }
+            window.__complianceEndpointPreference[resource] = endpoint;
+
+            try {
+                localStorage.setItem(getComplianceEndpointPreferenceKey(resource), endpoint);
+            } catch (storageError) {
+                console.warn('Unable to persist compliance endpoint preference in localStorage:', storageError);
+            }
+        }
+
+        async function fetchComplianceApi(resource, path = '', init = undefined) {
+            const fallbackCandidates = getComplianceEndpointCandidates(resource);
+            const preferredEndpoint = getComplianceEndpointPreference(resource);
+            const endpointCandidates = preferredEndpoint
+                ? [preferredEndpoint, ...fallbackCandidates.filter(endpoint => endpoint !== preferredEndpoint)]
+                : fallbackCandidates;
+
+            const fallbackBaseCandidates = getComplianceBaseCandidates();
+            const preferredBase = getComplianceBasePreference(resource);
+            const baseCandidates = preferredBase !== null && preferredBase !== undefined
+                ? [preferredBase, ...fallbackBaseCandidates.filter(base => base !== preferredBase)]
+                : fallbackBaseCandidates;
+
+            const normalizedPath = path
+                ? (path.startsWith('/') || path.startsWith('?') ? path : `/${path}`)
+                : '';
+
+            let lastResponse = null;
+            const attemptedUrls = [];
+            for (let baseIndex = 0; baseIndex < baseCandidates.length; baseIndex++) {
+                const base = baseCandidates[baseIndex];
+
+                for (let endpointIndex = 0; endpointIndex < endpointCandidates.length; endpointIndex++) {
+                    const endpoint = endpointCandidates[endpointIndex];
+                    const url = `${base ? `${base}/` : '/'}${endpoint}${normalizedPath}`;
+                    attemptedUrls.push(url);
+                    const response = await fetch(url, init);
+                    lastResponse = response;
+
+                    if (response.ok) {
+                        setComplianceEndpointPreference(resource, endpoint);
+                        setComplianceBasePreference(resource, base);
+                        return response;
+                    }
+
+                    const isLastAttempt = baseIndex === baseCandidates.length - 1 && endpointIndex === endpointCandidates.length - 1;
+                    if (response.status !== 404 || isLastAttempt) {
+                        if (response.status === 404) {
+                            console.error('Compliance API route returned 404 for all candidates:', attemptedUrls);
+                        }
+                        return response;
+                    }
+                }
+            }
+
+            return lastResponse;
+        }
+
         function resolveComplianceUserId(userIdentifier, userRecord = null) {
             const numericCandidate = Number(userIdentifier);
             if (Number.isFinite(numericCandidate) && numericCandidate > 0) {
@@ -21497,6 +22095,63 @@
             }
 
             return null;
+        }
+
+        function resolveComplianceUserIdForSync(localUserKey, compliance = null) {
+            const directResolvedId = resolveComplianceUserId(localUserKey);
+            if (directResolvedId) {
+                return directResolvedId;
+            }
+
+            const recordUserCandidates = [
+                compliance?.userId,
+                compliance?.employeeId,
+                compliance?.userDbId,
+                compliance?.dbUserId
+            ];
+
+            for (const candidate of recordUserCandidates) {
+                const resolvedFromRecord = resolveComplianceUserId(candidate);
+                if (resolvedFromRecord) {
+                    return resolvedFromRecord;
+                }
+            }
+
+            if (localUserKey !== undefined && localUserKey !== null && localUserKey !== '') {
+                const users = loadUsers();
+                const matchedUsername = Object.keys(users).find((username) => {
+                    const user = users[username];
+                    return user?.name === localUserKey || user?.fullName === localUserKey;
+                });
+
+                if (matchedUsername) {
+                    const resolvedFromUsersMap = resolveComplianceUserId(matchedUsername, users[matchedUsername]);
+                    if (resolvedFromUsersMap) {
+                        return resolvedFromUsersMap;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        function normalizeComplianceTypeRecord(type) {
+            if (!type || typeof type !== 'object') {
+                return null;
+            }
+
+            const id = type.id ?? type.Id;
+            const name = type.name ?? type.Name;
+
+            if (id === undefined || id === null || !name) {
+                return null;
+            }
+
+            return {
+                ...type,
+                id,
+                name
+            };
         }
 
         async function syncLocalCompliancesToApi(options = {}) {
@@ -21535,22 +22190,36 @@
                         continue;
                     }
 
-                    const resolvedUserId = resolveComplianceUserId(localUserKey);
-                    if (!resolvedUserId) {
-                        skipped += complianceList.length;
-                        continue;
-                    }
-
                     for (const compliance of complianceList) {
                         if (!compliance || typeof compliance !== 'object') {
                             skipped += 1;
                             continue;
                         }
 
-                        const alreadySynced = !!compliance.__syncedToApi || (Number.isFinite(Number(compliance.id)) && Number(compliance.id) > 0);
+                        const resolvedUserId = resolveComplianceUserIdForSync(localUserKey, compliance);
+                        if (!resolvedUserId) {
+                            failed += 1;
+                            continue;
+                        }
+
+                        const alreadySynced = !!compliance.__syncedToApi;
                         if (alreadySynced) {
                             skipped += 1;
                             continue;
+                        }
+
+                        const existingId = Number(compliance.id);
+                        if (Number.isFinite(existingId) && existingId > 0) {
+                            try {
+                                const existingResponse = await fetchComplianceApi('compliances', `${existingId}`);
+                                if (existingResponse.ok) {
+                                    compliance.__syncedToApi = true;
+                                    skipped += 1;
+                                    continue;
+                                }
+                            } catch (lookupError) {
+                                console.warn('Unable to verify existing compliance by ID before sync:', lookupError);
+                            }
                         }
 
                         const payload = {
@@ -21578,7 +22247,7 @@
                         };
 
                         try {
-                            const response = await fetch(`${API_BASE_URL}/compliances`, {
+                            const response = await fetchComplianceApi('compliances', '', {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json'
@@ -21610,6 +22279,10 @@
                     showNotification(`Synced ${synced} local compliance record(s) to server.`, 'success');
                 }
 
+                if (!silent && failed > 0 && typeof showNotification === 'function') {
+                    showNotification(`${failed} local compliance record(s) could not be synced.`, 'warning');
+                }
+
                 return { synced, skipped, failed };
             } finally {
                 window.__complianceSyncInProgress = false;
@@ -21625,11 +22298,14 @@
                     throw new Error('API_BASE_URL not defined');
                 }
 
-                const response = await fetch(`${API_BASE_URL}/compliance-types`);
+                const response = await fetchComplianceApi('compliance-types');
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                const complianceTypes = await response.json();
+                const complianceTypesRaw = await response.json();
+                const complianceTypes = (Array.isArray(complianceTypesRaw) ? complianceTypesRaw : [])
+                    .map(normalizeComplianceTypeRecord)
+                    .filter(Boolean);
 
                 const select = document.getElementById('complianceType');
                 select.innerHTML = '<option value="">Select Compliance Type</option>';
@@ -21711,12 +22387,39 @@
             const complianceReminderDate = document.getElementById('complianceReminderDate');
             if (complianceReminderDate) complianceReminderDate.value = '';
 
+            const complianceStatus = document.getElementById('complianceStatus');
+            if (complianceStatus) complianceStatus.value = 'active';
+
+            const complianceDocumentType = document.getElementById('complianceDocumentType');
+            if (complianceDocumentType) complianceDocumentType.value = '';
+
+            const complianceReferenceNumber = document.getElementById('complianceReferenceNumber');
+            if (complianceReferenceNumber) complianceReferenceNumber.value = '';
+
+            const complianceIssuingAuthority = document.getElementById('complianceIssuingAuthority');
+            if (complianceIssuingAuthority) complianceIssuingAuthority.value = '';
+
+            const complianceCost = document.getElementById('complianceCost');
+            if (complianceCost) complianceCost.value = '';
+
+            const complianceNotes = document.getElementById('complianceNotes');
+            if (complianceNotes) complianceNotes.value = '';
+
             const complianceEmployeeId = document.getElementById('complianceEmployeeId');
             if (complianceEmployeeId) complianceEmployeeId.value = '';
 
             // Reset file input
             const complianceAttachment = document.getElementById('complianceAttachment');
             if (complianceAttachment) complianceAttachment.value = '';
+
+            const complianceAttachmentData = document.getElementById('complianceAttachmentData');
+            if (complianceAttachmentData) complianceAttachmentData.value = '';
+
+            const complianceAttachmentName = document.getElementById('complianceAttachmentName');
+            if (complianceAttachmentName) complianceAttachmentName.value = '';
+
+            const complianceAttachmentType = document.getElementById('complianceAttachmentType');
+            if (complianceAttachmentType) complianceAttachmentType.value = '';
 
             const attachmentPreview = document.getElementById('attachmentPreview');
             if (attachmentPreview) attachmentPreview.innerHTML = '';
@@ -21746,9 +22449,9 @@
             }
 
             // Handle file attachment
-            let attachmentData = null;
-            let attachmentName = '';
-            let attachmentType = '';
+            let attachmentData = document.getElementById('complianceAttachmentData')?.value || null;
+            let attachmentName = document.getElementById('complianceAttachmentName')?.value || '';
+            let attachmentType = document.getElementById('complianceAttachmentType')?.value || '';
 
             const fileInput = document.getElementById('complianceAttachment');
             if (fileInput?.files && fileInput.files[0]) {
@@ -21764,6 +22467,10 @@
                 });
             }
 
+            if (!attachmentData) attachmentData = null;
+            if (!attachmentName) attachmentName = '';
+            if (!attachmentType) attachmentType = '';
+
             const compliance = {
                 title: document.getElementById('complianceTitle')?.value || '',
                 complianceTypeId: parseInt(document.getElementById('complianceType')?.value) || document.getElementById('complianceType')?.value || '',
@@ -21773,7 +22480,7 @@
                 issueDate: document.getElementById('complianceIssueDate')?.value || '',
                 expiryDate: document.getElementById('complianceExpiryDate')?.value || '',
                 reminderDate: document.getElementById('complianceReminderDate')?.value || '',
-                status: 'active',
+                status: document.getElementById('complianceStatus')?.value || 'active',
                 attachmentData: attachmentData, // Base64 encoded file data
                 attachmentName: attachmentName, // Original file name
                 attachmentType: attachmentType, // MIME type
@@ -21791,7 +22498,7 @@
                     let response;
                     if (complianceId) {
                         // Update existing compliance
-                        response = await fetch(`${API_BASE_URL}/compliances/${complianceId}`, {
+                        response = await fetchComplianceApi('compliances', `${complianceId}`, {
                             method: 'PUT',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -21800,7 +22507,7 @@
                         });
                     } else {
                         // Create new compliance
-                        response = await fetch(`${API_BASE_URL}/compliances`, {
+                        response = await fetchComplianceApi('compliances', '', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -21887,7 +22594,7 @@
                         throw new Error('Compliance ID is required for server delete.');
                     }
 
-                    const response = await fetch(`${API_BASE_URL}/compliances/${apiComplianceId}`, {
+                    const response = await fetchComplianceApi('compliances', `${apiComplianceId}`, {
                         method: 'DELETE'
                     });
 
@@ -21959,20 +22666,40 @@
                         throw new Error('Compliance ID is required for server edit.');
                     }
 
-                    const response = await fetch(`${API_BASE_URL}/compliances/${apiComplianceId}`);
+                    const response = await fetchComplianceApi('compliances', `${apiComplianceId}`);
                     if (!response.ok) {
                         throw new Error(`HTTP error! status: ${response.status}`);
                     }
-                    const fullCompliance = await response.json();
+                    const fullComplianceRaw = await response.json();
+                    const fullCompliance = normalizeComplianceRecord(fullComplianceRaw) || fullComplianceRaw;
 
                     // Populate the modal with existing data
                     document.getElementById('complianceTitle').value = fullCompliance.title || '';
                     document.getElementById('complianceDescription').value = fullCompliance.description || '';
                     document.getElementById('complianceType').value = fullCompliance.complianceTypeId || '';
-                    document.getElementById('complianceIssueDate').value = fullCompliance.issueDate ? new Date(fullCompliance.issueDate).toISOString().split('T')[0] : '';
-                    document.getElementById('complianceExpiryDate').value = fullCompliance.expiryDate ? new Date(fullCompliance.expiryDate).toISOString().split('T')[0] : '';
+                    document.getElementById('complianceIssueDate').value = toDateInputValue(fullCompliance.issueDate);
+                    document.getElementById('complianceExpiryDate').value = toDateInputValue(fullCompliance.expiryDate);
+                    document.getElementById('complianceReminderDate').value = toDateInputValue(fullCompliance.reminderDate);
+                    document.getElementById('complianceStatus').value = (fullCompliance.status || 'active').toLowerCase();
+                    document.getElementById('complianceDocumentType').value = fullCompliance.documentType || '';
+                    document.getElementById('complianceReferenceNumber').value = fullCompliance.referenceNumber || '';
+                    document.getElementById('complianceIssuingAuthority').value = fullCompliance.issuingAuthority || '';
+                    document.getElementById('complianceCost').value = fullCompliance.cost ?? '';
+                    document.getElementById('complianceNotes').value = fullCompliance.notes || '';
                     document.getElementById('complianceEmployeeId').value = fullCompliance.userId || resolvedUserId || '';
                     document.getElementById('complianceId').value = fullCompliance.id || fullCompliance.Id || apiComplianceId;
+
+                    document.getElementById('complianceAttachmentData').value = fullCompliance.attachmentData || '';
+                    document.getElementById('complianceAttachmentName').value = fullCompliance.attachmentName || '';
+                    document.getElementById('complianceAttachmentType').value = fullCompliance.attachmentType || '';
+                    document.getElementById('complianceAttachment').value = '';
+
+                    const attachmentPreview = document.getElementById('attachmentPreview');
+                    if (attachmentPreview) {
+                        attachmentPreview.innerHTML = fullCompliance.attachmentName
+                            ? `<i class="fas fa-paperclip" style="margin-right: 0.35rem;"></i>Current: ${fullCompliance.attachmentName}`
+                            : '';
+                    }
 
                     document.getElementById('complianceModal').style.display = 'flex';
                     return;
@@ -21995,8 +22722,13 @@
             // First try to find the compliance in the current view data
             // For API-based compliances
             if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
-                fetch(`${API_BASE_URL}/compliances/${complianceId}`)
-                    .then(response => response.json())
+                fetchComplianceApi('compliances', `${complianceId}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
                     .then(compliance => {
                         if (compliance.attachmentData) {
                             // Create a download link for base64 data
@@ -22061,11 +22793,13 @@
                 // Check if API is available
                 if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
                     await syncLocalCompliancesToApi({ silent: false });
-                    const response = await fetch(`${API_BASE_URL}/compliances`);
+                    const response = await fetchComplianceApi('compliances');
                     if (!response.ok) {
                         throw new Error(`HTTP error! status: ${response.status}`);
                     }
-                    const compliances = await response.json();
+                    const compliances = (await response.json())
+                        .map(normalizeComplianceRecord)
+                        .filter(Boolean);
 
                     // Update statistics
                     updateComplianceStatistics(compliances);
@@ -22086,7 +22820,8 @@
 
                 // Flatten all user compliances into a single array
                 Object.keys(allCompliances).forEach(userId => {
-                    allCompliances[userId].forEach((compliance, index) => {
+                    allCompliances[userId].forEach((rawCompliance, index) => {
+                        const compliance = normalizeComplianceRecord(rawCompliance) || rawCompliance;
                         compliances.push({
                             ...compliance,
                             userId: userId,
@@ -22107,17 +22842,20 @@
         function updateComplianceStatistics(compliances) {
             const totalCompliances = compliances.length;
             const activeCompliances = compliances.filter(c => {
-                const expiryDate = new Date(c.expiryDate);
+                const compliance = normalizeComplianceRecord(c) || c;
+                const expiryDate = new Date(compliance.expiryDate || compliance.ExpiryDate);
                 const today = new Date();
                 return expiryDate > today;
             }).length;
             const expiredCompliances = compliances.filter(c => {
-                const expiryDate = new Date(c.expiryDate);
+                const compliance = normalizeComplianceRecord(c) || c;
+                const expiryDate = new Date(compliance.expiryDate || compliance.ExpiryDate);
                 const today = new Date();
                 return expiryDate < today;
             }).length;
             const expiringSoon = compliances.filter(c => {
-                const expiryDate = new Date(c.expiryDate);
+                const compliance = normalizeComplianceRecord(c) || c;
+                const expiryDate = new Date(compliance.expiryDate || compliance.ExpiryDate);
                 const today = new Date();
                 const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
                 return daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
@@ -22144,7 +22882,8 @@
                 return;
             }
 
-            compliances.forEach((compliance) => {
+            compliances.forEach((rawCompliance) => {
+                const compliance = normalizeComplianceRecord(rawCompliance) || rawCompliance;
                 const complianceId = compliance.id || compliance.Id;
                 const hasLocalIndex = compliance.localIndex !== undefined;
                 const actionsDisabled = hasLocalIndex || !complianceId || !isComplianceApiConfigured();
@@ -22178,7 +22917,7 @@
                     <div class="compliance-header">
                         <div class="compliance-title">
                             <i class="fas fa-file-contract" style="color: var(--primary-color); margin-right: 0.5rem;"></i>
-                            <span>${compliance.title}</span>
+                            <span>${compliance.title || '(Untitled Compliance)'}</span>
                         </div>
                         <div class="compliance-status">
                             <i class="fas ${statusIcon}" style="color: ${statusColor}; margin-right: 0.25rem;"></i>
@@ -22196,11 +22935,11 @@
                         </div>
                         <div class="compliance-detail">
                             <span class="detail-label">Issue Date:</span>
-                            <span class="detail-value">${new Date(compliance.issueDate).toLocaleDateString()}</span>
+                            <span class="detail-value">${formatComplianceDate(compliance.issueDate)}</span>
                         </div>
                         <div class="compliance-detail">
                             <span class="detail-label">Expiry Date:</span>
-                            <span class="detail-value">${expiryDate.toLocaleDateString()}</span>
+                            <span class="detail-value">${formatComplianceDate(compliance.expiryDate)}</span>
                         </div>
                     </div>
                     <div class="compliance-description">
@@ -22257,11 +22996,21 @@
             document.getElementById('complianceType').value = '';
             document.getElementById('complianceIssueDate').value = '';
             document.getElementById('complianceExpiryDate').value = '';
+            document.getElementById('complianceReminderDate').value = '';
+            document.getElementById('complianceStatus').value = 'active';
+            document.getElementById('complianceDocumentType').value = '';
+            document.getElementById('complianceReferenceNumber').value = '';
+            document.getElementById('complianceIssuingAuthority').value = '';
+            document.getElementById('complianceCost').value = '';
+            document.getElementById('complianceNotes').value = '';
             document.getElementById('complianceEmployeeId').value = '';
             document.getElementById('complianceId').value = '';
             
             // Reset file input
             document.getElementById('complianceAttachment').value = '';
+            document.getElementById('complianceAttachmentData').value = '';
+            document.getElementById('complianceAttachmentName').value = '';
+            document.getElementById('complianceAttachmentType').value = '';
             document.getElementById('attachmentPreview').innerHTML = '';
 
             // Load compliance types
@@ -22302,9 +23051,10 @@
                 // Try to load from API first
                 if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
                     try {
-                        const response = await fetch(`${API_BASE_URL}/compliance-types`);
+                        const response = await fetchComplianceApi('compliance-types');
                         if (response.ok) {
-                            types = await response.json();
+                            const rawTypes = await response.json();
+                            types = Array.isArray(rawTypes) ? rawTypes : [];
                         }
                     } catch (apiError) {
                         console.log('API not available for compliance types, using localStorage');
@@ -22337,7 +23087,11 @@
                     ];
                 }
 
-                displayComplianceTypes(types);
+                const normalizedTypes = (Array.isArray(types) ? types : [])
+                    .map(normalizeComplianceTypeRecord)
+                    .filter(Boolean);
+
+                displayComplianceTypes(normalizedTypes);
             } catch (error) {
                 console.error('Error loading compliance types:', error);
                 typesList.innerHTML = '<div style="text-align: center; padding: 2rem; color: #ef4444;"><i class="fas fa-exclamation-triangle"></i> Error loading types</div>';
@@ -22347,13 +23101,16 @@
         // Display compliance types in the manager
         function displayComplianceTypes(types) {
             const typesList = document.getElementById('complianceTypesList');
+            const normalizedTypes = (Array.isArray(types) ? types : [])
+                .map(normalizeComplianceTypeRecord)
+                .filter(Boolean);
             
-            if (types.length === 0) {
+            if (normalizedTypes.length === 0) {
                 typesList.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-secondary);"><i class="fas fa-info-circle"></i> No compliance types found</div>';
                 return;
             }
 
-            typesList.innerHTML = types.map(type => `
+            typesList.innerHTML = normalizedTypes.map(type => `
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid var(--border-color);">
                     <span style="color: var(--text-primary); font-weight: 500;">${type.name}</span>
                     <button onclick="deleteComplianceType(${type.id})" style="background: #ef4444; color: white; border: none; padding: 0.5rem; border-radius: 6px; cursor: pointer; font-size: 0.9rem;" title="Delete Type">
@@ -22374,7 +23131,7 @@
 
             if (typeof isComplianceApiConfigured === 'function' && isComplianceApiConfigured()) {
                 try {
-                    const createResponse = await fetch(`${API_BASE_URL}/compliance-types`, {
+                    const createResponse = await fetchComplianceApi('compliance-types', '', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -22418,7 +23175,7 @@
 
             if (typeof isComplianceApiConfigured === 'function' && isComplianceApiConfigured()) {
                 try {
-                    const deleteResponse = await fetch(`${API_BASE_URL}/compliance-types/${typeId}`, {
+                    const deleteResponse = await fetchComplianceApi('compliance-types', `${typeId}`, {
                         method: 'DELETE'
                     });
 
@@ -37559,6 +38316,11 @@ window.initializeCalendar = initializeCalendar;
                 // Initialize compliances view on demand
                 if (viewName === 'compliances' && typeof loadAllCompliances === 'function') {
                     loadAllCompliances();
+                }
+
+                // Initialize employee requirements view on demand
+                if (viewName === 'requirements' && typeof initializeRequirementsView === 'function') {
+                    initializeRequirementsView(true);
                 }
 
                 // Initialize manage-tasks view on demand
@@ -55799,6 +56561,7 @@ document.addEventListener('keydown', function(e) {
                             <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Role</th>
                             <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Job Title</th>
                             <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Status</th>
+                            <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Requirements</th>
                             <th style="padding: 1rem; text-align: center; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Actions</th>
                         </tr>
                     </thead>
@@ -56929,6 +57692,9 @@ document.addEventListener('keydown', function(e) {
             <form id="complianceForm" onsubmit="saveCompliance(event)">
                 <input type="hidden" id="complianceEmployeeId">
                 <input type="hidden" id="complianceId">
+                <input type="hidden" id="complianceAttachmentData">
+                <input type="hidden" id="complianceAttachmentName">
+                <input type="hidden" id="complianceAttachmentType">
 
                 <!-- Compliance Type -->
                 <div style="margin-bottom: 1.5rem;">
@@ -56986,7 +57752,7 @@ document.addEventListener('keydown', function(e) {
                     <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
                         <i class="fas fa-calendar-alt" style="margin-right: 0.5rem;"></i>Dates
                     </h5>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="complianceIssueDate">
                                 Issue Date *
@@ -57001,6 +57767,27 @@ document.addEventListener('keydown', function(e) {
                             </label>
                             <input type="date" id="complianceExpiryDate" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                         </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="complianceReminderDate">
+                                Reminder Date
+                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Optional reminder date before expiry"></i>
+                            </label>
+                            <input type="date" id="complianceReminderDate" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr; gap: 1rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="complianceStatus">
+                                Status
+                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Current compliance status"></i>
+                            </label>
+                            <select id="complianceStatus" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="active">Active</option>
+                                <option value="expired">Expired</option>
+                                <option value="pending">Pending</option>
+                                <option value="suspended">Suspended</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -57009,7 +57796,14 @@ document.addEventListener('keydown', function(e) {
                     <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
                         <i class="fas fa-info-circle" style="margin-right: 0.5rem;"></i>Additional Information
                     </h5>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="complianceDocumentType">
+                                Document Type
+                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Type/category of compliance document"></i>
+                            </label>
+                            <input type="text" id="complianceDocumentType" placeholder="e.g., Certificate, License, Policy" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                        </div>
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="complianceReferenceNumber">
                                 Reference/License Number

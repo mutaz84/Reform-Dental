@@ -51,6 +51,28 @@ function toNullableDecimal(value) {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parsePositiveIntList(rawValue, fallback = []) {
+    const source = Array.isArray(rawValue) ? rawValue.join(',') : String(rawValue || '');
+    const values = source
+        .split(',')
+        .map((part) => Number.parseInt(part.trim(), 10))
+        .filter((num) => Number.isInteger(num) && num > 0);
+
+    if (values.length === 0) {
+        return Array.from(new Set(fallback.filter((num) => Number.isInteger(num) && num > 0)));
+    }
+
+    return Array.from(new Set(values));
+}
+
+function parseBoolean(rawValue, fallback = false) {
+    if (rawValue === undefined || rawValue === null || rawValue === '') return fallback;
+    const value = String(rawValue).trim().toLowerCase();
+    if (value === 'true' || value === '1' || value === 'yes') return true;
+    if (value === 'false' || value === '0' || value === 'no') return false;
+    return fallback;
+}
+
 function normalizeComplianceRow(row) {
     if (!row || typeof row !== 'object') {
         return row;
@@ -82,6 +104,7 @@ function normalizeComplianceRow(row) {
         referenceNumber: pick('referenceNumber', 'ReferenceNumber', ''),
         issuingAuthority: pick('issuingAuthority', 'IssuingAuthority', ''),
         cost: pick('cost', 'Cost'),
+        daysUntilDue: pick('daysUntilDue', 'DaysUntilDue'),
         notes: pick('notes', 'Notes', ''),
         createdById: pick('createdById', 'CreatedById'),
         createdDate: pick('createdDate', 'CreatedDate'),
@@ -126,6 +149,103 @@ module.exports = async function (context, req) {
         const id = req.params.id ? Number.parseInt(req.params.id, 10) : null;
 
         if (req.method === 'GET') {
+            const viewMode = String(req.query.view || '').trim().toLowerCase();
+
+            if (viewMode === 'summary-by-user') {
+                if (!hasColumn(complianceColumns, 'UserId')) {
+                    context.res = { status: 200, headers, body: [] };
+                    return;
+                }
+
+                const userColumns = await getTableColumns(pool, 'Users');
+                const hasUsersTable = userColumns.size > 0 && hasColumn(userColumns, 'Id');
+                const hasStatus = hasColumn(complianceColumns, 'Status');
+                const hasExpiryDate = hasColumn(complianceColumns, 'ExpiryDate');
+                const statusExpr = hasStatus
+                    ? "LOWER(LTRIM(RTRIM(ISNULL(c.Status, ''))))"
+                    : "''";
+                const employeeNameExpr = hasUsersTable
+                    ? "COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(ISNULL(u.FirstName, ''), ' ', ISNULL(u.LastName, '')))), ''), NULLIF(LTRIM(RTRIM(ISNULL(u.Username, ''))), ''), CONCAT('User #', CAST(c.UserId AS NVARCHAR(20))))"
+                    : "CONCAT('User #', CAST(c.UserId AS NVARCHAR(20)))";
+                const joinUsersClause = hasUsersTable ? 'LEFT JOIN Users u ON u.Id = c.UserId' : '';
+
+                const whereParts = ['c.UserId IS NOT NULL'];
+                if (hasIsActive) {
+                    whereParts.push('c.IsActive = 1');
+                }
+
+                const overdueExpr = hasExpiryDate
+                    ? `SUM(CASE WHEN CAST(c.ExpiryDate AS DATE) < CAST(SYSUTCDATETIME() AS DATE) AND ${statusExpr} <> 'completed' THEN 1 ELSE 0 END) AS OverdueCount`
+                    : 'CAST(0 AS INT) AS OverdueCount';
+
+                const result = await pool.request().query(`
+SELECT
+    c.UserId,
+    ${employeeNameExpr} AS EmployeeName,
+    COUNT(1) AS TotalCount,
+    SUM(CASE WHEN ${statusExpr} = 'completed' THEN 1 ELSE 0 END) AS CompletedCount,
+    SUM(CASE WHEN ${statusExpr} = 'in_progress' THEN 1 ELSE 0 END) AS InProgressCount,
+    SUM(CASE WHEN ${statusExpr} IN ('pending', '', 'active') THEN 1 ELSE 0 END) AS PendingCount,
+    ${overdueExpr}
+FROM Compliances c
+${joinUsersClause}
+WHERE ${whereParts.join(' AND ')}
+GROUP BY c.UserId, ${employeeNameExpr}
+ORDER BY EmployeeName`);
+
+                context.res = { status: 200, headers, body: result.recordset || [] };
+                return;
+            }
+
+            if (viewMode === 'due-soon') {
+                if (!hasColumn(complianceColumns, 'ExpiryDate')) {
+                    context.res = { status: 200, headers, body: [] };
+                    return;
+                }
+
+                const request = pool.request();
+                const whereParts = ['c.ExpiryDate IS NOT NULL'];
+                if (hasIsActive) {
+                    whereParts.push('c.IsActive = 1');
+                }
+                if (hasColumn(complianceColumns, 'Status')) {
+                    whereParts.push("LOWER(LTRIM(RTRIM(ISNULL(c.Status, '')))) <> 'completed'");
+                }
+
+                const userIdFilter = toNullableInt(req.query.userId);
+                if (Number.isInteger(userIdFilter) && userIdFilter > 0 && hasColumn(complianceColumns, 'UserId')) {
+                    request.input('userId', sql.Int, userIdFilter);
+                    whereParts.push('c.UserId = @userId');
+                }
+
+                const dueDays = parsePositiveIntList(req.query.days, [7, 3, 1]);
+                const includeOverdue = parseBoolean(req.query.includeOverdue, false);
+                const dayClause = dueDays.length
+                    ? `DATEDIFF(DAY, CAST(SYSUTCDATETIME() AS DATE), CAST(c.ExpiryDate AS DATE)) IN (${dueDays.join(', ')})`
+                    : '1 = 0';
+                if (includeOverdue) {
+                    whereParts.push(`(${dayClause} OR DATEDIFF(DAY, CAST(SYSUTCDATETIME() AS DATE), CAST(c.ExpiryDate AS DATE)) < 0)`);
+                } else {
+                    whereParts.push(dayClause);
+                }
+
+                const selectTypeName = hasComplianceTypeJoin
+                    ? 'ct.Name AS ComplianceTypeName'
+                    : 'CAST(NULL AS NVARCHAR(200)) AS ComplianceTypeName';
+                const fromClause = hasComplianceTypeJoin
+                    ? 'FROM Compliances c LEFT JOIN ComplianceTypes ct ON ct.Id = c.ComplianceTypeId'
+                    : 'FROM Compliances c';
+
+                const result = await request.query(`
+SELECT c.*, ${selectTypeName}, DATEDIFF(DAY, CAST(SYSUTCDATETIME() AS DATE), CAST(c.ExpiryDate AS DATE)) AS DaysUntilDue
+${fromClause}
+WHERE ${whereParts.join(' AND ')}
+ORDER BY DaysUntilDue ASC, c.ExpiryDate ASC`);
+
+                context.res = { status: 200, headers, body: (result.recordset || []).map(normalizeComplianceRow) };
+                return;
+            }
+
             const selectTypeName = hasComplianceTypeJoin
                 ? 'ct.Name AS ComplianceTypeName'
                 : 'CAST(NULL AS NVARCHAR(200)) AS ComplianceTypeName';
@@ -208,7 +328,7 @@ ${orderBy}`);
                 { column: 'IssueDate', param: 'issueDate', type: sql.Date, value: body.issueDate || null },
                 { column: 'ExpiryDate', param: 'expiryDate', type: sql.Date, value: body.expiryDate || null },
                 { column: 'ReminderDate', param: 'reminderDate', type: sql.Date, value: body.reminderDate || null },
-                { column: 'Status', param: 'status', type: sql.NVarChar(50), value: body.status || 'active' },
+                { column: 'Status', param: 'status', type: sql.NVarChar(50), value: body.status || 'pending' },
                 { column: 'AttachmentUrl', param: 'attachmentUrl', type: sql.NVarChar(sql.MAX), value: attachmentUrl },
                 { column: 'AttachmentName', param: 'attachmentName', type: sql.NVarChar(255), value: body.attachmentName || null },
                 { column: 'DocumentType', param: 'documentType', type: sql.NVarChar(255), value: body.documentType || null },
@@ -248,7 +368,7 @@ VALUES (${insertValues})`);
                 { column: 'IssueDate', param: 'issueDate', type: sql.Date, value: body.issueDate || null },
                 { column: 'ExpiryDate', param: 'expiryDate', type: sql.Date, value: body.expiryDate || null },
                 { column: 'ReminderDate', param: 'reminderDate', type: sql.Date, value: body.reminderDate || null },
-                { column: 'Status', param: 'status', type: sql.NVarChar(50), value: body.status || 'active' },
+                { column: 'Status', param: 'status', type: sql.NVarChar(50), value: body.status || 'pending' },
                 { column: 'AttachmentUrl', param: 'attachmentUrl', type: sql.NVarChar(sql.MAX), value: attachmentUrl },
                 { column: 'AttachmentName', param: 'attachmentName', type: sql.NVarChar(255), value: body.attachmentName || null },
                 { column: 'DocumentType', param: 'documentType', type: sql.NVarChar(255), value: body.documentType || null },
