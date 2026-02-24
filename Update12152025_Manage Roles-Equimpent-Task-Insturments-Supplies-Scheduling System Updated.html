@@ -20708,6 +20708,7 @@
                     .replace(/"/g, '&quot;')
                     .replace(/</g, '&lt;')
                     .replace(/>/g, '&gt;');
+                const encodedUsernameParam = encodeURIComponent(String(username || ''));
                 const row = document.createElement('tr');
                 row.style.cssText = 'border-bottom: 1px solid var(--border-color); transition: background 0.2s;';
                 row.onmouseover = function() { this.style.background = 'var(--bg-secondary)'; };
@@ -20730,16 +20731,16 @@
                     <td style="padding: 1rem; color: var(--text-secondary);">${renderComplianceSummaryCell(complianceSummary)}</td>
                     <td style="padding: 1rem; text-align: center;">
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                            <button type="button" data-user-action="edit" data-username="${encodedUsernameAttr}" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit User" aria-label="Edit User">
+                            <button type="button" data-user-action="edit" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('edit','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit User" aria-label="Edit User">
                                 <i class="fas fa-edit"></i>
                             </button>
-                            <button type="button" data-user-action="hr" data-username="${encodedUsernameAttr}" style="padding: 0.5rem 1rem; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" title="HR Info" aria-label="HR Info">
+                            <button type="button" data-user-action="hr" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('hr','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" title="HR Info" aria-label="HR Info">
                                 <i class="fas fa-file-invoice-dollar"></i>
                             </button>
-                            <button type="button" data-user-action="requirements" data-username="${encodedUsernameAttr}" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Requirements" aria-label="Requirements">
+                            <button type="button" data-user-action="requirements" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('requirements','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Requirements" aria-label="Requirements">
                                 <i class="fas fa-file-contract"></i>
                             </button>
-                            ${username !== 'admin' ? `<button type="button" data-user-action="delete" data-username="${encodedUsernameAttr}" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete User" aria-label="Delete User">
+                            ${username !== 'admin' ? `<button type="button" data-user-action="delete" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('delete','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete User" aria-label="Delete User">
                                 <i class="fas fa-trash"></i>
                             </button>` : ''}
                         </div>
@@ -20811,6 +20812,23 @@
                 deleteUser(username);
             }
         }
+
+        window.__triggerUserAction = function(action, encodedUsername, event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+
+            let username = '';
+            try {
+                username = decodeURIComponent(String(encodedUsername || ''));
+            } catch (_) {
+                username = String(encodedUsername || '');
+            }
+
+            handleUsersListAction(String(action || '').trim(), username.trim());
+            return false;
+        };
 
         function bindUsersListActionButtonsDirect() {
             const usersList = document.getElementById('usersList');
