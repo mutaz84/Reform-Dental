@@ -21700,6 +21700,63 @@
             }
         }
 
+        function getTaskLinkedComplianceId(task) {
+            if (!task || typeof task !== 'object') return null;
+            const value = task.linkedComplianceId || task.complianceId || null;
+            const parsed = Number.parseInt(value, 10);
+            return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+        }
+
+        function openComplianceFromTask(taskId) {
+            const task = Array.isArray(window.tasksData) ? window.tasksData.find((item) => item.id == taskId) : null;
+            const complianceId = getTaskLinkedComplianceId(task);
+            if (!complianceId) {
+                if (typeof showNotification === 'function') {
+                    showNotification('No compliance is linked to this task.', 'info');
+                }
+                return;
+            }
+            openComplianceFromRequirement(complianceId);
+        }
+
+        async function syncLinkedComplianceOnTaskCompletion(task) {
+            const complianceId = getTaskLinkedComplianceId(task);
+            if (!complianceId || !isComplianceApiConfigured()) return;
+
+            try {
+                const response = await fetchComplianceApi('compliances', `/${encodeURIComponent(complianceId)}`);
+                if (!response.ok) return;
+
+                const compliance = normalizeComplianceRecord(await response.json());
+                const payload = {
+                    ...(compliance || {}),
+                    status: 'completed',
+                    modifiedById: getCurrentUserId()
+                };
+
+                const updateResponse = await fetchComplianceApi('compliances', `/${encodeURIComponent(complianceId)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!updateResponse.ok) return;
+
+                task.linkedComplianceStatus = 'completed';
+
+                const currentUserId = getCurrentComplianceUserId();
+                if (currentUserId && window.__requirementsCache) {
+                    delete window.__requirementsCache[currentUserId];
+                }
+
+                loadComplianceSummaryByUser(true).then(() => {
+                    if (typeof displayUsersList === 'function') displayUsersList();
+                }).catch(() => {});
+            } catch (error) {
+                console.error('Failed syncing linked compliance from task completion:', error);
+            }
+        }
+
         async function checkDueComplianceNotifications() {
             if (!isComplianceApiConfigured()) {
                 return;
@@ -26326,10 +26383,16 @@
                                 <span><i class="fas fa-user" style="width: 14px;"></i> ${task.assignee || task.assignedTo || 'Unassigned'}</span>
                                 <span style="color: ${priorityColors[task.priority] || '#6b7280'};"><i class="fas fa-flag" style="width: 14px;"></i> ${task.priority || 'Medium'}</span>
                                 <span style="color: ${statusColors[task.status] || '#6b7280'};"><i class="fas fa-circle" style="width: 14px; font-size: 0.5rem;"></i> ${task.status || 'Pending'}</span>
+                                ${task.linkedComplianceId ? `<span style="color: #0891b2;"><i class="fas fa-shield-alt" style="width: 14px;"></i> ${task.linkedComplianceTitle || ('Compliance #' + task.linkedComplianceId)}</span>` : ''}
                                 ${task.dueDate ? `<span><i class="fas fa-calendar" style="width: 14px;"></i> ${new Date(task.dueDate).toLocaleDateString()}</span>` : ''}
                             </div>
                         </div>
                         <div style="display: flex; gap: 0.5rem; flex-shrink: 0;">
+                            ${task.linkedComplianceId ? `
+                            <button onclick="openComplianceFromTask('${task.id}')" style="padding: 0.5rem 0.75rem; background: #ecfeff; border: 1px solid #a5f3fc; border-radius: 6px; color: #0e7490; cursor: pointer;" title="Open linked compliance">
+                                <i class="fas fa-shield-alt"></i>
+                            </button>
+                            ` : ''}
                             ${canEditTask(task) ? `
                             <button onclick="openTaskFormSafeWithId('${task.id}', null);" style="padding: 0.5rem 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-secondary); cursor: pointer;" title="Edit">
                                 <i class="fas fa-edit"></i>
@@ -46123,6 +46186,9 @@ window.addEventListener('load', function() {
                         location: t.Location || t.location || '',
                         recurrence: t.Recurrence || t.recurrence || 'One-time',
                         complianceFlag: t.ComplianceFlag || t.complianceFlag || false,
+                        linkedComplianceId: t.LinkedComplianceId || t.linkedComplianceId || t.ComplianceId || t.complianceId || null,
+                        linkedComplianceTitle: t.LinkedComplianceTitle || t.linkedComplianceTitle || t.ComplianceTitle || t.complianceTitle || '',
+                        linkedComplianceStatus: t.LinkedComplianceStatus || t.linkedComplianceStatus || t.ComplianceStatus || t.complianceStatus || '',
                         isPaid: t.IsPaid || t.isPaid || false,
                         payAmount: t.PayAmount || t.payAmount || 0,
                         timeEstimate: t.TimeEstimate || t.timeEstimate || '',
@@ -49973,6 +50039,7 @@ window.addEventListener('load', function() {
             
             const dueInfo = task.dueDate ? formatTaskDueDate(task.dueDate) : null;
             const isOverdue = dueInfo && dueInfo.isOverdue;
+            const linkedComplianceId = getTaskLinkedComplianceId(task);
             
             let actionButtons = '';
             if (type === 'floating' || type === 'bonus') {
@@ -50011,6 +50078,10 @@ window.addEventListener('load', function() {
                     </button>
                 `;
             }
+
+            const complianceActionButton = linkedComplianceId
+                ? `<button class="task-action-btn" onclick="openComplianceFromTask('${task.id}')" title="Open linked compliance"><i class="fas fa-shield-alt"></i></button>`
+                : '';
             
             return `
                 <div class="task-hub-card ${type} ${isOverdue ? 'overdue' : ''}" style="border-left-color: ${priorityColor};">
@@ -50025,10 +50096,12 @@ window.addEventListener('load', function() {
                     <div class="task-hub-card-meta">
                         ${task.estimatedTime ? `<span><i class="fas fa-clock"></i> ${task.estimatedTime} min</span>` : ''}
                         ${task.category ? `<span><i class="fas fa-folder"></i> ${task.category}</span>` : ''}
+                        ${linkedComplianceId ? `<span><i class="fas fa-shield-alt"></i> ${task.linkedComplianceTitle || ('Compliance #' + linkedComplianceId)}</span>` : ''}
                         ${dueInfo ? `<span class="${isOverdue ? 'overdue' : ''}"><i class="fas fa-calendar"></i> ${dueInfo.text}</span>` : ''}
                     </div>
                     <div class="task-hub-card-actions">
                         ${actionButtons}
+                        ${complianceActionButton}
                     </div>
                 </div>
             `;
@@ -50158,6 +50231,19 @@ window.addEventListener('load', function() {
             window.tasksData[taskIndex].status = 'Completed';
             window.tasksData[taskIndex].completedBy = currentUser?.id || currentUser?.name;
             window.tasksData[taskIndex].completedAt = new Date().toISOString();
+
+            const completedTask = window.tasksData[taskIndex];
+            if (typeof updateTaskViaAPI === 'function') {
+                const apiId = String(taskId).startsWith('task-') ? String(taskId).replace('task-', '') : taskId;
+                updateTaskViaAPI(apiId, {
+                    status: 'Completed',
+                    completedAt: completedTask.completedAt,
+                    completedBy: completedTask.completedBy,
+                    linkedComplianceStatus: 'completed'
+                });
+            }
+
+            syncLinkedComplianceOnTaskCompletion(completedTask);
             
             showNotification('Task completed!', 'success');
             initTaskHub();
@@ -51950,6 +52036,19 @@ window.addEventListener('load', function() {
             task.completedAt = new Date().toISOString();
             task.completedBy = 'Current User'; // In real app, get from session
             task.notes = notes || '';
+
+            if (typeof updateTaskViaAPI === 'function') {
+                const apiId = String(taskId).startsWith('task-') ? String(taskId).replace('task-', '') : taskId;
+                updateTaskViaAPI(apiId, {
+                    status: 'Completed',
+                    completedAt: task.completedAt,
+                    completedBy: task.completedBy,
+                    notes: task.notes,
+                    linkedComplianceStatus: 'completed'
+                });
+            }
+
+            syncLinkedComplianceOnTaskCompletion(task);
             
             document.getElementById('taskDetailModal')?.remove();
             renderTasksList();
@@ -51963,6 +52062,17 @@ window.addEventListener('load', function() {
             if (!task) return;
             
             task.status = newStatus;
+            if (typeof updateTaskViaAPI === 'function') {
+                const apiId = String(taskId).startsWith('task-') ? String(taskId).replace('task-', '') : taskId;
+                const payload = { status: newStatus };
+                if (newStatus === 'Completed') {
+                    task.completedAt = task.completedAt || new Date().toISOString();
+                    payload.completedAt = task.completedAt;
+                    payload.linkedComplianceStatus = 'completed';
+                    syncLinkedComplianceOnTaskCompletion(task);
+                }
+                updateTaskViaAPI(apiId, payload);
+            }
             document.getElementById('taskDetailModal')?.remove();
             renderTasksList();
             renderThisWeekTasks();
@@ -52583,6 +52693,8 @@ window.addEventListener('load', function() {
             const tomorrow = new Date();
             tomorrow.setDate(tomorrow.getDate() + 1);
             const defaultDate = tomorrow.toISOString().split('T')[0];
+            const selectedLinkedComplianceId = data.linkedComplianceId || data.complianceId || '';
+            const selectedLinkedComplianceTitle = data.linkedComplianceTitle || data.complianceTitle || '';
             
             const modalHtml = `
                 <div id="taskFormModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 1rem; overflow-y: auto;">
@@ -52845,6 +52957,17 @@ window.addEventListener('load', function() {
                                     <i class="fas fa-shield-alt" style="color: var(--accent-primary);"></i> This is a compliance/regulatory task
                                 </label>
                             </div>
+
+                            <div>
+                                <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Linked Compliance (Optional)</label>
+                                <select id="taskFormLinkedCompliance" style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; margin-top: 0.25rem;">
+                                    <option value="">None</option>
+                                    ${selectedLinkedComplianceId ? `<option value="${selectedLinkedComplianceId}" selected>${selectedLinkedComplianceTitle || ('Compliance #' + selectedLinkedComplianceId)}</option>` : ''}
+                                </select>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                                    Linking a compliance enables one-click open and auto-completion sync when this task is completed.
+                                </div>
+                            </div>
                         </form>
                         
                         <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
@@ -52870,6 +52993,10 @@ window.addEventListener('load', function() {
             });
             
             document.body.appendChild(modalEl);
+
+            if (typeof populateTaskComplianceOptions === 'function') {
+                populateTaskComplianceOptions(selectedLinkedComplianceId);
+            }
             
             // Set secondary assignee if editing
             if (task?.secondaryAssignee) {
@@ -53102,6 +53229,52 @@ window.addEventListener('load', function() {
                 });
             }
         };
+
+        window.populateTaskComplianceOptions = async function(selectedId = null) {
+            const select = document.getElementById('taskFormLinkedCompliance');
+            if (!select) return;
+
+            const currentValue = selectedId || select.value || '';
+            const options = [];
+
+            try {
+                if (typeof fetchComplianceApi === 'function' && typeof normalizeComplianceRecord === 'function') {
+                    const response = await fetchComplianceApi('compliances');
+                    if (response.ok) {
+                        const payload = await response.json();
+                        (Array.isArray(payload) ? payload : []).forEach((raw) => {
+                            const compliance = normalizeComplianceRecord(raw) || raw;
+                            const id = Number.parseInt(compliance.id || compliance.Id, 10);
+                            if (!Number.isInteger(id) || id <= 0) return;
+                            const title = compliance.title || compliance.Title || `Compliance #${id}`;
+                            options.push({ id, title });
+                        });
+                    }
+                }
+            } catch (error) {
+                console.warn('Unable to load compliance options for task form:', error);
+            }
+
+            const uniqueMap = new Map();
+            options.forEach((item) => {
+                if (!uniqueMap.has(item.id)) uniqueMap.set(item.id, item.title);
+            });
+
+            const currentValueId = Number.parseInt(currentValue, 10);
+            if (Number.isInteger(currentValueId) && currentValueId > 0 && !uniqueMap.has(currentValueId)) {
+                const currentLabel = select.options[select.selectedIndex]?.text || `Compliance #${currentValue}`;
+                uniqueMap.set(currentValueId, currentLabel);
+            }
+
+            const sorted = Array.from(uniqueMap.entries())
+                .map(([id, title]) => ({ id, title }))
+                .sort((a, b) => a.title.localeCompare(b.title));
+
+            select.innerHTML = '<option value="">None</option>' + sorted.map((item) => {
+                const selected = String(item.id) === String(currentValue) ? ' selected' : '';
+                return `<option value="${item.id}"${selected}>${item.title}</option>`;
+            }).join('');
+        };
         
         // Save task (create or update) - Enhanced Version
         window.saveTask = async function() {
@@ -53150,6 +53323,12 @@ window.addEventListener('load', function() {
             const isPaid = document.getElementById('taskFormIsPaid')?.checked || false;
             const payAmount = document.getElementById('taskFormPayAmount')?.value ? parseFloat(document.getElementById('taskFormPayAmount').value) : null;
             const timeEstimate = document.getElementById('taskFormTimeEstimate')?.value || null;
+            const linkedComplianceSelect = document.getElementById('taskFormLinkedCompliance');
+            const linkedComplianceIdRaw = linkedComplianceSelect?.value || '';
+            const linkedComplianceId = linkedComplianceIdRaw ? Number.parseInt(linkedComplianceIdRaw, 10) : null;
+            const linkedComplianceTitle = linkedComplianceSelect && linkedComplianceSelect.selectedIndex > 0
+                ? (linkedComplianceSelect.options[linkedComplianceSelect.selectedIndex]?.text || null)
+                : null;
             
             // Get task visibility
             const visibilityRadio = document.querySelector('input[name="taskVisibility"]:checked');
@@ -53182,7 +53361,10 @@ window.addEventListener('load', function() {
                 completionCriteria: document.getElementById('taskFormCriteria').value,
                 trainingInstructions: document.getElementById('taskFormTraining').value || null,
                 trainingLink: document.getElementById('taskFormTrainingLink').value || null,
-                complianceFlag: document.getElementById('taskFormCompliance').checked,
+                complianceFlag: document.getElementById('taskFormCompliance').checked || !!linkedComplianceId,
+                linkedComplianceId: Number.isInteger(linkedComplianceId) && linkedComplianceId > 0 ? linkedComplianceId : null,
+                linkedComplianceTitle: Number.isInteger(linkedComplianceId) && linkedComplianceId > 0 ? linkedComplianceTitle : null,
+                linkedComplianceStatus: Number.isInteger(linkedComplianceId) && linkedComplianceId > 0 ? 'pending' : null,
                 // New task type fields
                 taskType: taskType,
                 location: location,
@@ -53232,7 +53414,11 @@ window.addEventListener('load', function() {
                             isPaid: taskData.isPaid,
                             payAmount: taskData.payAmount,
                             timeEstimate: taskData.timeEstimate,
-                            assignee: taskData.assignee
+                            assignee: taskData.assignee,
+                            complianceFlag: taskData.complianceFlag,
+                            linkedComplianceId: taskData.linkedComplianceId,
+                            linkedComplianceTitle: taskData.linkedComplianceTitle,
+                            linkedComplianceStatus: taskData.linkedComplianceStatus
                         });
                     }
                 }
@@ -53256,6 +53442,10 @@ window.addEventListener('load', function() {
                         payAmount: taskData.payAmount,
                         timeEstimate: taskData.timeEstimate,
                         assignee: taskData.assignee,
+                        complianceFlag: taskData.complianceFlag,
+                        linkedComplianceId: taskData.linkedComplianceId,
+                        linkedComplianceTitle: taskData.linkedComplianceTitle,
+                        linkedComplianceStatus: taskData.linkedComplianceStatus,
                         createdBy: taskData.createdBy
                     });
                 }
@@ -63363,6 +63553,10 @@ async function saveTaskToAPI(taskData) {
                 isPaid: taskData.isPaid || false,
                 payAmount: taskData.payAmount || null,
                 timeEstimate: taskData.timeEstimate || null,
+                complianceFlag: !!taskData.complianceFlag,
+                linkedComplianceId: taskData.linkedComplianceId || null,
+                linkedComplianceTitle: taskData.linkedComplianceTitle || null,
+                linkedComplianceStatus: taskData.linkedComplianceStatus || null,
                 assignedById: taskData.assignedById || assignedById,
                 assignedBy: assignedByKey,
                 createdBy: taskData.createdBy || null,
@@ -63405,6 +63599,10 @@ async function updateTaskViaAPI(id, taskData) {
             payAmount: existing?.payAmount || null,
             timeEstimate: existing?.timeEstimate || null,
             assignee: existing?.assignee || null,
+            complianceFlag: !!existing?.complianceFlag,
+            linkedComplianceId: existing?.linkedComplianceId || null,
+            linkedComplianceTitle: existing?.linkedComplianceTitle || null,
+            linkedComplianceStatus: existing?.linkedComplianceStatus || null,
             assignedToId: existing?.assignedToId || null,
             assignedById: existing?.assignedById || null,
             claimedBy: existing?.claimedBy || null,
@@ -63461,6 +63659,9 @@ async function syncTasksFromAPI() {
                 location: t.Location || t.location || '',
                 recurrence: t.Recurrence || t.recurrence || 'One-time',
                 complianceFlag: t.ComplianceFlag || t.complianceFlag || false,
+                linkedComplianceId: t.LinkedComplianceId || t.linkedComplianceId || t.ComplianceId || t.complianceId || null,
+                linkedComplianceTitle: t.LinkedComplianceTitle || t.linkedComplianceTitle || t.ComplianceTitle || t.complianceTitle || '',
+                linkedComplianceStatus: t.LinkedComplianceStatus || t.linkedComplianceStatus || t.ComplianceStatus || t.complianceStatus || '',
                 isPaid: t.IsPaid || t.isPaid || false,
                 payAmount: t.PayAmount || t.payAmount || 0,
                 timeEstimate: t.TimeEstimate || t.timeEstimate || '',
