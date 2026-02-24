@@ -64882,6 +64882,487 @@ if (typeof window.logout === 'undefined' && typeof logout === 'function') {
 }
 console.log('✅ Global functions exported to window object');
 
+// ============ OPEN VIEW TABS (ACCESS-STYLE) ============
+// Adds top tabs for opened pages. Keeps right rail behavior unchanged.
+(function installOpenViewTabs() {
+    const state = {
+        order: [],
+        active: null,
+        dirty: Object.create(null),
+        initialized: false
+    };
+
+    function injectStyles() {
+        if (document.getElementById('rdViewTabsStyles')) return;
+        const style = document.createElement('style');
+        style.id = 'rdViewTabsStyles';
+        style.textContent = `
+            .rd-view-tabs-bar {
+                position: sticky;
+                top: 0;
+                z-index: 30;
+                background: var(--bg-primary);
+                border-bottom: 1px solid var(--border-color);
+                padding: 0.35rem 0.35rem 0.25rem;
+                margin-bottom: 0.5rem;
+            }
+            .rd-view-tabs-list {
+                display: flex;
+                gap: 0.35rem;
+                overflow-x: auto;
+                overflow-y: hidden;
+                scrollbar-width: thin;
+            }
+            .rd-view-tab {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.35rem;
+                background: var(--bg-secondary);
+                border: 1px solid var(--border-color);
+                color: var(--text-secondary);
+                border-radius: 8px 8px 0 0;
+                padding: 0.35rem 0.5rem;
+                white-space: nowrap;
+                user-select: none;
+            }
+            .rd-view-tab.active {
+                background: var(--card-bg);
+                color: var(--text-primary);
+                border-bottom-color: var(--card-bg);
+            }
+            .rd-view-tab.dirty .rd-view-tab-label::before {
+                content: '● ';
+                color: #f59e0b;
+            }
+            .rd-view-tab-label {
+                border: none;
+                background: transparent;
+                color: inherit;
+                font-size: 0.78rem;
+                font-weight: 600;
+                cursor: pointer;
+                padding: 0;
+            }
+            .rd-view-tab-close {
+                width: 18px;
+                height: 18px;
+                border: none;
+                border-radius: 4px;
+                background: transparent;
+                color: var(--text-tertiary);
+                cursor: pointer;
+                line-height: 1;
+                font-size: 0.8rem;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .rd-view-tab-close:hover {
+                background: var(--bg-tertiary);
+                color: var(--text-primary);
+            }
+            .rd-tab-close-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.45);
+                display: none;
+                align-items: center;
+                justify-content: center;
+                z-index: 10080;
+            }
+            .rd-tab-close-overlay.active { display: flex; }
+            .rd-tab-close-dialog {
+                width: min(420px, 92vw);
+                background: var(--card-bg);
+                color: var(--text-primary);
+                border: 1px solid var(--border-color);
+                border-radius: 12px;
+                box-shadow: 0 18px 35px rgba(0,0,0,0.25);
+                padding: 1rem;
+            }
+            .rd-tab-close-title { font-weight: 700; margin-bottom: 0.35rem; }
+            .rd-tab-close-msg { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 0.9rem; }
+            .rd-tab-close-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+            .rd-tab-close-btn {
+                border: 1px solid var(--border-color);
+                border-radius: 8px;
+                background: var(--bg-secondary);
+                color: var(--text-primary);
+                padding: 0.45rem 0.75rem;
+                cursor: pointer;
+                font-weight: 600;
+                font-size: 0.82rem;
+            }
+            .rd-tab-close-btn.save { background: var(--accent-primary); border-color: var(--accent-primary); color: #fff; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    function ensureBar() {
+        const mainContent = document.querySelector('.main-content');
+        if (!mainContent) return null;
+        let bar = document.getElementById('rdViewTabsBar');
+        if (!bar) {
+            bar = document.createElement('div');
+            bar.id = 'rdViewTabsBar';
+            bar.className = 'rd-view-tabs-bar';
+            bar.innerHTML = '<div id="rdViewTabsList" class="rd-view-tabs-list"></div>';
+            mainContent.insertBefore(bar, mainContent.firstChild);
+        }
+        return bar;
+    }
+
+    function normalizeViewName(viewName) {
+        if (!viewName) return '';
+        return String(viewName).replace(/^view-/, '');
+    }
+
+    function getViewEl(viewName) {
+        return document.getElementById(`view-${normalizeViewName(viewName)}`);
+    }
+
+    function toTitleCase(text) {
+        return String(text || '')
+            .split(/\s+/)
+            .filter(Boolean)
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+    }
+
+    function getViewTitle(viewName) {
+        const normalized = normalizeViewName(viewName);
+        const viewEl = getViewEl(normalized);
+        if (viewEl && viewEl.dataset && viewEl.dataset.tabTitle) return viewEl.dataset.tabTitle;
+
+        const navItems = Array.from(document.querySelectorAll('.nav-item[onclick]'));
+        const navMatch = navItems.find(item => {
+            const onclick = item.getAttribute('onclick') || '';
+            return onclick.includes(`switchContentView('${normalized}'`) ||
+                onclick.includes(`switchContentView(\"${normalized}\"`) ||
+                onclick.includes(`window.switchContentView('${normalized}'`) ||
+                onclick.includes(`window.switchContentView(\"${normalized}\"`);
+        });
+        if (navMatch) {
+            const labelEl = navMatch.querySelector('span:not(.nav-badge)');
+            const label = (labelEl ? labelEl.textContent : navMatch.textContent || '').trim();
+            if (label) return label;
+        }
+
+        if (viewEl) {
+            const sectionTitle = viewEl.querySelector('.section-title span') || viewEl.querySelector('.section-title');
+            if (sectionTitle && sectionTitle.textContent.trim()) return sectionTitle.textContent.trim();
+        }
+
+        return toTitleCase(normalized.replace(/-/g, ' '));
+    }
+
+    function renderTabs() {
+        ensureBar();
+        const list = document.getElementById('rdViewTabsList');
+        if (!list) return;
+
+        list.innerHTML = '';
+        state.order.forEach((viewName) => {
+            const tab = document.createElement('div');
+            tab.className = `rd-view-tab${state.active === viewName ? ' active' : ''}${state.dirty[viewName] ? ' dirty' : ''}`;
+
+            const labelBtn = document.createElement('button');
+            labelBtn.type = 'button';
+            labelBtn.className = 'rd-view-tab-label';
+            labelBtn.textContent = getViewTitle(viewName);
+            labelBtn.title = labelBtn.textContent;
+            labelBtn.addEventListener('click', () => {
+                if (typeof window.switchContentView === 'function') {
+                    window.switchContentView(viewName, null, { force: true });
+                }
+            });
+
+            const closeBtn = document.createElement('button');
+            closeBtn.type = 'button';
+            closeBtn.className = 'rd-view-tab-close';
+            closeBtn.innerHTML = '&times;';
+            closeBtn.title = 'Close tab';
+            closeBtn.addEventListener('click', (evt) => {
+                evt.preventDefault();
+                evt.stopPropagation();
+                closeTab(viewName);
+            });
+
+            tab.appendChild(labelBtn);
+            tab.appendChild(closeBtn);
+            list.appendChild(tab);
+        });
+    }
+
+    function markDirty(viewName, dirty = true) {
+        const name = normalizeViewName(viewName);
+        if (!name) return;
+        state.dirty[name] = !!dirty;
+        renderTabs();
+    }
+
+    function shouldTrackDirtyInput(target) {
+        if (!target) return false;
+        if (target.disabled || target.readOnly) return false;
+
+        const tag = (target.tagName || '').toLowerCase();
+        if (!['input', 'textarea', 'select'].includes(tag) && !target.isContentEditable) return false;
+        if (tag === 'input' && ['button', 'submit', 'reset', 'hidden', 'file'].includes((target.type || '').toLowerCase())) return false;
+
+        const fingerprint = `${target.id || ''} ${target.name || ''} ${target.className || ''}`.toLowerCase();
+        if (/(filter|search|sort|zoom|viewmode|weeklabel|clinicfilter)/.test(fingerprint)) return false;
+
+        const view = target.closest('.content-view');
+        return !!(view && view.id && view.id.startsWith('view-'));
+    }
+
+    function trackDirtyChanges() {
+        document.addEventListener('input', (event) => {
+            const target = event.target;
+            if (!shouldTrackDirtyInput(target)) return;
+            const view = target.closest('.content-view');
+            if (!view) return;
+            markDirty(view.id.replace('view-', ''), true);
+        }, true);
+
+        document.addEventListener('change', (event) => {
+            const target = event.target;
+            if (!shouldTrackDirtyInput(target)) return;
+            const view = target.closest('.content-view');
+            if (!view) return;
+            markDirty(view.id.replace('view-', ''), true);
+        }, true);
+
+        document.addEventListener('submit', (event) => {
+            const view = event.target && event.target.closest ? event.target.closest('.content-view') : null;
+            if (!view) return;
+            markDirty(view.id.replace('view-', ''), false);
+        }, true);
+
+        document.addEventListener('click', (event) => {
+            const target = event.target && event.target.closest ? event.target.closest('button, [role="button"]') : null;
+            if (!target) return;
+            const signature = `${target.id || ''} ${target.className || ''} ${target.getAttribute('onclick') || ''}`.toLowerCase();
+            if (!/(save|submit|update|create)/.test(signature)) return;
+            const view = target.closest('.content-view');
+            if (!view) return;
+            setTimeout(() => markDirty(view.id.replace('view-', ''), false), 250);
+        }, true);
+    }
+
+    function ensureCloseDialog() {
+        let overlay = document.getElementById('rdTabCloseOverlay');
+        if (overlay) return overlay;
+
+        overlay = document.createElement('div');
+        overlay.id = 'rdTabCloseOverlay';
+        overlay.className = 'rd-tab-close-overlay';
+        overlay.innerHTML = `
+            <div class="rd-tab-close-dialog" role="dialog" aria-modal="true" aria-labelledby="rdTabCloseTitle">
+                <div id="rdTabCloseTitle" class="rd-tab-close-title">Unsaved changes</div>
+                <div id="rdTabCloseMsg" class="rd-tab-close-msg">Save changes before closing this tab?</div>
+                <div class="rd-tab-close-actions">
+                    <button type="button" class="rd-tab-close-btn" data-choice="cancel">Cancel</button>
+                    <button type="button" class="rd-tab-close-btn" data-choice="discard">Don't Save</button>
+                    <button type="button" class="rd-tab-close-btn save" data-choice="save">Save</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        return overlay;
+    }
+
+    function askCloseChoice(viewName) {
+        const overlay = ensureCloseDialog();
+        const msg = overlay.querySelector('#rdTabCloseMsg');
+        if (msg) {
+            msg.textContent = `"${getViewTitle(viewName)}" has unsaved changes. Save before closing?`;
+        }
+
+        return new Promise((resolve) => {
+            const onClick = (event) => {
+                const btn = event.target.closest('[data-choice]');
+                if (!btn) return;
+                const choice = btn.getAttribute('data-choice');
+                cleanup();
+                resolve(choice || 'cancel');
+            };
+            const onOverlayClick = (event) => {
+                if (event.target === overlay) {
+                    cleanup();
+                    resolve('cancel');
+                }
+            };
+            const onKeyDown = (event) => {
+                if (event.key === 'Escape') {
+                    cleanup();
+                    resolve('cancel');
+                }
+            };
+            function cleanup() {
+                overlay.classList.remove('active');
+                overlay.removeEventListener('click', onClick);
+                overlay.removeEventListener('click', onOverlayClick);
+                document.removeEventListener('keydown', onKeyDown, true);
+            }
+
+            overlay.classList.add('active');
+            overlay.addEventListener('click', onClick);
+            overlay.addEventListener('click', onOverlayClick);
+            document.addEventListener('keydown', onKeyDown, true);
+        });
+    }
+
+    async function attemptSaveView(viewName) {
+        const handlers = window.rdViewTabSaveHandlers || {};
+        const customHandler = handlers[viewName];
+        if (typeof customHandler === 'function') {
+            const result = await Promise.resolve(customHandler());
+            return result !== false;
+        }
+
+        const viewEl = getViewEl(viewName);
+        if (!viewEl) return false;
+
+        const saveSelector = [
+            '[data-tab-save]',
+            'button[type="submit"]',
+            '.save-btn',
+            '.btn-save',
+            'button[id*="save" i]',
+            'button[onclick*="save" i]'
+        ].join(',');
+
+        const saveBtn = Array.from(viewEl.querySelectorAll(saveSelector)).find((btn) => {
+            if (btn.disabled) return false;
+            if (btn.offsetParent === null) return false;
+            return true;
+        });
+
+        if (!saveBtn) return false;
+        saveBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 300));
+        return true;
+    }
+
+    function closeTabFinalize(viewName) {
+        const index = state.order.indexOf(viewName);
+        if (index === -1) return;
+
+        const isActive = state.active === viewName;
+        state.order.splice(index, 1);
+        delete state.dirty[viewName];
+
+        if (!state.order.length) {
+            state.order.push('calendar');
+        }
+
+        if (isActive) {
+            const fallback = state.order[Math.max(0, index - 1)] || state.order[0] || 'calendar';
+            state.active = fallback;
+            if (typeof window.switchContentView === 'function') {
+                window.switchContentView(fallback, null, { force: true });
+            }
+        }
+
+        renderTabs();
+    }
+
+    async function closeTab(viewName) {
+        if (!viewName) return;
+        if (state.order.length <= 1) {
+            if (typeof window.showToast === 'function') {
+                window.showToast('At least one tab must remain open', 'warning');
+            }
+            return;
+        }
+
+        if (!state.dirty[viewName]) {
+            closeTabFinalize(viewName);
+            return;
+        }
+
+        const choice = await askCloseChoice(viewName);
+        if (choice === 'cancel') return;
+        if (choice === 'save') {
+            const saved = await attemptSaveView(viewName);
+            if (!saved) {
+                if (typeof window.showToast === 'function') {
+                    window.showToast('No save action found for this tab. Please save manually.', 'warning');
+                }
+                return;
+            }
+            markDirty(viewName, false);
+        }
+
+        closeTabFinalize(viewName);
+    }
+
+    function onViewActivated(viewName) {
+        const normalized = normalizeViewName(viewName);
+        if (!normalized) return;
+        if (!getViewEl(normalized)) return;
+
+        if (!state.order.includes(normalized)) {
+            state.order.push(normalized);
+        }
+        state.active = normalized;
+        renderTabs();
+    }
+
+    function installSwitchHook() {
+        window.__onSwitchContentViewHooks = window.__onSwitchContentViewHooks || [];
+        const exists = window.__onSwitchContentViewHooks.some(h => h && h.__hookName === 'openViewTabsHook');
+        if (exists) return;
+
+        const hook = function(viewName) {
+            onViewActivated(viewName);
+        };
+        hook.__hookName = 'openViewTabsHook';
+        window.__onSwitchContentViewHooks.push(hook);
+    }
+
+    function wrapActivateManagementView() {
+        if (typeof window.activateManagementView !== 'function') {
+            setTimeout(wrapActivateManagementView, 350);
+            return;
+        }
+        if (window.activateManagementView.__rdTabsWrapped) return;
+
+        const original = window.activateManagementView;
+        window.activateManagementView = function(viewName) {
+            const result = original.apply(this, arguments);
+            if (result) onViewActivated(viewName);
+            return result;
+        };
+        window.activateManagementView.__rdTabsWrapped = true;
+    }
+
+    function initInitialTab() {
+        const activeView = document.querySelector('.content-view.active');
+        if (activeView && activeView.id && activeView.id.startsWith('view-')) {
+            onViewActivated(activeView.id.replace('view-', ''));
+            return;
+        }
+        onViewActivated('calendar');
+    }
+
+    function init() {
+        if (state.initialized) return;
+        injectStyles();
+        ensureBar();
+        installSwitchHook();
+        wrapActivateManagementView();
+        trackDirtyChanges();
+        initInitialTab();
+        state.initialized = true;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(init, 250);
+    });
+})();
+
 // ============ NAVIGATION GUARD (PREVENT AUTO SNAP-BACK TO CALENDAR) ============
 // Some background refresh routines can call switchContentView('calendar') without a user click.
 // This wrapper ignores programmatic view switches unless explicitly forced.
