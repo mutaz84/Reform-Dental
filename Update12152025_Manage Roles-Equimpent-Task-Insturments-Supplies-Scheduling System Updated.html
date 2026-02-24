@@ -64326,6 +64326,14 @@ async function syncSchedulesFromAPI() {
             return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
         };
 
+        const getAssistantFromNotes = (notesValue) => {
+            if (!notesValue) return '';
+            const text = String(notesValue);
+            const notesAssistantMatch = text.match(/assistants?:\s*([^\n\r]+)/i);
+            if (!notesAssistantMatch || !notesAssistantMatch[1]) return '';
+            return notesAssistantMatch[1].split(',').map(part => part.trim()).filter(Boolean)[0] || '';
+        };
+
         const resolveNameByDbId = (collection, dbId, nameField = 'name') => {
             const numericId = toNumericId(dbId);
             if (!numericId || !Array.isArray(collection)) return '';
@@ -64345,10 +64353,13 @@ async function syncSchedulesFromAPI() {
             const employeeName = s.EmployeeName || s.employeeName || resolveNameByDbId(allEmployees, s.UserId || s.userId, 'title') || '';
             const clinicName = s.ClinicName || s.clinicName || resolveNameByDbId(clinics, s.ClinicId || s.clinicId, 'name') || '';
             const roomName = s.RoomName || s.roomName || resolveNameByDbId(rooms, s.RoomId || s.roomId, 'name') || '';
-            const assistantName = s.AssistantName || s.assistantName || '';
-            const startTime = s.StartTime || s.startTime || '08:00';
-            const endTime = s.EndTime || s.endTime || '16:00';
+            const notes = s.Notes || s.notes || '';
+            const assistantName = s.AssistantName || s.assistantName || getAssistantFromNotes(notes) || '';
+            const startTime = normalizeScheduleTimeValue(s.StartTime || s.startTime) || '08:00';
+            const endTime = normalizeScheduleTimeValue(s.EndTime || s.endTime) || '16:00';
             const shiftDays = normalizeDays(s.DaysOfWeek || s.daysOfWeek || '');
+            const startDate = normalizeScheduleDateValue(s.StartDate || s.startDate) || '';
+            const endDate = normalizeScheduleDateValue(s.EndDate || s.endDate || startDate) || startDate;
 
             return {
                 id: `shift-${dbId}`,
@@ -64361,12 +64372,12 @@ async function syncSchedulesFromAPI() {
                 room: roomName || '',
                 assistant: assistantName || null,
                 days: shiftDays,
-                startDate: s.StartDate || s.startDate || '',
-                endDate: s.EndDate || s.endDate || '',
+                startDate,
+                endDate,
                 startTime,
                 endTime,
                 color: s.Color || s.color || '#3b82f6',
-                notes: s.Notes || s.notes || ''
+                notes
             };
         });
 

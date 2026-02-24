@@ -51,15 +51,26 @@ module.exports = async function (context, req) {
             if (id) {
                 const result = await pool.request()
                     .input('id', sql.Int, id)
-                    .query('SELECT * FROM Schedules WHERE Id = @id AND IsActive = 1');
+                    .query(`SELECT s.*, 
+                                   u.FirstName + ' ' + u.LastName as EmployeeName,
+                                   c.Name as ClinicName,
+                                   r.Name as RoomName,
+                                   au.FirstName + ' ' + au.LastName as AssistantName
+                            FROM Schedules s
+                            LEFT JOIN Users u ON s.UserId = u.Id
+                            LEFT JOIN Clinics c ON s.ClinicId = c.Id
+                            LEFT JOIN Rooms r ON s.RoomId = r.Id
+                            LEFT JOIN Users au ON s.AssistantId = au.Id
+                            WHERE s.Id = @id AND s.IsActive = 1`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 const result = await pool.request()
-                    .query(`SELECT s.*, u.FirstName + ' ' + u.LastName as EmployeeName, c.Name as ClinicName, r.Name as RoomName 
+                    .query(`SELECT s.*, u.FirstName + ' ' + u.LastName as EmployeeName, c.Name as ClinicName, r.Name as RoomName, au.FirstName + ' ' + au.LastName as AssistantName
                             FROM Schedules s 
                             LEFT JOIN Users u ON s.UserId = u.Id 
                             LEFT JOIN Clinics c ON s.ClinicId = c.Id 
                             LEFT JOIN Rooms r ON s.RoomId = r.Id 
+                            LEFT JOIN Users au ON s.AssistantId = au.Id
                             WHERE s.IsActive = 1 
                             ORDER BY s.StartDate, s.StartTime`);
                 context.res = { status: 200, headers, body: result.recordset };
@@ -70,6 +81,7 @@ module.exports = async function (context, req) {
             let userId = parseIntOrNull(body.userId);
             let clinicId = parseIntOrNull(body.clinicId);
             let roomId = parseIntOrNull(body.roomId);
+            let assistantId = parseIntOrNull(body.assistantId);
 
             if (!userId && (body.userName || body.employeeName || body.name || body.employee || body.provider)) {
                 const rawUserName = body.userName || body.employeeName || body.name || body.employee || body.provider;
@@ -113,6 +125,24 @@ module.exports = async function (context, req) {
                 const matchedRoom = (roomResult.recordset || []).find((room) => normalizeName(room.Name) === targetRoom);
                 if (matchedRoom) {
                     roomId = matchedRoom.Id;
+                }
+            }
+
+            if (!assistantId && (body.assistantName || body.assistant)) {
+                const rawAssistantName = body.assistantName || body.assistant;
+                const targetAssistant = normalizeName(rawAssistantName);
+                const assistantResult = await pool.request()
+                    .query(`SELECT Id, Username, FirstName, LastName
+                            FROM Users
+                            WHERE IsActive = 1`);
+
+                const matchedAssistant = (assistantResult.recordset || []).find((user) => {
+                    const fullName = `${user.FirstName || ''} ${user.LastName || ''}`.trim();
+                    return normalizeName(fullName) === targetAssistant || normalizeName(user.Username) === targetAssistant;
+                });
+
+                if (matchedAssistant) {
+                    assistantId = matchedAssistant.Id;
                 }
             }
 
@@ -136,6 +166,7 @@ module.exports = async function (context, req) {
                 .input('userId', sql.Int, userId)
                 .input('clinicId', sql.Int, clinicId)
                 .input('roomId', sql.Int, roomId || null)
+                .input('assistantId', sql.Int, assistantId || null)
                 .input('startDate', sql.Date, body.startDate)
                 .input('endDate', sql.Date, body.endDate || null)
                 .input('startTime', sql.VarChar, body.startTime)
@@ -143,8 +174,8 @@ module.exports = async function (context, req) {
                 .input('daysOfWeek', sql.NVarChar, body.daysOfWeek)
                 .input('color', sql.NVarChar, body.color)
                 .input('notes', sql.NVarChar, body.notes)
-                .query(`INSERT INTO Schedules (UserId, ClinicId, RoomId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes) 
-                        OUTPUT INSERTED.Id VALUES (@userId, @clinicId, @roomId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes)`);
+                .query(`INSERT INTO Schedules (UserId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes) 
+                        OUTPUT INSERTED.Id VALUES (@userId, @clinicId, @roomId, @assistantId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes)`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
@@ -152,6 +183,7 @@ module.exports = async function (context, req) {
             let userId = parseIntOrNull(body.userId);
             let clinicId = parseIntOrNull(body.clinicId);
             let roomId = parseIntOrNull(body.roomId);
+            let assistantId = parseIntOrNull(body.assistantId);
 
             if (!userId && (body.userName || body.employeeName || body.name || body.employee || body.provider)) {
                 const rawUserName = body.userName || body.employeeName || body.name || body.employee || body.provider;
@@ -198,11 +230,30 @@ module.exports = async function (context, req) {
                 }
             }
 
+            if (!assistantId && (body.assistantName || body.assistant)) {
+                const rawAssistantName = body.assistantName || body.assistant;
+                const targetAssistant = normalizeName(rawAssistantName);
+                const assistantResult = await pool.request()
+                    .query(`SELECT Id, Username, FirstName, LastName
+                            FROM Users
+                            WHERE IsActive = 1`);
+
+                const matchedAssistant = (assistantResult.recordset || []).find((user) => {
+                    const fullName = `${user.FirstName || ''} ${user.LastName || ''}`.trim();
+                    return normalizeName(fullName) === targetAssistant || normalizeName(user.Username) === targetAssistant;
+                });
+
+                if (matchedAssistant) {
+                    assistantId = matchedAssistant.Id;
+                }
+            }
+
             await pool.request()
                 .input('id', sql.Int, id)
                 .input('userId', sql.Int, userId)
                 .input('clinicId', sql.Int, clinicId)
                 .input('roomId', sql.Int, roomId)
+                .input('assistantId', sql.Int, assistantId)
                 .input('startDate', sql.Date, body.startDate)
                 .input('endDate', sql.Date, body.endDate)
                 .input('startTime', sql.VarChar, body.startTime)
@@ -214,6 +265,7 @@ module.exports = async function (context, req) {
                         SET UserId = COALESCE(@userId, UserId),
                             ClinicId = COALESCE(@clinicId, ClinicId),
                             RoomId = @roomId,
+                            AssistantId = @assistantId,
                             StartDate=@startDate,
                             EndDate=@endDate,
                             StartTime=@startTime,
