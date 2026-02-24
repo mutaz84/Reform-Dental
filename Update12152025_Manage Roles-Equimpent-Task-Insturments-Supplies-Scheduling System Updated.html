@@ -35713,6 +35713,37 @@ window.initializeCalendar = initializeCalendar;
                     // Time slots (30-minute intervals)
                     const slotsContainer = document.createElement('div');
                     slotsContainer.className = 'time-slots-container';
+
+                    // All-day row (for date-only events with no explicit time)
+                    const allDayRow = document.createElement('div');
+                    allDayRow.className = 'time-slot-row';
+                    allDayRow.style.minHeight = '56px';
+
+                    const allDayLabel = document.createElement('div');
+                    allDayLabel.className = 'time-label';
+                    allDayLabel.textContent = 'All Day';
+                    allDayRow.appendChild(allDayLabel);
+
+                    dates.forEach(date => {
+                        const allDaySlot = document.createElement('div');
+                        allDaySlot.className = 'time-slot';
+                        allDaySlot.dataset.date = formatDateKey(date);
+                        allDaySlot.dataset.allDay = 'true';
+
+                        const allDayEvents = this.getEventsForSlot(date, 0, 0, true);
+                        allDayEvents.forEach(event => {
+                            const eventEl = this.createEventElement(event, false);
+                            eventEl.style.position = 'static';
+                            eventEl.style.height = 'auto';
+                            eventEl.style.width = '100%';
+                            eventEl.style.marginBottom = '4px';
+                            allDaySlot.appendChild(eventEl);
+                        });
+
+                        allDayRow.appendChild(allDaySlot);
+                    });
+
+                    slotsContainer.appendChild(allDayRow);
                     
                     for (let hour = 7; hour < 23; hour++) {
                         for (let minute = 0; minute < 60; minute += 30) {
@@ -36225,7 +36256,7 @@ window.initializeCalendar = initializeCalendar;
                     return `${displayHour}:${displayMinute} ${period}`;
                 },
                 
-                getEventsForSlot: function(date, hour, minute = 0) {
+                getEventsForSlot: function(date, hour, minute = 0, allDayOnly = false) {
                     const dateStr = formatDateKey(date);
                     let filteredEvents = [];
                     
@@ -36266,7 +36297,13 @@ window.initializeCalendar = initializeCalendar;
                         if (eventDate !== dateStr) return false;
                         
                         const eventTime = event.start.split('T')[1];
-                        if (!eventTime) return false;
+                        const isAllDay = !eventTime || /^00:00(?::00)?(?:\.\d+)?(?:Z)?$/.test(eventTime);
+
+                        if (allDayOnly) {
+                            return isAllDay;
+                        }
+
+                        if (!eventTime || isAllDay) return false;
                         
                         const [eventHour, eventMinute] = eventTime.split(':').map(n => parseInt(n));
                         return eventHour === hour && Math.floor(eventMinute / 30) * 30 === minute;
