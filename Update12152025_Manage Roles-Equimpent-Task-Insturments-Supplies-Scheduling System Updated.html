@@ -20632,6 +20632,8 @@
             
             if (!usersList) return;
 
+            bindUsersListActionHandlers();
+
             const hasApi = typeof API_BASE_URL !== 'undefined' && !!API_BASE_URL;
             if (hasApi && (!window.__complianceSummaryByUserId || Object.keys(window.__complianceSummaryByUserId).length === 0) && !window.__complianceSummaryLoadPromise) {
                 loadComplianceSummaryByUser(false)
@@ -20661,7 +20663,11 @@
             Object.keys(users).forEach(username => {
                 const user = users[username];
                 const complianceSummary = getComplianceSummaryForUser(user);
-                const escapedUsername = String(username || '').replace(/'/g, "\\'");
+                const encodedUsernameAttr = String(username || '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
                 const row = document.createElement('tr');
                 row.style.cssText = 'border-bottom: 1px solid var(--border-color); transition: background 0.2s;';
                 row.onmouseover = function() { this.style.background = 'var(--bg-secondary)'; };
@@ -20684,16 +20690,16 @@
                     <td style="padding: 1rem; color: var(--text-secondary);">${renderComplianceSummaryCell(complianceSummary)}</td>
                     <td style="padding: 1rem; text-align: center;">
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                            <button onclick="if(window.openEditUserModal){window.openEditUserModal('${escapedUsername}')}" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit User" aria-label="Edit User">
+                            <button type="button" data-user-action="edit" data-username="${encodedUsernameAttr}" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit User" aria-label="Edit User">
                                 <i class="fas fa-edit"></i>
                             </button>
-                            <button onclick="if(window.openHRInfoModal){window.openHRInfoModal('${escapedUsername}')}" style="padding: 0.5rem 1rem; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" title="HR Info" aria-label="HR Info">
+                            <button type="button" data-user-action="hr" data-username="${encodedUsernameAttr}" style="padding: 0.5rem 1rem; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" title="HR Info" aria-label="HR Info">
                                 <i class="fas fa-file-invoice-dollar"></i>
                             </button>
-                            <button onclick="if(window.openUserCompliancesModal){window.openUserCompliancesModal('${escapedUsername}')}" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Requirements" aria-label="Requirements">
+                            <button type="button" data-user-action="requirements" data-username="${encodedUsernameAttr}" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Requirements" aria-label="Requirements">
                                 <i class="fas fa-file-contract"></i>
                             </button>
-                            ${username !== 'admin' ? `<button onclick="if(window.deleteUser){window.deleteUser('${escapedUsername}')}" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete User" aria-label="Delete User">
+                            ${username !== 'admin' ? `<button type="button" data-user-action="delete" data-username="${encodedUsernameAttr}" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete User" aria-label="Delete User">
                                 <i class="fas fa-trash"></i>
                             </button>` : ''}
                         </div>
@@ -20702,6 +20708,43 @@
                 
                 usersList.appendChild(row);
             });
+        }
+
+        function bindUsersListActionHandlers() {
+            const usersList = document.getElementById('usersList');
+            if (!usersList || usersList.dataset.actionsBound === '1') return;
+
+            usersList.addEventListener('click', function(event) {
+                const actionButton = event.target.closest('button[data-user-action]');
+                if (!actionButton) return;
+
+                event.preventDefault();
+
+                const action = actionButton.getAttribute('data-user-action');
+                const username = String(actionButton.getAttribute('data-username') || '').trim();
+                if (!username) return;
+
+                if (action === 'edit') {
+                    openEditUserModal(username);
+                    return;
+                }
+
+                if (action === 'hr') {
+                    openHRInfoModal(username);
+                    return;
+                }
+
+                if (action === 'requirements') {
+                    openUserCompliancesModal(username);
+                    return;
+                }
+
+                if (action === 'delete') {
+                    deleteUser(username);
+                }
+            });
+
+            usersList.dataset.actionsBound = '1';
         }
 
         // Delete user
