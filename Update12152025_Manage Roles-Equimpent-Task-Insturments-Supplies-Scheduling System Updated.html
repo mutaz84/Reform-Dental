@@ -65394,6 +65394,183 @@ console.log('✅ Global functions exported to window object');
     });
 })();
 
+// ============ SETTINGS MANAGEMENT VIEW ADAPTER ============
+// Reuses existing management modals but renders them inside normal content views
+// so they match page behavior and work with top tabs.
+(function installSettingsManagementViewAdapter() {
+    const mappings = [
+        { open: 'openMasterSettings', close: 'closeMasterSettings', modalId: 'masterSettingsModal', viewName: 'manage-master-settings', title: 'Master Settings' },
+        { open: 'openUserManagement', close: 'closeUserManagement', modalId: 'userManagementModal', viewName: 'manage-users', title: 'Manage Users' },
+        { open: 'openRolesManagement', close: 'closeRolesManagement', modalId: 'rolesManagementModal', viewName: 'manage-roles', title: 'Manage Roles' },
+        { open: 'openPermissionsManagement', close: 'closePermissionsManagement', modalId: 'permissionManagementModal', viewName: 'manage-permissions', title: 'Manage Permissions' },
+        { open: 'openOfficesManagement', close: 'closeOfficesManagement', modalId: 'officesManagementModal', viewName: 'manage-offices', title: 'Manage Clinics' },
+        { open: 'openRoomsManagement', close: 'closeRoomsManagement', modalId: 'roomsManagementModal', viewName: 'manage-rooms', title: 'Manage Rooms' },
+        { open: 'openPasswordManager', close: 'closePasswordManager', modalId: 'passwordManagerModal', viewName: 'manage-passwords', title: 'Password Manager' },
+        { open: 'openResetDataModal', close: 'closeResetDataModal', modalId: 'resetDataModal', viewName: 'manage-reset-data', title: 'Reset Data' }
+    ];
+
+    const dockState = Object.create(null);
+
+    function injectStyles() {
+        if (document.getElementById('rdSettingsViewAdapterStyles')) return;
+        const style = document.createElement('style');
+        style.id = 'rdSettingsViewAdapterStyles';
+        style.textContent = `
+            .rd-management-view .calendar-section {
+                padding: 0.75rem;
+            }
+            .rd-management-host {
+                background: var(--card-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 12px;
+                overflow: auto;
+                max-height: calc(100vh - 220px);
+                min-height: 500px;
+            }
+            .rd-management-host > * {
+                position: static !important;
+                inset: auto !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                height: auto !important;
+                max-height: none !important;
+                margin: 0 !important;
+                border-radius: 0 !important;
+                box-shadow: none !important;
+                background: transparent !important;
+            }
+            .rd-management-host .modal-content,
+            .rd-management-host .login-card {
+                border-radius: 0 !important;
+                max-height: none !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    function ensureHostView(viewName, title) {
+        let view = document.getElementById(`view-${viewName}`);
+        if (view) return view;
+
+        const mainContent = document.querySelector('.container > .main-content') || document.querySelector('.main-content');
+        if (!mainContent) return null;
+
+        view = document.createElement('div');
+        view.className = 'content-view rd-management-view';
+        view.id = `view-${viewName}`;
+        view.style.display = 'none';
+        view.dataset.tabTitle = title;
+        view.innerHTML = `
+            <div class="dashboard-grid">
+                <div class="calendar-section">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            <i class="fas fa-cog" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+                            <span>${title}</span>
+                        </h2>
+                    </div>
+                    <div class="rd-management-host" id="rd-management-host-${viewName}"></div>
+                </div>
+            </div>
+        `;
+        mainContent.appendChild(view);
+        return view;
+    }
+
+    function dockModalToView(mapping) {
+        const modal = document.getElementById(mapping.modalId);
+        if (!modal) return false;
+
+        const view = ensureHostView(mapping.viewName, mapping.title);
+        if (!view) return false;
+
+        const host = view.querySelector(`#rd-management-host-${mapping.viewName}`);
+        if (!host) return false;
+
+        const card = modal.firstElementChild;
+        if (!card) return false;
+
+        if (!dockState[mapping.modalId]) {
+            dockState[mapping.modalId] = {
+                card,
+                parent: modal,
+                nextSibling: card.nextSibling
+            };
+        }
+
+        if (card.parentNode !== host) {
+            host.innerHTML = '';
+            host.appendChild(card);
+        }
+
+        modal.style.display = 'none';
+        if (typeof window.switchContentView === 'function') {
+            window.switchContentView(mapping.viewName, null, { force: true });
+        }
+        return true;
+    }
+
+    function undockModal(mapping) {
+        const modal = document.getElementById(mapping.modalId);
+        const state = dockState[mapping.modalId];
+        if (!modal || !state || !state.card) return;
+
+        if (state.card.parentNode !== modal) {
+            modal.appendChild(state.card);
+        }
+    }
+
+    function wrapOpen(mapping) {
+        const original = window[mapping.open];
+        if (typeof original !== 'function' || original.__rdSettingsWrappedOpen) return;
+
+        const wrapped = async function(...args) {
+            const result = await original.apply(this, args);
+            setTimeout(() => {
+                try { dockModalToView(mapping); } catch (_) {}
+            }, 0);
+            return result;
+        };
+        wrapped.__rdSettingsWrappedOpen = true;
+        window[mapping.open] = wrapped;
+    }
+
+    function wrapClose(mapping) {
+        const original = window[mapping.close];
+        if (typeof original !== 'function' || original.__rdSettingsWrappedClose) return;
+
+        const wrapped = function(...args) {
+            try { undockModal(mapping); } catch (_) {}
+            return original.apply(this, args);
+        };
+        wrapped.__rdSettingsWrappedClose = true;
+        window[mapping.close] = wrapped;
+    }
+
+    function install() {
+        injectStyles();
+        mappings.forEach((mapping) => {
+            ensureHostView(mapping.viewName, mapping.title);
+            wrapOpen(mapping);
+            wrapClose(mapping);
+        });
+    }
+
+    function waitAndInstall(attempt = 0) {
+        const ready = mappings.every((mapping) => typeof window[mapping.open] === 'function' && typeof window[mapping.close] === 'function');
+        if (ready) {
+            install();
+            return;
+        }
+        if (attempt > 40) return;
+        setTimeout(() => waitAndInstall(attempt + 1), 250);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(() => waitAndInstall(0), 500);
+    });
+})();
+
 // ============ NAVIGATION GUARD (PREVENT AUTO SNAP-BACK TO CALENDAR) ============
 // Some background refresh routines can call switchContentView('calendar') without a user click.
 // This wrapper ignores programmatic view switches unless explicitly forced.
