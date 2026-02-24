@@ -46590,12 +46590,68 @@ window.addEventListener('load', function() {
             if (!container) return;
             
             const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
-            
-            // Filter duties for current user if logged in
-            let myDuties = window.dutiesData;
-            if (currentUser && currentUser.id) {
-                myDuties = window.dutiesData.filter(d => d.AssignedToUserId == currentUser.id);
-            }
+            const loggedInUsername = String(localStorage.getItem('loggedInUser') || '').trim();
+            const users = (typeof loadUsers === 'function') ? loadUsers() : {};
+            const mappedUser = loggedInUsername ? users[loggedInUsername] : null;
+
+            const normalizeKey = (value) => String(value ?? '').trim().toLowerCase();
+            const userIdentityKeys = new Set();
+
+            const collectIdentityKeys = (value) => {
+                if (value === null || value === undefined) return;
+                if (typeof value === 'object') {
+                    collectIdentityKeys(value.id);
+                    collectIdentityKeys(value.Id);
+                    collectIdentityKeys(value.dbId);
+                    collectIdentityKeys(value.userId);
+                    collectIdentityKeys(value.UserId);
+                    collectIdentityKeys(value.username);
+                    collectIdentityKeys(value.userName);
+                    collectIdentityKeys(value.name);
+                    return;
+                }
+
+                const normalized = normalizeKey(value);
+                if (normalized) {
+                    userIdentityKeys.add(normalized);
+                }
+            };
+
+            collectIdentityKeys(currentUser);
+            collectIdentityKeys(mappedUser);
+            collectIdentityKeys(currentUser?.username);
+            collectIdentityKeys(currentUser?.userName);
+            collectIdentityKeys(currentUser?.name);
+            collectIdentityKeys(loggedInUsername);
+            collectIdentityKeys(localStorage.getItem('userName'));
+
+            const duties = Array.isArray(window.dutiesData) ? window.dutiesData : [];
+            const myDuties = duties.filter((duty) => {
+                const dutyKeys = [
+                    duty?.AssignedToUserId,
+                    duty?.assignedToUserId,
+                    duty?.AssignedToId,
+                    duty?.assignedToId,
+                    duty?.AssignedUserId,
+                    duty?.assignedUserId,
+                    duty?.EmployeeId,
+                    duty?.employeeId,
+                    duty?.AssignedTo,
+                    duty?.assignedTo,
+                    duty?.AssignedToUsername,
+                    duty?.assignedToUsername,
+                    duty?.AssignedToName,
+                    duty?.assignedToName
+                ]
+                    .map(normalizeKey)
+                    .filter(Boolean);
+
+                if (dutyKeys.length === 0 || userIdentityKeys.size === 0) {
+                    return false;
+                }
+
+                return dutyKeys.some((key) => userIdentityKeys.has(key));
+            });
             
             if (myDuties.length === 0) {
                 container.innerHTML = `
