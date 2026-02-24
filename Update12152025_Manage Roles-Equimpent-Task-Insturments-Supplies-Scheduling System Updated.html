@@ -20683,6 +20683,7 @@
             Object.keys(users).forEach(username => {
                 const user = users[username];
                 const complianceSummary = getComplianceSummaryForUser(user);
+                const escapedUsername = String(username || '').replace(/'/g, "\\'");
                 const row = document.createElement('tr');
                 row.style.cssText = 'border-bottom: 1px solid var(--border-color); transition: background 0.2s;';
                 row.onmouseover = function() { this.style.background = 'var(--bg-secondary)'; };
@@ -20732,16 +20733,16 @@
                 return;
             }
             
-            if (confirm(`Are you sure you want to delete user "${username}"?`)) {
+                            <button onclick="openEditUserModal('${escapedUsername}')" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit User" aria-label="Edit User">
                 const users = loadUsers();
                 const userId = users[username]?.id;
-                console.log('🗑️ Deleting user:', username, 'Database ID:', userId);
+                            <button onclick="openHRInfoModal('${escapedUsername}')" style="padding: 0.5rem 1rem; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" title="HR Info" aria-label="HR Info">
                 
                 // Delete from database FIRST (before removing from local storage)
-                if (userId) {
+                            <button onclick="openUserCompliancesModal('${escapedUsername}')" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Requirements" aria-label="Requirements">
                     deleteUserViaAPI(userId);
                 } else {
-                    console.warn('⚠️ User has no database ID, cannot delete from Azure');
+                            ${username !== 'admin' ? `<button onclick="deleteUser('${escapedUsername}')" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete User" aria-label="Delete User">
                     showSyncStatus('User deleted locally only (no database ID)', false);
                 }
                 
@@ -21852,20 +21853,21 @@
             }
 
             const complianceUserId = resolveComplianceUserId(username, user);
-            if (!complianceUserId) {
-                if (typeof showNotification === 'function') {
-                    showNotification('This user does not have a database ID yet. Save/sync the user first, then retry compliances.', 'error');
-                }
-                return;
-            }
 
             // Set employee info
-            document.getElementById('complianceEmployeeId').value = complianceUserId;
+            document.getElementById('complianceEmployeeId').value = complianceUserId || '';
             document.getElementById('complianceEmployeeName').textContent = user.name || username;
             document.getElementById('complianceEmployeeJobTitle').textContent = `${user.jobTitle || 'No Title'} • ${user.department || 'No Department'}`;
 
             // Load compliances for this user
-            loadUserCompliances(complianceUserId);
+            loadUserCompliances({ userId: complianceUserId, username });
+
+            if (!complianceUserId && typeof showNotification === 'function') {
+                showNotification('Opened requirements in fallback mode for this user. Save/sync the user to enable full server actions.', 'warning', null, {
+                    dedupeKey: `requirements-fallback-${username}`,
+                    dedupeWindowMs: 5 * 60 * 1000
+                });
+            }
 
             // Show modal
             ensureUnifiedRightRailExpandedForModal();
@@ -21878,10 +21880,23 @@
         }
 
         // Load compliances for a specific user
-        async function loadUserCompliances(userId) {
+        async function loadUserCompliances(userLookup) {
+            const userId = resolveComplianceUserId(typeof userLookup === 'object' ? userLookup?.userId : userLookup);
+            const username = typeof userLookup === 'object'
+                ? String(userLookup?.username || '')
+                : (typeof userLookup === 'string' && !userId ? String(userLookup) : '');
+
+            const queryParts = [];
+            if (userId) {
+                queryParts.push(`userId=${encodeURIComponent(userId)}`);
+            } else if (username) {
+                queryParts.push(`username=${encodeURIComponent(username)}`);
+            }
+
+            const query = queryParts.length ? `?${queryParts.join('&')}` : '';
             try {
                 await syncLocalCompliancesToApi({ silent: true });
-                const response = await fetchComplianceApi('compliances', `?userId=${encodeURIComponent(userId)}`);
+                const response = await fetchComplianceApi('compliances', query);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -21946,7 +21961,9 @@
                 }
                 // Fallback to localStorage if API fails
                 const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
-                const userCompliances = compliances[userId] || [];
+                const userCompliancesById = userId ? (compliances[userId] || []) : [];
+                const userCompliancesByUsername = username ? (compliances[username] || []) : [];
+                const userCompliances = userCompliancesById.length ? userCompliancesById : userCompliancesByUsername;
 
                 const compliancesList = document.getElementById('userCompliancesList');
                 compliancesList.innerHTML = '';
