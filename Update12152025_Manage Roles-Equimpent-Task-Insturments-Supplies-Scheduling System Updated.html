@@ -16394,15 +16394,28 @@
                                 return html;
                             };
                             
-                            // Initial render
-                            if (document.readyState === 'loading') {
-                                document.addEventListener('DOMContentLoaded', function() {
-                                    populateFilters();
-                                    renderMyScheduleCalendar();
-                                });
-                            } else {
+                            async function initializeMyScheduleView() {
+                                try {
+                                    if (typeof syncSchedulesFromAPI === 'function') {
+                                        await syncSchedulesFromAPI();
+                                    } else if (typeof window.syncSchedulesFromAPI === 'function') {
+                                        await window.syncSchedulesFromAPI();
+                                    }
+                                } catch (syncError) {
+                                    console.warn('My Schedule initial API sync failed, using current local cache:', syncError?.message || syncError);
+                                }
+
                                 populateFilters();
                                 renderMyScheduleCalendar();
+                            }
+
+                            // Initial render + API sync
+                            if (document.readyState === 'loading') {
+                                document.addEventListener('DOMContentLoaded', function() {
+                                    initializeMyScheduleView();
+                                });
+                            } else {
+                                initializeMyScheduleView();
                             }
                         })();
                         </script>
