@@ -15615,8 +15615,8 @@
                             window.myScheduleCurrentWeekStart = getStartOfWeek(new Date());
                             
                             // Shifts data with days they work - GLOBAL so Schedule Manager can add to it
-                            // Empty array for testing - schedules will be added via Schedule Manager
-                            window.myScheduleShifts = [];
+                            // Keep existing shifts if already loaded, otherwise initialize empty
+                            window.myScheduleShifts = Array.isArray(window.myScheduleShifts) ? window.myScheduleShifts : [];
                             
                             // Expose shifts data globally for filters (same reference)
                             window.myScheduleShiftsData = window.myScheduleShifts;
@@ -15882,7 +15882,12 @@
                             };
                             
                             // Refresh schedule calendar
-                            window.refreshMySchedule = function() {
+                            window.refreshMySchedule = async function() {
+                                if (typeof syncSchedulesFromAPI === 'function') {
+                                    await syncSchedulesFromAPI();
+                                } else if (typeof window.syncSchedulesFromAPI === 'function') {
+                                    await window.syncSchedulesFromAPI();
+                                }
                                 renderMyScheduleCalendar();
                                 if (typeof showNotification === 'function') {
                                     showNotification('Schedule refreshed', 'success');
@@ -25740,7 +25745,7 @@
             tsbRenderTable();
         }
         
-        function tsbDeleteRow(rowId) {
+        async function tsbDeleteRow(rowId) {
             const row = tableBuilderRows.find(r => r.id === rowId);
             if (!row) return;
             
@@ -25750,12 +25755,14 @@
                 if (!confirmDelete) return;
                 
                 // Delete from myScheduleShifts
-                row.shiftIds.forEach(shiftId => {
+                for (const shiftId of row.shiftIds) {
                     const index = window.myScheduleShifts.findIndex(s => s.id === shiftId);
                     if (index > -1) {
+                        const shiftToDelete = window.myScheduleShifts[index];
+                        await persistShiftDeleteToAPI(shiftToDelete, { silent: true });
                         window.myScheduleShifts.splice(index, 1);
                     }
-                });
+                }
                 
                 // Refresh calendar
                 if (typeof window.renderMyScheduleCalendar === 'function') {
@@ -25810,7 +25817,7 @@
             }
         }
 
-        function tsbSaveNewRow(rowId) {
+        async function tsbSaveNewRow(rowId) {
             const row = tableBuilderRows.find(r => r.id === rowId);
             if (!row || row.status !== 'new') return;
 
@@ -25839,7 +25846,7 @@
             const roomsToCreate = row.rooms.length > 0 ? row.rooms : [null];
             const shiftIds = [];
 
-            roomsToCreate.forEach((roomName, index) => {
+            for (const [index, roomName] of roomsToCreate.entries()) {
                 const newShiftId = 'shift-' + Date.now() + '-single-' + row.id + '-' + index;
                 const newShift = {
                     id: newShiftId,
@@ -25859,8 +25866,9 @@
                     provider: row.provider || null
                 };
                 window.myScheduleShifts.push(newShift);
+                await persistShiftCreateToAPI(newShift, { silent: true });
                 shiftIds.push(newShiftId);
-            });
+            }
 
             row.status = 'saved';
             row.shiftIds = shiftIds;
@@ -25877,7 +25885,7 @@
             }
         }
         
-        function tsbSaveRowChanges(rowId) {
+        async function tsbSaveRowChanges(rowId) {
             const row = tableBuilderRows.find(r => r.id === rowId);
             if (!row || row.status !== 'modified') return;
             
@@ -25892,12 +25900,14 @@
             
             // Delete old shifts from myScheduleShifts
             if (row.originalShiftIds && row.originalShiftIds.length > 0 && window.myScheduleShifts) {
-                row.originalShiftIds.forEach(shiftId => {
+                for (const shiftId of row.originalShiftIds) {
                     const idx = window.myScheduleShifts.findIndex(s => s.id === shiftId);
                     if (idx > -1) {
+                        const shiftToDelete = window.myScheduleShifts[idx];
+                        await persistShiftDeleteToAPI(shiftToDelete, { silent: true });
                         window.myScheduleShifts.splice(idx, 1);
                     }
-                });
+                }
             }
             
             // Get time directly (already in 24h format from time input)
@@ -25917,7 +25927,7 @@
             const newShiftIds = [];
             const roomsToCreate = row.rooms.length > 0 ? row.rooms : [null]; // null = no room
             
-            roomsToCreate.forEach((roomName, index) => {
+            for (const [index, roomName] of roomsToCreate.entries()) {
                 const newShiftId = 'shift-' + Date.now() + '-edit-' + index;
                 const newShift = {
                     id: newShiftId,
@@ -25939,9 +25949,10 @@
                 
                 if (window.myScheduleShifts) {
                     window.myScheduleShifts.push(newShift);
+                    await persistShiftCreateToAPI(newShift, { silent: true });
                     newShiftIds.push(newShiftId);
                 }
-            });
+            }
             
             // Update row to saved status
             row.status = 'saved';
@@ -26341,7 +26352,7 @@
             }
         }
         
-        function tsbCreateAllSchedules() {
+        async function tsbCreateAllSchedules() {
             if (!Array.isArray(window.myScheduleShifts)) {
                 window.myScheduleShifts = [];
             }
@@ -26374,7 +26385,7 @@
             let totalCreated = 0;
             let createdShiftIds = {}; // Map row id to array of created shift ids
             
-            validRows.forEach(row => {
+            for (const row of validRows) {
                 // Get time directly (already in 24h format from time input)
                 const startTime = row.startTime || '08:00';
                 const endTime = row.endTime || '16:00';
@@ -26395,7 +26406,7 @@
                 const createdNow = new Date().toISOString();
                 const roomsToCreate = row.rooms.length > 0 ? row.rooms : [null]; // null = no room assigned
                 
-                roomsToCreate.forEach((roomName, index) => {
+                for (const [index, roomName] of roomsToCreate.entries()) {
                     const newShiftId = 'shift-' + Date.now() + '-' + totalCreated + '-' + index;
                     const newShift = {
                         id: newShiftId,
@@ -26417,14 +26428,15 @@
                     
                     if (window.myScheduleShifts) {
                         window.myScheduleShifts.push(newShift);
+                        await persistShiftCreateToAPI(newShift, { silent: true });
                         createdShiftIds[row.id].push(newShiftId);
                         totalCreated++;
                     }
-                });
+                }
                 
                 // Store created date for the row
                 row.createdDate = createdNow;
-            });
+            }
             
             // Mark the created rows as 'saved' and store their shift IDs
             validRows.forEach(row => {
@@ -27839,7 +27851,7 @@
             });
         }
         
-        function rsbCreateSchedule() {
+        async function rsbCreateSchedule() {
             // Validate schedule before creating
             const warnings = rsbValidateSchedule();
             
@@ -27907,7 +27919,7 @@
             
             // Create one schedule per room
             const createdShifts = [];
-            roomsToCreate.forEach((roomName, index) => {
+            for (const [index, roomName] of roomsToCreate.entries()) {
                 const newShift = {
                     id: 'shift-' + Date.now() + '-' + index,
                     name: doctorName,
@@ -27926,9 +27938,10 @@
                 // Add to global schedule array
                 if (window.myScheduleShifts) {
                     window.myScheduleShifts.push(newShift);
+                    await persistShiftCreateToAPI(newShift, { silent: true });
                     createdShifts.push(newShift);
                 }
-            });
+            }
             
             // Refresh My Schedule calendar if function exists
             if (typeof window.renderMyScheduleCalendar === 'function') {
@@ -28455,7 +28468,7 @@
             }
         }
         
-        function sbSubmitSchedule() {
+        async function sbSubmitSchedule() {
             const dateRange = sbData.startDate && sbData.endDate ? 
                 `${sbData.startDate} to ${sbData.endDate}` : sbData.days;
             const secondaryList = sbData.assistants && sbData.assistants.length > 0 
@@ -28522,6 +28535,7 @@
             // Add to global schedule array
             if (window.myScheduleShifts) {
                 window.myScheduleShifts.push(newShift);
+                await persistShiftCreateToAPI(newShift, { silent: true, showToast: true });
                 console.log('✅ New schedule added to myScheduleShifts:', newShift);
                 
                 // Refresh My Schedule calendar if function exists
@@ -45750,7 +45764,7 @@ window.addEventListener('load', function() {
         };
         
         // Delete Shift Function
-        window.deleteShift = function(shiftId) {
+        window.deleteShift = async function(shiftId) {
             const shift = window.myScheduleShifts.find(s => s.id === shiftId);
             if (!shift) {
                 alert('Shift not found!');
@@ -45763,6 +45777,7 @@ window.addEventListener('load', function() {
                 // Remove from array
                 const index = window.myScheduleShifts.findIndex(s => s.id === shiftId);
                 if (index > -1) {
+                    await persistShiftDeleteToAPI(window.myScheduleShifts[index], { silent: true, showToast: true });
                     window.myScheduleShifts.splice(index, 1);
                     console.log('🗑️ Shift deleted:', shiftId);
                     
@@ -45948,7 +45963,7 @@ window.addEventListener('load', function() {
         };
         
         // Save Shift Edit
-        window.saveShiftEdit = function() {
+        window.saveShiftEdit = async function() {
             const shiftId = document.getElementById('editShiftId').value;
             const shiftIndex = window.myScheduleShifts.findIndex(s => s.id === shiftId);
             
@@ -46002,6 +46017,8 @@ window.addEventListener('load', function() {
                 endDate: endDate,
                 color: color
             };
+
+            await persistShiftUpdateToAPI(window.myScheduleShifts[shiftIndex], { silent: true, showToast: true });
             
             console.log('✏️ Shift updated:', window.myScheduleShifts[shiftIndex]);
             
@@ -46018,7 +46035,7 @@ window.addEventListener('load', function() {
         };
         
         // Delete Shift Group Function - Deletes all related shifts
-        window.deleteShiftGroup = function(shiftIdsString) {
+        window.deleteShiftGroup = async function(shiftIdsString) {
             const shiftIds = shiftIdsString.split(',').filter(id => id.trim());
             
             if (shiftIds.length === 0) {
@@ -46042,13 +46059,14 @@ window.addEventListener('load', function() {
                 let deletedCount = 0;
                 
                 // Delete all shifts with these IDs (in reverse order to avoid index issues)
-                shiftIds.forEach(shiftId => {
+                for (const shiftId of shiftIds) {
                     const index = window.myScheduleShifts.findIndex(s => s.id === shiftId);
                     if (index > -1) {
+                        await persistShiftDeleteToAPI(window.myScheduleShifts[index], { silent: true });
                         window.myScheduleShifts.splice(index, 1);
                         deletedCount++;
                     }
-                });
+                }
                 
                 console.log(`🗑️ Deleted ${deletedCount} shift(s)`);
                 
@@ -46261,7 +46279,7 @@ window.addEventListener('load', function() {
         };
         
         // Save Shift Group Edit
-        window.saveShiftGroupEdit = function() {
+        window.saveShiftGroupEdit = async function() {
             const shiftIdsString = document.getElementById('editGroupShiftIds').value;
             const shiftIds = shiftIdsString.split(',').filter(id => id.trim());
             
@@ -46322,16 +46340,17 @@ window.addEventListener('load', function() {
             const role = providerData?.role || 'Staff';
             
             // Delete all old shifts
-            shiftIds.forEach(shiftId => {
+            for (const shiftId of shiftIds) {
                 const index = window.myScheduleShifts.findIndex(s => s.id === shiftId);
                 if (index > -1) {
+                    await persistShiftDeleteToAPI(window.myScheduleShifts[index], { silent: true });
                     window.myScheduleShifts.splice(index, 1);
                 }
-            });
+            }
             
             // Create new shifts for each selected room
             const timestamp = Date.now();
-            selectedRooms.forEach((room, index) => {
+            for (const [index, room] of selectedRooms.entries()) {
                 const newShift = {
                     id: `shift-${timestamp}-${index}`,
                     name: provider,
@@ -46347,7 +46366,8 @@ window.addEventListener('load', function() {
                     color: color
                 };
                 window.myScheduleShifts.push(newShift);
-            });
+                await persistShiftCreateToAPI(newShift, { silent: true });
+            }
             
             console.log(`✏️ Updated group: ${selectedRooms.length} shift(s) created`);
             
@@ -63986,16 +64006,129 @@ async function syncRoomsFromAPI() {
 }
 
 // ============ SCHEDULES API FUNCTIONS ============
+function getScheduleApiBaseUrl() {
+    return (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) ? API_BASE_URL : '/api';
+}
+
+function toNumericId(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function normalizeScheduleDays(days) {
+    if (Array.isArray(days)) return days.join(',');
+    if (typeof days === 'string') return days;
+    return 'Mon,Tue,Wed,Thu,Fri';
+}
+
+function resolveEmployeeDbIdByName(name) {
+    if (!name) return null;
+    const allEmployees = window.masterData?.getAllEmployees?.() || [];
+    const employee = allEmployees.find(e => (e?.title || '').trim() === String(name).trim());
+    const employeeDbId = toNumericId(
+        employee?.extendedProps?.dbId ||
+        employee?.extendedProps?.userId ||
+        employee?.extendedProps?.userID ||
+        employee?.dbId ||
+        employee?.userId ||
+        employee?.userID ||
+        employee?.id
+    );
+    if (employeeDbId) return employeeDbId;
+
+    const users = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
+    for (const username of Object.keys(users)) {
+        const user = users[username] || {};
+        const userName = (user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || username || '').trim();
+        if (userName === String(name).trim() || username === String(name).trim()) {
+            const userId = toNumericId(
+                user.dbId ||
+                user.userId ||
+                user.userID ||
+                user.UserID ||
+                user.id ||
+                user.Id
+            );
+            if (userId) return userId;
+        }
+    }
+
+    return null;
+}
+
+function resolveClinicDbIdByName(clinicName) {
+    if (!clinicName) return null;
+    const clinic = window.masterData?.getClinicByName?.(clinicName);
+    return toNumericId(clinic?.dbId || clinic?.clinicID || clinic?.officeID || clinic?.id);
+}
+
+function resolveRoomDbIdByName(roomName, clinicName) {
+    if (!roomName) return null;
+    const rooms = window.masterData?.rooms || [];
+    const clinicDbId = resolveClinicDbIdByName(clinicName);
+    const room = rooms.find(r => {
+        const currentRoomName = (r.name || r.roomName || '').trim();
+        if (currentRoomName !== String(roomName).trim()) return false;
+        if (!clinicDbId) return true;
+        const roomClinicId = toNumericId(r.clinicId || r.officeID);
+        return !roomClinicId || roomClinicId === clinicDbId;
+    });
+    return toNumericId(room?.roomID || room?.dbId || room?.id);
+}
+
+function resolveAssistantDbIdByName(assistantName) {
+    if (!assistantName) return null;
+    const firstAssistant = String(assistantName).split(',')[0].trim();
+    return resolveEmployeeDbIdByName(firstAssistant);
+}
+
+function buildScheduleApiPayloadFromShift(shift) {
+    if (!shift) return null;
+    const personName = shift.provider || shift.employee || shift.name || '';
+    const userId = toNumericId(shift.userId || shift.dbUserId) || resolveEmployeeDbIdByName(personName);
+    const clinicId = toNumericId(shift.clinicId || shift.dbClinicId) || resolveClinicDbIdByName(shift.clinic);
+    const roomId = toNumericId(shift.roomId || shift.dbRoomId) || resolveRoomDbIdByName(shift.room, shift.clinic);
+    const assistantId = toNumericId(shift.assistantId || shift.dbAssistantId) || resolveAssistantDbIdByName(shift.assistant);
+
+    if (!shift.startDate || !shift.startTime || !shift.endTime) {
+        return null;
+    }
+
+    return {
+        userId: userId || null,
+        userName: personName || null,
+        clinicId: clinicId || null,
+        clinicName: shift.clinic || null,
+        roomId: roomId || null,
+        roomName: shift.room || null,
+        assistantId: assistantId || null,
+        assistantName: shift.assistant || null,
+        startDate: shift.startDate,
+        endDate: shift.endDate || null,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        daysOfWeek: normalizeScheduleDays(shift.days),
+        color: shift.color || '#10b981',
+        notes: shift.notes || (shift.assistant ? `Assistants: ${shift.assistant}` : '')
+    };
+}
+
 async function saveScheduleToAPI(scheduleData) {
-    if (typeof API_BASE_URL === 'undefined') return;
+    const apiBase = getScheduleApiBaseUrl();
+    if (!scheduleData) return null;
     try {
-        const response = await fetch(`${API_BASE_URL}/schedules`, {
+        const response = await fetch(`${apiBase}/schedules`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 userId: scheduleData.userId || null,
+                userName: scheduleData.userName || null,
                 clinicId: scheduleData.clinicId || null,
+                clinicName: scheduleData.clinicName || null,
                 roomId: scheduleData.roomId || null,
+                roomName: scheduleData.roomName || null,
+                assistantId: scheduleData.assistantId || null,
+                assistantName: scheduleData.assistantName || null,
                 startDate: scheduleData.startDate,
                 endDate: scheduleData.endDate || null,
                 startTime: scheduleData.startTime,
@@ -64017,31 +64150,210 @@ async function saveScheduleToAPI(scheduleData) {
     return null;
 }
 
+async function updateScheduleViaAPI(id, scheduleData) {
+    if (!id || !scheduleData) return false;
+    const apiBase = getScheduleApiBaseUrl();
+    try {
+        const response = await fetch(`${apiBase}/schedules/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(scheduleData)
+        });
+        if (response.ok) {
+            console.log('✅ Schedule updated in database:', id);
+            return true;
+        }
+        const errText = await response.text();
+        console.error('❌ Schedule API PUT failed:', response.status, errText);
+    } catch (error) {
+        console.error('❌ Error updating schedule via API:', error);
+    }
+    return false;
+}
+
+async function deleteScheduleViaAPI(id) {
+    if (!id) return false;
+    const apiBase = getScheduleApiBaseUrl();
+    try {
+        const response = await fetch(`${apiBase}/schedules/${id}`, { method: 'DELETE' });
+        if (response.ok) {
+            console.log('✅ Schedule deleted from database:', id);
+            return true;
+        }
+        const errText = await response.text();
+        console.error('❌ Schedule API DELETE failed:', response.status, errText);
+    } catch (error) {
+        console.error('❌ Error deleting schedule via API:', error);
+    }
+    return false;
+}
+
+function notifySchedulePersistence(action, success, detail = '') {
+    const actionText = action || 'schedule';
+    const message = success
+        ? `✅ ${actionText} saved to database`
+        : `⚠️ ${actionText} database sync failed${detail ? ` (${detail})` : ''}`;
+
+    if (typeof showSyncStatus === 'function') {
+        showSyncStatus(message, !!success);
+        return;
+    }
+
+    if (typeof showNotification === 'function') {
+        showNotification(message, success ? 'success' : 'warning');
+        return;
+    }
+
+    if (!success) {
+        console.warn(message);
+    } else {
+        console.log(message);
+    }
+}
+
+async function persistShiftCreateToAPI(shift, options = {}) {
+    const shouldToast = options.showToast === true || (options.showToast !== false && !options.silent);
+    const payload = buildScheduleApiPayloadFromShift(shift);
+    if (!payload) {
+        if (!options.silent) {
+            console.warn('⚠️ Skipping API schedule create due to missing required mapped IDs/data:', shift);
+        }
+        if (shouldToast) {
+            notifySchedulePersistence('Schedule create', false, 'missing required data');
+        }
+        return null;
+    }
+
+    const result = await saveScheduleToAPI(payload);
+    const dbId = toNumericId(result?.id || result?.Id);
+    if (dbId && shift) {
+        shift.dbId = dbId;
+    }
+    if (shouldToast) {
+        notifySchedulePersistence('Schedule create', !!dbId, dbId ? '' : 'API unavailable');
+    }
+    return dbId;
+}
+
+async function persistShiftUpdateToAPI(shift, options = {}) {
+    const shouldToast = options.showToast === true || (options.showToast !== false && !options.silent);
+    if (!shift) return false;
+    const payload = buildScheduleApiPayloadFromShift(shift);
+    if (!payload) {
+        if (!options.silent) {
+            console.warn('⚠️ Skipping API schedule update due to missing required mapped IDs/data:', shift);
+        }
+        if (shouldToast) {
+            notifySchedulePersistence('Schedule update', false, 'missing required data');
+        }
+        return false;
+    }
+
+    const dbId = toNumericId(shift.dbId || shift.apiId);
+    if (!dbId) {
+        const createdId = await persistShiftCreateToAPI(shift, options);
+        return !!createdId;
+    }
+
+    const updated = await updateScheduleViaAPI(dbId, payload);
+    if (shouldToast) {
+        notifySchedulePersistence('Schedule update', !!updated, updated ? '' : 'API unavailable');
+    }
+    return updated;
+}
+
+async function persistShiftDeleteToAPI(shift, options = {}) {
+    const shouldToast = options.showToast === true || (options.showToast !== false && !options.silent);
+    if (!shift) return false;
+    const dbId = toNumericId(shift.dbId || shift.apiId);
+    if (!dbId) {
+        if (!options.silent) {
+            console.warn('⚠️ No schedule dbId found; delete will only apply locally:', shift.id);
+        }
+        if (shouldToast) {
+            notifySchedulePersistence('Schedule delete', false, 'local only');
+        }
+        return false;
+    }
+
+    const deleted = await deleteScheduleViaAPI(dbId);
+    if (shouldToast) {
+        notifySchedulePersistence('Schedule delete', !!deleted, deleted ? '' : 'API unavailable');
+    }
+    return deleted;
+}
+
 async function syncSchedulesFromAPI() {
     try {
-        const response = await fetch(`${API_BASE_URL}/schedules`);
+        const response = await fetch(`${getScheduleApiBaseUrl()}/schedules`);
         if (!response.ok) return false;
         const apiSchedules = await response.json();
-        if (apiSchedules && apiSchedules.length > 0) {
-            const localSchedules = apiSchedules.map(s => ({
-                id: `sched-${s.Id || s.id}`,
-                employee: s.UserId || s.userId || '',
-                employeeName: s.EmployeeName || '',
-                clinic: s.ClinicId || s.clinicId || '',
-                clinicName: s.ClinicName || '',
-                room: s.RoomId || s.roomId || '',
-                roomName: s.RoomName || '',
-                startDate: s.StartDate || s.startDate,
+        const apiList = Array.isArray(apiSchedules) ? apiSchedules : [];
+
+        const normalizeDays = (daysValue) => {
+            if (Array.isArray(daysValue)) return daysValue;
+            if (typeof daysValue === 'string') {
+                return daysValue.split(',').map(d => d.trim()).filter(Boolean);
+            }
+            return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+        };
+
+        const resolveNameByDbId = (collection, dbId, nameField = 'name') => {
+            const numericId = toNumericId(dbId);
+            if (!numericId || !Array.isArray(collection)) return '';
+            const found = collection.find(item => {
+                const itemId = toNumericId(item?.dbId || item?.id || item?.Id || item?.userId || item?.userID || item?.clinicID || item?.roomID);
+                return itemId === numericId;
+            });
+            return found ? (found[nameField] || found.title || '') : '';
+        };
+
+        const allEmployees = window.masterData?.getAllEmployees?.() || [];
+        const clinics = window.masterData?.clinics || [];
+        const rooms = window.masterData?.rooms || [];
+
+        const mappedShifts = apiList.map(s => {
+            const dbId = s.Id || s.id;
+            const employeeName = s.EmployeeName || s.employeeName || resolveNameByDbId(allEmployees, s.UserId || s.userId, 'title') || '';
+            const clinicName = s.ClinicName || s.clinicName || resolveNameByDbId(clinics, s.ClinicId || s.clinicId, 'name') || '';
+            const roomName = s.RoomName || s.roomName || resolveNameByDbId(rooms, s.RoomId || s.roomId, 'name') || '';
+            const assistantName = s.AssistantName || s.assistantName || '';
+            const startTime = s.StartTime || s.startTime || '08:00';
+            const endTime = s.EndTime || s.endTime || '16:00';
+            const shiftDays = normalizeDays(s.DaysOfWeek || s.daysOfWeek || '');
+
+            return {
+                id: `shift-${dbId}`,
+                dbId,
+                name: employeeName || `Employee ${s.UserId || s.userId || ''}`.trim(),
+                role: s.Role || s.role || 'Provider',
+                employee: employeeName || '',
+                provider: employeeName || '',
+                clinic: clinicName || '',
+                room: roomName || '',
+                assistant: assistantName || null,
+                days: shiftDays,
+                startDate: s.StartDate || s.startDate || '',
                 endDate: s.EndDate || s.endDate || '',
-                startTime: s.StartTime || s.startTime,
-                endTime: s.EndTime || s.endTime,
-                daysOfWeek: s.DaysOfWeek || s.daysOfWeek || '',
+                startTime,
+                endTime,
                 color: s.Color || s.color || '#3b82f6',
                 notes: s.Notes || s.notes || ''
-            }));
-            localStorage.setItem('schedules', JSON.stringify(localSchedules));
-            console.log('✅ Synced', localSchedules.length, 'schedules from API');
+            };
+        });
+
+        window.myScheduleShifts = mappedShifts;
+        window.myScheduleShiftsData = window.myScheduleShifts;
+
+        localStorage.setItem('schedules', JSON.stringify(mappedShifts));
+        localStorage.setItem('scheduleShifts', JSON.stringify(mappedShifts));
+        localStorage.setItem('scheduleData', JSON.stringify(mappedShifts));
+
+        if (typeof window.renderMyScheduleCalendar === 'function') {
+            window.renderMyScheduleCalendar();
         }
+
+        console.log('✅ Synced', mappedShifts.length, 'schedules from API');
         return true;
     } catch (error) {
         console.error('❌ Error syncing schedules:', error);
