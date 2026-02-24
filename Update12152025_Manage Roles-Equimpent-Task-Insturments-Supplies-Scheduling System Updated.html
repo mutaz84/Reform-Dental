@@ -25673,6 +25673,9 @@
                                     <i class="fas fa-times"></i>
                                 </button>
                             ` : `
+                                ${row.status === 'new' ? `<button onclick="tsbSaveNewRow(${row.id})" title="Save Row" style="background: #10b981; color: white; border: none; padding: 0.3rem 0.5rem; border-radius: 4px; cursor: pointer; margin-right: 0.25rem;">
+                                    <i class="fas fa-save"></i>
+                                </button>` : ''}
                                 ${row.status === 'saved' ? `<button class="tsb-edit-btn" onclick="tsbEditRow(${row.id})" title="Edit Schedule" style="background: #3b82f6; color: white; border: none; padding: 0.3rem 0.5rem; border-radius: 4px; cursor: pointer; margin-right: 0.25rem;">
                                     <i class="fas fa-edit"></i>
                                 </button>` : ''}
@@ -25804,6 +25807,73 @@
             
             if (typeof showNotification === 'function') {
                 showNotification('📝 Row unlocked for editing. Click "Save Changes" when done.', 'info');
+            }
+        }
+
+        function tsbSaveNewRow(rowId) {
+            const row = tableBuilderRows.find(r => r.id === rowId);
+            if (!row || row.status !== 'new') return;
+
+            const needsRoom = row.provider ? row.rooms.length > 0 : true;
+            const needsClinic = row.provider ? !!row.clinic : true;
+            if ((!row.provider && !row.employee) || !needsClinic || !needsRoom || row.days.length === 0 || !row.startDate || !row.endDate || !row.startTime || !row.endTime) {
+                alert('Please fill in all required fields before saving (Employee or Provider, Days, Dates, Time). Clinic and Room are required for Provider schedules, optional for standalone employees.');
+                return;
+            }
+
+            if (!Array.isArray(window.myScheduleShifts)) {
+                window.myScheduleShifts = [];
+            }
+            window.myScheduleShiftsData = window.myScheduleShifts;
+
+            const startTime = row.startTime || '08:00';
+            const endTime = row.endTime || '16:00';
+            const clinicData = window.masterData?.getClinicByName(row.clinic);
+            const clinicColor = clinicData?.color || '#10b981';
+            const personName = row.provider || row.employee;
+            const allEmployees = window.masterData?.getAllEmployees?.() || [];
+            const personData = allEmployees.find(e => e.title === personName);
+            const role = personData?.extendedProps?.role || (row.provider ? 'Provider' : 'Staff');
+
+            const createdNow = new Date().toISOString();
+            const roomsToCreate = row.rooms.length > 0 ? row.rooms : [null];
+            const shiftIds = [];
+
+            roomsToCreate.forEach((roomName, index) => {
+                const newShiftId = 'shift-' + Date.now() + '-single-' + row.id + '-' + index;
+                const newShift = {
+                    id: newShiftId,
+                    name: personName,
+                    role: role,
+                    startTime: startTime,
+                    endTime: endTime,
+                    clinic: row.clinic,
+                    room: roomName,
+                    assistant: row.assistants.length > 0 ? row.assistants.join(', ') : null,
+                    days: [...row.days],
+                    color: clinicColor,
+                    startDate: row.startDate,
+                    endDate: row.endDate,
+                    createdDate: createdNow,
+                    employee: row.employee || null,
+                    provider: row.provider || null
+                };
+                window.myScheduleShifts.push(newShift);
+                shiftIds.push(newShiftId);
+            });
+
+            row.status = 'saved';
+            row.shiftIds = shiftIds;
+            row.createdDate = createdNow;
+
+            if (typeof window.renderMyScheduleCalendar === 'function') {
+                window.renderMyScheduleCalendar();
+            }
+
+            tsbRenderTable();
+
+            if (typeof showNotification === 'function') {
+                showNotification('✅ Row saved successfully!', 'success');
             }
         }
         
@@ -26272,6 +26342,11 @@
         }
         
         function tsbCreateAllSchedules() {
+            if (!Array.isArray(window.myScheduleShifts)) {
+                window.myScheduleShifts = [];
+            }
+            window.myScheduleShiftsData = window.myScheduleShifts;
+
             // Get valid NEW rows only (not already saved)
             // Valid row needs either provider OR employee
             // Room and Clinic are required for providers, optional for standalone employees (IT, Admin, etc.)
