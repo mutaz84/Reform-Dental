@@ -21718,6 +21718,8 @@
             return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
         }
 
+        window.getTaskLinkedComplianceId = getTaskLinkedComplianceId;
+
         function openComplianceFromTask(taskId) {
             const task = Array.isArray(window.tasksData) ? window.tasksData.find((item) => item.id == taskId) : null;
             const complianceId = getTaskLinkedComplianceId(task);
@@ -50125,7 +50127,14 @@ window.addEventListener('load', function() {
             
             const dueInfo = task.dueDate ? formatTaskDueDate(task.dueDate) : null;
             const isOverdue = dueInfo && dueInfo.isOverdue;
-            const linkedComplianceId = getTaskLinkedComplianceId(task);
+            const linkedComplianceId = (typeof window.getTaskLinkedComplianceId === 'function')
+                ? window.getTaskLinkedComplianceId(task)
+                : (() => {
+                    if (!task || typeof task !== 'object') return null;
+                    const value = task.linkedComplianceId || task.complianceId || null;
+                    const parsed = Number.parseInt(value, 10);
+                    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+                })();
             
             let actionButtons = '';
             if (type === 'floating' || type === 'bonus') {
