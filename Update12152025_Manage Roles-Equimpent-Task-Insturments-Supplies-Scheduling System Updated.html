@@ -13442,10 +13442,6 @@
         z-index: 10040 !important;
     }
 
-    body.user-management-open .unified-right-rail {
-        pointer-events: none !important;
-    }
-
     #usersList,
     #usersList tr,
     #usersList td,
@@ -13457,6 +13453,22 @@
     #usersList button[data-user-action] {
         position: relative;
         z-index: 3;
+    }
+
+    #view-manage-users .rd-management-host {
+        position: relative;
+        z-index: 10070;
+        pointer-events: auto !important;
+    }
+
+    #view-manage-users .rd-management-host,
+    #view-manage-users .rd-management-host * {
+        pointer-events: auto !important;
+    }
+
+    #view-manage-users .rd-management-host .mobile-overlay {
+        display: none !important;
+        pointer-events: none !important;
     }
 
     .unified-right-rail .rail-divider-toggle {
@@ -20660,6 +20672,7 @@
             if (!usersList) return;
 
             bindUsersListActionHandlers();
+            installGlobalUsersActionCapture();
 
             const hasApi = typeof API_BASE_URL !== 'undefined' && !!API_BASE_URL;
             if (hasApi && (!window.__complianceSummaryByUserId || Object.keys(window.__complianceSummaryByUserId).length === 0) && !window.__complianceSummaryLoadPromise) {
@@ -20819,6 +20832,27 @@
 
                 button.dataset.clickBound = '1';
             });
+        }
+
+        function installGlobalUsersActionCapture() {
+            if (window.__usersActionCaptureInstalled) return;
+
+            document.addEventListener('click', function(event) {
+                const actionButton = event.target && event.target.closest
+                    ? event.target.closest('button[data-user-action]')
+                    : null;
+                if (!actionButton) return;
+
+                const action = String(actionButton.getAttribute('data-user-action') || '').trim();
+                const username = String(actionButton.getAttribute('data-username') || '').trim();
+                if (!action || !username) return;
+
+                event.preventDefault();
+                event.stopPropagation();
+                handleUsersListAction(action, username);
+            }, true);
+
+            window.__usersActionCaptureInstalled = true;
         }
 
         // Delete user
@@ -65559,7 +65593,7 @@ console.log('✅ Global functions exported to window object');
 (function installSettingsManagementViewAdapter() {
     const mappings = [
         { open: 'openMasterSettings', close: 'closeMasterSettings', modalId: 'masterSettingsModal', viewName: 'manage-master-settings', title: 'Master Settings' },
-        { open: 'openUserManagement', close: 'closeUserManagement', modalId: 'userManagementModal', viewName: 'manage-users', title: 'Manage Users', dock: false },
+        { open: 'openUserManagement', close: 'closeUserManagement', modalId: 'userManagementModal', viewName: 'manage-users', title: 'Manage Users' },
         { open: 'openRolesManagement', close: 'closeRolesManagement', modalId: 'rolesManagementModal', viewName: 'manage-roles', title: 'Manage Roles' },
         { open: 'openPermissionsManagement', close: 'closePermissionsManagement', modalId: 'permissionManagementModal', viewName: 'manage-permissions', title: 'Manage Permissions' },
         { open: 'openOfficesManagement', close: 'closeOfficesManagement', modalId: 'officesManagementModal', viewName: 'manage-offices', title: 'Manage Clinics' },
@@ -65642,10 +65676,6 @@ console.log('✅ Global functions exported to window object');
     }
 
     function dockModalToView(mapping) {
-        if (mapping && mapping.dock === false) {
-            return false;
-        }
-
         const modal = document.getElementById(mapping.modalId);
         if (!modal) return false;
 
@@ -65694,9 +65724,6 @@ console.log('✅ Global functions exported to window object');
 
         const wrapped = async function(...args) {
             const result = await original.apply(this, args);
-            if (mapping && mapping.dock === false) {
-                return result;
-            }
             setTimeout(() => {
                 try { dockModalToView(mapping); } catch (_) {}
             }, 0);
