@@ -20726,16 +20726,16 @@
                     <td style="padding: 1rem; color: var(--text-secondary);">${renderComplianceSummaryCell(complianceSummary)}</td>
                     <td style="padding: 1rem; text-align: center;">
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                            <button onclick="openEditUserModal('${username}')" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit User">
+                            <button onclick="openEditUserModal('${escapedUsername}')" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit User" aria-label="Edit User">
                                 <i class="fas fa-edit"></i>
                             </button>
-                            <button onclick="openHRInfoModal('${username}')" style="padding: 0.5rem 1rem; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" title="HR Info">
+                            <button onclick="openHRInfoModal('${escapedUsername}')" style="padding: 0.5rem 1rem; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" title="HR Info" aria-label="HR Info">
                                 <i class="fas fa-file-invoice-dollar"></i>
                             </button>
-                            <button onclick="openUserCompliancesModal('${username}')" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Compliances">
+                            <button onclick="openUserCompliancesModal('${escapedUsername}')" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Requirements" aria-label="Requirements">
                                 <i class="fas fa-file-contract"></i>
                             </button>
-                            ${username !== 'admin' ? `<button onclick="deleteUser('${username}')" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete User">
+                            ${username !== 'admin' ? `<button onclick="deleteUser('${escapedUsername}')" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete User" aria-label="Delete User">
                                 <i class="fas fa-trash"></i>
                             </button>` : ''}
                         </div>
@@ -20752,21 +20752,18 @@
                 alert('Cannot delete the admin user.');
                 return;
             }
-            
-                            <button onclick="openEditUserModal('${escapedUsername}')" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit User" aria-label="Edit User">
+
+            if (confirm(`Are you sure you want to delete user "${username}"?`)) {
                 const users = loadUsers();
                 const userId = users[username]?.id;
-                            <button onclick="openHRInfoModal('${escapedUsername}')" style="padding: 0.5rem 1rem; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" title="HR Info" aria-label="HR Info">
-                
-                // Delete from database FIRST (before removing from local storage)
-                            <button onclick="openUserCompliancesModal('${escapedUsername}')" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Requirements" aria-label="Requirements">
+                console.log('🗑️ Deleting user:', username, 'Database ID:', userId);
+
+                if (userId) {
                     deleteUserViaAPI(userId);
                 } else {
-                            ${username !== 'admin' ? `<button onclick="deleteUser('${escapedUsername}')" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete User" aria-label="Delete User">
                     showSyncStatus('User deleted locally only (no database ID)', false);
                 }
-                
-                // Then delete from localStorage
+
                 delete users[username];
                 saveUsers(users);
                 displayUsersList();
