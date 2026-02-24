@@ -15883,6 +15883,11 @@
                             
                             // Refresh schedule calendar
                             window.refreshMySchedule = async function() {
+                                if (typeof migrateLocalSchedulesToAPI === 'function') {
+                                    await migrateLocalSchedulesToAPI();
+                                } else if (typeof window.migrateLocalSchedulesToAPI === 'function') {
+                                    await window.migrateLocalSchedulesToAPI();
+                                }
                                 if (typeof syncSchedulesFromAPI === 'function') {
                                     await syncSchedulesFromAPI();
                                 } else if (typeof window.syncSchedulesFromAPI === 'function') {
@@ -16396,6 +16401,12 @@
                             
                             async function initializeMyScheduleView() {
                                 try {
+                                    if (typeof migrateLocalSchedulesToAPI === 'function') {
+                                        await migrateLocalSchedulesToAPI();
+                                    } else if (typeof window.migrateLocalSchedulesToAPI === 'function') {
+                                        await window.migrateLocalSchedulesToAPI();
+                                    }
+
                                     if (typeof syncSchedulesFromAPI === 'function') {
                                         await syncSchedulesFromAPI();
                                     } else if (typeof window.syncSchedulesFromAPI === 'function') {
@@ -64375,6 +64386,170 @@ async function syncSchedulesFromAPI() {
     } catch (error) {
         console.error('❌ Error syncing schedules:', error);
         return false;
+    }
+}
+
+function normalizeScheduleTimeValue(value) {
+    if (!value) return '';
+    const raw = String(value).trim();
+    const direct = raw.match(/^(\d{1,2}):(\d{2})/);
+    if (direct) {
+        const hh = String(Math.max(0, Math.min(23, Number.parseInt(direct[1], 10) || 0))).padStart(2, '0');
+        const mm = String(Math.max(0, Math.min(59, Number.parseInt(direct[2], 10) || 0))).padStart(2, '0');
+        return `${hh}:${mm}`;
+    }
+    const iso = raw.match(/T(\d{2}):(\d{2})/);
+    if (iso) {
+        return `${iso[1]}:${iso[2]}`;
+    }
+    return raw;
+}
+
+function normalizeScheduleDateValue(value) {
+    if (!value) return '';
+    const raw = String(value).trim();
+    const datePart = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (datePart) return datePart[1];
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+        const y = parsed.getUTCFullYear();
+        const m = String(parsed.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(parsed.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+    return raw;
+}
+
+function normalizeScheduleDaysValue(daysValue) {
+    if (Array.isArray(daysValue)) return daysValue.map(d => String(d).trim()).filter(Boolean);
+    if (typeof daysValue === 'string') {
+        return daysValue.split(',').map(d => d.trim()).filter(Boolean);
+    }
+    return [];
+}
+
+function buildScheduleFingerprintFromShape(shape) {
+    const provider = (shape.name || shape.provider || shape.employee || shape.employeeName || '').toString().trim().toLowerCase();
+    const clinic = (shape.clinic || shape.clinicName || '').toString().trim().toLowerCase();
+    const room = (shape.room || shape.roomName || '').toString().trim().toLowerCase();
+    const startDate = normalizeScheduleDateValue(shape.startDate || shape.StartDate);
+    const endDate = normalizeScheduleDateValue(shape.endDate || shape.EndDate || shape.startDate || shape.StartDate);
+    const startTime = normalizeScheduleTimeValue(shape.startTime || shape.StartTime);
+    const endTime = normalizeScheduleTimeValue(shape.endTime || shape.EndTime);
+    const days = normalizeScheduleDaysValue(shape.days || shape.daysOfWeek || shape.DaysOfWeek).join(',').toLowerCase();
+
+    return [provider, clinic, room, startDate, endDate, startTime, endTime, days].join('|');
+}
+
+function normalizeLocalScheduleCandidate(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const name = (raw.name || raw.provider || raw.employee || raw.employeeName || '').toString().trim();
+    const clinic = (raw.clinic || raw.clinicName || '').toString().trim();
+    const room = (raw.room || raw.roomName || '').toString().trim();
+    const startDate = normalizeScheduleDateValue(raw.startDate || raw.StartDate);
+    const endDate = normalizeScheduleDateValue(raw.endDate || raw.EndDate || startDate);
+    const startTime = normalizeScheduleTimeValue(raw.startTime || raw.StartTime);
+    const endTime = normalizeScheduleTimeValue(raw.endTime || raw.EndTime);
+    const days = normalizeScheduleDaysValue(raw.days || raw.daysOfWeek || raw.DaysOfWeek);
+
+    if (!name || !clinic || !startDate || !startTime || !endTime || days.length === 0) {
+        return null;
+    }
+
+    return {
+        id: raw.id || `local-migrate-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        dbId: raw.dbId || raw.Id || raw.apiId || null,
+        name,
+        provider: raw.provider || name,
+        employee: raw.employee || null,
+        clinic,
+        room: room || null,
+        assistant: raw.assistant || raw.assistantName || null,
+        startDate,
+        endDate,
+        startTime,
+        endTime,
+        days,
+        color: raw.color || '#3b82f6',
+        notes: raw.notes || raw.Notes || ''
+    };
+}
+
+function collectLocalScheduleCandidatesForMigration() {
+    const sources = [];
+
+    if (Array.isArray(window.myScheduleShifts)) {
+        sources.push(...window.myScheduleShifts);
+    }
+
+    ['scheduleShifts', 'scheduleData', 'schedules'].forEach((key) => {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+            if (Array.isArray(parsed)) {
+                sources.push(...parsed);
+            }
+        } catch (_) {}
+    });
+
+    const normalized = sources.map(normalizeLocalScheduleCandidate).filter(Boolean);
+    const uniqueMap = new Map();
+    normalized.forEach((item) => {
+        const fp = buildScheduleFingerprintFromShape(item);
+        if (!uniqueMap.has(fp)) {
+            uniqueMap.set(fp, item);
+        }
+    });
+
+    return Array.from(uniqueMap.entries()).map(([fingerprint, item]) => ({ fingerprint, item }));
+}
+
+async function fetchApiScheduleFingerprints() {
+    try {
+        const response = await fetch(`${getScheduleApiBaseUrl()}/schedules`);
+        if (!response.ok) return new Set();
+        const list = await response.json();
+        const fingerprints = new Set();
+        (Array.isArray(list) ? list : []).forEach((row) => {
+            fingerprints.add(buildScheduleFingerprintFromShape(row));
+        });
+        return fingerprints;
+    } catch (_) {
+        return new Set();
+    }
+}
+
+async function migrateLocalSchedulesToAPI() {
+    if (window.__scheduleMigrationInFlight) return 0;
+    window.__scheduleMigrationInFlight = true;
+
+    try {
+        const candidates = collectLocalScheduleCandidatesForMigration();
+        if (!candidates.length) return 0;
+
+        const existingApiFingerprints = await fetchApiScheduleFingerprints();
+        let migratedCount = 0;
+
+        for (const candidate of candidates) {
+            if (existingApiFingerprints.has(candidate.fingerprint)) continue;
+
+            const createdId = await persistShiftCreateToAPI(candidate.item, { silent: true });
+            if (createdId) {
+                migratedCount++;
+                existingApiFingerprints.add(candidate.fingerprint);
+            }
+        }
+
+        if (migratedCount > 0) {
+            showSyncStatus(`Migrated ${migratedCount} local schedule${migratedCount > 1 ? 's' : ''} to database`, true);
+        }
+
+        return migratedCount;
+    } catch (error) {
+        console.warn('Local schedule migration skipped:', error?.message || error);
+        return 0;
+    } finally {
+        window.__scheduleMigrationInFlight = false;
     }
 }
 
