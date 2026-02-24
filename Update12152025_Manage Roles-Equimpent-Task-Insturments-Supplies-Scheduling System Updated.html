@@ -24963,6 +24963,14 @@
         function openTableScheduleBuilder() {
             const modal = document.getElementById('scheduleManagerModalDynamic');
             if (!modal) return;
+
+            // Refresh employee resources so newly added users/providers are included
+            if (typeof loadEmployeeResourcesFromUsers === 'function') {
+                loadEmployeeResourcesFromUsers();
+            }
+            if (typeof buildProviderResources === 'function') {
+                buildProviderResources();
+            }
             
             // Get data from masterData
             const providers = window.masterData ? window.masterData.getProviders() : [];
@@ -33526,10 +33534,21 @@
                     if (username === 'admin' || user.employeeStatus === 'Inactive') return;
 
                     // Determine type based on staffType
+                    const staffType = (user.staffType || user.StaffType || '').toString().toLowerCase();
+                    const employeeType = (user.employeeType || user.EmployeeType || '').toString().toLowerCase();
+                    const jobTitle = (user.jobTitle || user.JobTitle || '').toString().toLowerCase();
                     let type = 'assistant';
-                    if (user.staffType === 'clinical' && user.employeeType === 'Full-time Provider') {
+                    const isProvider =
+                        employeeType === 'provider' ||
+                        employeeType.includes('provider') ||
+                        jobTitle.includes('provider') ||
+                        jobTitle.includes('dentist') ||
+                        jobTitle.includes('doctor') ||
+                        jobTitle.includes('hygienist');
+
+                    if (staffType === 'clinical' && isProvider) {
                         type = 'provider';
-                    } else if (user.staffType === 'clinical') {
+                    } else if (staffType === 'clinical') {
                         type = 'assistant';
                     }
 
@@ -33539,9 +33558,9 @@
                         id: (username || title || 'user').toString().toLowerCase().replace(/\s+/g, '-'),
                         title: title || username,
                         extendedProps: {
-                            role: user.jobTitle || 'Staff',
+                            role: user.jobTitle || user.JobTitle || 'Staff',
                             type: type,
-                            staffType: user.staffType || 'non-clinical',
+                            staffType: user.staffType || user.StaffType || 'non-clinical',
                             color: user.color || '#06b6d4',
                             clinics: [],
                             assignedProvider: null,
