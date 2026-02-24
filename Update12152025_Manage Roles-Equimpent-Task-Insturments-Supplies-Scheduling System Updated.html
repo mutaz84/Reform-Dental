@@ -19310,7 +19310,12 @@
                 }
 
                 if (typeof checkDueComplianceNotifications === 'function') {
-                    checkDueComplianceNotifications();
+                    const now = Date.now();
+                    const lastCheckAt = Number(window.__lastComplianceDueCheckAt || 0);
+                    if (!lastCheckAt || (now - lastCheckAt) > (10 * 60 * 1000)) {
+                        window.__lastComplianceDueCheckAt = now;
+                        checkDueComplianceNotifications();
+                    }
                 }
             } else {
                 // User is not logged in, show login screen
@@ -21475,7 +21480,10 @@
                     return summaryByUserId;
                 } catch (error) {
                     if (!silent && typeof showNotification === 'function') {
-                        showNotification('Unable to load compliance summary. Showing local data only.', 'warning');
+                        showNotification('Unable to load compliance summary. Showing local data only.', 'warning', null, {
+                            dedupeKey: 'compliance-summary-offline',
+                            dedupeWindowMs: 60 * 1000
+                        });
                     }
                     window.__complianceSummaryByUserId = window.__complianceSummaryByUserId || {};
                     return window.__complianceSummaryByUserId;
@@ -21762,10 +21770,22 @@
                 return;
             }
 
+            const now = Date.now();
+            const lastRun = Number(window.__complianceDueCheckRunAt || 0);
+            if (window.__complianceDueCheckInFlight) {
+                return;
+            }
+            if (lastRun && (now - lastRun) < 60 * 1000) {
+                return;
+            }
+
             const userId = getCurrentComplianceUserId();
             if (!userId) {
                 return;
             }
+
+            window.__complianceDueCheckInFlight = true;
+            window.__complianceDueCheckRunAt = now;
 
             try {
                 const response = await fetchComplianceApi('compliances', `?view=due-soon&userId=${encodeURIComponent(userId)}&days=7,3,1&includeOverdue=true`);
@@ -21799,7 +21819,10 @@
                         : 'approaching due date';
 
                     if (typeof showNotification === 'function') {
-                        showNotification(`${title} is ${dueText}.`, days < 0 ? 'error' : 'warning');
+                        showNotification(`${title} is ${dueText}.`, days < 0 ? 'error' : 'warning', null, {
+                            dedupeKey: `compliance-due:${signature}`,
+                            dedupeWindowMs: 60 * 60 * 1000
+                        });
                     }
 
                     seenMap[signature] = new Date().toISOString();
@@ -21811,6 +21834,8 @@
                 }
             } catch (error) {
                 console.error('Failed to check due compliance notifications:', error);
+            } finally {
+                window.__complianceDueCheckInFlight = false;
             }
         }
 
@@ -21914,7 +21939,10 @@
             } catch (error) {
                 console.error('Error loading compliances:', error);
                 if (typeof showNotification === 'function') {
-                    showNotification('Server unavailable. Showing cached compliance data (read-only).', 'warning');
+                    showNotification('Server unavailable. Showing cached compliance data (read-only).', 'warning', null, {
+                        dedupeKey: 'compliance-user-list-offline',
+                        dedupeWindowMs: 5 * 60 * 1000
+                    });
                 }
                 // Fallback to localStorage if API fails
                 const compliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
@@ -22376,7 +22404,10 @@
             } catch (error) {
                 console.log('Using localStorage fallback for compliance types');
                 if (typeof showNotification === 'function') {
-                    showNotification('Server unavailable. Showing cached compliance types.', 'warning');
+                    showNotification('Server unavailable. Showing cached compliance types.', 'warning', null, {
+                        dedupeKey: 'compliance-types-offline',
+                        dedupeWindowMs: 5 * 60 * 1000
+                    });
                 }
                 // Fallback to localStorage
                 const storedTypes = JSON.parse(localStorage.getItem('complianceTypes') || '[]');
@@ -22869,7 +22900,10 @@
             } catch (error) {
                 console.log('API not available, using localStorage fallback for loadAllCompliances');
                 if (typeof showNotification === 'function') {
-                    showNotification('Server unavailable. Showing cached compliance list (read-only).', 'warning');
+                    showNotification('Server unavailable. Showing cached compliance list (read-only).', 'warning', null, {
+                        dedupeKey: 'compliance-all-list-offline',
+                        dedupeWindowMs: 5 * 60 * 1000
+                    });
                 }
                 // Fallback to localStorage
                 const allCompliances = JSON.parse(localStorage.getItem('userCompliances') || '{}');
@@ -43300,7 +43334,40 @@ window.initializeCalendar = initializeCalendar;
         }
 
         // Enhanced Notification System with Professional Toast UI
-        function showNotification(message, type = 'info', title = null) {
+        function showNotification(message, type = 'info', title = null, options = {}) {
+            try {
+                if (!window.__notificationDedupMap || typeof window.__notificationDedupMap !== 'object') {
+                    window.__notificationDedupMap = {};
+                }
+
+                const dedupeWindowMs = Number(options?.dedupeWindowMs) > 0
+                    ? Number(options.dedupeWindowMs)
+                    : ((type === 'warning' || type === 'error') ? 15000 : 3000);
+                const dedupeKey = String(
+                    options?.dedupeKey || `${type}:${title || ''}:${String(message || '')}`
+                );
+                const now = Date.now();
+                const lastShownAt = Number(window.__notificationDedupMap[dedupeKey] || 0);
+
+                if (lastShownAt && (now - lastShownAt) < dedupeWindowMs) {
+                    return;
+                }
+
+                window.__notificationDedupMap[dedupeKey] = now;
+
+                if (!window.__notificationDedupSweepAt || (now - window.__notificationDedupSweepAt) > 5 * 60 * 1000) {
+                    const cutoff = now - Math.max(60 * 60 * 1000, dedupeWindowMs);
+                    Object.keys(window.__notificationDedupMap).forEach((key) => {
+                        if (Number(window.__notificationDedupMap[key] || 0) < cutoff) {
+                            delete window.__notificationDedupMap[key];
+                        }
+                    });
+                    window.__notificationDedupSweepAt = now;
+                }
+            } catch (dedupeError) {
+                console.warn('Notification dedupe guard failed:', dedupeError);
+            }
+
             // Create or get toast container
             let container = document.querySelector('.toast-container-enhanced');
             if (!container) {
