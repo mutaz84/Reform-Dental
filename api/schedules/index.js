@@ -35,6 +35,17 @@ module.exports = async function (context, req) {
     try {
         const pool = await sql.connect(getConfig());
         const id = req.params.id;
+        const parseIntOrNull = (value) => {
+            const parsed = Number.parseInt(String(value), 10);
+            return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+        };
+
+        const normalizeName = (value) => String(value || '')
+            .toLowerCase()
+            .replace(/\b(dr|doctor|dds|dmd)\.?\s*/g, '')
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
 
         if (req.method === 'GET') {
             if (id) {
@@ -55,10 +66,76 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'POST') {
             const body = req.body;
+
+            let userId = parseIntOrNull(body.userId);
+            let clinicId = parseIntOrNull(body.clinicId);
+            let roomId = parseIntOrNull(body.roomId);
+
+            if (!userId && (body.userName || body.employeeName || body.name || body.employee || body.provider)) {
+                const rawUserName = body.userName || body.employeeName || body.name || body.employee || body.provider;
+                const targetUser = normalizeName(rawUserName);
+                const userResult = await pool.request()
+                    .query(`SELECT Id, Username, FirstName, LastName
+                            FROM Users
+                            WHERE IsActive = 1`);
+
+                const matchedUser = (userResult.recordset || []).find((user) => {
+                    const fullName = `${user.FirstName || ''} ${user.LastName || ''}`.trim();
+                    return normalizeName(fullName) === targetUser || normalizeName(user.Username) === targetUser;
+                });
+
+                if (matchedUser) {
+                    userId = matchedUser.Id;
+                }
+            }
+
+            if (!clinicId && (body.clinicName || body.clinic)) {
+                const targetClinic = normalizeName(body.clinicName || body.clinic);
+                const clinicResult = await pool.request()
+                    .query(`SELECT Id, Name
+                            FROM Clinics
+                            WHERE IsActive = 1`);
+
+                const matchedClinic = (clinicResult.recordset || []).find((clinic) => normalizeName(clinic.Name) === targetClinic);
+                if (matchedClinic) {
+                    clinicId = matchedClinic.Id;
+                }
+            }
+
+            if (!roomId && (body.roomName || body.room) && clinicId) {
+                const targetRoom = normalizeName(body.roomName || body.room);
+                const roomResult = await pool.request()
+                    .input('clinicId', sql.Int, clinicId)
+                    .query(`SELECT Id, Name
+                            FROM Rooms
+                            WHERE IsActive = 1 AND ClinicId = @clinicId`);
+
+                const matchedRoom = (roomResult.recordset || []).find((room) => normalizeName(room.Name) === targetRoom);
+                if (matchedRoom) {
+                    roomId = matchedRoom.Id;
+                }
+            }
+
+            if (!userId || !clinicId) {
+                context.res = {
+                    status: 400,
+                    headers,
+                    body: {
+                        error: 'Missing required schedule fields',
+                        details: {
+                            userIdResolved: !!userId,
+                            clinicIdResolved: !!clinicId
+                        }
+                    }
+                };
+                await pool.close();
+                return;
+            }
+
             const result = await pool.request()
-                .input('userId', sql.Int, body.userId)
-                .input('clinicId', sql.Int, body.clinicId)
-                .input('roomId', sql.Int, body.roomId || null)
+                .input('userId', sql.Int, userId)
+                .input('clinicId', sql.Int, clinicId)
+                .input('roomId', sql.Int, roomId || null)
                 .input('startDate', sql.Date, body.startDate)
                 .input('endDate', sql.Date, body.endDate || null)
                 .input('startTime', sql.VarChar, body.startTime)
@@ -71,15 +148,81 @@ module.exports = async function (context, req) {
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
+
+            let userId = parseIntOrNull(body.userId);
+            let clinicId = parseIntOrNull(body.clinicId);
+            let roomId = parseIntOrNull(body.roomId);
+
+            if (!userId && (body.userName || body.employeeName || body.name || body.employee || body.provider)) {
+                const rawUserName = body.userName || body.employeeName || body.name || body.employee || body.provider;
+                const targetUser = normalizeName(rawUserName);
+                const userResult = await pool.request()
+                    .query(`SELECT Id, Username, FirstName, LastName
+                            FROM Users
+                            WHERE IsActive = 1`);
+
+                const matchedUser = (userResult.recordset || []).find((user) => {
+                    const fullName = `${user.FirstName || ''} ${user.LastName || ''}`.trim();
+                    return normalizeName(fullName) === targetUser || normalizeName(user.Username) === targetUser;
+                });
+
+                if (matchedUser) {
+                    userId = matchedUser.Id;
+                }
+            }
+
+            if (!clinicId && (body.clinicName || body.clinic)) {
+                const targetClinic = normalizeName(body.clinicName || body.clinic);
+                const clinicResult = await pool.request()
+                    .query(`SELECT Id, Name
+                            FROM Clinics
+                            WHERE IsActive = 1`);
+
+                const matchedClinic = (clinicResult.recordset || []).find((clinic) => normalizeName(clinic.Name) === targetClinic);
+                if (matchedClinic) {
+                    clinicId = matchedClinic.Id;
+                }
+            }
+
+            if (!roomId && (body.roomName || body.room) && clinicId) {
+                const targetRoom = normalizeName(body.roomName || body.room);
+                const roomResult = await pool.request()
+                    .input('clinicId', sql.Int, clinicId)
+                    .query(`SELECT Id, Name
+                            FROM Rooms
+                            WHERE IsActive = 1 AND ClinicId = @clinicId`);
+
+                const matchedRoom = (roomResult.recordset || []).find((room) => normalizeName(room.Name) === targetRoom);
+                if (matchedRoom) {
+                    roomId = matchedRoom.Id;
+                }
+            }
+
             await pool.request()
                 .input('id', sql.Int, id)
+                .input('userId', sql.Int, userId)
+                .input('clinicId', sql.Int, clinicId)
+                .input('roomId', sql.Int, roomId)
                 .input('startDate', sql.Date, body.startDate)
                 .input('endDate', sql.Date, body.endDate)
                 .input('startTime', sql.VarChar, body.startTime)
                 .input('endTime', sql.VarChar, body.endTime)
                 .input('daysOfWeek', sql.NVarChar, body.daysOfWeek)
+                .input('color', sql.NVarChar, body.color || null)
                 .input('notes', sql.NVarChar, body.notes)
-                .query(`UPDATE Schedules SET StartDate=@startDate, EndDate=@endDate, StartTime=@startTime, EndTime=@endTime, DaysOfWeek=@daysOfWeek, Notes=@notes, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+                .query(`UPDATE Schedules
+                        SET UserId = COALESCE(@userId, UserId),
+                            ClinicId = COALESCE(@clinicId, ClinicId),
+                            RoomId = @roomId,
+                            StartDate=@startDate,
+                            EndDate=@endDate,
+                            StartTime=@startTime,
+                            EndTime=@endTime,
+                            DaysOfWeek=@daysOfWeek,
+                            Color = COALESCE(@color, Color),
+                            Notes=@notes,
+                            ModifiedDate=GETUTCDATE()
+                        WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Schedule updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()
