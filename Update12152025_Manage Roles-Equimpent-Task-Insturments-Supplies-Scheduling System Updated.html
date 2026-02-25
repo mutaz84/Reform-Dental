@@ -36162,6 +36162,7 @@
                 ? window.dutiesData
                 : safeParseLocalStorageJSON('dutiesDataCache', [], { expect: 'array' });
             const compliances = safeParseLocalStorageJSON('userCompliances', {}, { expect: 'object' }) || {};
+            const legacyDuties = (typeof employeeDutiesDatabase !== 'undefined' && Array.isArray(employeeDutiesDatabase)) ? employeeDutiesDatabase : [];
 
             const normalize = (value) => String(value ?? '').trim().toLowerCase();
             const buildIdentitySet = (username, user) => {
@@ -36182,8 +36183,9 @@
             };
 
             const countAssignedDuties = (identitySet) => {
-                if (!identitySet.size || !Array.isArray(duties)) return 0;
-                return duties.filter((duty) => {
+                if (!identitySet.size) return 0;
+
+                const apiCount = (Array.isArray(duties) ? duties : []).filter((duty) => {
                     const dutyKeys = [
                         duty?.AssignedToUserId,
                         duty?.assignedToUserId,
@@ -36214,6 +36216,24 @@
 
                     return dutyKeys.some((key) => identitySet.has(key));
                 }).length;
+
+                const legacyCount = legacyDuties.filter((duty) => {
+                    const dutyKeys = [
+                        duty?.employeeId,
+                        duty?.employee,
+                        duty?.employeeName,
+                        duty?.employeeUsername,
+                        duty?.username,
+                        duty?.userId,
+                        duty?.assignedTo,
+                        duty?.assignedToUserId,
+                        duty?.assignedToUsername
+                    ].map(normalize).filter(Boolean);
+
+                    return dutyKeys.some((key) => identitySet.has(key));
+                }).length;
+
+                return apiCount + legacyCount;
             };
 
             if (!userEntries.length) {
@@ -48111,6 +48131,33 @@ window.addEventListener('load', function() {
             collectIdentityKeys(window.currentDbUserId);
             collectIdentityKeys(localStorage.getItem('currentDbUserId'));
 
+            if (typeof getCurrentUserKeys === 'function') {
+                try {
+                    getCurrentUserKeys().forEach((key) => collectIdentityKeys(key));
+                } catch (_) {}
+            }
+
+            if (typeof loadEmployeeResourcesFromUsers === 'function') {
+                try { loadEmployeeResourcesFromUsers(); } catch (_) {}
+            }
+
+            if (typeof employeeResources !== 'undefined' && Array.isArray(employeeResources)) {
+                employeeResources.forEach((resource) => {
+                    const resourceKeys = [
+                        resource?.id,
+                        resource?.title,
+                        resource?.extendedProps?.username,
+                        resource?.extendedProps?.email,
+                        resource?.extendedProps?.dbId,
+                        resource?.extendedProps?.id
+                    ].map(normalizeKey).filter(Boolean);
+
+                    if (resourceKeys.some((key) => userIdentityKeys.has(key))) {
+                        resourceKeys.forEach((key) => userIdentityKeys.add(key));
+                    }
+                });
+            }
+
             const duties = Array.isArray(window.dutiesData) ? window.dutiesData : [];
             const myDuties = duties.filter((duty) => {
                 const dutyKeys = [
@@ -48135,6 +48182,14 @@ window.addEventListener('load', function() {
                     duty?.assigned_to_name,
                     duty?.UserId,
                     duty?.userId,
+                    duty?.Employee,
+                    duty?.employee,
+                    duty?.EmployeeName,
+                    duty?.employeeName,
+                    duty?.EmployeeUsername,
+                    duty?.employeeUsername,
+                    duty?.resourceId,
+                    duty?.ResourceId,
                     duty?.user?.Id,
                     duty?.user?.id,
                     duty?.user?.Username,
@@ -48149,8 +48204,45 @@ window.addEventListener('load', function() {
 
                 return dutyKeys.some((key) => userIdentityKeys.has(key));
             });
+
+            const legacyDuties = ((typeof employeeDutiesDatabase !== 'undefined' && Array.isArray(employeeDutiesDatabase)) ? employeeDutiesDatabase : [])
+                .filter((duty) => {
+                    const dutyKeys = [
+                        duty?.employeeId,
+                        duty?.employee,
+                        duty?.employeeName,
+                        duty?.employeeUsername,
+                        duty?.username,
+                        duty?.userId,
+                        duty?.assignedTo,
+                        duty?.assignedToUserId,
+                        duty?.assignedToUsername
+                    ].map(normalizeKey).filter(Boolean);
+
+                    return dutyKeys.some((key) => userIdentityKeys.has(key));
+                })
+                .map((duty, index) => ({
+                    Id: duty?.id || duty?.Id || `legacy-duty-${index}`,
+                    Name: duty?.name || duty?.dutyName || duty?.title || 'Duty',
+                    Description: duty?.description || duty?.notes || '',
+                    Priority: duty?.priority || duty?.Priority || 'Medium',
+                    ScheduleTime: duty?.scheduleTime || duty?.time || '',
+                    ScheduleDay: duty?.scheduleDay || duty?.day || '',
+                    Schedule: duty?.schedule || duty?.frequency || '',
+                    Location: duty?.location || duty?.room || '',
+                    __legacy: true
+                }));
+
+            const allMyDuties = [...myDuties];
+            const seenDutyKeys = new Set(myDuties.map((d) => normalizeKey(d?.Id || d?.id || d?.Name || d?.name)));
+            legacyDuties.forEach((duty) => {
+                const key = normalizeKey(duty?.Id || duty?.id || duty?.Name || duty?.name);
+                if (!key || seenDutyKeys.has(key)) return;
+                seenDutyKeys.add(key);
+                allMyDuties.push(duty);
+            });
             
-            if (myDuties.length === 0) {
+            if (allMyDuties.length === 0) {
                 container.innerHTML = `
                     <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
                         <i class="fas fa-clipboard-check" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
@@ -48167,7 +48259,7 @@ window.addEventListener('load', function() {
                 'Low': '#10b981'
             };
             
-            container.innerHTML = myDuties.map(duty => `
+            container.innerHTML = allMyDuties.map(duty => `
                 <div style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px; border-left: 4px solid ${priorityColors[duty.Priority || duty.priority] || '#3b82f6'};">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                         <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">${duty.Name || duty.name || duty.Title || duty.title || 'Duty'}</div>
