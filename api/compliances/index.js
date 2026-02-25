@@ -235,28 +235,25 @@ module.exports = async function (context, req) {
                 return;
             }
 
-            if (!hasAssignmentTable) {
-                context.res = { status: 501, headers, body: { error: 'UserComplianceAssignments table is required for bulk assignments.' } };
-                return;
-            }
-
             const tx = new sql.Transaction(pool);
             await tx.begin();
             try {
-                await new sql.Request(tx)
-                    .input('userId', sql.Int, targetUserId)
-                    .query('DELETE FROM UserComplianceAssignments WHERE UserId = @userId');
-
-                for (const complianceId of selectedComplianceIds) {
+                if (hasAssignmentTable) {
                     await new sql.Request(tx)
                         .input('userId', sql.Int, targetUserId)
-                        .input('complianceId', sql.Int, complianceId)
-                        .query(`
+                        .query('DELETE FROM UserComplianceAssignments WHERE UserId = @userId');
+
+                    for (const complianceId of selectedComplianceIds) {
+                        await new sql.Request(tx)
+                            .input('userId', sql.Int, targetUserId)
+                            .input('complianceId', sql.Int, complianceId)
+                            .query(`
 INSERT INTO UserComplianceAssignments (UserId, ComplianceId)
 SELECT @userId, @complianceId
 WHERE EXISTS (
     SELECT 1 FROM Compliances c WHERE c.Id = @complianceId ${hasIsActive ? 'AND c.IsActive = 1' : ''}
 )`);
+                    }
                 }
 
                 if (hasColumn(complianceColumns, 'UserId')) {

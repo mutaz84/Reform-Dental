@@ -15422,7 +15422,7 @@
                     </a>
                     <a href="#" class="nav-item" onclick="if(window.switchContentView){window.switchContentView('requirements', event); return false;}">
                         <i class="fas fa-clipboard-check"></i>
-                        <span>Requirements</span>
+                        <span>My Compliances</span>
                     </a>
                 </div>
             </div>
@@ -20860,6 +20860,9 @@
             const selectedComplianceIds = (typeof getSelectedComplianceIds === 'function')
                 ? getSelectedComplianceIds()
                 : [];
+            const selectedComplianceTypeIds = (typeof getSelectedComplianceTypeIds === 'function')
+                ? getSelectedComplianceTypeIds()
+                : [];
 
             if (isEditMode) {
                 if (!Number.isInteger(Number(addUserEditRecordId)) || Number(addUserEditRecordId) <= 0) {
@@ -20883,7 +20886,12 @@
                     await saveViewUserDutyAssignments(Number(addUserEditRecordId), selectedDutyIds);
                 }
                 if (typeof saveViewUserComplianceAssignments === 'function') {
-                    await saveViewUserComplianceAssignments(Number(addUserEditRecordId), selectedComplianceIds);
+                    const createdComplianceIds = await createUserCompliancesFromTypes(Number(addUserEditRecordId), selectedComplianceTypeIds);
+                    const complianceIdsForAssignment = Array.from(new Set([
+                        ...selectedComplianceIds,
+                        ...createdComplianceIds
+                    ].map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)));
+                    await saveViewUserComplianceAssignments(Number(addUserEditRecordId), complianceIdsForAssignment);
                 }
 
                 if (typeof syncUsersFromAPI === 'function') {
@@ -20930,9 +20938,16 @@
                 }
 
                 // Assign selected compliances to the new user
-                if (selectedComplianceIds.length > 0 && Number.isInteger(persistedUserId) && persistedUserId > 0) {
-                    await saveViewUserComplianceAssignments(persistedUserId, selectedComplianceIds);
-                } else if (selectedComplianceIds.length > 0) {
+                if (Number.isInteger(persistedUserId) && persistedUserId > 0) {
+                    const createdComplianceIds = await createUserCompliancesFromTypes(persistedUserId, selectedComplianceTypeIds);
+                    const complianceIdsForAssignment = Array.from(new Set([
+                        ...selectedComplianceIds,
+                        ...createdComplianceIds
+                    ].map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)));
+                    if (complianceIdsForAssignment.length > 0) {
+                        await saveViewUserComplianceAssignments(persistedUserId, complianceIdsForAssignment);
+                    }
+                } else if (selectedComplianceIds.length > 0 || selectedComplianceTypeIds.length > 0) {
                     console.warn('⚠️ Unable to assign compliances: persisted user ID missing after create.', {
                         username,
                         savedUser
@@ -20951,6 +20966,7 @@
             const assignmentSummary = [];
             if (selectedDutyIds.length > 0) assignmentSummary.push(`${selectedDutyIds.length} duties assigned`);
             if (selectedComplianceIds.length > 0) assignmentSummary.push(`${selectedComplianceIds.length} compliances assigned`);
+            if (selectedComplianceTypeIds.length > 0) assignmentSummary.push(`${selectedComplianceTypeIds.length} compliance types selected`);
             errorDiv.textContent = `Employee "${fullName}" created successfully!${assignmentSummary.length ? ` (${assignmentSummary.join(', ')})` : ''}`;
             
             // Reset form
@@ -21067,7 +21083,7 @@
                             <button type="button" data-user-action="hr" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('hr','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" title="HR Info" aria-label="HR Info">
                                 <i class="fas fa-file-invoice-dollar"></i>
                             </button>
-                            <button type="button" data-user-action="requirements" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('requirements','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Requirements" aria-label="Requirements">
+                            <button type="button" data-user-action="requirements" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('requirements','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Compliances" aria-label="Compliances">
                                 <i class="fas fa-file-contract"></i>
                             </button>
                             ${username !== 'admin' ? `<button type="button" data-user-action="delete" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('delete','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete User" aria-label="Delete User">
@@ -21922,6 +21938,9 @@
             const selectedComplianceIds = (typeof getSelectedComplianceIdsForView === 'function')
                 ? getSelectedComplianceIdsForView()
                 : [];
+            const selectedComplianceTypeIds = (typeof getSelectedComplianceTypeIds === 'function')
+                ? getSelectedComplianceTypeIds()
+                : [];
             let userRecordId = Number(document.getElementById('viewUserRecordId')?.value || getUserRecordId(user) || 0);
             if (!Number.isFinite(userRecordId) || userRecordId <= 0) {
                 const sqlRecord = await fetchSingleUserRecordFromSQL(originalUsername, null);
@@ -21945,7 +21964,12 @@
             if (persistedUserId) {
                 await saveViewUserDutyAssignments(persistedUserId, selectedDutyIds);
                 if (typeof saveViewUserComplianceAssignments === 'function') {
-                    await saveViewUserComplianceAssignments(persistedUserId, selectedComplianceIds);
+                    const createdComplianceIds = await createUserCompliancesFromTypes(persistedUserId, selectedComplianceTypeIds);
+                    const complianceIdsForAssignment = Array.from(new Set([
+                        ...selectedComplianceIds,
+                        ...createdComplianceIds
+                    ].map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)));
+                    await saveViewUserComplianceAssignments(persistedUserId, complianceIdsForAssignment);
                 }
             }
 
@@ -22583,6 +22607,24 @@
                     : (Array.isArray(compliance?.AssignedUserIds) ? compliance.AssignedUserIds : []);
                 const assignedTo = Number(compliance?.userId ?? compliance?.UserId ?? 0);
                 checkbox.checked = assignedTo === recordId || assignedUserIds.map((value) => Number(value)).includes(recordId);
+            });
+
+            const userComplianceTypeIds = new Set(
+                (Array.isArray(window.compliancesData) ? window.compliancesData : [])
+                    .map((raw) => normalizeComplianceRecord(raw) || raw)
+                    .filter((compliance) => {
+                        const assignedUserIds = Array.isArray(compliance?.assignedUserIds)
+                            ? compliance.assignedUserIds
+                            : (Array.isArray(compliance?.AssignedUserIds) ? compliance.AssignedUserIds : []);
+                        const assignedTo = Number(compliance?.userId ?? compliance?.UserId ?? 0);
+                        return assignedTo === recordId || assignedUserIds.map((value) => Number(value)).includes(recordId);
+                    })
+                    .map((compliance) => Number(compliance?.complianceTypeId))
+                    .filter((value) => Number.isInteger(value) && value > 0)
+            );
+
+            document.querySelectorAll('input[name="selectedComplianceTypes"]').forEach((checkbox) => {
+                checkbox.checked = userComplianceTypeIds.has(Number(checkbox.value));
             });
 
             const errorDiv = document.getElementById('createUserError');
@@ -48304,16 +48346,55 @@ window.addEventListener('load', function() {
             if (!container) return;
 
             const compliances = Array.isArray(window.compliancesData) ? window.compliancesData : [];
+            const fallbackTypes = [
+                { id: 1, name: 'CPR Certification' },
+                { id: 2, name: 'BLS Certification' },
+                { id: 3, name: 'HIPAA Training' },
+                { id: 4, name: 'OSHA Training' },
+                { id: 5, name: 'Infection Control' },
+                { id: 6, name: 'DEA License' },
+                { id: 7, name: 'State Dental License' },
+                { id: 8, name: 'Malpractice Insurance' },
+                { id: 9, name: 'Business License' },
+                { id: 10, name: 'Fire Safety Inspection' },
+                { id: 11, name: 'X-Ray Machine Registration' },
+                { id: 12, name: 'Waste Disposal License' },
+                { id: 13, name: 'Water Quality Test' },
+                { id: 14, name: 'HVAC Maintenance' }
+            ];
+            const cachedTypes = Array.isArray(window.__assignmentComplianceTypes) && window.__assignmentComplianceTypes.length
+                ? window.__assignmentComplianceTypes
+                : ((() => {
+                    const fromStorage = safeParseLocalStorageJSON('complianceTypes', [], { expect: 'array' });
+                    return Array.isArray(fromStorage) && fromStorage.length ? fromStorage : fallbackTypes;
+                })());
+            window.__assignmentComplianceTypes = cachedTypes;
+
             if (!compliances.length) {
                 container.innerHTML = `
                     <div style="color: var(--text-tertiary); font-style: italic; padding: 1rem; grid-column: 1 / -1; text-align: center;">
-                        <i class="fas fa-info-circle"></i> No compliances available. Create compliances in the Manager tab.
+                        <i class="fas fa-info-circle"></i> No compliance records yet. Select compliance types below; records will be created for this user on save.
                     </div>
+                    ${cachedTypes.map((type) => `
+                        <label style="display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem; background: var(--card-bg); border-radius: 6px; cursor: pointer; border: 1px solid var(--border-color); transition: all 0.2s;"
+                               onmouseover="this.style.borderColor='var(--accent-primary)'"
+                               onmouseout="this.style.borderColor='var(--border-color)'">
+                            <input type="checkbox" name="selectedComplianceTypes" value="${Number(type.id || type.Id)}" style="margin-top: 0.25rem; width: 18px; height: 18px; cursor: pointer;">
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">${String(type.name || type.Name || 'Compliance Type')}</div>
+                                <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.25rem;">Will create a compliance record for this user</div>
+                            </div>
+                        </label>
+                    `).join('')}
                 `;
                 return;
             }
 
-            container.innerHTML = compliances.map((record) => {
+            container.innerHTML = `
+                <div style="grid-column: 1 / -1; font-size: 0.8rem; color: var(--text-secondary); padding: 0.25rem 0.25rem 0.5rem 0.25rem;">
+                    Existing compliance records (assign directly)
+                </div>
+                ${compliances.map((record) => {
                 const compliance = normalizeComplianceRecord(record) || record;
                 const complianceId = compliance.id || compliance.Id;
                 return `
@@ -48330,7 +48411,22 @@ window.addEventListener('load', function() {
                         </div>
                     </label>
                 `;
-            }).join('');
+                }).join('')}
+                <div style="grid-column: 1 / -1; font-size: 0.8rem; color: var(--text-secondary); padding: 0.5rem 0.25rem; border-top: 1px dashed var(--border-color); margin-top: 0.25rem;">
+                    Compliance types (create and assign new records to this user)
+                </div>
+                ${cachedTypes.map((type) => `
+                    <label style="display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem; background: var(--card-bg); border-radius: 6px; cursor: pointer; border: 1px solid var(--border-color); transition: all 0.2s;"
+                           onmouseover="this.style.borderColor='var(--accent-primary)'"
+                           onmouseout="this.style.borderColor='var(--border-color)'">
+                        <input type="checkbox" name="selectedComplianceTypes" value="${Number(type.id || type.Id)}" style="margin-top: 0.25rem; width: 18px; height: 18px; cursor: pointer;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">${String(type.name || type.Name || 'Compliance Type')}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.25rem;">Create a new compliance record for this user</div>
+                        </div>
+                    </label>
+                `).join('')}
+            `;
         }
         
         // Select/Clear all duties
@@ -48344,10 +48440,12 @@ window.addEventListener('load', function() {
 
         function selectAllUserCompliances() {
             document.querySelectorAll('input[name="selectedCompliances"]').forEach(cb => cb.checked = true);
+            document.querySelectorAll('input[name="selectedComplianceTypes"]').forEach(cb => cb.checked = true);
         }
 
         function clearAllUserCompliances() {
             document.querySelectorAll('input[name="selectedCompliances"]').forEach(cb => cb.checked = false);
+            document.querySelectorAll('input[name="selectedComplianceTypes"]').forEach(cb => cb.checked = false);
         }
         
         // Get selected duty IDs
@@ -48365,6 +48463,83 @@ window.addEventListener('load', function() {
                 selected.push(parseInt(cb.value));
             });
             return selected.filter((id) => Number.isInteger(id) && id > 0);
+        }
+
+        function getSelectedComplianceTypeIds() {
+            const selected = [];
+            document.querySelectorAll('input[name="selectedComplianceTypes"]:checked').forEach(cb => {
+                selected.push(parseInt(cb.value));
+            });
+            return selected.filter((id) => Number.isInteger(id) && id > 0);
+        }
+
+        async function createUserCompliancesFromTypes(userId, selectedTypeIds) {
+            const userIdNumber = Number(userId);
+            if (!Number.isInteger(userIdNumber) || userIdNumber <= 0) return [];
+
+            const typeIds = Array.from(new Set((Array.isArray(selectedTypeIds) ? selectedTypeIds : [])
+                .map((value) => Number(value))
+                .filter((value) => Number.isInteger(value) && value > 0)));
+            if (!typeIds.length) return [];
+
+            try {
+                const existingResponse = await fetchComplianceApi('compliances', `?userId=${encodeURIComponent(userIdNumber)}`);
+                const existingRecords = existingResponse.ok
+                    ? (await existingResponse.json()).map(normalizeComplianceRecord).filter(Boolean)
+                    : [];
+                const existingTypeIds = new Set(existingRecords
+                    .map((record) => Number(record?.complianceTypeId))
+                    .filter((value) => Number.isInteger(value) && value > 0));
+
+                let typeRecords = Array.isArray(window.__assignmentComplianceTypes) ? window.__assignmentComplianceTypes : [];
+                if (!typeRecords.length) {
+                    const typeResponse = await fetchComplianceApi('compliance-types');
+                    if (typeResponse.ok) {
+                        const rawTypes = await typeResponse.json();
+                        typeRecords = (Array.isArray(rawTypes) ? rawTypes : []).map(normalizeComplianceTypeRecord).filter(Boolean);
+                    }
+                }
+                if (!typeRecords.length) {
+                    typeRecords = [
+                        { id: 1, name: 'CPR Certification' },
+                        { id: 2, name: 'BLS Certification' },
+                        { id: 3, name: 'HIPAA Training' },
+                        { id: 4, name: 'OSHA Training' }
+                    ];
+                }
+
+                const createdIds = [];
+                for (const typeId of typeIds) {
+                    if (existingTypeIds.has(typeId)) continue;
+                    const type = typeRecords.find((entry) => Number(entry?.id || entry?.Id) === typeId);
+                    const typeName = String(type?.name || type?.Name || `Compliance Type #${typeId}`);
+                    const payload = {
+                        title: typeName,
+                        complianceTypeId: typeId,
+                        description: `${typeName} assigned during user setup`,
+                        userId: userIdNumber,
+                        status: 'pending',
+                        issueDate: new Date().toISOString().split('T')[0],
+                        createdById: getCurrentUserId(),
+                        modifiedById: getCurrentUserId()
+                    };
+
+                    const createResponse = await fetchComplianceApi('compliances', '', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!createResponse.ok) continue;
+                    const created = normalizeComplianceRecord(await createResponse.json());
+                    const createdId = Number(created?.id || created?.Id);
+                    if (Number.isInteger(createdId) && createdId > 0) createdIds.push(createdId);
+                }
+
+                return createdIds;
+            } catch (error) {
+                console.error('Failed creating compliances from selected types:', error);
+                return [];
+            }
         }
         
         // Assign duties to user
@@ -67965,10 +68140,6 @@ console.log('✅ Global functions exported to window object');
                             <a href="#" class="nav-item" onclick="switchContentView('compliances', event); return false;">
                                 <i class="fas fa-file-contract"></i>
                                 <span>Manage Compliances</span>
-                            </a>
-                            <a href="#" class="nav-item" onclick="openComplianceTypesManager(); return false;">
-                                <i class="fas fa-cogs"></i>
-                                <span>Compliance Types</span>
                             </a>
                             <a href="#" class="nav-item" onclick="openTasksManagement(); return false;">
                                 <i class="fas fa-tasks"></i>

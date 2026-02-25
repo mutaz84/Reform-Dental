@@ -646,5 +646,25 @@ WHERE u.IsActive = 1 AND u.EmployeeStatus = 'active'
 GROUP BY u.Id, u.FirstName, u.LastName, u.JobTitle;
 GO
 
-PRINT 'ReformDental Complete Database Schema Created Successfully!';</content>
-<parameter name="filePath">c:\Users\MaxRa\OneDrive\Desktop\Application Development\Deployment\Reform-Dental\database\complete-schema.sql
+-- =============================================
+-- LINK TABLE: USER COMPLIANCE ASSIGNMENTS (MANY-TO-MANY)
+-- =============================================
+IF OBJECT_ID(N'dbo.UserComplianceAssignments', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.UserComplianceAssignments (
+        UserId INT NOT NULL,
+        ComplianceId INT NOT NULL,
+        AssignedAt DATETIME2(0) NOT NULL CONSTRAINT DF_UserComplianceAssignments_AssignedAt DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_UserComplianceAssignments PRIMARY KEY CLUSTERED (UserId, ComplianceId),
+        CONSTRAINT FK_UserComplianceAssignments_Users FOREIGN KEY (UserId) REFERENCES dbo.Users(Id),
+        CONSTRAINT FK_UserComplianceAssignments_Compliances FOREIGN KEY (ComplianceId) REFERENCES dbo.Compliances(Id)
+    );
+
+    CREATE NONCLUSTERED INDEX IX_UserComplianceAssignments_ComplianceId
+        ON dbo.UserComplianceAssignments (ComplianceId);
+
+    CREATE NONCLUSTERED INDEX IX_UserComplianceAssignments_UserId
+        ON dbo.UserComplianceAssignments (UserId);
+END;
+
+PRINT 'ReformDental Complete Database Schema Created Successfully!';
