@@ -19354,6 +19354,10 @@
                     startRequestsBadgePolling();
                 }
 
+                if (typeof startComplianceBadgePolling === 'function') {
+                    startComplianceBadgePolling();
+                }
+
                 if (typeof checkDueComplianceNotifications === 'function') {
                     const now = Date.now();
                     const lastCheckAt = Number(window.__lastComplianceDueCheckAt || 0);
@@ -23021,9 +23025,15 @@
                 const requirements = (window.__requirementsCache[currentUserId] || []).slice();
                 renderRequirementsList(requirements);
                 renderRequirementsStats(requirements);
+                if (typeof refreshComplianceNavBadges === 'function') {
+                    refreshComplianceNavBadges();
+                }
             } catch (error) {
                 console.error('Failed to initialize requirements view:', error);
                 listEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">Unable to load requirements.</div>';
+                if (typeof refreshComplianceNavBadges === 'function') {
+                    refreshComplianceNavBadges();
+                }
             }
         }
 
@@ -23142,6 +23152,9 @@
                 loadComplianceSummaryByUser(true).then(() => {
                     if (typeof displayUsersList === 'function') displayUsersList();
                 }).catch(() => {});
+                if (typeof refreshComplianceNavBadges === 'function') {
+                    refreshComplianceNavBadges();
+                }
             } catch (error) {
                 console.error('Failed to mark requirement completed:', error);
                 if (typeof showNotification === 'function') {
@@ -23334,6 +23347,111 @@
             return ['admin', 'owner', 'manager', 'administrator', 'superadmin'].includes(role);
         }
 
+        function getComplianceNavItemsByView(viewName) {
+            const normalized = String(viewName || '').trim();
+            if (!normalized) return [];
+
+            return Array.from(document.querySelectorAll('.nav-item[onclick]')).filter((item) => {
+                const onclick = String(item.getAttribute('onclick') || '');
+                return onclick.includes(`switchContentView('${normalized}'`) ||
+                    onclick.includes(`switchContentView("${normalized}"`) ||
+                    onclick.includes(`window.switchContentView('${normalized}'`) ||
+                    onclick.includes(`window.switchContentView("${normalized}"`);
+            });
+        }
+
+        function setComplianceNavBadge(viewName, count, badgeKey) {
+            const items = getComplianceNavItemsByView(viewName);
+            items.forEach((item) => {
+                let badge = item.querySelector(`.nav-badge[data-badge="${badgeKey}"]`) || item.querySelector('.nav-badge');
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'nav-badge';
+                    item.appendChild(badge);
+                }
+
+                badge.dataset.badge = badgeKey;
+                badge.textContent = String(count);
+                badge.style.display = count > 0 ? 'inline-flex' : 'none';
+            });
+        }
+
+        async function refreshComplianceNavBadges(options = {}) {
+            const isLoggedIn = !!localStorage.getItem('loggedInUser');
+            if (!isLoggedIn) {
+                setComplianceNavBadge('compliances', 0, 'compliances-pending-approvals');
+                setComplianceNavBadge('requirements', 0, 'my-compliances-assigned');
+                return;
+            }
+
+            const canApprove = canCurrentUserApproveCompliances();
+            const canTryApi = isComplianceApiConfigured();
+
+            let allCompliances = Array.isArray(window.compliancesData) ? window.compliancesData : [];
+            if ((options.forceAllFetch || !allCompliances.length) && canTryApi) {
+                try {
+                    const allResponse = await fetchComplianceApi('compliances');
+                    if (allResponse.ok) {
+                        allCompliances = (await allResponse.json())
+                            .map(normalizeComplianceRecord)
+                            .filter(Boolean);
+                        window.compliancesData = allCompliances;
+                    }
+                } catch (_) {}
+            }
+
+            const pendingApprovalsCount = canApprove
+                ? allCompliances.filter((item) => String(item?.status || '').toLowerCase() === 'pending_approval').length
+                : 0;
+
+            let assignedForUserCount = 0;
+            const currentUserId = getCurrentComplianceUserId();
+            if (currentUserId) {
+                let myCompliances = Array.isArray(window.__requirementsCache?.[currentUserId])
+                    ? window.__requirementsCache[currentUserId]
+                    : [];
+
+                if ((options.forceUserFetch || !myCompliances.length) && canTryApi) {
+                    try {
+                        const userResponse = await fetchComplianceApi('compliances', `?userId=${encodeURIComponent(currentUserId)}`);
+                        if (userResponse.ok) {
+                            myCompliances = (await userResponse.json())
+                                .map(normalizeComplianceRecord)
+                                .filter(Boolean);
+                            window.__requirementsCache = window.__requirementsCache || {};
+                            window.__requirementsCache[currentUserId] = myCompliances;
+                        }
+                    } catch (_) {}
+                }
+
+                assignedForUserCount = (Array.isArray(myCompliances) ? myCompliances : []).filter((item) => {
+                    const status = String(item?.status || '').toLowerCase();
+                    return status !== 'completed';
+                }).length;
+            }
+
+            setComplianceNavBadge('compliances', pendingApprovalsCount, 'compliances-pending-approvals');
+            setComplianceNavBadge('requirements', assignedForUserCount, 'my-compliances-assigned');
+        }
+
+        window.refreshComplianceNavBadges = refreshComplianceNavBadges;
+
+        function startComplianceBadgePolling() {
+            if (window.__complianceBadgePollStarted) return;
+            window.__complianceBadgePollStarted = true;
+
+            const tick = () => {
+                if (typeof refreshComplianceNavBadges === 'function') {
+                    refreshComplianceNavBadges({ forceAllFetch: true, forceUserFetch: true });
+                }
+            };
+
+            tick();
+            setInterval(tick, 60 * 1000);
+        }
+
+        window.startComplianceBadgePolling = startComplianceBadgePolling;
+
         async function approveComplianceCompletion(complianceId, userLookup, options = {}) {
             if (!complianceId) return;
             try {
@@ -23366,6 +23484,9 @@
                 loadComplianceSummaryByUser(true).then(() => {
                     if (typeof displayUsersList === 'function') displayUsersList();
                 }).catch(() => {});
+                if (typeof refreshComplianceNavBadges === 'function') {
+                    refreshComplianceNavBadges();
+                }
             } catch (error) {
                 console.error('Failed to approve compliance:', error);
                 if (typeof showNotification === 'function') {
@@ -24295,6 +24416,9 @@
                     if (typeof showNotification === 'function') {
                         showNotification(isTemplateMode ? 'Compliance template created and assigned.' : 'Compliance saved successfully!', 'success');
                     }
+                    if (typeof refreshComplianceNavBadges === 'function') {
+                        refreshComplianceNavBadges({ forceAllFetch: true, forceUserFetch: true });
+                    }
                     return;
                 } catch (error) {
                     console.error('Error saving compliance via API:', error);
@@ -24604,6 +24728,9 @@
 
                     // Display compliances
                     displayCompliances(compliances);
+                    if (typeof refreshComplianceNavBadges === 'function') {
+                        refreshComplianceNavBadges();
+                    }
                 } else {
                     throw new Error('API not available');
                 }
@@ -24641,6 +24768,9 @@
 
                 // Display compliances
                 displayCompliances(compliances);
+                if (typeof refreshComplianceNavBadges === 'function') {
+                    refreshComplianceNavBadges();
+                }
             }
         }
 
@@ -40498,11 +40628,17 @@ window.initializeCalendar = initializeCalendar;
                 // Initialize compliances view on demand
                 if (viewName === 'compliances' && typeof loadAllCompliances === 'function') {
                     loadAllCompliances();
+                    if (typeof refreshComplianceNavBadges === 'function') {
+                        refreshComplianceNavBadges();
+                    }
                 }
 
                 // Initialize employee requirements view on demand
                 if (viewName === 'requirements' && typeof initializeRequirementsView === 'function') {
                     initializeRequirementsView(true);
+                    if (typeof refreshComplianceNavBadges === 'function') {
+                        refreshComplianceNavBadges();
+                    }
                 }
 
                 // Initialize manage-tasks view on demand
