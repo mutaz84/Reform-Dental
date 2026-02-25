@@ -21068,6 +21068,97 @@
                 .replace(/'/g, '&#39;');
         }
 
+        const VIEW_USER_BASE_FIELDS = new Set([
+            'id', 'Id', 'dbId', 'DBId',
+            'username', 'Username',
+            'password', 'passwordHash', 'PasswordHash',
+            'role', 'Role', 'roleId', 'RoleId',
+            'title', 'Title',
+            'name',
+            'firstName', 'FirstName',
+            'middleName', 'MiddleName',
+            'lastName', 'LastName',
+            'gender', 'Gender',
+            'dateOfBirth', 'DateOfBirth',
+            'ssn', 'SSN',
+            'personalEmail', 'PersonalEmail',
+            'workEmail', 'WorkEmail',
+            'homePhone', 'HomePhone',
+            'cellPhone', 'CellPhone',
+            'address', 'Address',
+            'city', 'City',
+            'state', 'State',
+            'zipCode', 'ZipCode',
+            'jobTitle', 'JobTitle',
+            'staffType', 'StaffType',
+            'employeeType', 'EmployeeType',
+            'department', 'Department',
+            'employeeStatus', 'EmployeeStatus',
+            'hireDate', 'HireDate',
+            'hourlyRate', 'HourlyRate',
+            'salary', 'Salary',
+            'color', 'Color',
+            'emergencyContactName', 'EmergencyContactName',
+            'emergencyContactRelationship', 'EmergencyContactRelationship',
+            'emergencyContactPhone', 'EmergencyContactPhone',
+            'emergencyContactEmail', 'EmergencyContactEmail',
+            'nextReviewDate', 'NextReviewDate',
+            'officeLocation', 'OfficeLocation',
+            'directSupervisor', 'DirectSupervisor',
+            'separationDate', 'SeparationDate',
+            'separationReason', 'SeparationReason',
+            'photo', 'Photo',
+            'photoData', 'PhotoData',
+            'photoFileName', 'PhotoFileName',
+            'profileImage', 'ProfileImage',
+            'documents', 'Documents',
+            'permissions', 'Permissions',
+            'createdDate', 'CreatedDate',
+            'modifiedDate', 'ModifiedDate',
+            'isActive', 'IsActive',
+            'isOnline', 'IsOnline',
+            'lastSeen', 'LastSeen',
+            'failedLoginAttempts', 'FailedLoginAttempts',
+            'hrInfo', 'HRInfo'
+        ]);
+
+        function renderViewUserAdditionalFields(user) {
+            const container = document.getElementById('viewUserAdditionalFields');
+            if (!container) return;
+
+            const extraKeys = Object.keys(user || {}).filter((key) => !VIEW_USER_BASE_FIELDS.has(key)).sort();
+            if (!extraKeys.length) {
+                container.innerHTML = '<div style="color: var(--text-tertiary); font-style: italic;">No additional fields found.</div>';
+                return;
+            }
+
+            container.innerHTML = extraKeys.map((key) => {
+                const value = user[key];
+                const valueType = Array.isArray(value) ? 'array' : typeof value;
+                const isComplex = valueType === 'object' || valueType === 'array';
+                const serialized = isComplex ? JSON.stringify(value ?? null, null, 2) : String(value ?? '');
+
+                if (valueType === 'boolean') {
+                    return `
+                        <div>
+                            <label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">${escapeUserViewValue(key)}</label>
+                            <select data-extra-field="${escapeUserViewValue(key)}" data-extra-type="boolean" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="true" ${value === true ? 'selected' : ''}>true</option>
+                                <option value="false" ${value === false ? 'selected' : ''}>false</option>
+                            </select>
+                        </div>
+                    `;
+                }
+
+                return `
+                    <div style="grid-column:${isComplex ? '1 / -1' : 'auto'};">
+                        <label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">${escapeUserViewValue(key)}</label>
+                        <textarea data-extra-field="${escapeUserViewValue(key)}" data-extra-type="${isComplex ? 'json' : valueType}" style="width:100%; min-height:${isComplex ? '96px' : '40px'}; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary); resize:vertical;">${escapeUserViewValue(serialized)}</textarea>
+                    </div>
+                `;
+            }).join('');
+        }
+
         let viewUploadedPhoto = null;
         let viewUploadedDocuments = [];
 
@@ -21273,16 +21364,27 @@
         async function saveUserFromViewModal(event) {
             event.preventDefault();
 
+            const originalUsername = String(document.getElementById('viewUserUsernameOriginal')?.value || '').trim();
             const username = String(document.getElementById('viewUserUsername')?.value || '').trim();
-            if (!username) {
+            if (!originalUsername) {
                 alert('User not found.');
                 return;
             }
 
+            if (!username) {
+                alert('Username is required.');
+                return;
+            }
+
             const users = loadUsers();
-            const user = users[username];
+            const user = users[originalUsername];
             if (!user) {
                 alert('User not found.');
+                return;
+            }
+
+            if (username !== originalUsername && users[username]) {
+                alert('Username already exists. Please choose a different username.');
                 return;
             }
 
@@ -21321,6 +21423,52 @@
             user.separationReason = document.getElementById('viewUserSeparationReason').value.trim();
             user.color = document.getElementById('viewUserColor').value || user.color || '#06b6d4';
             user.isActive = document.getElementById('viewUserIsActive').value === 'true';
+            user.roleId = document.getElementById('viewUserRoleId').value ? Number(document.getElementById('viewUserRoleId').value) : null;
+            user.isOnline = document.getElementById('viewUserIsOnline').value === 'true';
+            user.lastSeen = document.getElementById('viewUserLastSeen').value.trim();
+            user.failedLoginAttempts = Number(document.getElementById('viewUserFailedLoginAttempts').value || 0) || 0;
+            user.passwordHash = document.getElementById('viewUserPasswordHash').value.trim();
+
+            const permissionsRaw = document.getElementById('viewUserPermissions').value.trim();
+            if (!permissionsRaw) {
+                user.permissions = {};
+            } else {
+                try {
+                    user.permissions = JSON.parse(permissionsRaw);
+                } catch (_) {
+                    user.permissions = permissionsRaw;
+                }
+            }
+
+            const extraFields = document.querySelectorAll('[data-extra-field]');
+            extraFields.forEach((field) => {
+                const key = String(field.getAttribute('data-extra-field') || '').trim();
+                const fieldType = String(field.getAttribute('data-extra-type') || 'string');
+                if (!key) return;
+                const rawValue = String(field.value || '').trim();
+
+                if (fieldType === 'boolean') {
+                    user[key] = rawValue === 'true';
+                    return;
+                }
+                if (fieldType === 'number') {
+                    user[key] = rawValue === '' ? null : Number(rawValue);
+                    return;
+                }
+                if (fieldType === 'json') {
+                    if (rawValue === '') {
+                        user[key] = null;
+                        return;
+                    }
+                    try {
+                        user[key] = JSON.parse(rawValue);
+                    } catch (_) {
+                        user[key] = rawValue;
+                    }
+                    return;
+                }
+                user[key] = rawValue;
+            });
 
             const hourlyRateRaw = document.getElementById('viewUserHourlyRate').value;
             const salaryRaw = document.getElementById('viewUserSalary').value;
@@ -21329,9 +21477,11 @@
             user.photoData = viewUploadedPhoto ? (viewUploadedPhoto.dataURL || viewUploadedPhoto.dataUrl || null) : null;
             user.photoFileName = viewUploadedPhoto ? (viewUploadedPhoto.fileName || viewUploadedPhoto.name || null) : null;
             user.documents = Array.isArray(viewUploadedDocuments) ? viewUploadedDocuments : [];
+            user.profileImage = user.photoData;
 
             user.name = [user.firstName, user.middleName, user.lastName].filter(Boolean).join(' ');
-            user.modifiedDate = new Date().toISOString();
+            user.createdDate = document.getElementById('viewUserCreatedDate').value.trim() || user.createdDate || new Date().toISOString();
+            user.modifiedDate = document.getElementById('viewUserModifiedDate').value.trim() || new Date().toISOString();
 
             const selectedDutyIds = getSelectedDutyIdsForView();
             const userRecordId = getUserRecordId(user);
@@ -21340,6 +21490,12 @@
             }
 
             saveUsers(users);
+
+            if (username !== originalUsername) {
+                users[username] = user;
+                delete users[originalUsername];
+                saveUsers(users);
+            }
 
             if (userRecordId && typeof updateUserViaAPI === 'function') {
                 await updateUserViaAPI(userRecordId, user);
@@ -21385,9 +21541,9 @@
                         <button type="button" onclick="closeViewUserModal()" style="background: #ef4444; color: #fff; border: none; border-radius: 8px; width: 36px; height: 36px; cursor: pointer; font-size: 1.2rem;">&times;</button>
                     </div>
                     <form onsubmit="saveUserFromViewModal(event)" style="display:flex; flex-direction:column; min-height:0;">
-                        <input type="hidden" id="viewUserUsername" value="${escapeUserViewValue(username)}">
+                        <input type="hidden" id="viewUserUsernameOriginal" value="${escapeUserViewValue(username)}">
                         <div style="padding: 1rem 1.25rem; overflow:auto; display:grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 0.85rem 1rem;">
-                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Username</label><input type="text" value="${escapeUserViewValue(username)}" readonly style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--bg-secondary); color: var(--text-secondary);"></div>
+                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Username</label><input id="viewUserUsername" type="text" value="${escapeUserViewValue(username)}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Role</label><select id="viewUserRole" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"><option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option><option value="manager" ${user.role === 'manager' ? 'selected' : ''}>Manager</option><option value="user" ${(user.role || 'user') === 'user' ? 'selected' : ''}>User</option></select></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Title</label><input id="viewUserTitle" type="text" value="${escapeUserViewValue(user.title || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Job Title</label><input id="viewUserJobTitle" type="text" value="${escapeUserViewValue(user.jobTitle || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
@@ -21423,6 +21579,12 @@
                             <div style="grid-column:1 / -1;"><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Separation Reason</label><input id="viewUserSeparationReason" type="text" value="${escapeUserViewValue(user.separationReason || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Color</label><input id="viewUserColor" type="color" value="${escapeUserViewValue(user.color || '#06b6d4')}" style="width:100%; height:40px; padding:0.25rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Active Flag</label><select id="viewUserIsActive" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"><option value="true" ${(user.isActive !== false) ? 'selected' : ''}>true</option><option value="false" ${(user.isActive === false) ? 'selected' : ''}>false</option></select></div>
+                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Role ID</label><input id="viewUserRoleId" type="number" value="${escapeUserViewValue(user.roleId ?? user.RoleId ?? '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
+                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Online Flag</label><select id="viewUserIsOnline" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"><option value="true" ${(user.isOnline === true || user.IsOnline === true) ? 'selected' : ''}>true</option><option value="false" ${(user.isOnline === true || user.IsOnline === true) ? '' : 'selected'}>false</option></select></div>
+                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Last Seen</label><input id="viewUserLastSeen" type="text" value="${escapeUserViewValue(user.lastSeen || user.LastSeen || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
+                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Failed Login Attempts</label><input id="viewUserFailedLoginAttempts" type="number" min="0" value="${escapeUserViewValue(user.failedLoginAttempts ?? user.FailedLoginAttempts ?? 0)}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
+                            <div style="grid-column:1 / -1;"><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Password Hash</label><input id="viewUserPasswordHash" type="text" value="${escapeUserViewValue(user.passwordHash || user.PasswordHash || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
+                            <div style="grid-column:1 / -1;"><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Permissions (JSON)</label><textarea id="viewUserPermissions" style="width:100%; min-height:90px; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary); resize:vertical;">${escapeUserViewValue(typeof user.permissions === 'string' ? user.permissions : JSON.stringify(user.permissions || {}, null, 2))}</textarea></div>
                             <div style="grid-column:1 / -1; margin-top:0.4rem; padding-top:0.75rem; border-top:1px solid var(--border-color);">
                                 <div style="font-weight:700; color: var(--text-primary); margin-bottom:0.6rem;">Duties</div>
                                 <div style="display:flex; gap:0.5rem; margin-bottom:0.5rem;">
@@ -21452,9 +21614,12 @@
                             </div>
                             <div style="grid-column:1 / -1; margin-top: 0.25rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color); display:grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 0.85rem 1rem;">
                                 <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">System ID</label><input type="text" value="${escapeUserViewValue(user.id || '')}" readonly style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--bg-secondary); color: var(--text-secondary);"></div>
-                                <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Created Date</label><input type="text" value="${escapeUserViewValue(user.createdDate || '')}" readonly style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--bg-secondary); color: var(--text-secondary);"></div>
-                                <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Modified Date</label><input type="text" value="${escapeUserViewValue(user.modifiedDate || '')}" readonly style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--bg-secondary); color: var(--text-secondary);"></div>
-                                <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Failed Login Attempts</label><input type="text" value="${escapeUserViewValue(user.failedLoginAttempts ?? '')}" readonly style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--bg-secondary); color: var(--text-secondary);"></div>
+                                <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Created Date</label><input id="viewUserCreatedDate" type="text" value="${escapeUserViewValue(user.createdDate || user.CreatedDate || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
+                                <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Modified Date</label><input id="viewUserModifiedDate" type="text" value="${escapeUserViewValue(user.modifiedDate || user.ModifiedDate || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
+                                <div style="grid-column:1 / -1; margin-top:0.6rem; border-top:1px solid var(--border-color); padding-top:0.75rem;">
+                                    <div style="font-weight:700; color: var(--text-primary); margin-bottom:0.55rem;">Additional Fields</div>
+                                    <div id="viewUserAdditionalFields" style="display:grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 0.85rem 1rem;"></div>
+                                </div>
                             </div>
                         </div>
                         <div style="display:flex; justify-content:flex-end; gap:0.75rem; padding: 1rem 1.25rem; border-top: 1px solid var(--border-color); background: var(--bg-secondary);">
@@ -21477,6 +21642,7 @@
             renderViewUserPhotoPreview();
             renderViewUserDocumentsPreview();
             renderViewUserDuties(user.id || user.dbId || user.Id);
+            renderViewUserAdditionalFields(user);
         }
 
         // ============ EDIT USER FUNCTIONS ============
@@ -21811,6 +21977,9 @@
         
         // Open edit user modal
         function openEditUserModal(username) {
+            openViewUserModal(username);
+            return;
+
             const users = loadUsers();
             const user = users[username];
             
