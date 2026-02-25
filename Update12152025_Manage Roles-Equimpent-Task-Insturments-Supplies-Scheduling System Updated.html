@@ -21600,8 +21600,14 @@
             const userIdNumber = Number(userId);
             container.innerHTML = duties.map((duty) => {
                 const dutyId = Number(duty.Id || duty.id);
+                const assignedUserIds = Array.isArray(duty.assignedUserIds)
+                    ? duty.assignedUserIds
+                    : (Array.isArray(duty.AssignedUserIds) ? duty.AssignedUserIds : []);
                 const assignedId = Number(duty.assignedToUserId ?? duty.AssignedToUserId ?? 0);
-                const checked = userIdNumber > 0 && assignedId === userIdNumber;
+                const checked = userIdNumber > 0 && (
+                    assignedId === userIdNumber ||
+                    assignedUserIds.map((value) => Number(value)).includes(userIdNumber)
+                );
                 return `
                     <label style="display:flex; align-items:flex-start; gap:0.6rem; padding:0.55rem; border:1px solid var(--border-color); border-radius:6px; background:var(--card-bg);">
                         <input type="checkbox" name="viewSelectedDuties" value="${dutyId}" ${checked ? 'checked' : ''} style="margin-top:0.2rem;">
@@ -21635,32 +21641,31 @@
         }
 
         async function saveViewUserDutyAssignments(userId, selectedDutyIds) {
-            const duties = Array.isArray(window.dutiesData) ? window.dutiesData : [];
-            if (!duties.length || !Number(userId)) return;
-
-            const selectedSet = new Set(selectedDutyIds.map((id) => Number(id)));
             const userIdNumber = Number(userId);
+            if (!Number.isInteger(userIdNumber) || userIdNumber <= 0) return;
 
-            for (const duty of duties) {
-                const dutyId = Number(duty.Id || duty.id);
-                if (!Number.isInteger(dutyId) || dutyId <= 0) continue;
+            const selectedDutyIdsNormalized = Array.from(new Set(
+                (Array.isArray(selectedDutyIds) ? selectedDutyIds : [])
+                    .map((value) => Number(value))
+                    .filter((value) => Number.isInteger(value) && value > 0)
+            ));
 
-                const assignedId = Number(duty.assignedToUserId ?? duty.AssignedToUserId ?? 0);
-                const shouldBeAssigned = selectedSet.has(dutyId);
-                const currentlyAssignedToUser = assignedId === userIdNumber;
-                if (shouldBeAssigned === currentlyAssignedToUser) continue;
+            const response = await fetch('/api/duties/assignments', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: userIdNumber,
+                    selectedDutyIds: selectedDutyIdsNormalized
+                })
+            });
 
-                const payload = { ...duty, assignedToUserId: shouldBeAssigned ? userIdNumber : null };
-                try {
-                    await fetch(`/api/duties/${dutyId}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    duty.assignedToUserId = shouldBeAssigned ? userIdNumber : null;
-                } catch (error) {
-                    console.error('Failed updating duty assignment:', dutyId, error);
-                }
+            if (!response.ok) {
+                const details = await response.text().catch(() => '');
+                throw new Error(`Failed updating duty assignments (${response.status}): ${details}`);
+            }
+
+            if (typeof loadDutiesFromAPI === 'function') {
+                try { await loadDutiesFromAPI(); } catch (_) {}
             }
         }
 
@@ -22424,8 +22429,11 @@
             document.querySelectorAll('input[name="selectedDuties"]').forEach((checkbox) => {
                 const dutyId = Number(checkbox.value);
                 const duty = Array.isArray(window.dutiesData) ? window.dutiesData.find((item) => Number(item.Id) === dutyId) : null;
+                const assignedUserIds = Array.isArray(duty?.assignedUserIds)
+                    ? duty.assignedUserIds
+                    : (Array.isArray(duty?.AssignedUserIds) ? duty.AssignedUserIds : []);
                 const assignedTo = Number(duty?.assignedToUserId ?? duty?.AssignedToUserId ?? 0);
-                checkbox.checked = assignedTo === recordId;
+                checkbox.checked = assignedTo === recordId || assignedUserIds.map((value) => Number(value)).includes(recordId);
             });
 
             const errorDiv = document.getElementById('createUserError');
@@ -48072,16 +48080,14 @@ window.addEventListener('load', function() {
         // Assign duties to user
         async function assignDutiesToUser(userId, dutyIds) {
             try {
-                for (const dutyId of dutyIds) {
-                    await fetch(`/api/duties/${dutyId}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            ...window.dutiesData.find(d => d.Id === dutyId),
-                            assignedToUserId: userId
-                        })
-                    });
-                }
+                await fetch('/api/duties/assignments', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: Number(userId),
+                        selectedDutyIds: Array.isArray(dutyIds) ? dutyIds : []
+                    })
+                });
                 console.log(`Assigned ${dutyIds.length} duties to user ${userId}`);
             } catch (error) {
                 console.error('Error assigning duties:', error);
@@ -48160,6 +48166,10 @@ window.addEventListener('load', function() {
 
             const duties = Array.isArray(window.dutiesData) ? window.dutiesData : [];
             const myDuties = duties.filter((duty) => {
+                const assignedUserIds = [
+                    ...(Array.isArray(duty?.assignedUserIds) ? duty.assignedUserIds : []),
+                    ...(Array.isArray(duty?.AssignedUserIds) ? duty.AssignedUserIds : [])
+                ];
                 const dutyKeys = [
                     duty?.AssignedToUserId,
                     duty?.assignedToUserId,
@@ -48193,7 +48203,8 @@ window.addEventListener('load', function() {
                     duty?.user?.Id,
                     duty?.user?.id,
                     duty?.user?.Username,
-                    duty?.user?.username
+                    duty?.user?.username,
+                    ...assignedUserIds
                 ]
                     .map(normalizeKey)
                     .filter(Boolean);
