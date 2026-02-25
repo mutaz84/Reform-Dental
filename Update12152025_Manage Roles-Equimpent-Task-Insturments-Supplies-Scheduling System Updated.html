@@ -20367,8 +20367,12 @@
                 document.body.classList.add('manage-users-active');
                 modal.style.display = 'flex';
                 // First sync from API, then display
-                if (typeof syncUsersFromAPI === 'function') {
-                    await syncUsersFromAPI();
+                if (typeof syncUsersFromAPI === 'function' && !window.__syncUsersInProgress) {
+                    try {
+                        await syncUsersFromAPI();
+                    } catch (error) {
+                        console.warn('syncUsersFromAPI failed while opening User Management:', error);
+                    }
                 }
                 displayUsersList();
             }
@@ -20690,7 +20694,16 @@
             installGlobalUsersActionCapture();
 
             const hasApi = typeof API_BASE_URL !== 'undefined' && !!API_BASE_URL;
-            if (hasApi && (!window.__complianceSummaryByUserId || Object.keys(window.__complianceSummaryByUserId).length === 0) && !window.__complianceSummaryLoadPromise) {
+            const now = Date.now();
+            const lastAttempt = Number(window.__complianceSummaryLastAttemptAt || 0);
+            const retryDelayMs = 30000;
+            if (
+                hasApi &&
+                (!window.__complianceSummaryByUserId || Object.keys(window.__complianceSummaryByUserId).length === 0) &&
+                !window.__complianceSummaryLoadPromise &&
+                (now - lastAttempt >= retryDelayMs)
+            ) {
+                window.__complianceSummaryLastAttemptAt = now;
                 loadComplianceSummaryByUser(false)
                     .then(() => {
                         if (document.getElementById('usersList')) {
@@ -62518,8 +62531,13 @@ async function fetchClinicsFromAPI() {
 
 // Sync API users to localStorage format
 async function syncUsersFromAPI() {
-    const apiUsers = await fetchUsersFromAPI();
-    if (!apiUsers) return false;
+    if (window.__syncUsersInProgress) return false;
+    window.__syncUsersInProgress = true;
+    try {
+        const apiUsers = await fetchUsersFromAPI();
+        if (!apiUsers) {
+            return false;
+        }
 
     const existingUsers = safeParseLocalStorageJSON('appUsers', {}, { expect: 'object' });
 
@@ -62624,17 +62642,14 @@ async function syncUsersFromAPI() {
         // Don't load employees here - will be loaded after API sync
     }
     
-    // Refresh the users table if visible
-    if (typeof renderUsersTable === 'function') {
-        renderUsersTable();
+        // Do not auto-render UI here; callers decide when to re-render.
+        return true;
+    } catch (error) {
+        console.error('❌ syncUsersFromAPI failed:', error);
+        return false;
+    } finally {
+        window.__syncUsersInProgress = false;
     }
-    
-    // Refresh the users list if visible
-    if (typeof displayUsersList === 'function') {
-        displayUsersList();
-    }
-    
-    return true;
 }
 
 // Sync API clinics to localStorage
