@@ -14718,6 +14718,11 @@
         right: 24px;
     }
 
+    body.user-profile-modal-open .floating-calendar-btn,
+    body.user-profile-modal-open .floating-calendar-panel {
+        display: none !important;
+    }
+
     .floating-calendar-header {
         background: linear-gradient(135deg, #06b6d4, #0891b2);
         color: white;
@@ -21112,7 +21117,10 @@
             'isOnline', 'IsOnline',
             'lastSeen', 'LastSeen',
             'failedLoginAttempts', 'FailedLoginAttempts',
-            'hrInfo', 'HRInfo'
+            'hrInfo', 'HRInfo',
+            'clinicIds', 'ClinicIds',
+            'clinicId', 'ClinicId',
+            'clinics', 'Clinics'
         ]);
 
         function renderViewUserAdditionalFields(user) {
@@ -21129,12 +21137,21 @@
                 const value = user[key];
                 const valueType = Array.isArray(value) ? 'array' : typeof value;
                 const isComplex = valueType === 'object' || valueType === 'array';
-                const serialized = isComplex ? JSON.stringify(value ?? null, null, 2) : String(value ?? '');
+                const isEmptyArray = valueType === 'array' && Array.isArray(value) && value.length === 0;
+                const isEmptyObject = valueType === 'object' && value && !Array.isArray(value) && Object.keys(value).length === 0;
+                const serialized = isComplex
+                    ? ((isEmptyArray || isEmptyObject) ? '' : JSON.stringify(value ?? null, null, 2))
+                    : String(value ?? '');
+                const placeholder = isEmptyArray ? '[]' : (isEmptyObject ? '{}' : '');
+                const displayLabel = String(key)
+                    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+                    .replace(/_/g, ' ')
+                    .replace(/\b\w/g, (char) => char.toUpperCase());
 
                 if (valueType === 'boolean') {
                     return `
                         <div>
-                            <label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">${escapeUserViewValue(key)}</label>
+                            <label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">${escapeUserViewValue(displayLabel)}</label>
                             <select data-extra-field="${escapeUserViewValue(key)}" data-extra-type="boolean" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);">
                                 <option value="true" ${value === true ? 'selected' : ''}>true</option>
                                 <option value="false" ${value === false ? 'selected' : ''}>false</option>
@@ -21145,8 +21162,8 @@
 
                 return `
                     <div style="grid-column:${isComplex ? '1 / -1' : 'auto'};">
-                        <label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">${escapeUserViewValue(key)}</label>
-                        <textarea data-extra-field="${escapeUserViewValue(key)}" data-extra-type="${isComplex ? 'json' : valueType}" style="width:100%; min-height:${isComplex ? '96px' : '40px'}; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary); resize:vertical;">${escapeUserViewValue(serialized)}</textarea>
+                        <label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">${escapeUserViewValue(displayLabel)}</label>
+                        <textarea data-extra-field="${escapeUserViewValue(key)}" data-extra-type="${isComplex ? 'json' : valueType}" placeholder="${escapeUserViewValue(placeholder)}" style="width:100%; min-height:${isComplex ? '72px' : '40px'}; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary); resize:vertical; ${isComplex ? 'font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;' : ''}">${escapeUserViewValue(serialized)}</textarea>
                     </div>
                 `;
             }).join('');
@@ -21352,6 +21369,7 @@
                 modal.style.display = 'none';
                 modal.remove();
             }
+            document.body.classList.remove('user-profile-modal-open');
         }
 
         async function saveUserFromViewModal(event) {
@@ -21516,6 +21534,10 @@
 
             displayUsersList();
             closeViewUserModal();
+            document.body.classList.add('user-profile-modal-open');
+            if (typeof closeFloatingCalendar === 'function') {
+                closeFloatingCalendar();
+            }
             if (typeof showNotification === 'function') {
                 showNotification('User updated successfully from database!', 'success');
             }
