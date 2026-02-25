@@ -20768,6 +20768,9 @@
                     <td style="padding: 1rem; color: var(--text-secondary);">${renderComplianceSummaryCell(complianceSummary)}</td>
                     <td style="padding: 1rem; text-align: center;">
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                            <button type="button" data-user-action="view" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('view','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #0ea5e9; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#0284c7'" onmouseout="this.style.background='#0ea5e9'" title="View User" aria-label="View User">
+                                <i class="fas fa-eye"></i>
+                            </button>
                             <button type="button" data-user-action="edit" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('edit','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit User" aria-label="Edit User">
                                 <i class="fas fa-edit"></i>
                             </button>
@@ -20804,6 +20807,11 @@
                 const username = String(actionButton.getAttribute('data-username') || '').trim();
                 if (!username) return;
 
+                if (action === 'view') {
+                    openViewUserModal(username);
+                    return;
+                }
+
                 if (action === 'edit') {
                     openEditUserModal(username);
                     return;
@@ -20829,6 +20837,11 @@
 
         function handleUsersListAction(action, username) {
             if (!username) return;
+
+            if (action === 'view') {
+                openViewUserModal(username);
+                return;
+            }
 
             if (action === 'edit') {
                 openEditUserModal(username);
@@ -20957,6 +20970,96 @@
                 console.error('❌ Error deleting user via API:', error);
                 showSyncStatus('Error deleting user: ' + error.message, false);
             }
+        }
+
+        function escapeUserViewValue(value) {
+            return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function getUserViewDisplayRows(user, username) {
+            const fullName = user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || username;
+            const rows = [
+                ['Full Name', fullName],
+                ['Username', username],
+                ['Role', (user.role || 'user').toUpperCase()],
+                ['Job Title', user.jobTitle || user.title || '-'],
+                ['Status', user.employeeStatus || 'Active'],
+                ['Department', user.department || '-'],
+                ['Staff Type', user.staffType || '-'],
+                ['Employee Type', user.employeeType || '-'],
+                ['Work Email', user.workEmail || '-'],
+                ['Personal Email', user.personalEmail || '-'],
+                ['Cell Phone', user.cellPhone || '-'],
+                ['Home Phone', user.homePhone || '-'],
+                ['Address', [user.address, user.city, user.state, user.zipCode].filter(Boolean).join(', ') || '-'],
+                ['Hire Date', user.hireDate || '-']
+            ];
+
+            return rows;
+        }
+
+        function closeViewUserModal() {
+            const modal = document.getElementById('viewUserModal');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.remove();
+            }
+        }
+
+        function openViewUserModal(username) {
+            const users = loadUsers();
+            const user = users[username];
+
+            if (!user) {
+                alert('User not found.');
+                return;
+            }
+
+            closeViewUserModal();
+
+            const modal = document.createElement('div');
+            modal.id = 'viewUserModal';
+            modal.style.cssText = 'display: flex; position: fixed; inset: 0; background: rgba(0,0,0,0.55); align-items: center; justify-content: center; z-index: 10130; padding: 1rem;';
+
+            const rows = getUserViewDisplayRows(user, username)
+                .map(([label, value]) => `
+                    <div style="display:grid; grid-template-columns: 160px 1fr; gap: 0.75rem; padding: 0.6rem 0; border-bottom: 1px solid var(--border-color);">
+                        <div style="font-weight: 600; color: var(--text-secondary);">${escapeUserViewValue(label)}</div>
+                        <div style="color: var(--text-primary);">${escapeUserViewValue(value)}</div>
+                    </div>
+                `)
+                .join('');
+
+            modal.innerHTML = `
+                <div style="width: min(920px, 96vw); max-height: 90vh; overflow: hidden; border-radius: 12px; border: 1px solid var(--border-color); background: var(--card-bg); box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-color); background: var(--bg-secondary);">
+                        <h3 style="margin:0; color: var(--text-primary); font-size: 1.1rem;">User Details</h3>
+                        <button type="button" onclick="closeViewUserModal()" style="background: #ef4444; color: #fff; border: none; border-radius: 8px; width: 36px; height: 36px; cursor: pointer; font-size: 1.2rem;">&times;</button>
+                    </div>
+                    <div style="padding: 1rem 1.25rem; overflow:auto;">
+                        ${rows}
+                    </div>
+                    <div style="display:flex; justify-content:flex-end; gap:0.75rem; padding: 1rem 1.25rem; border-top: 1px solid var(--border-color); background: var(--bg-secondary);">
+                        <button type="button" onclick="closeViewUserModal()" style="padding: 0.6rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); cursor: pointer;">Close</button>
+                        <button type="button" onclick="closeViewUserModal(); openEditUserModal(decodeURIComponent('${encodeURIComponent(String(username || ''))}'));" style="padding: 0.6rem 1rem; border: none; border-radius: 8px; background: #3b82f6; color: #fff; cursor: pointer; font-weight: 600;">
+                            <i class="fas fa-edit"></i> Edit User
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            modal.addEventListener('click', function(event) {
+                if (event.target === modal) {
+                    closeViewUserModal();
+                }
+            });
+
+            document.body.appendChild(modal);
         }
 
         // ============ EDIT USER FUNCTIONS ============
