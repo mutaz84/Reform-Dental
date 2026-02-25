@@ -20067,6 +20067,27 @@
 
             return payload;
         }
+
+        function getUserRecordId(userData) {
+            return userData?.id || userData?.Id || userData?.dbId || userData?.DBId || null;
+        }
+
+        function resolveUsernameByUserId(userId) {
+            const targetId = Number(userId);
+            if (!Number.isFinite(targetId) || targetId <= 0) return '';
+
+            const users = loadUsers();
+            const keys = Object.keys(users || {});
+            for (let index = 0; index < keys.length; index += 1) {
+                const key = keys[index];
+                const candidate = users[key] || {};
+                const candidateId = Number(candidate.id || candidate.Id || candidate.dbId || 0);
+                if (Number.isFinite(candidateId) && candidateId === targetId) {
+                    return key;
+                }
+            }
+            return '';
+        }
         
         // Save a single user to the database API
         async function saveUserToAPI(username, userData) {
@@ -20118,7 +20139,8 @@
             }
             try {
                 console.log('📤 Updating user in database, ID:', userId);
-                const payload = buildCompleteUserPayload(userData.username || userData.Username || '', userData, false);
+                const resolvedUsername = userData.username || userData.Username || resolveUsernameByUserId(userId) || '';
+                const payload = buildCompleteUserPayload(resolvedUsername, userData, false);
                 console.log('📦 Update Payload:', JSON.stringify(payload));
                 
                 const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
@@ -21265,6 +21287,7 @@
             }
 
             user.role = document.getElementById('viewUserRole').value;
+            user.username = username;
             user.title = document.getElementById('viewUserTitle').value.trim();
             user.firstName = document.getElementById('viewUserFirstName').value.trim();
             user.middleName = document.getElementById('viewUserMiddleName').value.trim();
@@ -21311,14 +21334,17 @@
             user.modifiedDate = new Date().toISOString();
 
             const selectedDutyIds = getSelectedDutyIdsForView();
-            if (user.id) {
-                await saveViewUserDutyAssignments(user.id, selectedDutyIds);
+            const userRecordId = getUserRecordId(user);
+            if (userRecordId) {
+                await saveViewUserDutyAssignments(userRecordId, selectedDutyIds);
             }
 
             saveUsers(users);
 
-            if (user.id && typeof updateUserViaAPI === 'function') {
-                updateUserViaAPI(user.id, user);
+            if (userRecordId && typeof updateUserViaAPI === 'function') {
+                await updateUserViaAPI(userRecordId, user);
+            } else if (typeof saveUserToAPI === 'function') {
+                await saveUserToAPI(username, user);
             }
 
             displayUsersList();
@@ -24029,7 +24055,7 @@
 
         <script>
         // User management functions
-        function saveEditedUser(event) {
+        async function saveEditedUser(event) {
             event.preventDefault();
             
             const errorDiv = document.getElementById('editUserError');
@@ -24070,6 +24096,7 @@
             
             // Update user fields
             user.role = document.getElementById('editUserRole').value;
+            user.username = editingUsername;
             
             // Handle title - check if custom title
             let editTitle = document.getElementById('editTitle').value;
@@ -24121,8 +24148,11 @@
             saveUsers(users);
             
             // Also update in database if user has an ID
-            if (user.id && typeof updateUserViaAPI === 'function') {
-                updateUserViaAPI(user.id, user);
+            const userRecordId = getUserRecordId(user);
+            if (userRecordId && typeof updateUserViaAPI === 'function') {
+                await updateUserViaAPI(userRecordId, user);
+            } else if (typeof saveUserToAPI === 'function') {
+                await saveUserToAPI(editingUsername, user);
             }
             
             // Close modal and refresh list
