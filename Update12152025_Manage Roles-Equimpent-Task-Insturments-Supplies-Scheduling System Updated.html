@@ -20855,11 +20855,8 @@
                     <td style="padding: 1rem; color: var(--text-secondary);">${renderComplianceSummaryCell(complianceSummary)}</td>
                     <td style="padding: 1rem; text-align: center;">
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                            <button type="button" data-user-action="view" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('view','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #0ea5e9; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#0284c7'" onmouseout="this.style.background='#0ea5e9'" title="View User" aria-label="View User">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                            <button type="button" data-user-action="edit" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('edit','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit User" aria-label="Edit User">
-                                <i class="fas fa-edit"></i>
+                            <button type="button" data-user-action="profile" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('profile','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #0ea5e9; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#0284c7'" onmouseout="this.style.background='#0ea5e9'" title="User Profile" aria-label="User Profile">
+                                <i class="fas fa-user-pen"></i>
                             </button>
                             <button type="button" data-user-action="hr" data-username="${encodedUsernameAttr}" onclick="return window.__triggerUserAction('hr','${encodedUsernameParam}',event)" style="padding: 0.5rem 1rem; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" title="HR Info" aria-label="HR Info">
                                 <i class="fas fa-file-invoice-dollar"></i>
@@ -20894,13 +20891,8 @@
                 const username = String(actionButton.getAttribute('data-username') || '').trim();
                 if (!username) return;
 
-                if (action === 'view') {
+                if (action === 'profile') {
                     openViewUserModal(username);
-                    return;
-                }
-
-                if (action === 'edit') {
-                    openEditUserModal(username);
                     return;
                 }
 
@@ -20925,13 +20917,8 @@
         function handleUsersListAction(action, username) {
             if (!username) return;
 
-            if (action === 'view') {
+            if (action === 'profile') {
                 openViewUserModal(username);
-                return;
-            }
-
-            if (action === 'edit') {
-                openEditUserModal(username);
                 return;
             }
 
@@ -21511,8 +21498,17 @@
         }
 
         async function openViewUserModal(username) {
+            if (typeof syncUsersFromAPI === 'function' && !window.__syncUsersInProgress) {
+                try {
+                    await syncUsersFromAPI();
+                } catch (error) {
+                    console.warn('syncUsersFromAPI failed before opening user profile modal:', error);
+                }
+            }
+
             const users = loadUsers();
-            const user = users[username];
+            const resolvedUsername = Object.keys(users).find((key) => key.toLowerCase() === String(username || '').toLowerCase()) || username;
+            const user = users[resolvedUsername];
 
             if (!user) {
                 alert('User not found.');
@@ -21537,13 +21533,13 @@
             modal.innerHTML = `
                 <div style="width: min(980px, 96vw); max-height: 90vh; overflow: hidden; border-radius: 12px; border: 1px solid var(--border-color); background: var(--card-bg); box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
                     <div style="display:flex; align-items:center; justify-content:space-between; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-color); background: var(--bg-secondary);">
-                        <h3 style="margin:0; color: var(--text-primary); font-size: 1.1rem;">View / Edit User</h3>
+                        <h3 style="margin:0; color: var(--text-primary); font-size: 1.1rem;">User Profile</h3>
                         <button type="button" onclick="closeViewUserModal()" style="background: #ef4444; color: #fff; border: none; border-radius: 8px; width: 36px; height: 36px; cursor: pointer; font-size: 1.2rem;">&times;</button>
                     </div>
                     <form onsubmit="saveUserFromViewModal(event)" style="display:flex; flex-direction:column; min-height:0;">
-                        <input type="hidden" id="viewUserUsernameOriginal" value="${escapeUserViewValue(username)}">
+                        <input type="hidden" id="viewUserUsernameOriginal" value="${escapeUserViewValue(resolvedUsername)}">
                         <div style="padding: 1rem 1.25rem; overflow:auto; display:grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 0.85rem 1rem;">
-                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Username</label><input id="viewUserUsername" type="text" value="${escapeUserViewValue(username)}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
+                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Username</label><input id="viewUserUsername" type="text" value="${escapeUserViewValue(resolvedUsername)}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Role</label><select id="viewUserRole" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"><option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option><option value="manager" ${user.role === 'manager' ? 'selected' : ''}>Manager</option><option value="user" ${(user.role || 'user') === 'user' ? 'selected' : ''}>User</option></select></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Title</label><input id="viewUserTitle" type="text" value="${escapeUserViewValue(user.title || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Job Title</label><input id="viewUserJobTitle" type="text" value="${escapeUserViewValue(user.jobTitle || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
@@ -63282,9 +63278,22 @@ async function syncUsersFromAPI() {
             } catch (_) {}
         }
 
+        const rawPermissions = pickFirstNonEmpty(user.Permissions, user.permissions, existing.permissions);
+        let normalizedPermissions = rawPermissions;
+        if (typeof normalizedPermissions === 'string') {
+            try {
+                normalizedPermissions = JSON.parse(normalizedPermissions);
+            } catch (_) {}
+        }
+        if (!normalizedPermissions || (typeof normalizedPermissions === 'object' && !Array.isArray(normalizedPermissions) && Object.keys(normalizedPermissions).length === 0)) {
+            normalizedPermissions = (typeof getDefaultPermissions === 'function' ? getDefaultPermissions(user.Role || user.role || 'user') : {});
+        }
+
         localUsers[username] = {
+            ...user,
             ...existing,
             id: user.Id || user.id,
+            username,
             password: existing.password || '***',
             role: user.Role || user.role || 'user',
             name: `${user.FirstName || ''} ${user.LastName || ''}`.trim(),
@@ -63323,13 +63332,17 @@ async function syncUsersFromAPI() {
             emergencyContactEmail: pickFirstNonEmpty(user.EmergencyContactEmail, user.emergencyContactEmail, existing.emergencyContactEmail),
             photoData: pickFirstNonEmpty(user.PhotoData, user.photoData, user.Photo, user.photo, existing.photoData),
             photoFileName: pickFirstNonEmpty(user.PhotoFileName, user.photoFileName, existing.photoFileName),
+            profileImage: pickFirstNonEmpty(user.ProfileImage, user.profileImage, user.PhotoData, user.photoData, user.Photo, user.photo, existing.profileImage, existing.photoData),
             documents,
             hrInfo,
             isActive: user.IsActive !== false && user.isActive !== false,
+            isOnline: user.IsOnline === true || user.isOnline === true,
+            lastSeen: pickFirstNonEmpty(user.LastSeen, user.lastSeen, existing.lastSeen),
+            roleId: pickFirstNonEmpty(user.RoleId, user.roleId, existing.roleId),
             createdDate: pickFirstNonEmpty(user.CreatedDate, user.createdDate, existing.createdDate),
             modifiedDate: pickFirstNonEmpty(user.ModifiedDate, user.modifiedDate, existing.modifiedDate),
             failedLoginAttempts: Number(pickFirstNonEmpty(user.FailedLoginAttempts, user.failedLoginAttempts, existing.failedLoginAttempts, 0)) || 0,
-            permissions: existing.permissions || (typeof getDefaultPermissions === 'function' ? getDefaultPermissions(user.Role || user.role || 'user') : {})
+            permissions: normalizedPermissions
         };
 
         localUsers[username].photo = localUsers[username].photoData || localUsers[username].photo || null;
