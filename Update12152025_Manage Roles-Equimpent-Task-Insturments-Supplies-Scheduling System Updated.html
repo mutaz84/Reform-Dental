@@ -36152,6 +36152,100 @@
             }
         }
 
+        function renderManagerSavedUsersData() {
+            const container = document.getElementById('managerSavedUsersData');
+            if (!container) return;
+
+            const users = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
+            const userEntries = Object.entries(users);
+            const duties = Array.isArray(window.dutiesData)
+                ? window.dutiesData
+                : safeParseLocalStorageJSON('dutiesDataCache', [], { expect: 'array' });
+            const compliances = safeParseLocalStorageJSON('userCompliances', {}, { expect: 'object' }) || {};
+
+            const normalize = (value) => String(value ?? '').trim().toLowerCase();
+            const buildIdentitySet = (username, user) => {
+                const set = new Set();
+                const add = (value) => {
+                    const key = normalize(value);
+                    if (key) set.add(key);
+                };
+
+                add(username);
+                add(user?.name);
+                add(user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : '');
+                add(user?.id);
+                add(user?.Id);
+                add(user?.dbId);
+                add(user?.userId);
+                return set;
+            };
+
+            const countAssignedDuties = (identitySet) => {
+                if (!identitySet.size || !Array.isArray(duties)) return 0;
+                return duties.filter((duty) => {
+                    const dutyKeys = [
+                        duty?.AssignedToUserId,
+                        duty?.assignedToUserId,
+                        duty?.AssignedToId,
+                        duty?.assignedToId,
+                        duty?.AssignedUserId,
+                        duty?.assignedUserId,
+                        duty?.EmployeeId,
+                        duty?.employeeId,
+                        duty?.AssignedTo,
+                        duty?.assignedTo,
+                        duty?.AssignedToUsername,
+                        duty?.assignedToUsername,
+                        duty?.AssignedToName,
+                        duty?.assignedToName,
+                        duty?.assigned_to_user_id,
+                        duty?.assigned_user_id,
+                        duty?.assigned_to,
+                        duty?.assigned_to_username,
+                        duty?.assigned_to_name,
+                        duty?.UserId,
+                        duty?.userId,
+                        duty?.user?.Id,
+                        duty?.user?.id,
+                        duty?.user?.Username,
+                        duty?.user?.username
+                    ].map(normalize).filter(Boolean);
+
+                    return dutyKeys.some((key) => identitySet.has(key));
+                }).length;
+            };
+
+            if (!userEntries.length) {
+                container.innerHTML = '<div style="font-size:0.78rem; color:var(--text-secondary);">No saved users found.</div>';
+                return;
+            }
+
+            container.innerHTML = userEntries.map(([username, user]) => {
+                const identitySet = buildIdentitySet(username, user || {});
+                const dutyCount = countAssignedDuties(identitySet);
+                const complianceList = Array.isArray(compliances[username]) ? compliances[username] : [];
+                const fullName = String(user?.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || username);
+                const role = String(user?.role || 'user');
+                const status = String(user?.status || user?.employmentStatus || 'Active');
+
+                return `
+                    <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem;">
+                        <div style="display:flex; justify-content:space-between; gap:0.5rem; align-items:center;">
+                            <div style="font-size:0.82rem; font-weight:600; color:var(--text-primary);">${fullName}</div>
+                            <div style="font-size:0.7rem; color:var(--text-secondary);">${role}</div>
+                        </div>
+                        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.2rem;">@${username}</div>
+                        <div style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.4rem;">
+                            <span style="font-size:0.68rem; padding:0.15rem 0.4rem; border-radius:999px; border:1px solid var(--border-color); color:var(--text-secondary);">Status: ${status}</span>
+                            <span style="font-size:0.68rem; padding:0.15rem 0.4rem; border-radius:999px; border:1px solid var(--border-color); color:var(--text-secondary);">Duties: ${dutyCount}</span>
+                            <span style="font-size:0.68rem; padding:0.15rem 0.4rem; border-radius:999px; border:1px solid var(--border-color); color:var(--text-secondary);">Compliances: ${complianceList.length}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
         function unassignTask(taskId) {
             const task = Array.isArray(window.tasksData) ? window.tasksData.find(t => t.id == taskId) : null;
             if (!task) return;
@@ -39931,6 +40025,19 @@ window.initializeCalendar = initializeCalendar;
                             dutiesArea.innerHTML = dutyList.innerHTML;
                         }
                     }
+
+                    setTimeout(async () => {
+                        try {
+                            if (typeof loadDutiesFromAPI === 'function') {
+                                await loadDutiesFromAPI();
+                            }
+                            if (typeof renderMyDuties === 'function') {
+                                renderMyDuties();
+                            }
+                        } catch (dutiesError) {
+                            console.error('Error refreshing duties view:', dutiesError);
+                        }
+                    }, 50);
                 }
 
                 // Initialize requests view on demand
@@ -47871,6 +47978,7 @@ window.addEventListener('load', function() {
                     console.log('Loaded duties from API:', window.dutiesData.length);
                     renderDutiesCheckboxes();
                     renderMyDuties();
+                    try { if (typeof renderManagerSavedUsersData === 'function') renderManagerSavedUsersData(); } catch (_) {}
                     return window.dutiesData;
                 } else {
                     console.warn('API returned status:', response.status);
@@ -47887,6 +47995,7 @@ window.addEventListener('load', function() {
                 }
                 renderDutiesCheckboxes();
                 renderMyDuties();
+                try { if (typeof renderManagerSavedUsersData === 'function') renderManagerSavedUsersData(); } catch (_) {}
             }
             return window.dutiesData || [];
         }
@@ -67405,6 +67514,16 @@ console.log('✅ Global functions exported to window object');
                             </div>
                             <div id="managerUnassignedTasksList"></div>
                         </div>
+                        <div class="manager-unassigned-tasks" style="margin-top: 0.75rem;">
+                            <div class="manager-ut-header" style="align-items: center;">
+                                <span class="manager-ut-title">
+                                    <i class="fas fa-database" style="color: var(--accent-primary); margin-right: 0.35rem;"></i>
+                                    Users Saved Data
+                                </span>
+                                <button type="button" onclick="renderManagerSavedUsersData()" style="border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-primary); border-radius: 6px; padding: 0.25rem 0.5rem; font-size: 0.72rem; cursor: pointer;">Refresh</button>
+                            </div>
+                            <div id="managerSavedUsersData" style="display: grid; gap: 0.4rem; max-height: 220px; overflow-y: auto;"></div>
+                        </div>
                         <div class="manager-panel-links">
                             <a href="#" class="nav-item" onclick="openDutiesManagement(); return false;">
                                 <i class="fas fa-clipboard-list"></i>
@@ -67471,7 +67590,10 @@ console.log('✅ Global functions exported to window object');
             setActiveTab('panel');
         });
         if (state.managerTabBtn) {
-            state.managerTabBtn.addEventListener('click', () => setActiveTab('manager'));
+            state.managerTabBtn.addEventListener('click', () => {
+                setActiveTab('manager');
+                try { renderManagerSavedUsersData(); } catch (_) {}
+            });
         }
         const dividerToggle = rail.querySelector('#railDividerToggle');
         if (dividerToggle) dividerToggle.addEventListener('click', () => toggleSidebarRight());
@@ -67562,6 +67684,7 @@ console.log('✅ Global functions exported to window object');
 
         // Initialize Manager tab unassigned tasks
         try { if (typeof renderManagerUnassignedTasks === 'function') renderManagerUnassignedTasks(); } catch(_) {}
+        try { if (typeof renderManagerSavedUsersData === 'function') renderManagerSavedUsersData(); } catch(_) {}
 
         // Keep header height var in sync on resize
         window.addEventListener('resize', () => {
