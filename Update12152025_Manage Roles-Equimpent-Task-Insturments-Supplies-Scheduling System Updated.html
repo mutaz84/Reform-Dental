@@ -21243,6 +21243,47 @@
             return value;
         }
 
+        function normalizeDateInput(value) {
+            if (!value) return '';
+            if (typeof toDateInputValue === 'function') {
+                const normalized = toDateInputValue(value);
+                return normalized || '';
+            }
+            const parsed = new Date(value);
+            if (Number.isNaN(parsed.getTime())) return '';
+            return parsed.toISOString().split('T')[0];
+        }
+
+        function normalizeEmployeeStatusValue(statusValue, fallbackValue = 'Active') {
+            const raw = String(statusValue || '').trim();
+            if (!raw) return fallbackValue;
+
+            const normalized = raw.toLowerCase();
+            if (normalized === 'active') return 'Active';
+            if (normalized === 'inactive') return 'Inactive';
+            if (normalized === 'on leave' || normalized === 'onleave') return 'On Leave';
+            if (normalized === 'terminated') return 'Terminated';
+            return raw;
+        }
+
+        function setSelectValueWithFallback(selectElement, value, defaultValue = '') {
+            if (!selectElement) return;
+            const desiredValue = String(value ?? '').trim();
+            if (!desiredValue) {
+                selectElement.value = String(defaultValue ?? '');
+                return;
+            }
+
+            const existingOption = Array.from(selectElement.options || []).find((option) => String(option.value || '').trim() === desiredValue);
+            if (!existingOption) {
+                const option = document.createElement('option');
+                option.value = desiredValue;
+                option.textContent = desiredValue;
+                selectElement.appendChild(option);
+            }
+            selectElement.value = desiredValue;
+        }
+
         function normalizeSqlUserForProfile(apiUser, fallbackUser, usernameHint) {
             const fallback = fallbackUser || {};
             const username = String(apiUser?.Username || apiUser?.username || usernameHint || fallback.username || '').trim();
@@ -21262,7 +21303,7 @@
                 lastName: apiUser?.LastName || apiUser?.lastName || fallback.lastName || '',
                 name: `${apiUser?.FirstName || apiUser?.firstName || fallback.firstName || ''} ${apiUser?.LastName || apiUser?.lastName || fallback.lastName || ''}`.trim(),
                 gender: apiUser?.Gender || apiUser?.gender || fallback.gender || '',
-                dateOfBirth: apiUser?.DateOfBirth || apiUser?.dateOfBirth || fallback.dateOfBirth || '',
+                dateOfBirth: normalizeDateInput(apiUser?.DateOfBirth || apiUser?.dateOfBirth || apiUser?.DOB || apiUser?.dob || fallback.dateOfBirth),
                 ssn: apiUser?.SSN || apiUser?.ssn || fallback.ssn || '',
                 personalEmail: apiUser?.PersonalEmail || apiUser?.personalEmail || fallback.personalEmail || '',
                 workEmail: apiUser?.WorkEmail || apiUser?.workEmail || fallback.workEmail || '',
@@ -21275,9 +21316,9 @@
                 jobTitle: apiUser?.JobTitle || apiUser?.jobTitle || fallback.jobTitle || '',
                 staffType: apiUser?.StaffType || apiUser?.staffType || fallback.staffType || 'non-clinical',
                 employeeType: apiUser?.EmployeeType || apiUser?.employeeType || fallback.employeeType || 'full-time',
-                department: apiUser?.Department || apiUser?.department || fallback.department || '',
-                employeeStatus: apiUser?.EmployeeStatus || apiUser?.employeeStatus || fallback.employeeStatus || 'active',
-                hireDate: apiUser?.HireDate || apiUser?.hireDate || fallback.hireDate || '',
+                department: apiUser?.Department || apiUser?.department || apiUser?.Dept || apiUser?.dept || fallback.department || '',
+                employeeStatus: normalizeEmployeeStatusValue(apiUser?.EmployeeStatus || apiUser?.employeeStatus || apiUser?.Status || apiUser?.status || fallback.employeeStatus || 'Active'),
+                hireDate: normalizeDateInput(apiUser?.HireDate || apiUser?.hireDate || fallback.hireDate),
                 hourlyRate: apiUser?.HourlyRate ?? apiUser?.hourlyRate ?? fallback.hourlyRate ?? null,
                 salary: apiUser?.Salary ?? apiUser?.salary ?? fallback.salary ?? null,
                 color: apiUser?.Color || apiUser?.color || fallback.color || '#3b82f6',
@@ -21285,10 +21326,10 @@
                 emergencyContactRelationship: apiUser?.EmergencyContactRelationship || apiUser?.emergencyContactRelationship || fallback.emergencyContactRelationship || '',
                 emergencyContactPhone: apiUser?.EmergencyContactPhone || apiUser?.emergencyContactPhone || fallback.emergencyContactPhone || '',
                 emergencyContactEmail: apiUser?.EmergencyContactEmail || apiUser?.emergencyContactEmail || fallback.emergencyContactEmail || '',
-                nextReviewDate: apiUser?.NextReviewDate || apiUser?.nextReviewDate || fallback.nextReviewDate || '',
-                officeLocation: apiUser?.OfficeLocation || apiUser?.officeLocation || fallback.officeLocation || '',
-                directSupervisor: apiUser?.DirectSupervisor || apiUser?.directSupervisor || fallback.directSupervisor || '',
-                separationDate: apiUser?.SeparationDate || apiUser?.separationDate || fallback.separationDate || '',
+                nextReviewDate: normalizeDateInput(apiUser?.NextReviewDate || apiUser?.nextReviewDate || fallback.nextReviewDate),
+                officeLocation: apiUser?.OfficeLocation || apiUser?.officeLocation || apiUser?.Office || apiUser?.office || fallback.officeLocation || '',
+                directSupervisor: apiUser?.DirectSupervisor || apiUser?.directSupervisor || apiUser?.Supervisor || apiUser?.supervisor || fallback.directSupervisor || '',
+                separationDate: normalizeDateInput(apiUser?.SeparationDate || apiUser?.separationDate || fallback.separationDate),
                 separationReason: apiUser?.SeparationReason || apiUser?.separationReason || fallback.separationReason || '',
                 profileImage: apiUser?.ProfileImage || apiUser?.profileImage || fallback.profileImage || null,
                 photoData: apiUser?.PhotoData || apiUser?.photoData || apiUser?.ProfileImage || apiUser?.profileImage || fallback.photoData || null,
@@ -21862,13 +21903,13 @@
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Middle Name</label><input id="viewUserMiddleName" type="text" value="${escapeUserViewValue(user.middleName || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Last Name</label><input id="viewUserLastName" type="text" value="${escapeUserViewValue(user.lastName || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Gender</label><input id="viewUserGender" type="text" value="${escapeUserViewValue(user.gender || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
-                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Date of Birth</label><input id="viewUserDateOfBirth" type="date" value="${escapeUserViewValue(user.dateOfBirth || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
+                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Date of Birth</label><input id="viewUserDateOfBirth" type="date" value="${escapeUserViewValue(normalizeDateInput(user.dateOfBirth || user.DateOfBirth || ''))}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">SSN</label><input id="viewUserSSN" type="text" value="${escapeUserViewValue(user.ssn || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Status</label><select id="viewUserStatus" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"><option value="Active" ${(user.employeeStatus || 'Active') === 'Active' ? 'selected' : ''}>Active</option><option value="Inactive" ${user.employeeStatus === 'Inactive' ? 'selected' : ''}>Inactive</option><option value="On Leave" ${user.employeeStatus === 'On Leave' ? 'selected' : ''}>On Leave</option><option value="Terminated" ${user.employeeStatus === 'Terminated' ? 'selected' : ''}>Terminated</option></select></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Department</label><input id="viewUserDepartment" type="text" value="${escapeUserViewValue(user.department || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Staff Type</label><input id="viewUserStaffType" type="text" value="${escapeUserViewValue(user.staffType || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Employee Type</label><input id="viewUserEmployeeType" type="text" value="${escapeUserViewValue(user.employeeType || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
-                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Hire Date</label><input id="viewUserHireDate" type="date" value="${escapeUserViewValue(user.hireDate || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
+                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Hire Date</label><input id="viewUserHireDate" type="date" value="${escapeUserViewValue(normalizeDateInput(user.hireDate || user.HireDate || ''))}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Work Email</label><input id="viewUserWorkEmail" type="email" value="${escapeUserViewValue(user.workEmail || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Personal Email</label><input id="viewUserPersonalEmail" type="email" value="${escapeUserViewValue(user.personalEmail || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Cell Phone</label><input id="viewUserCellPhone" type="text" value="${escapeUserViewValue(user.cellPhone || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
@@ -21883,10 +21924,10 @@
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Emergency Email</label><input id="viewUserEmergencyEmail" type="email" value="${escapeUserViewValue(user.emergencyContactEmail || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Hourly Rate</label><input id="viewUserHourlyRate" type="number" step="0.01" value="${escapeUserViewValue(user.hourlyRate ?? '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Salary</label><input id="viewUserSalary" type="number" step="0.01" value="${escapeUserViewValue(user.salary ?? '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
-                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Next Review Date</label><input id="viewUserNextReviewDate" type="date" value="${escapeUserViewValue(user.nextReviewDate || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
+                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Next Review Date</label><input id="viewUserNextReviewDate" type="date" value="${escapeUserViewValue(normalizeDateInput(user.nextReviewDate || user.NextReviewDate || ''))}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Office Location</label><input id="viewUserOfficeLocation" type="text" value="${escapeUserViewValue(user.officeLocation || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Direct Supervisor</label><input id="viewUserDirectSupervisor" type="text" value="${escapeUserViewValue(user.directSupervisor || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
-                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Separation Date</label><input id="viewUserSeparationDate" type="date" value="${escapeUserViewValue(user.separationDate || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
+                            <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Separation Date</label><input id="viewUserSeparationDate" type="date" value="${escapeUserViewValue(normalizeDateInput(user.separationDate || user.SeparationDate || ''))}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div style="grid-column:1 / -1;"><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Separation Reason</label><input id="viewUserSeparationReason" type="text" value="${escapeUserViewValue(user.separationReason || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Color</label><input id="viewUserColor" type="color" value="${escapeUserViewValue(user.color || '#06b6d4')}" style="width:100%; height:40px; padding:0.25rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Active Flag</label><select id="viewUserIsActive" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"><option value="true" ${(user.isActive !== false) ? 'selected' : ''}>true</option><option value="false" ${(user.isActive === false) ? 'selected' : ''}>false</option></select></div>
@@ -22332,7 +22373,7 @@
             document.getElementById('newMiddleName').value = user.middleName || '';
             document.getElementById('newLastName').value = user.lastName || '';
             document.getElementById('newGender').value = user.gender || '';
-            document.getElementById('newDateOfBirth').value = user.dateOfBirth || '';
+            document.getElementById('newDateOfBirth').value = normalizeDateInput(user.dateOfBirth);
             document.getElementById('newSSN').value = user.ssn || '';
             document.getElementById('newPersonalEmail').value = user.personalEmail || '';
             document.getElementById('newWorkEmail').value = user.workEmail || '';
@@ -22343,14 +22384,14 @@
             document.getElementById('newState').value = user.state || '';
             document.getElementById('newZipCode').value = user.zipCode || '';
             document.getElementById('newJobTitle').value = user.jobTitle || '';
-            document.getElementById('newStaffType').value = user.staffType || 'non-clinical';
-            document.getElementById('newEmployeeType').value = user.employeeType || 'full-time';
-            document.getElementById('newHireDate').value = user.hireDate || '';
-            document.getElementById('newEmployeeStatus').value = user.employeeStatus || 'Active';
-            document.getElementById('newNextReviewDate').value = user.nextReviewDate || '';
-            document.getElementById('newOfficeLocation').value = user.officeLocation || '';
-            document.getElementById('newDirectSupervisor').value = user.directSupervisor || '';
-            document.getElementById('newSeparationDate').value = user.separationDate || '';
+            setSelectValueWithFallback(document.getElementById('newStaffType'), user.staffType || 'non-clinical', 'non-clinical');
+            setSelectValueWithFallback(document.getElementById('newEmployeeType'), user.employeeType || 'full-time', 'full-time');
+            document.getElementById('newHireDate').value = normalizeDateInput(user.hireDate);
+            setSelectValueWithFallback(document.getElementById('newEmployeeStatus'), normalizeEmployeeStatusValue(user.employeeStatus, 'Active'), 'Active');
+            document.getElementById('newNextReviewDate').value = normalizeDateInput(user.nextReviewDate);
+            setSelectValueWithFallback(document.getElementById('newOfficeLocation'), user.officeLocation || '', '');
+            setSelectValueWithFallback(document.getElementById('newDirectSupervisor'), user.directSupervisor || '', '');
+            document.getElementById('newSeparationDate').value = normalizeDateInput(user.separationDate);
             document.getElementById('newSeparationReason').value = user.separationReason || '';
             document.getElementById('newColor').value = user.color || '#06b6d4';
             document.getElementById('emergencyContactName').value = user.emergencyContactName || '';
@@ -47824,6 +47865,9 @@ window.addEventListener('load', function() {
                 
                 if (response.ok) {
                     window.dutiesData = await response.json();
+                    try {
+                        localStorage.setItem('dutiesDataCache', JSON.stringify(window.dutiesData));
+                    } catch (_) {}
                     console.log('Loaded duties from API:', window.dutiesData.length);
                     renderDutiesCheckboxes();
                     renderMyDuties();
@@ -47834,8 +47878,13 @@ window.addEventListener('load', function() {
                 }
             } catch (error) {
                 console.error('Error loading duties:', error);
-                // Fallback to localStorage or empty array
-                window.dutiesData = [];
+                // Fallback to cached duties or empty array
+                try {
+                    const cached = safeParseLocalStorageJSON('dutiesDataCache', [], { expect: 'array' });
+                    window.dutiesData = Array.isArray(cached) ? cached : [];
+                } catch (_) {
+                    window.dutiesData = [];
+                }
                 renderDutiesCheckboxes();
                 renderMyDuties();
             }
@@ -47950,6 +47999,8 @@ window.addEventListener('load', function() {
             collectIdentityKeys(currentUser?.name);
             collectIdentityKeys(loggedInUsername);
             collectIdentityKeys(localStorage.getItem('userName'));
+            collectIdentityKeys(window.currentDbUserId);
+            collectIdentityKeys(localStorage.getItem('currentDbUserId'));
 
             const duties = Array.isArray(window.dutiesData) ? window.dutiesData : [];
             const myDuties = duties.filter((duty) => {
@@ -47967,7 +48018,18 @@ window.addEventListener('load', function() {
                     duty?.AssignedToUsername,
                     duty?.assignedToUsername,
                     duty?.AssignedToName,
-                    duty?.assignedToName
+                    duty?.assignedToName,
+                    duty?.assigned_to_user_id,
+                    duty?.assigned_user_id,
+                    duty?.assigned_to,
+                    duty?.assigned_to_username,
+                    duty?.assigned_to_name,
+                    duty?.UserId,
+                    duty?.userId,
+                    duty?.user?.Id,
+                    duty?.user?.id,
+                    duty?.user?.Username,
+                    duty?.user?.username
                 ]
                     .map(normalizeKey)
                     .filter(Boolean);
@@ -47997,17 +48059,17 @@ window.addEventListener('load', function() {
             };
             
             container.innerHTML = myDuties.map(duty => `
-                <div style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px; border-left: 4px solid ${priorityColors[duty.Priority] || '#3b82f6'};">
+                <div style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px; border-left: 4px solid ${priorityColors[duty.Priority || duty.priority] || '#3b82f6'};">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                        <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">${duty.Name}</div>
-                        <span style="font-size: 0.7rem; padding: 0.2rem 0.5rem; background: ${priorityColors[duty.Priority] || '#3b82f6'}20; color: ${priorityColors[duty.Priority] || '#3b82f6'}; border-radius: 4px;">${duty.Priority}</span>
+                        <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">${duty.Name || duty.name || duty.Title || duty.title || 'Duty'}</div>
+                        <span style="font-size: 0.7rem; padding: 0.2rem 0.5rem; background: ${priorityColors[duty.Priority || duty.priority] || '#3b82f6'}20; color: ${priorityColors[duty.Priority || duty.priority] || '#3b82f6'}; border-radius: 4px;">${duty.Priority || duty.priority || 'N/A'}</span>
                     </div>
-                    ${duty.Description ? `<div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.25rem;">${duty.Description}</div>` : ''}
+                    ${(duty.Description || duty.description) ? `<div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.25rem;">${duty.Description || duty.description}</div>` : ''}
                     <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.5rem; display: flex; gap: 1rem; flex-wrap: wrap;">
-                        ${duty.ScheduleTime ? `<span><i class="fas fa-clock"></i> ${duty.ScheduleTime}</span>` : ''}
-                        ${duty.ScheduleDay ? `<span><i class="fas fa-calendar"></i> ${duty.ScheduleDay}</span>` : ''}
-                        ${duty.Schedule && !duty.ScheduleTime && !duty.ScheduleDay ? `<span><i class="fas fa-sync"></i> ${duty.Schedule}</span>` : ''}
-                        ${duty.Location ? `<span><i class="fas fa-map-marker-alt"></i> ${duty.Location}</span>` : ''}
+                        ${(duty.ScheduleTime || duty.scheduleTime) ? `<span><i class="fas fa-clock"></i> ${duty.ScheduleTime || duty.scheduleTime}</span>` : ''}
+                        ${(duty.ScheduleDay || duty.scheduleDay) ? `<span><i class="fas fa-calendar"></i> ${duty.ScheduleDay || duty.scheduleDay}</span>` : ''}
+                        ${(duty.Schedule || duty.schedule) && !(duty.ScheduleTime || duty.scheduleTime) && !(duty.ScheduleDay || duty.scheduleDay) ? `<span><i class="fas fa-sync"></i> ${duty.Schedule || duty.schedule}</span>` : ''}
+                        ${(duty.Location || duty.location) ? `<span><i class="fas fa-map-marker-alt"></i> ${duty.Location || duty.location}</span>` : ''}
                     </div>
                 </div>
             `).join('');
