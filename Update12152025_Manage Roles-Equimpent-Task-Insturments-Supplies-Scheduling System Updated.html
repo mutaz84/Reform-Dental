@@ -62520,14 +62520,18 @@ async function fetchClinicsFromAPI() {
 async function syncUsersFromAPI() {
     const apiUsers = await fetchUsersFromAPI();
     if (!apiUsers) return false;
+
+    const existingUsers = safeParseLocalStorageJSON('appUsers', {}, { expect: 'object' });
     
     // Convert API format to localStorage format - map ALL fields
     const localUsers = {};
     apiUsers.forEach(user => {
         const username = user.Username || user.username;
+        const existing = existingUsers[username] || {};
         localUsers[username] = {
+            ...existing,
             id: user.Id || user.id,
-            password: '***', // Don't store passwords in localStorage
+            password: existing.password || '***',
             role: user.Role || user.role || 'user',
             name: `${user.FirstName || ''} ${user.LastName || ''}`.trim(),
             firstName: user.FirstName || user.firstName || '',
@@ -62552,7 +62556,7 @@ async function syncUsersFromAPI() {
             hourlyRate: user.HourlyRate || user.hourlyRate || '',
             salary: user.Salary || user.salary || '',
             color: user.Color || user.color || '#3b82f6',
-            permissions: typeof getDefaultPermissions === 'function' ? getDefaultPermissions(user.Role || user.role || 'user') : {}
+            permissions: existing.permissions || (typeof getDefaultPermissions === 'function' ? getDefaultPermissions(user.Role || user.role || 'user') : {})
         };
     });
     
@@ -63736,7 +63740,9 @@ async function syncEquipmentFromAPI() {
         if (!response.ok) return false;
         const apiEquipment = await response.json();
         if (apiEquipment && apiEquipment.length > 0) {
+            const existingEquipment = JSON.parse(localStorage.getItem('equipment') || '[]');
             const localEquipment = apiEquipment.map(e => ({
+                ...((existingEquipment || []).find(x => String(x.apiId || x.equipmentID) === String(e.Id || e.id)) || {}),
                 equipmentID: e.Id || e.id,
                 apiId: e.Id || e.id,
                 equipmentName: e.Name || e.name || '',
@@ -63757,8 +63763,8 @@ async function syncEquipmentFromAPI() {
                 vendorId: e.VendorId || e.vendorId || '',
                 notes: e.Notes || e.notes || '',
                 warnings: e.Warnings || e.warnings || '',
-                imageData: e.ImageUrl || e.imageUrl || null,
-                documentData: e.DocumentUrl || e.documentUrl || null,
+                imageData: (e.ImageUrl || e.imageUrl || null) || (((existingEquipment || []).find(x => String(x.apiId || x.equipmentID) === String(e.Id || e.id)) || {}).imageData) || null,
+                documentData: (e.DocumentUrl || e.documentUrl || null) || (((existingEquipment || []).find(x => String(x.apiId || x.equipmentID) === String(e.Id || e.id)) || {}).documentData) || null,
                 isActive: true,
                 createdDate: e.CreatedDate || e.createdDate || '',
                 modifiedDate: e.ModifiedDate || e.modifiedDate || ''
@@ -63865,7 +63871,9 @@ async function syncInstrumentsFromAPI() {
         if (!response.ok) return false;
         const apiInstruments = await response.json();
         if (apiInstruments && apiInstruments.length > 0) {
+            const existingInstruments = JSON.parse(localStorage.getItem('instruments') || '[]');
             const localInstruments = apiInstruments.map(i => ({
+                ...((existingInstruments || []).find(x => String(x.apiId || x.instrumentID) === String(i.Id || i.id)) || {}),
                 instrumentID: i.Id || i.id,
                 apiId: i.Id || i.id,
                 instrumentName: i.Name || i.name || '',
@@ -63873,6 +63881,7 @@ async function syncInstrumentsFromAPI() {
                 category: i.Category || i.category || '',
                 instrumentType: i.Description || i.description || '',
                 officeId: i.ClinicId || i.clinicId || '',
+                roomId: i.RoomId || i.roomId || '',
                 vendorId: i.VendorId || i.vendorId || '',
                 quantity: i.Quantity || i.quantity || 1,
                 status: i.Status || i.status || 'available',
@@ -63882,8 +63891,8 @@ async function syncInstrumentsFromAPI() {
                 unitCost: i.UnitCost || i.unitCost || '',
                 notes: i.Notes || i.notes || '',
                 warnings: i.Warnings || i.warnings || '',
-                imageData: i.ImageUrl || i.imageUrl || null,
-                documentData: i.DocumentUrl || i.documentUrl || null,
+                imageData: (i.ImageUrl || i.imageUrl || null) || (((existingInstruments || []).find(x => String(x.apiId || x.instrumentID) === String(i.Id || i.id)) || {}).imageData) || null,
+                documentData: (i.DocumentUrl || i.documentUrl || null) || (((existingInstruments || []).find(x => String(x.apiId || x.instrumentID) === String(i.Id || i.id)) || {}).documentData) || null,
                 isActive: true,
                 createdDate: i.CreatedDate || i.createdDate || '',
                 modifiedDate: i.ModifiedDate || i.modifiedDate || ''
@@ -63991,7 +64000,9 @@ async function syncSuppliesFromAPI() {
         if (!response.ok) return false;
         const apiSupplies = await response.json();
         if (apiSupplies && apiSupplies.length > 0) {
+            const existingSupplies = JSON.parse(localStorage.getItem('supplies') || '[]');
             const localSupplies = apiSupplies.map(s => ({
+                ...((existingSupplies || []).find(x => String(x.apiId || x.supplyID) === String(s.Id || s.id)) || {}),
                 supplyID: s.Id || s.id,
                 apiId: s.Id || s.id,
                 supplyName: s.Name || s.name || '',
@@ -63999,6 +64010,7 @@ async function syncSuppliesFromAPI() {
                 sku: s.SKU || s.sku || '',
                 manufacturer: s.Description || s.description || '',
                 officeId: s.ClinicId || s.clinicId || '',
+                roomId: s.RoomId || s.roomId || '',
                 quantityInStock: s.QuantityInStock || s.quantityInStock || 0,
                 reorderLevel: s.MinimumStock || s.minimumStock || s.ReorderPoint || s.reorderPoint || 0,
                 unit: s.Unit || s.unit || '',
@@ -64009,8 +64021,9 @@ async function syncSuppliesFromAPI() {
                 notes: s.Notes || s.notes || '',
                 warnings: s.Warnings || s.warnings || '',
                 isActive: s.IsActive !== false && s.isActive !== false,
-                imageData: s.ImageUrl || s.imageUrl || null,
-                documentData: s.DocumentUrl || s.documentUrl || null,
+                imageData: (s.ImageUrl || s.imageUrl || null) || (((existingSupplies || []).find(x => String(x.apiId || x.supplyID) === String(s.Id || s.id)) || {}).imageData) || null,
+                documentData: (s.DocumentUrl || s.documentUrl || null) || (((existingSupplies || []).find(x => String(x.apiId || x.supplyID) === String(s.Id || s.id)) || {}).documentData) || null,
+                documentName: (((existingSupplies || []).find(x => String(x.apiId || x.supplyID) === String(s.Id || s.id)) || {}).documentName) || null,
                 createdDate: s.CreatedDate || s.createdDate || '',
                 modifiedDate: s.ModifiedDate || s.modifiedDate || ''
             }));
@@ -64838,7 +64851,9 @@ async function syncVendorsFromAPI() {
         const apiVendors = await response.json();
         console.log('📦 API Vendors:', apiVendors);
         if (apiVendors && apiVendors.length > 0) {
+            const existingVendors = JSON.parse(localStorage.getItem('vendors') || '[]');
             const localVendors = apiVendors.map(v => ({
+                ...((existingVendors || []).find(x => String(x.vendorID) === String(v.Id || v.id)) || {}),
                 vendorID: v.Id || v.id,
                 vendorName: v.Name || v.name || '',
                 vendorType: v.VendorType || v.vendorType || v.Category || v.category || '',
