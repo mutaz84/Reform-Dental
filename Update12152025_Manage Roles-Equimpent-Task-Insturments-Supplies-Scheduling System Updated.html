@@ -20981,6 +20981,200 @@
                 .replace(/'/g, '&#39;');
         }
 
+        let viewUploadedPhoto = null;
+        let viewUploadedDocuments = [];
+
+        function renderViewUserPhotoPreview() {
+            const preview = document.getElementById('viewUserPhotoPreview');
+            const removeButton = document.getElementById('viewUserRemovePhotoBtn');
+            if (!preview || !removeButton) return;
+
+            const photoSrc = viewUploadedPhoto && (viewUploadedPhoto.dataURL || viewUploadedPhoto.dataUrl);
+            if (photoSrc) {
+                preview.innerHTML = `<img src="${photoSrc}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`;
+                removeButton.style.display = 'inline-flex';
+            } else {
+                preview.innerHTML = '<i class="fas fa-user" style="font-size: 2rem; color: var(--text-tertiary);"></i>';
+                removeButton.style.display = 'none';
+            }
+        }
+
+        function removeViewUserPhoto() {
+            viewUploadedPhoto = null;
+            const fileInput = document.getElementById('viewUserPhotoInput');
+            if (fileInput) fileInput.value = '';
+            renderViewUserPhotoPreview();
+        }
+
+        function previewViewUserPhoto(event) {
+            const file = event.target && event.target.files ? event.target.files[0] : null;
+            if (!file) return;
+
+            if (file.size > 5 * 1024 * 1024) {
+                alert('Photo size must be less than 5MB');
+                event.target.value = '';
+                return;
+            }
+
+            if (!file.type.startsWith('image/')) {
+                alert('Please select an image file');
+                event.target.value = '';
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(loadEvent) {
+                viewUploadedPhoto = {
+                    fileName: file.name,
+                    name: file.name,
+                    type: file.type,
+                    size: file.size,
+                    dataURL: loadEvent.target.result
+                };
+                renderViewUserPhotoPreview();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function renderViewUserDocumentsPreview() {
+            const list = document.getElementById('viewUserDocumentsList');
+            const preview = document.getElementById('viewUserDocumentsPreview');
+            if (!list || !preview) return;
+
+            if (!Array.isArray(viewUploadedDocuments) || viewUploadedDocuments.length === 0) {
+                list.style.display = 'none';
+                preview.innerHTML = '';
+                return;
+            }
+
+            list.style.display = 'block';
+            preview.innerHTML = viewUploadedDocuments.map((doc, index) => `
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:0.5rem; border:1px solid var(--border-color); border-radius:6px; background:var(--card-bg);">
+                    <span style="display:flex; align-items:center; gap:0.5rem; color:var(--text-primary);">
+                        <i class="fas fa-file" style="color:var(--accent-primary);"></i>
+                        ${escapeUserViewValue(doc.name || doc.fileName || 'Document')}
+                    </span>
+                    <button type="button" onclick="removeViewUserDocument(${index})" style="background:#ef4444; color:white; border:none; border-radius:4px; padding:0.25rem 0.5rem; cursor:pointer;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function removeViewUserDocument(index) {
+            if (!Array.isArray(viewUploadedDocuments)) return;
+            viewUploadedDocuments.splice(index, 1);
+            renderViewUserDocumentsPreview();
+        }
+
+        function handleViewUserDocumentsUpload(event) {
+            const files = Array.from((event.target && event.target.files) || []);
+            if (!files.length) return;
+
+            const readPromises = files.map((file) => {
+                return new Promise((resolve) => {
+                    if (file.size > 10 * 1024 * 1024) {
+                        alert(`File "${file.name}" is too large. Max size is 10MB`);
+                        resolve(null);
+                        return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = function(loadEvent) {
+                        resolve({
+                            name: file.name,
+                            fileName: file.name,
+                            type: file.type,
+                            size: file.size,
+                            dataURL: loadEvent.target.result
+                        });
+                    };
+                    reader.readAsDataURL(file);
+                });
+            });
+
+            Promise.all(readPromises).then((docs) => {
+                docs.filter(Boolean).forEach((doc) => viewUploadedDocuments.push(doc));
+                renderViewUserDocumentsPreview();
+            });
+        }
+
+        function renderViewUserDuties(userId) {
+            const container = document.getElementById('viewUserDutiesContainer');
+            if (!container) return;
+
+            const duties = Array.isArray(window.dutiesData) ? window.dutiesData : [];
+            if (!duties.length) {
+                container.innerHTML = '<div style="color: var(--text-tertiary); font-style: italic;">No duties available.</div>';
+                return;
+            }
+
+            const userIdNumber = Number(userId);
+            container.innerHTML = duties.map((duty) => {
+                const dutyId = Number(duty.Id || duty.id);
+                const assignedId = Number(duty.assignedToUserId ?? duty.AssignedToUserId ?? 0);
+                const checked = userIdNumber > 0 && assignedId === userIdNumber;
+                return `
+                    <label style="display:flex; align-items:flex-start; gap:0.6rem; padding:0.55rem; border:1px solid var(--border-color); border-radius:6px; background:var(--card-bg);">
+                        <input type="checkbox" name="viewSelectedDuties" value="${dutyId}" ${checked ? 'checked' : ''} style="margin-top:0.2rem;">
+                        <div>
+                            <div style="font-weight:600; color: var(--text-primary);">${escapeUserViewValue(duty.Name || duty.name || 'Duty')}</div>
+                            <div style="font-size:0.8rem; color: var(--text-tertiary);">${escapeUserViewValue(duty.ScheduleTime || duty.Schedule || '')}</div>
+                        </div>
+                    </label>
+                `;
+            }).join('');
+        }
+
+        function selectAllViewUserDuties() {
+            document.querySelectorAll('#viewUserDutiesContainer input[name="viewSelectedDuties"]').forEach((input) => {
+                input.checked = true;
+            });
+        }
+
+        function clearAllViewUserDuties() {
+            document.querySelectorAll('#viewUserDutiesContainer input[name="viewSelectedDuties"]').forEach((input) => {
+                input.checked = false;
+            });
+        }
+
+        function getSelectedDutyIdsForView() {
+            const selected = [];
+            document.querySelectorAll('#viewUserDutiesContainer input[name="viewSelectedDuties"]:checked').forEach((input) => {
+                selected.push(Number(input.value));
+            });
+            return selected.filter((id) => Number.isInteger(id) && id > 0);
+        }
+
+        async function saveViewUserDutyAssignments(userId, selectedDutyIds) {
+            const duties = Array.isArray(window.dutiesData) ? window.dutiesData : [];
+            if (!duties.length || !Number(userId)) return;
+
+            const selectedSet = new Set(selectedDutyIds.map((id) => Number(id)));
+            const userIdNumber = Number(userId);
+
+            for (const duty of duties) {
+                const dutyId = Number(duty.Id || duty.id);
+                if (!Number.isInteger(dutyId) || dutyId <= 0) continue;
+
+                const assignedId = Number(duty.assignedToUserId ?? duty.AssignedToUserId ?? 0);
+                const shouldBeAssigned = selectedSet.has(dutyId);
+                const currentlyAssignedToUser = assignedId === userIdNumber;
+                if (shouldBeAssigned === currentlyAssignedToUser) continue;
+
+                const payload = { ...duty, assignedToUserId: shouldBeAssigned ? userIdNumber : null };
+                try {
+                    await fetch(`/api/duties/${dutyId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    duty.assignedToUserId = shouldBeAssigned ? userIdNumber : null;
+                } catch (error) {
+                    console.error('Failed updating duty assignment:', dutyId, error);
+                }
+            }
+        }
+
         function closeViewUserModal() {
             const modal = document.getElementById('viewUserModal');
             if (modal) {
@@ -20989,7 +21183,7 @@
             }
         }
 
-        function saveUserFromViewModal(event) {
+        async function saveUserFromViewModal(event) {
             event.preventDefault();
 
             const username = String(document.getElementById('viewUserUsername')?.value || '').trim();
@@ -21044,9 +21238,17 @@
             const salaryRaw = document.getElementById('viewUserSalary').value;
             user.hourlyRate = hourlyRateRaw ? parseFloat(hourlyRateRaw) : null;
             user.salary = salaryRaw ? parseFloat(salaryRaw) : null;
+            user.photoData = viewUploadedPhoto ? (viewUploadedPhoto.dataURL || viewUploadedPhoto.dataUrl || null) : null;
+            user.photoFileName = viewUploadedPhoto ? (viewUploadedPhoto.fileName || viewUploadedPhoto.name || null) : null;
+            user.documents = Array.isArray(viewUploadedDocuments) ? viewUploadedDocuments : [];
 
             user.name = [user.firstName, user.middleName, user.lastName].filter(Boolean).join(' ');
             user.modifiedDate = new Date().toISOString();
+
+            const selectedDutyIds = getSelectedDutyIdsForView();
+            if (user.id) {
+                await saveViewUserDutyAssignments(user.id, selectedDutyIds);
+            }
 
             saveUsers(users);
 
@@ -21061,7 +21263,7 @@
             }
         }
 
-        function openViewUserModal(username) {
+        async function openViewUserModal(username) {
             const users = loadUsers();
             const user = users[username];
 
@@ -21071,6 +21273,15 @@
             }
 
             closeViewUserModal();
+
+            if (typeof loadDutiesFromAPI === 'function') {
+                try { await loadDutiesFromAPI(); } catch (_) {}
+            }
+
+            viewUploadedPhoto = user.photoData
+                ? { dataURL: user.photoData, fileName: user.photoFileName || '' }
+                : null;
+            viewUploadedDocuments = Array.isArray(user.documents) ? [...user.documents] : [];
 
             const modal = document.createElement('div');
             modal.id = 'viewUserModal';
@@ -21121,6 +21332,33 @@
                             <div style="grid-column:1 / -1;"><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Separation Reason</label><input id="viewUserSeparationReason" type="text" value="${escapeUserViewValue(user.separationReason || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Color</label><input id="viewUserColor" type="color" value="${escapeUserViewValue(user.color || '#06b6d4')}" style="width:100%; height:40px; padding:0.25rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Active Flag</label><select id="viewUserIsActive" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"><option value="true" ${(user.isActive !== false) ? 'selected' : ''}>true</option><option value="false" ${(user.isActive === false) ? 'selected' : ''}>false</option></select></div>
+                            <div style="grid-column:1 / -1; margin-top:0.4rem; padding-top:0.75rem; border-top:1px solid var(--border-color);">
+                                <div style="font-weight:700; color: var(--text-primary); margin-bottom:0.6rem;">Duties</div>
+                                <div style="display:flex; gap:0.5rem; margin-bottom:0.5rem;">
+                                    <button type="button" onclick="selectAllViewUserDuties()" style="padding:0.4rem 0.65rem; border:1px solid var(--border-color); background:var(--card-bg); color:var(--text-primary); border-radius:6px; cursor:pointer;">Select All</button>
+                                    <button type="button" onclick="clearAllViewUserDuties()" style="padding:0.4rem 0.65rem; border:1px solid var(--border-color); background:var(--card-bg); color:var(--text-primary); border-radius:6px; cursor:pointer;">Clear All</button>
+                                </div>
+                                <div id="viewUserDutiesContainer" style="display:grid; grid-template-columns:repeat(2,minmax(240px,1fr)); gap:0.5rem;"></div>
+                            </div>
+                            <div style="grid-column:1 / -1; margin-top:0.4rem; padding-top:0.75rem; border-top:1px solid var(--border-color);">
+                                <div style="font-weight:700; color: var(--text-primary); margin-bottom:0.6rem;">Photo & Documents</div>
+                                <div style="display:grid; grid-template-columns:160px 1fr; gap:1rem; align-items:start;">
+                                    <div style="display:flex; flex-direction:column; gap:0.5rem; align-items:center;">
+                                        <div id="viewUserPhotoPreview" style="width:120px; height:120px; border-radius:50%; border:1px solid var(--border-color); background:var(--bg-secondary); display:flex; align-items:center; justify-content:center; overflow:hidden;"></div>
+                                        <input type="file" id="viewUserPhotoInput" accept="image/*" style="display:none;" onchange="previewViewUserPhoto(event)">
+                                        <button type="button" onclick="document.getElementById('viewUserPhotoInput').click()" style="padding:0.45rem 0.7rem; border:1px solid var(--border-color); border-radius:6px; background:var(--card-bg); color:var(--text-primary); cursor:pointer;">Upload Photo</button>
+                                        <button type="button" id="viewUserRemovePhotoBtn" onclick="removeViewUserPhoto()" style="display:none; padding:0.45rem 0.7rem; border:none; border-radius:6px; background:#ef4444; color:#fff; cursor:pointer;">Remove Photo</button>
+                                    </div>
+                                    <div>
+                                        <input type="file" id="viewUserDocumentsInput" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" style="display:none;" onchange="handleViewUserDocumentsUpload(event)">
+                                        <button type="button" onclick="document.getElementById('viewUserDocumentsInput').click()" style="padding:0.55rem 0.9rem; border:1px solid var(--border-color); border-radius:6px; background:var(--card-bg); color:var(--text-primary); cursor:pointer; margin-bottom:0.5rem;">Upload Documents</button>
+                                        <div id="viewUserDocumentsList" style="display:none;">
+                                            <div style="font-weight:600; margin-bottom:0.4rem; color:var(--text-primary);">Documents:</div>
+                                            <div id="viewUserDocumentsPreview" style="display:flex; flex-direction:column; gap:0.45rem;"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                             <div style="grid-column:1 / -1; margin-top: 0.25rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color); display:grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 0.85rem 1rem;">
                                 <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">System ID</label><input type="text" value="${escapeUserViewValue(user.id || '')}" readonly style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--bg-secondary); color: var(--text-secondary);"></div>
                                 <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Created Date</label><input type="text" value="${escapeUserViewValue(user.createdDate || '')}" readonly style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--bg-secondary); color: var(--text-secondary);"></div>
@@ -21145,6 +21383,9 @@
             });
 
             document.body.appendChild(modal);
+            renderViewUserPhotoPreview();
+            renderViewUserDocumentsPreview();
+            renderViewUserDuties(user.id || user.dbId || user.Id);
         }
 
         // ============ EDIT USER FUNCTIONS ============
