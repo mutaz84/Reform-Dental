@@ -23370,12 +23370,16 @@
                     }
 
                     const isLastAttempt = baseIndex === baseCandidates.length - 1 && endpointIndex === endpointCandidates.length - 1;
-                    if (response.status !== 404 || isLastAttempt) {
-                        if (response.status === 404) {
-                            console.error('Compliance API route returned 404 for all candidates:', attemptedUrls);
-                        }
-                        return response;
+
+                    if ((isHtmlResponse || response.status === 404) && !isLastAttempt) {
+                        continue;
                     }
+
+                    if (response.status === 404 && isLastAttempt) {
+                        console.error('Compliance API route returned 404 for all candidates:', attemptedUrls);
+                    }
+
+                    return response;
                 }
             }
 
@@ -25745,7 +25749,12 @@
                         });
                         await syncClinicsFromAPI();
                     } catch (err) {
-                        console.error('Error updating clinic:', err);
+                        const message = String(error?.message || '');
+                        if (message.includes('expected JSON but received HTML')) {
+                            console.warn('Due compliance notifications unavailable because API returned HTML (likely backend/API route issue).');
+                        } else {
+                            console.error('Failed to check due compliance notifications:', error);
+                        }
                     }
                     
                     errorDiv.style.display = 'block';
