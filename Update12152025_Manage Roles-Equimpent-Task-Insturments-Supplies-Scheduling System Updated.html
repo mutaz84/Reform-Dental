@@ -13434,6 +13434,16 @@
         z-index: 10002;
     }
 
+    body.auth-logged-out .unified-right-rail,
+    body.auth-logged-out .floating-chat-btn,
+    body.auth-logged-out .floating-calendar-btn,
+    body.auth-logged-out .copilot-fab,
+    body.auth-logged-out #chatPanel,
+    body.auth-logged-out .floating-calendar-panel,
+    body.auth-logged-out .copilot-panel {
+        display: none !important;
+    }
+
     #userManagementModal {
         z-index: 10040 !important;
     }
@@ -19299,12 +19309,25 @@
             const loginScreen = document.getElementById('loginScreen');
             const mainContainer = document.querySelector('.container');
             const header = document.querySelector('.header');
+            const body = document.body;
+            const rail = document.getElementById('unifiedRightRail');
+            const chatPanel = document.getElementById('chatPanel');
+            const floatingCalendarPanel = document.getElementById('floatingCalendarPanel');
+            const copilotPanel = document.getElementById('copilotPanel');
             
             if (loggedInUser) {
                 // User is logged in, hide login screen
                 if (loginScreen) loginScreen.classList.add('hidden');
                 if (mainContainer) mainContainer.style.display = 'flex';
                 if (header) header.style.display = 'flex';
+                if (body) {
+                    body.classList.remove('auth-logged-out');
+                    body.classList.add('auth-logged-in');
+                    body.classList.add('right-rail-enabled');
+                }
+                if (rail) {
+                    rail.style.removeProperty('display');
+                }
                 
                 // Update displayed user name
                 const displayNameEl = document.getElementById('displayUserName');
@@ -19339,11 +19362,28 @@
                         checkDueComplianceNotifications();
                     }
                 }
+
+                if (typeof window.installUnifiedRightRail === 'function') {
+                    setTimeout(() => {
+                        try { window.installUnifiedRightRail(); } catch (_) {}
+                    }, 0);
+                }
             } else {
                 // User is not logged in, show login screen
                 if (loginScreen) loginScreen.classList.remove('hidden');
                 if (mainContainer) mainContainer.style.display = 'none';
                 if (header) header.style.display = 'none';
+                if (body) {
+                    body.classList.add('auth-logged-out');
+                    body.classList.remove('auth-logged-in');
+                    body.classList.remove('right-rail-enabled', 'right-rail-collapsed', 'manage-users-active');
+                }
+                if (rail) {
+                    rail.style.display = 'none';
+                }
+                if (chatPanel) chatPanel.classList.remove('show');
+                if (floatingCalendarPanel) floatingCalendarPanel.classList.remove('show');
+                if (copilotPanel) copilotPanel.classList.remove('show');
             }
         }
 
@@ -67418,9 +67458,26 @@ console.log('✅ Global functions exported to window object');
     }
 
     function install() {
-        if (state.installed) return;
+        const loggedInUser = (() => {
+            try { return localStorage.getItem('loggedInUser'); } catch (_) { return null; }
+        })();
+        if (!loggedInUser) {
+            document.body.classList.remove('right-rail-enabled', 'right-rail-collapsed');
+            document.body.classList.add('auth-logged-out');
+            const existingRail = document.getElementById('unifiedRightRail');
+            if (existingRail) existingRail.style.display = 'none';
+            state.installed = false;
+            return;
+        }
+
+        if (state.installed) {
+            const existingRail = document.getElementById('unifiedRightRail');
+            if (existingRail) existingRail.style.removeProperty('display');
+            return;
+        }
         setHeaderHeightVar();
         document.body.classList.add('right-rail-enabled');
+        document.body.classList.remove('auth-logged-out');
 
         const ok = buildRail();
         if (!ok) {
@@ -67457,6 +67514,8 @@ console.log('✅ Global functions exported to window object');
 
         state.installed = true;
     }
+
+    window.installUnifiedRightRail = install;
 
     document.addEventListener('DOMContentLoaded', () => {
         // Delay a bit so initializeApp and auth-driven view activation can run
