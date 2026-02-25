@@ -23444,31 +23444,92 @@
                         || resolvedUsername
                         || 'Unknown user'
                     ).trim();
+                    const submittedDate = formatComplianceDate(compliance.modifiedDate || compliance.completedDate || compliance.updatedAt || compliance.createdAt || compliance.issueDate);
+                    const issuedDate = formatComplianceDate(compliance.issueDate);
+                    const expiryDate = formatComplianceDate(compliance.expiryDate);
+                    const hasAttachment = !!(compliance.attachmentData || compliance.attachmentUrl);
 
                     return `
-                        <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem; display: grid; gap: 0.25rem;">
+                        <div data-manager-compliance-row="1" style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem; display: grid; gap: 0.25rem;">
                             <div style="display:flex; justify-content:space-between; gap:0.5rem; align-items:center;">
                                 <div style="font-size:0.8rem; font-weight:600; color:var(--text-primary);">${toSafeText(compliance.title || '(Untitled Compliance)')}</div>
-                                <button
-                                    type="button"
-                                    class="manager-approve-compliance-btn"
-                                    data-compliance-id="${toSafeText(complianceId)}"
-                                    data-user-id="${toSafeText(resolvedUserId)}"
-                                    data-username="${toSafeText(resolvedUsername)}"
-                                    style="padding: 0.25rem 0.45rem; background: #10b981; color: white; border: none; border-radius: 6px; font-size: 0.7rem; cursor: pointer;"
-                                >Approve</button>
+                                <div style="display:flex; gap:0.35rem; align-items:center;">
+                                    <button
+                                        type="button"
+                                        class="manager-review-compliance-btn"
+                                        data-compliance-id="${toSafeText(complianceId)}"
+                                        style="padding: 0.25rem 0.45rem; background: #3b82f6; color: white; border: none; border-radius: 6px; font-size: 0.7rem; cursor: pointer;"
+                                    >Review</button>
+                                    <button
+                                        type="button"
+                                        class="manager-approve-compliance-btn"
+                                        data-compliance-id="${toSafeText(complianceId)}"
+                                        data-user-id="${toSafeText(resolvedUserId)}"
+                                        data-username="${toSafeText(resolvedUsername)}"
+                                        disabled
+                                        style="padding: 0.25rem 0.45rem; background: #10b981; color: white; border: none; border-radius: 6px; font-size: 0.7rem; cursor: not-allowed; opacity: 0.55;"
+                                        title="Review required before approval"
+                                    >Approve</button>
+                                </div>
                             </div>
                             <div style="font-size:0.72rem; color:var(--text-secondary);">User: ${toSafeText(resolvedName)}</div>
                             <div style="font-size:0.7rem; color:var(--text-secondary);">Type: ${toSafeText(getComplianceTypeDisplay(compliance))}</div>
-                            <div style="font-size:0.68rem; color:var(--text-secondary);">Submitted: ${toSafeText(formatComplianceDate(compliance.modifiedDate || compliance.completedDate || compliance.updatedAt || compliance.createdAt || compliance.issueDate))}</div>
+                            <div style="font-size:0.68rem; color:var(--text-secondary);">Submitted: ${toSafeText(submittedDate)}</div>
+                            <div class="manager-compliance-review-details" style="display:none; margin-top:0.25rem; padding:0.45rem; border-radius:6px; border:1px solid var(--border-color); background: var(--bg-secondary);">
+                                <div style="font-size:0.7rem; color:var(--text-primary); font-weight:600; margin-bottom:0.25rem;">Review Summary</div>
+                                <div style="font-size:0.68rem; color:var(--text-secondary);">Description: ${toSafeText(compliance.description || 'No description provided.')}</div>
+                                <div style="font-size:0.68rem; color:var(--text-secondary);">Issue Date: ${toSafeText(issuedDate)}</div>
+                                <div style="font-size:0.68rem; color:var(--text-secondary);">Expiry Date: ${toSafeText(expiryDate)}</div>
+                                <div style="font-size:0.68rem; color:var(--text-secondary);">Status: ${toSafeText(String(compliance.status || 'pending_approval'))}</div>
+                                ${hasAttachment ? `<button type="button" class="manager-review-attachment-btn" data-compliance-id="${toSafeText(complianceId)}" style="margin-top:0.35rem; padding:0.2rem 0.45rem; background:#6366f1; color:white; border:none; border-radius:6px; font-size:0.66rem; cursor:pointer;">View Attachment</button>` : ''}
+                            </div>
                         </div>
                     `;
                 }).join('');
+
+                list.querySelectorAll('.manager-review-compliance-btn').forEach((button) => {
+                    if (button.__managerReviewInit) return;
+                    button.__managerReviewInit = true;
+                    button.addEventListener('click', () => {
+                        const row = button.closest('[data-manager-compliance-row="1"]');
+                        if (!row) return;
+
+                        const reviewDetails = row.querySelector('.manager-compliance-review-details');
+                        const approveButton = row.querySelector('.manager-approve-compliance-btn');
+
+                        if (reviewDetails) {
+                            reviewDetails.style.display = 'block';
+                        }
+                        if (approveButton) {
+                            approveButton.disabled = false;
+                            approveButton.style.cursor = 'pointer';
+                            approveButton.style.opacity = '1';
+                            approveButton.removeAttribute('title');
+                        }
+
+                        button.textContent = 'Reviewed';
+                        button.disabled = true;
+                        button.style.opacity = '0.75';
+                        button.style.cursor = 'default';
+                    });
+                });
+
+                list.querySelectorAll('.manager-review-attachment-btn').forEach((button) => {
+                    if (button.__managerAttachmentInit) return;
+                    button.__managerAttachmentInit = true;
+                    button.addEventListener('click', () => {
+                        const complianceId = button.getAttribute('data-compliance-id');
+                        if (complianceId && typeof viewComplianceAttachment === 'function') {
+                            viewComplianceAttachment(complianceId);
+                        }
+                    });
+                });
 
                 list.querySelectorAll('.manager-approve-compliance-btn').forEach((button) => {
                     if (button.__managerApproveInit) return;
                     button.__managerApproveInit = true;
                     button.addEventListener('click', async () => {
+                        if (button.disabled) return;
                         const complianceId = button.getAttribute('data-compliance-id');
                         const userId = button.getAttribute('data-user-id') || '';
                         const username = button.getAttribute('data-username') || '';
