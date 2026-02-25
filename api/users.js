@@ -19,7 +19,11 @@ app.http('getUsers', {
                        PersonalEmail, WorkEmail, HomePhone, CellPhone, Address, City, State, ZipCode,
                        JobTitle, StaffType, EmployeeType, Department, EmployeeStatus, Role,
                        HireDate, HourlyRate, Salary, Color, ProfileImage, Permissions,
-                       CreatedDate, ModifiedDate
+                       CreatedDate, ModifiedDate, SSN, Title, EmergencyContactName,
+                       EmergencyContactRelationship, EmergencyContactPhone, EmergencyContactEmail,
+                       NextReviewDate, OfficeLocation, DirectSupervisor, SeparationDate,
+                       SeparationReason, PhotoFileName, Documents, FailedLoginAttempts,
+                       IsOnline, LastSeen, RoleId
                 FROM Users WHERE IsActive = 1
                 ORDER BY FirstName, LastName
             `);
@@ -47,7 +51,11 @@ app.http('getUserById', {
                        PersonalEmail, WorkEmail, HomePhone, CellPhone, Address, City, State, ZipCode,
                        JobTitle, StaffType, EmployeeType, Department, EmployeeStatus, Role,
                        HireDate, HourlyRate, Salary, Color, ProfileImage, Permissions,
-                       CreatedDate, ModifiedDate
+                       CreatedDate, ModifiedDate, SSN, Title, EmergencyContactName,
+                       EmergencyContactRelationship, EmergencyContactPhone, EmergencyContactEmail,
+                       NextReviewDate, OfficeLocation, DirectSupervisor, SeparationDate,
+                       SeparationReason, PhotoFileName, Documents, FailedLoginAttempts,
+                       IsOnline, LastSeen, RoleId
                 FROM Users WHERE Id = @id AND IsActive = 1
             `, { id });
             
@@ -75,17 +83,31 @@ app.http('createUser', {
             
             // Hash password
             const passwordHash = await bcrypt.hash(body.password || 'changeme123', 10);
+            const permissionsValue = body.permissions == null
+                ? null
+                : (typeof body.permissions === 'string' ? body.permissions : JSON.stringify(body.permissions));
+            const documentsValue = body.documents == null
+                ? null
+                : (typeof body.documents === 'string' ? body.documents : JSON.stringify(body.documents));
             
             const result = await execute(`
                 INSERT INTO Users (Username, PasswordHash, FirstName, MiddleName, LastName, Gender, DateOfBirth,
                     PersonalEmail, WorkEmail, HomePhone, CellPhone, Address, City, State, ZipCode,
                     JobTitle, StaffType, EmployeeType, Department, EmployeeStatus, Role,
-                    HireDate, HourlyRate, Salary, Color, ProfileImage, Permissions)
+                    HireDate, HourlyRate, Salary, Color, ProfileImage, Permissions,
+                    SSN, Title, EmergencyContactName, EmergencyContactRelationship,
+                    EmergencyContactPhone, EmergencyContactEmail, NextReviewDate, OfficeLocation,
+                    DirectSupervisor, SeparationDate, SeparationReason, PhotoFileName, Documents,
+                    FailedLoginAttempts, IsOnline, LastSeen, RoleId)
                 OUTPUT INSERTED.Id
                 VALUES (@username, @passwordHash, @firstName, @middleName, @lastName, @gender, @dateOfBirth,
                     @personalEmail, @workEmail, @homePhone, @cellPhone, @address, @city, @state, @zipCode,
                     @jobTitle, @staffType, @employeeType, @department, @employeeStatus, @role,
-                    @hireDate, @hourlyRate, @salary, @color, @profileImage, @permissions)
+                    @hireDate, @hourlyRate, @salary, @color, @profileImage, @permissions,
+                    @ssn, @title, @emergencyContactName, @emergencyContactRelationship,
+                    @emergencyContactPhone, @emergencyContactEmail, @nextReviewDate, @officeLocation,
+                    @directSupervisor, @separationDate, @separationReason, @photoFileName, @documents,
+                    @failedLoginAttempts, @isOnline, @lastSeen, @roleId)
             `, {
                 username: body.username,
                 passwordHash: passwordHash,
@@ -113,7 +135,24 @@ app.http('createUser', {
                 salary: body.salary || null,
                 color: body.color || '#10b981',
                 profileImage: body.profileImage || null,
-                permissions: body.permissions ? JSON.stringify(body.permissions) : null
+                permissions: permissionsValue,
+                ssn: body.ssn || body.SSN || null,
+                title: body.title || body.Title || null,
+                emergencyContactName: body.emergencyContactName || body.EmergencyContactName || null,
+                emergencyContactRelationship: body.emergencyContactRelationship || body.EmergencyContactRelationship || null,
+                emergencyContactPhone: body.emergencyContactPhone || body.EmergencyContactPhone || null,
+                emergencyContactEmail: body.emergencyContactEmail || body.EmergencyContactEmail || null,
+                nextReviewDate: body.nextReviewDate || body.NextReviewDate || null,
+                officeLocation: body.officeLocation || body.OfficeLocation || null,
+                directSupervisor: body.directSupervisor || body.DirectSupervisor || null,
+                separationDate: body.separationDate || body.SeparationDate || null,
+                separationReason: body.separationReason || body.SeparationReason || null,
+                photoFileName: body.photoFileName || body.PhotoFileName || null,
+                documents: documentsValue,
+                failedLoginAttempts: body.failedLoginAttempts ?? body.FailedLoginAttempts ?? 0,
+                isOnline: body.isOnline === true || body.IsOnline === true,
+                lastSeen: body.lastSeen || body.LastSeen || null,
+                roleId: body.roleId || body.RoleId || null
             });
             
             return successResponse({ id: result.recordset[0].Id }, 201);
@@ -139,6 +178,12 @@ app.http('updateUser', {
         
         try {
             const body = await request.json();
+            const permissionsValue = body.permissions == null
+                ? null
+                : (typeof body.permissions === 'string' ? body.permissions : JSON.stringify(body.permissions));
+            const documentsValue = body.documents == null
+                ? null
+                : (typeof body.documents === 'string' ? body.documents : JSON.stringify(body.documents));
             
             await execute(`
                 UPDATE Users SET
@@ -151,6 +196,15 @@ app.http('updateUser', {
                     Department = @department, EmployeeStatus = @employeeStatus, Role = @role,
                     HireDate = @hireDate, HourlyRate = @hourlyRate, Salary = @salary,
                     Color = @color, ProfileImage = @profileImage, Permissions = @permissions,
+                    SSN = @ssn, Title = @title, EmergencyContactName = @emergencyContactName,
+                    EmergencyContactRelationship = @emergencyContactRelationship,
+                    EmergencyContactPhone = @emergencyContactPhone,
+                    EmergencyContactEmail = @emergencyContactEmail, NextReviewDate = @nextReviewDate,
+                    OfficeLocation = @officeLocation, DirectSupervisor = @directSupervisor,
+                    SeparationDate = @separationDate, SeparationReason = @separationReason,
+                    PhotoFileName = @photoFileName, Documents = @documents,
+                    FailedLoginAttempts = @failedLoginAttempts, IsOnline = @isOnline,
+                    LastSeen = @lastSeen, RoleId = @roleId,
                     ModifiedDate = GETUTCDATE()
                 WHERE Id = @id
             `, {
@@ -179,7 +233,24 @@ app.http('updateUser', {
                 salary: body.salary || null,
                 color: body.color || '#10b981',
                 profileImage: body.profileImage || null,
-                permissions: body.permissions ? JSON.stringify(body.permissions) : null
+                permissions: permissionsValue,
+                ssn: body.ssn || body.SSN || null,
+                title: body.title || body.Title || null,
+                emergencyContactName: body.emergencyContactName || body.EmergencyContactName || null,
+                emergencyContactRelationship: body.emergencyContactRelationship || body.EmergencyContactRelationship || null,
+                emergencyContactPhone: body.emergencyContactPhone || body.EmergencyContactPhone || null,
+                emergencyContactEmail: body.emergencyContactEmail || body.EmergencyContactEmail || null,
+                nextReviewDate: body.nextReviewDate || body.NextReviewDate || null,
+                officeLocation: body.officeLocation || body.OfficeLocation || null,
+                directSupervisor: body.directSupervisor || body.DirectSupervisor || null,
+                separationDate: body.separationDate || body.SeparationDate || null,
+                separationReason: body.separationReason || body.SeparationReason || null,
+                photoFileName: body.photoFileName || body.PhotoFileName || null,
+                documents: documentsValue,
+                failedLoginAttempts: body.failedLoginAttempts ?? body.FailedLoginAttempts ?? 0,
+                isOnline: body.isOnline === true || body.IsOnline === true,
+                lastSeen: body.lastSeen || body.LastSeen || null,
+                roleId: body.roleId || body.RoleId || null
             });
             
             return successResponse({ message: 'User updated successfully' });
