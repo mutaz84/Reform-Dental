@@ -22990,7 +22990,8 @@
                     return;
                 }
 
-                const items = (await response.json())
+                const dueItemsRaw = await parseJsonResponseSafe(response, 'Due compliance notifications');
+                const items = (Array.isArray(dueItemsRaw) ? dueItemsRaw : [])
                     .map(normalizeComplianceRecord)
                     .filter(Boolean)
                     .slice(0, 5);
@@ -23101,7 +23102,8 @@
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                const compliances = (await response.json())
+                const compliancesRaw = await parseJsonResponseSafe(response, 'User compliances');
+                const compliances = (Array.isArray(compliancesRaw) ? compliancesRaw : [])
                     .map(normalizeComplianceRecord)
                     .filter(Boolean);
 
@@ -23354,10 +23356,17 @@
                     const response = await fetch(url, init);
                     lastResponse = response;
 
-                    if (response.ok) {
+                    const contentType = String(response.headers?.get('content-type') || '').toLowerCase();
+                    const isHtmlResponse = contentType.includes('text/html');
+
+                    if (response.ok && !isHtmlResponse) {
                         setComplianceEndpointPreference(resource, endpoint);
                         setComplianceBasePreference(resource, base);
                         return response;
+                    }
+
+                    if (response.ok && isHtmlResponse) {
+                        console.warn('Compliance API returned HTML instead of JSON, trying fallback endpoint/base:', { url, contentType });
                     }
 
                     const isLastAttempt = baseIndex === baseCandidates.length - 1 && endpointIndex === endpointCandidates.length - 1;
@@ -23371,6 +23380,30 @@
             }
 
             return lastResponse;
+        }
+
+        async function parseJsonResponseSafe(response, contextLabel = 'API response') {
+            if (!response) {
+                throw new Error(`${contextLabel}: empty response`);
+            }
+
+            const contentType = String(response.headers?.get('content-type') || '').toLowerCase();
+            const rawText = await response.text();
+            const trimmed = String(rawText || '').trim();
+
+            if (!trimmed) {
+                return null;
+            }
+
+            if (contentType.includes('text/html') || trimmed.startsWith('<')) {
+                throw new Error(`${contextLabel}: expected JSON but received HTML`);
+            }
+
+            try {
+                return JSON.parse(trimmed);
+            } catch (_) {
+                throw new Error(`${contextLabel}: invalid JSON payload`);
+            }
         }
 
         function resolveComplianceUserId(userIdentifier, userRecord = null) {
