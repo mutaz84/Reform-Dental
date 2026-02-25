@@ -21066,6 +21066,100 @@
                 .replace(/'/g, '&#39;');
         }
 
+        function parseUserJsonField(value, fallback) {
+            if (value == null || value === '') return fallback;
+            if (typeof value === 'string') {
+                try {
+                    return JSON.parse(value);
+                } catch (_) {
+                    return fallback;
+                }
+            }
+            return value;
+        }
+
+        function normalizeSqlUserForProfile(apiUser, fallbackUser, usernameHint) {
+            const fallback = fallbackUser || {};
+            const username = String(apiUser?.Username || apiUser?.username || usernameHint || fallback.username || '').trim();
+
+            const parsedDocuments = parseUserJsonField(apiUser?.Documents ?? apiUser?.documents, fallback.documents || []);
+            const parsedPermissions = parseUserJsonField(apiUser?.Permissions ?? apiUser?.permissions, fallback.permissions || {});
+
+            return {
+                ...fallback,
+                ...(apiUser || {}),
+                id: apiUser?.Id || apiUser?.id || fallback.id || fallback.Id || null,
+                username: username || fallback.username || '',
+                role: apiUser?.Role || apiUser?.role || fallback.role || 'user',
+                title: apiUser?.Title || apiUser?.title || fallback.title || '',
+                firstName: apiUser?.FirstName || apiUser?.firstName || fallback.firstName || '',
+                middleName: apiUser?.MiddleName || apiUser?.middleName || fallback.middleName || '',
+                lastName: apiUser?.LastName || apiUser?.lastName || fallback.lastName || '',
+                name: `${apiUser?.FirstName || apiUser?.firstName || fallback.firstName || ''} ${apiUser?.LastName || apiUser?.lastName || fallback.lastName || ''}`.trim(),
+                gender: apiUser?.Gender || apiUser?.gender || fallback.gender || '',
+                dateOfBirth: apiUser?.DateOfBirth || apiUser?.dateOfBirth || fallback.dateOfBirth || '',
+                ssn: apiUser?.SSN || apiUser?.ssn || fallback.ssn || '',
+                personalEmail: apiUser?.PersonalEmail || apiUser?.personalEmail || fallback.personalEmail || '',
+                workEmail: apiUser?.WorkEmail || apiUser?.workEmail || fallback.workEmail || '',
+                homePhone: apiUser?.HomePhone || apiUser?.homePhone || fallback.homePhone || '',
+                cellPhone: apiUser?.CellPhone || apiUser?.cellPhone || fallback.cellPhone || '',
+                address: apiUser?.Address || apiUser?.address || fallback.address || '',
+                city: apiUser?.City || apiUser?.city || fallback.city || '',
+                state: apiUser?.State || apiUser?.state || fallback.state || '',
+                zipCode: apiUser?.ZipCode || apiUser?.zipCode || fallback.zipCode || '',
+                jobTitle: apiUser?.JobTitle || apiUser?.jobTitle || fallback.jobTitle || '',
+                staffType: apiUser?.StaffType || apiUser?.staffType || fallback.staffType || 'non-clinical',
+                employeeType: apiUser?.EmployeeType || apiUser?.employeeType || fallback.employeeType || 'full-time',
+                department: apiUser?.Department || apiUser?.department || fallback.department || '',
+                employeeStatus: apiUser?.EmployeeStatus || apiUser?.employeeStatus || fallback.employeeStatus || 'active',
+                hireDate: apiUser?.HireDate || apiUser?.hireDate || fallback.hireDate || '',
+                hourlyRate: apiUser?.HourlyRate ?? apiUser?.hourlyRate ?? fallback.hourlyRate ?? null,
+                salary: apiUser?.Salary ?? apiUser?.salary ?? fallback.salary ?? null,
+                color: apiUser?.Color || apiUser?.color || fallback.color || '#3b82f6',
+                emergencyContactName: apiUser?.EmergencyContactName || apiUser?.emergencyContactName || fallback.emergencyContactName || '',
+                emergencyContactRelationship: apiUser?.EmergencyContactRelationship || apiUser?.emergencyContactRelationship || fallback.emergencyContactRelationship || '',
+                emergencyContactPhone: apiUser?.EmergencyContactPhone || apiUser?.emergencyContactPhone || fallback.emergencyContactPhone || '',
+                emergencyContactEmail: apiUser?.EmergencyContactEmail || apiUser?.emergencyContactEmail || fallback.emergencyContactEmail || '',
+                nextReviewDate: apiUser?.NextReviewDate || apiUser?.nextReviewDate || fallback.nextReviewDate || '',
+                officeLocation: apiUser?.OfficeLocation || apiUser?.officeLocation || fallback.officeLocation || '',
+                directSupervisor: apiUser?.DirectSupervisor || apiUser?.directSupervisor || fallback.directSupervisor || '',
+                separationDate: apiUser?.SeparationDate || apiUser?.separationDate || fallback.separationDate || '',
+                separationReason: apiUser?.SeparationReason || apiUser?.separationReason || fallback.separationReason || '',
+                profileImage: apiUser?.ProfileImage || apiUser?.profileImage || fallback.profileImage || null,
+                photoData: apiUser?.PhotoData || apiUser?.photoData || apiUser?.ProfileImage || apiUser?.profileImage || fallback.photoData || null,
+                photoFileName: apiUser?.PhotoFileName || apiUser?.photoFileName || fallback.photoFileName || null,
+                documents: Array.isArray(parsedDocuments) ? parsedDocuments : (fallback.documents || []),
+                permissions: parsedPermissions && typeof parsedPermissions === 'object' ? parsedPermissions : (fallback.permissions || {}),
+                createdDate: apiUser?.CreatedDate || apiUser?.createdDate || fallback.createdDate || '',
+                modifiedDate: apiUser?.ModifiedDate || apiUser?.modifiedDate || fallback.modifiedDate || '',
+                isActive: apiUser?.IsActive !== false && apiUser?.isActive !== false,
+                isOnline: apiUser?.IsOnline === true || apiUser?.isOnline === true,
+                lastSeen: apiUser?.LastSeen || apiUser?.lastSeen || fallback.lastSeen || '',
+                roleId: apiUser?.RoleId ?? apiUser?.roleId ?? fallback.roleId ?? null,
+                failedLoginAttempts: Number(apiUser?.FailedLoginAttempts ?? apiUser?.failedLoginAttempts ?? fallback.failedLoginAttempts ?? 0) || 0,
+                passwordHash: apiUser?.PasswordHash || apiUser?.passwordHash || fallback.passwordHash || ''
+            };
+        }
+
+        async function fetchSingleUserRecordFromSQL(usernameHint, userIdHint) {
+            if (typeof API_BASE_URL === 'undefined') return null;
+
+            const numericId = Number(userIdHint);
+            if (Number.isFinite(numericId) && numericId > 0) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/users/${numericId}`);
+                    if (response.ok) return await response.json();
+                } catch (_) {}
+            }
+
+            const users = await fetchUsersFromAPI();
+            if (!Array.isArray(users)) return null;
+
+            const target = String(usernameHint || '').trim().toLowerCase();
+            if (!target) return null;
+            return users.find((user) => String(user.Username || user.username || '').trim().toLowerCase() === target) || null;
+        }
+
         const VIEW_USER_BASE_FIELDS = new Set([
             'id', 'Id', 'dbId', 'DBId',
             'username', 'Username',
@@ -21171,6 +21265,7 @@
 
         let viewUploadedPhoto = null;
         let viewUploadedDocuments = [];
+        let viewSqlSourceUserRecord = null;
 
         function renderViewUserPhotoPreview() {
             const preview = document.getElementById('viewUserPhotoPreview');
@@ -21370,6 +21465,7 @@
                 modal.remove();
             }
             document.body.classList.remove('user-profile-modal-open');
+            viewSqlSourceUserRecord = null;
         }
 
         async function saveUserFromViewModal(event) {
@@ -21388,7 +21484,10 @@
             }
 
             const users = loadUsers();
-            const user = users[originalUsername];
+            const localUser = users[originalUsername];
+            const user = viewSqlSourceUserRecord
+                ? JSON.parse(JSON.stringify(viewSqlSourceUserRecord))
+                : (localUser ? JSON.parse(JSON.stringify(localUser)) : null);
             if (!user) {
                 alert('User not found.');
                 return;
@@ -21495,25 +21594,22 @@
             user.modifiedDate = document.getElementById('viewUserModifiedDate').value.trim() || new Date().toISOString();
 
             const selectedDutyIds = getSelectedDutyIdsForView();
-            const userRecordId = getUserRecordId(user);
+            let userRecordId = Number(document.getElementById('viewUserRecordId')?.value || getUserRecordId(user) || 0);
+            if (!Number.isFinite(userRecordId) || userRecordId <= 0) {
+                const sqlRecord = await fetchSingleUserRecordFromSQL(originalUsername, null);
+                userRecordId = Number(sqlRecord?.Id || sqlRecord?.id || 0);
+            }
 
             let persisted = false;
-            let persistedUserId = userRecordId;
+            let persistedUserId = Number.isFinite(userRecordId) && userRecordId > 0 ? userRecordId : null;
 
-            if (userRecordId && typeof updateUserViaAPI === 'function') {
-                persisted = await updateUserViaAPI(userRecordId, user);
-            } else if (typeof saveUserToAPI === 'function') {
-                const created = await saveUserToAPI(username, user);
-                if (created && (created.id || created.Id)) {
-                    persistedUserId = created.id || created.Id;
-                    user.id = persistedUserId;
-                    persisted = true;
-                }
+            if (persistedUserId && typeof updateUserViaAPI === 'function') {
+                persisted = await updateUserViaAPI(persistedUserId, user);
             }
 
             if (!persisted) {
                 if (typeof showNotification === 'function') {
-                    showNotification('Save failed: SQL update did not complete. Local data was not committed.', 'error');
+                    showNotification('Save failed: SQL record was not updated. No local fallback was applied.', 'error');
                 }
                 return;
             }
@@ -21523,13 +21619,10 @@
             }
 
             if (typeof syncUsersFromAPI === 'function') {
-                await syncUsersFromAPI();
-            } else {
-                if (username !== originalUsername) {
-                    users[username] = user;
-                    delete users[originalUsername];
+                const synced = await syncUsersFromAPI();
+                if (!synced && typeof showNotification === 'function') {
+                    showNotification('User saved to SQL, but refresh from SQL failed. Please refresh list.', 'warning');
                 }
-                saveUsers(users);
             }
 
             displayUsersList();
@@ -21553,12 +21646,22 @@
             }
 
             const users = loadUsers();
-            const resolvedUsername = Object.keys(users).find((key) => key.toLowerCase() === String(username || '').toLowerCase()) || username;
-            const user = users[resolvedUsername];
+            let resolvedUsername = Object.keys(users).find((key) => key.toLowerCase() === String(username || '').toLowerCase()) || username;
+            const cachedUser = users[resolvedUsername];
+
+            const sqlRecord = await fetchSingleUserRecordFromSQL(resolvedUsername, getUserRecordId(cachedUser));
+            const user = sqlRecord
+                ? normalizeSqlUserForProfile(sqlRecord, cachedUser, resolvedUsername)
+                : cachedUser;
 
             if (!user) {
                 alert('User not found.');
                 return;
+            }
+
+            viewSqlSourceUserRecord = JSON.parse(JSON.stringify(user));
+            if (user.username && user.username !== resolvedUsername) {
+                resolvedUsername = user.username;
             }
 
             closeViewUserModal();
@@ -21584,6 +21687,7 @@
                     </div>
                     <form onsubmit="saveUserFromViewModal(event)" style="display:flex; flex-direction:column; min-height:0;">
                         <input type="hidden" id="viewUserUsernameOriginal" value="${escapeUserViewValue(resolvedUsername)}">
+                        <input type="hidden" id="viewUserRecordId" value="${escapeUserViewValue(getUserRecordId(user) || '')}">
                         <div style="padding: 1rem 1.25rem; overflow:auto; display:grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 0.85rem 1rem;">
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Username</label><input id="viewUserUsername" type="text" value="${escapeUserViewValue(resolvedUsername)}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Role</label><select id="viewUserRole" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"><option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option><option value="manager" ${user.role === 'manager' ? 'selected' : ''}>Manager</option><option value="user" ${(user.role || 'user') === 'user' ? 'selected' : ''}>User</option></select></div>
