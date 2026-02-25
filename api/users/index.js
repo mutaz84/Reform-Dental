@@ -45,6 +45,37 @@ function hasColumn(columns, name) {
     return columns.has(String(name).toLowerCase());
 }
 
+function toNullableString(value) {
+    if (value === undefined || value === null) return null;
+    const normalized = String(value).trim();
+    return normalized === '' ? null : normalized;
+}
+
+function toNullableNumber(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+}
+
+function toNullableDate(value) {
+    if (!value) return null;
+    return value;
+}
+
+function toBooleanBit(value) {
+    return value === true || value === 1 || value === '1' || String(value).toLowerCase() === 'true';
+}
+
+function toJsonString(value) {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value === 'string') return value;
+    try {
+        return JSON.stringify(value);
+    } catch (_) {
+        return null;
+    }
+}
+
 module.exports = async function (context, req) {
     // Handle CORS
     const headers = {
@@ -106,10 +137,14 @@ module.exports = async function (context, req) {
             const hasClinicIsActive = hasColumn(clinicColumns, 'IsActive');
 
             const preferredColumns = [
-                'Id', 'Username', 'FirstName', 'MiddleName', 'LastName', 'Gender', 'DateOfBirth',
+                'Id', 'Username', 'PasswordHash', 'FirstName', 'MiddleName', 'LastName', 'Gender', 'DateOfBirth',
                 'PersonalEmail', 'WorkEmail', 'HomePhone', 'CellPhone', 'Address', 'City', 'State', 'ZipCode',
                 'JobTitle', 'StaffType', 'EmployeeType', 'Department', 'EmployeeStatus', 'Role', 'HireDate',
-                'HourlyRate', 'Salary', 'Color', 'CreatedDate', 'ModifiedDate'
+                'HourlyRate', 'Salary', 'Color', 'ProfileImage', 'Permissions', 'CreatedDate', 'ModifiedDate',
+                'IsActive', 'IsOnline', 'LastSeen', 'RoleId', 'SSN', 'Title', 'EmergencyContactName',
+                'EmergencyContactRelationship', 'EmergencyContactPhone', 'EmergencyContactEmail', 'NextReviewDate',
+                'OfficeLocation', 'DirectSupervisor', 'SeparationDate', 'SeparationReason', 'PhotoFileName',
+                'Documents', 'FailedLoginAttempts'
             ].filter((name) => hasColumn(userColumns, name));
 
             if (!preferredColumns.some((c) => c.toLowerCase() === 'id')) {
@@ -183,6 +218,8 @@ module.exports = async function (context, req) {
         } else if (req.method === 'POST') {
             const body = req.body;
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
+            const permissionsValue = toJsonString(body.permissions || body.Permissions);
+            const documentsValue = toJsonString(body.documents || body.Documents);
 
             const transaction = new sql.Transaction(pool);
             await transaction.begin();
@@ -190,38 +227,65 @@ module.exports = async function (context, req) {
                 const result = await new sql.Request(transaction)
                     .input('username', sql.NVarChar, body.username)
                     .input('passwordHash', sql.NVarChar, body.password || 'changeme')
-                    .input('firstName', sql.NVarChar, body.firstName || '')
-                    .input('middleName', sql.NVarChar, body.middleName || '')
-                    .input('lastName', sql.NVarChar, body.lastName || '')
-                    .input('gender', sql.NVarChar, body.gender || '')
-                    .input('dateOfBirth', sql.Date, body.dateOfBirth || null)
-                    .input('personalEmail', sql.NVarChar, body.personalEmail || '')
-                    .input('workEmail', sql.NVarChar, body.workEmail || '')
-                    .input('homePhone', sql.NVarChar, body.homePhone || '')
-                    .input('cellPhone', sql.NVarChar, body.cellPhone || '')
-                    .input('address', sql.NVarChar, body.address || '')
-                    .input('city', sql.NVarChar, body.city || '')
-                    .input('state', sql.NVarChar, body.state || '')
-                    .input('zipCode', sql.NVarChar, body.zipCode || '')
-                    .input('jobTitle', sql.NVarChar, body.jobTitle || '')
+                    .input('firstName', sql.NVarChar, toNullableString(body.firstName || body.FirstName))
+                    .input('middleName', sql.NVarChar, toNullableString(body.middleName || body.MiddleName))
+                    .input('lastName', sql.NVarChar, toNullableString(body.lastName || body.LastName))
+                    .input('gender', sql.NVarChar, toNullableString(body.gender || body.Gender))
+                    .input('dateOfBirth', sql.Date, toNullableDate(body.dateOfBirth || body.DateOfBirth))
+                    .input('personalEmail', sql.NVarChar, toNullableString(body.personalEmail || body.PersonalEmail))
+                    .input('workEmail', sql.NVarChar, toNullableString(body.workEmail || body.WorkEmail))
+                    .input('homePhone', sql.NVarChar, toNullableString(body.homePhone || body.HomePhone))
+                    .input('cellPhone', sql.NVarChar, toNullableString(body.cellPhone || body.CellPhone))
+                    .input('address', sql.NVarChar, toNullableString(body.address || body.Address))
+                    .input('city', sql.NVarChar, toNullableString(body.city || body.City))
+                    .input('state', sql.NVarChar, toNullableString(body.state || body.State))
+                    .input('zipCode', sql.NVarChar, toNullableString(body.zipCode || body.ZipCode))
+                    .input('jobTitle', sql.NVarChar, toNullableString(body.jobTitle || body.JobTitle))
                     .input('staffType', sql.NVarChar, body.staffType || 'non-clinical')
                     .input('employeeType', sql.NVarChar, body.employeeType || 'full-time')
-                    .input('department', sql.NVarChar, body.department || '')
+                    .input('department', sql.NVarChar, toNullableString(body.department || body.Department))
                     .input('employeeStatus', sql.NVarChar, body.employeeStatus || 'active')
                     .input('role', sql.NVarChar, body.role || 'user')
-                    .input('hireDate', sql.Date, body.hireDate || null)
-                    .input('hourlyRate', sql.Decimal(10,2), body.hourlyRate || null)
-                    .input('salary', sql.Decimal(12,2), body.salary || null)
+                    .input('hireDate', sql.Date, toNullableDate(body.hireDate || body.HireDate))
+                    .input('hourlyRate', sql.Decimal(10,2), toNullableNumber(body.hourlyRate || body.HourlyRate))
+                    .input('salary', sql.Decimal(12,2), toNullableNumber(body.salary || body.Salary))
                     .input('color', sql.NVarChar, body.color || '#3b82f6')
+                    .input('profileImage', sql.NVarChar(sql.MAX), toNullableString(body.profileImage || body.ProfileImage || body.photoData || body.PhotoData))
+                    .input('permissions', sql.NVarChar(sql.MAX), permissionsValue)
+                    .input('ssn', sql.NVarChar, toNullableString(body.ssn || body.SSN))
+                    .input('title', sql.NVarChar, toNullableString(body.title || body.Title))
+                    .input('emergencyContactName', sql.NVarChar, toNullableString(body.emergencyContactName || body.EmergencyContactName))
+                    .input('emergencyContactRelationship', sql.NVarChar, toNullableString(body.emergencyContactRelationship || body.EmergencyContactRelationship))
+                    .input('emergencyContactPhone', sql.NVarChar, toNullableString(body.emergencyContactPhone || body.EmergencyContactPhone))
+                    .input('emergencyContactEmail', sql.NVarChar, toNullableString(body.emergencyContactEmail || body.EmergencyContactEmail))
+                    .input('nextReviewDate', sql.Date, toNullableDate(body.nextReviewDate || body.NextReviewDate))
+                    .input('officeLocation', sql.NVarChar, toNullableString(body.officeLocation || body.OfficeLocation))
+                    .input('directSupervisor', sql.NVarChar, toNullableString(body.directSupervisor || body.DirectSupervisor))
+                    .input('separationDate', sql.Date, toNullableDate(body.separationDate || body.SeparationDate))
+                    .input('separationReason', sql.NVarChar, toNullableString(body.separationReason || body.SeparationReason))
+                    .input('photoFileName', sql.NVarChar, toNullableString(body.photoFileName || body.PhotoFileName))
+                    .input('documents', sql.NVarChar(sql.MAX), documentsValue)
+                    .input('failedLoginAttempts', sql.Int, toNullableNumber(body.failedLoginAttempts || body.FailedLoginAttempts) ?? 0)
+                    .input('isOnline', sql.Bit, toBooleanBit(body.isOnline || body.IsOnline))
+                    .input('lastSeen', sql.DateTime2, body.lastSeen || body.LastSeen || null)
+                    .input('roleId', sql.Int, toNullableNumber(body.roleId || body.RoleId))
                     .query(`INSERT INTO Users (Username, PasswordHash, FirstName, MiddleName, LastName, Gender, DateOfBirth,
                             PersonalEmail, WorkEmail, HomePhone, CellPhone, Address, City, State, ZipCode,
                             JobTitle, StaffType, EmployeeType, Department, EmployeeStatus, Role, HireDate,
-                            HourlyRate, Salary, Color)
+                            HourlyRate, Salary, Color, ProfileImage, Permissions, SSN, Title,
+                            EmergencyContactName, EmergencyContactRelationship, EmergencyContactPhone,
+                            EmergencyContactEmail, NextReviewDate, OfficeLocation, DirectSupervisor,
+                            SeparationDate, SeparationReason, PhotoFileName, Documents,
+                            FailedLoginAttempts, IsOnline, LastSeen, RoleId)
                             OUTPUT INSERTED.Id
                             VALUES (@username, @passwordHash, @firstName, @middleName, @lastName, @gender, @dateOfBirth,
                             @personalEmail, @workEmail, @homePhone, @cellPhone, @address, @city, @state, @zipCode,
                             @jobTitle, @staffType, @employeeType, @department, @employeeStatus, @role, @hireDate,
-                            @hourlyRate, @salary, @color)`);
+                            @hourlyRate, @salary, @color, @profileImage, @permissions, @ssn, @title,
+                            @emergencyContactName, @emergencyContactRelationship, @emergencyContactPhone,
+                            @emergencyContactEmail, @nextReviewDate, @officeLocation, @directSupervisor,
+                            @separationDate, @separationReason, @photoFileName, @documents,
+                            @failedLoginAttempts, @isOnline, @lastSeen, @roleId)`);
 
                 const userId = result.recordset[0].Id;
 
@@ -243,6 +307,8 @@ module.exports = async function (context, req) {
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
+            const permissionsValue = toJsonString(body.permissions || body.Permissions);
+            const documentsValue = toJsonString(body.documents || body.Documents);
             const shouldUpdateClinics = Object.prototype.hasOwnProperty.call(body || {}, 'clinicIds') ||
                 Object.prototype.hasOwnProperty.call(body || {}, 'ClinicIds') ||
                 Object.prototype.hasOwnProperty.call(body || {}, 'clinicId') ||
@@ -251,37 +317,77 @@ module.exports = async function (context, req) {
             const transaction = new sql.Transaction(pool);
             await transaction.begin();
             try {
-                await new sql.Request(transaction)
+                const updateResult = await new sql.Request(transaction)
                     .input('id', sql.Int, id)
-                    .input('firstName', sql.NVarChar, body.firstName || '')
-                    .input('middleName', sql.NVarChar, body.middleName || '')
-                    .input('lastName', sql.NVarChar, body.lastName || '')
-                    .input('gender', sql.NVarChar, body.gender || '')
-                    .input('dateOfBirth', sql.Date, body.dateOfBirth || null)
-                    .input('personalEmail', sql.NVarChar, body.personalEmail || '')
-                    .input('workEmail', sql.NVarChar, body.workEmail || '')
-                    .input('homePhone', sql.NVarChar, body.homePhone || '')
-                    .input('cellPhone', sql.NVarChar, body.cellPhone || '')
-                    .input('address', sql.NVarChar, body.address || '')
-                    .input('city', sql.NVarChar, body.city || '')
-                    .input('state', sql.NVarChar, body.state || '')
-                    .input('zipCode', sql.NVarChar, body.zipCode || '')
-                    .input('jobTitle', sql.NVarChar, body.jobTitle || '')
-                    .input('staffType', sql.NVarChar, body.staffType || '')
-                    .input('employeeType', sql.NVarChar, body.employeeType || '')
-                    .input('department', sql.NVarChar, body.department || '')
-                    .input('employeeStatus', sql.NVarChar, body.employeeStatus || '')
-                    .input('role', sql.NVarChar, body.role || '')
-                    .input('hireDate', sql.Date, body.hireDate || null)
-                    .input('hourlyRate', sql.Decimal(10,2), body.hourlyRate || null)
-                    .input('salary', sql.Decimal(12,2), body.salary || null)
-                    .input('color', sql.NVarChar, body.color || '')
+                    .input('username', sql.NVarChar, toNullableString(body.username || body.Username))
+                    .input('firstName', sql.NVarChar, toNullableString(body.firstName || body.FirstName))
+                    .input('middleName', sql.NVarChar, toNullableString(body.middleName || body.MiddleName))
+                    .input('lastName', sql.NVarChar, toNullableString(body.lastName || body.LastName))
+                    .input('gender', sql.NVarChar, toNullableString(body.gender || body.Gender))
+                    .input('dateOfBirth', sql.Date, toNullableDate(body.dateOfBirth || body.DateOfBirth))
+                    .input('personalEmail', sql.NVarChar, toNullableString(body.personalEmail || body.PersonalEmail))
+                    .input('workEmail', sql.NVarChar, toNullableString(body.workEmail || body.WorkEmail))
+                    .input('homePhone', sql.NVarChar, toNullableString(body.homePhone || body.HomePhone))
+                    .input('cellPhone', sql.NVarChar, toNullableString(body.cellPhone || body.CellPhone))
+                    .input('address', sql.NVarChar, toNullableString(body.address || body.Address))
+                    .input('city', sql.NVarChar, toNullableString(body.city || body.City))
+                    .input('state', sql.NVarChar, toNullableString(body.state || body.State))
+                    .input('zipCode', sql.NVarChar, toNullableString(body.zipCode || body.ZipCode))
+                    .input('jobTitle', sql.NVarChar, toNullableString(body.jobTitle || body.JobTitle))
+                    .input('staffType', sql.NVarChar, toNullableString(body.staffType || body.StaffType))
+                    .input('employeeType', sql.NVarChar, toNullableString(body.employeeType || body.EmployeeType))
+                    .input('department', sql.NVarChar, toNullableString(body.department || body.Department))
+                    .input('employeeStatus', sql.NVarChar, toNullableString(body.employeeStatus || body.EmployeeStatus))
+                    .input('role', sql.NVarChar, toNullableString(body.role || body.Role))
+                    .input('hireDate', sql.Date, toNullableDate(body.hireDate || body.HireDate))
+                    .input('hourlyRate', sql.Decimal(10,2), toNullableNumber(body.hourlyRate || body.HourlyRate))
+                    .input('salary', sql.Decimal(12,2), toNullableNumber(body.salary || body.Salary))
+                    .input('color', sql.NVarChar, toNullableString(body.color || body.Color))
+                    .input('profileImage', sql.NVarChar(sql.MAX), toNullableString(body.profileImage || body.ProfileImage || body.photoData || body.PhotoData))
+                    .input('permissions', sql.NVarChar(sql.MAX), permissionsValue)
+                    .input('ssn', sql.NVarChar, toNullableString(body.ssn || body.SSN))
+                    .input('title', sql.NVarChar, toNullableString(body.title || body.Title))
+                    .input('emergencyContactName', sql.NVarChar, toNullableString(body.emergencyContactName || body.EmergencyContactName))
+                    .input('emergencyContactRelationship', sql.NVarChar, toNullableString(body.emergencyContactRelationship || body.EmergencyContactRelationship))
+                    .input('emergencyContactPhone', sql.NVarChar, toNullableString(body.emergencyContactPhone || body.EmergencyContactPhone))
+                    .input('emergencyContactEmail', sql.NVarChar, toNullableString(body.emergencyContactEmail || body.EmergencyContactEmail))
+                    .input('nextReviewDate', sql.Date, toNullableDate(body.nextReviewDate || body.NextReviewDate))
+                    .input('officeLocation', sql.NVarChar, toNullableString(body.officeLocation || body.OfficeLocation))
+                    .input('directSupervisor', sql.NVarChar, toNullableString(body.directSupervisor || body.DirectSupervisor))
+                    .input('separationDate', sql.Date, toNullableDate(body.separationDate || body.SeparationDate))
+                    .input('separationReason', sql.NVarChar, toNullableString(body.separationReason || body.SeparationReason))
+                    .input('photoFileName', sql.NVarChar, toNullableString(body.photoFileName || body.PhotoFileName))
+                    .input('documents', sql.NVarChar(sql.MAX), documentsValue)
+                    .input('failedLoginAttempts', sql.Int, toNullableNumber(body.failedLoginAttempts || body.FailedLoginAttempts) ?? 0)
+                    .input('isOnline', sql.Bit, toBooleanBit(body.isOnline || body.IsOnline))
+                    .input('lastSeen', sql.DateTime2, body.lastSeen || body.LastSeen || null)
+                    .input('roleId', sql.Int, toNullableNumber(body.roleId || body.RoleId))
                     .query(`UPDATE Users SET FirstName=@firstName, MiddleName=@middleName, LastName=@lastName, 
+                            Username = COALESCE(@username, Username),
                             Gender=@gender, DateOfBirth=@dateOfBirth, PersonalEmail=@personalEmail, WorkEmail=@workEmail,
                             HomePhone=@homePhone, CellPhone=@cellPhone, Address=@address, City=@city, State=@state, ZipCode=@zipCode,
                             JobTitle=@jobTitle, StaffType=@staffType, EmployeeType=@employeeType, Department=@department,
                             EmployeeStatus=@employeeStatus, Role=@role, HireDate=@hireDate, HourlyRate=@hourlyRate, Salary=@salary,
-                            Color=@color, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+                            Color=@color, ProfileImage=@profileImage, Permissions=@permissions,
+                            SSN=@ssn, Title=@title, EmergencyContactName=@emergencyContactName,
+                            EmergencyContactRelationship=@emergencyContactRelationship,
+                            EmergencyContactPhone=@emergencyContactPhone, EmergencyContactEmail=@emergencyContactEmail,
+                            NextReviewDate=@nextReviewDate, OfficeLocation=@officeLocation,
+                            DirectSupervisor=@directSupervisor, SeparationDate=@separationDate,
+                            SeparationReason=@separationReason, PhotoFileName=@photoFileName,
+                            Documents=@documents, FailedLoginAttempts=@failedLoginAttempts,
+                            IsOnline=@isOnline, LastSeen=@lastSeen, RoleId=@roleId,
+                            ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+
+                const affectedRows = Array.isArray(updateResult.rowsAffected)
+                    ? updateResult.rowsAffected.reduce((sum, n) => sum + Number(n || 0), 0)
+                    : 0;
+                if (affectedRows === 0) {
+                    await transaction.rollback();
+                    context.res = { status: 404, headers, body: { error: 'User not found or not updated' } };
+                    await pool.close();
+                    return;
+                }
 
                 if (shouldUpdateClinics) {
                     await new sql.Request(transaction)
