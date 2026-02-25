@@ -20158,12 +20158,14 @@
                     showSyncStatus('User saved to database', true);
                     
                     // Store the database ID back in localStorage
-                    if (result.id) {
+                    const createdUserId = Number(getUserRecordId(result) || 0);
+                    if (Number.isInteger(createdUserId) && createdUserId > 0) {
                         const users = safeParseLocalStorageJSON('appUsers', {}, { expect: 'object' });
                         if (users[username]) {
-                            users[username].id = result.id;
+                            users[username].id = createdUserId;
+                            users[username].dbId = createdUserId;
                             localStorage.setItem('appUsers', JSON.stringify(users));
-                            console.log('📝 Stored database ID:', result.id, 'for user:', username);
+                            console.log('📝 Stored database ID:', createdUserId, 'for user:', username);
                         }
                     }
                     return result;
@@ -20901,10 +20903,16 @@
             try {
                 // Also save to database API and get the user ID
                 const savedUser = await saveUserToAPI(username, users[username]);
+                const persistedUserId = Number(getUserRecordId(savedUser) || getUserRecordId(users[username]) || 0);
                 
                 // Assign selected duties to the new user
-                if (selectedDutyIds.length > 0 && savedUser && savedUser.id) {
-                    await assignDutiesToUser(savedUser.id, selectedDutyIds);
+                if (selectedDutyIds.length > 0 && Number.isInteger(persistedUserId) && persistedUserId > 0) {
+                    await saveViewUserDutyAssignments(persistedUserId, selectedDutyIds);
+                } else if (selectedDutyIds.length > 0) {
+                    console.warn('⚠️ Unable to assign duties: persisted user ID missing after create.', {
+                        username,
+                        savedUser
+                    });
                 }
             } catch (error) {
                 console.error('Error saving user to API or assigning duties:', error);
