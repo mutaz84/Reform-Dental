@@ -62522,23 +62522,59 @@ async function syncUsersFromAPI() {
     if (!apiUsers) return false;
 
     const existingUsers = safeParseLocalStorageJSON('appUsers', {}, { expect: 'object' });
+
+    function pickFirstNonEmpty() {
+        for (let i = 0; i < arguments.length; i++) {
+            const value = arguments[i];
+            if (value !== undefined && value !== null && value !== '') return value;
+        }
+        return '';
+    }
     
     // Convert API format to localStorage format - map ALL fields
     const localUsers = {};
     apiUsers.forEach(user => {
-        const username = user.Username || user.username;
-        const existing = existingUsers[username] || {};
+        const username = (user.Username || user.username || '').trim();
+        if (!username) return;
+
+        const existingKey = Object.keys(existingUsers).find(key => key.toLowerCase() === username.toLowerCase()) || username;
+        const existing = existingUsers[existingKey] || {};
+
+        let documents = existing.documents || [];
+        const apiDocuments = user.Documents || user.documents || user.Files || user.files;
+        if (Array.isArray(apiDocuments)) {
+            documents = apiDocuments;
+        } else if (typeof apiDocuments === 'string') {
+            try {
+                const parsedDocs = JSON.parse(apiDocuments);
+                if (Array.isArray(parsedDocs)) documents = parsedDocs;
+            } catch (_) {}
+        }
+
+        let hrInfo = existing.hrInfo || {};
+        const apiHrInfo = user.HRInfo || user.hrInfo;
+        if (apiHrInfo && typeof apiHrInfo === 'object') {
+            hrInfo = apiHrInfo;
+        } else if (typeof apiHrInfo === 'string') {
+            try {
+                const parsedHr = JSON.parse(apiHrInfo);
+                if (parsedHr && typeof parsedHr === 'object') hrInfo = parsedHr;
+            } catch (_) {}
+        }
+
         localUsers[username] = {
             ...existing,
             id: user.Id || user.id,
             password: existing.password || '***',
             role: user.Role || user.role || 'user',
             name: `${user.FirstName || ''} ${user.LastName || ''}`.trim(),
+            title: pickFirstNonEmpty(user.Title, user.title, existing.title),
             firstName: user.FirstName || user.firstName || '',
             middleName: user.MiddleName || user.middleName || '',
             lastName: user.LastName || user.lastName || '',
             gender: user.Gender || user.gender || '',
             dateOfBirth: user.DateOfBirth || user.dateOfBirth || '',
+            ssn: pickFirstNonEmpty(user.SSN, user.ssn, existing.ssn),
             personalEmail: user.PersonalEmail || user.personalEmail || '',
             workEmail: user.WorkEmail || user.workEmail || '',
             homePhone: user.HomePhone || user.homePhone || '',
@@ -62550,14 +62586,33 @@ async function syncUsersFromAPI() {
             jobTitle: user.JobTitle || user.jobTitle || '',
             staffType: user.StaffType || user.staffType || 'non-clinical',
             employeeType: user.EmployeeType || user.employeeType || 'full-time',
-            department: user.Department || user.department || '',
+            department: pickFirstNonEmpty(user.Department, user.department, user.OfficeLocation, user.officeLocation, existing.department),
             employeeStatus: user.EmployeeStatus || user.employeeStatus || 'active',
             hireDate: user.HireDate || user.hireDate || '',
+            nextReviewDate: pickFirstNonEmpty(user.NextReviewDate, user.nextReviewDate, existing.nextReviewDate),
+            officeLocation: pickFirstNonEmpty(user.OfficeLocation, user.officeLocation, existing.officeLocation),
+            directSupervisor: pickFirstNonEmpty(user.DirectSupervisor, user.directSupervisor, existing.directSupervisor),
+            separationDate: pickFirstNonEmpty(user.SeparationDate, user.separationDate, existing.separationDate),
+            separationReason: pickFirstNonEmpty(user.SeparationReason, user.separationReason, existing.separationReason),
             hourlyRate: user.HourlyRate || user.hourlyRate || '',
             salary: user.Salary || user.salary || '',
             color: user.Color || user.color || '#3b82f6',
+            emergencyContactName: pickFirstNonEmpty(user.EmergencyContactName, user.emergencyContactName, existing.emergencyContactName),
+            emergencyContactRelationship: pickFirstNonEmpty(user.EmergencyContactRelationship, user.emergencyContactRelationship, existing.emergencyContactRelationship),
+            emergencyContactPhone: pickFirstNonEmpty(user.EmergencyContactPhone, user.emergencyContactPhone, existing.emergencyContactPhone),
+            emergencyContactEmail: pickFirstNonEmpty(user.EmergencyContactEmail, user.emergencyContactEmail, existing.emergencyContactEmail),
+            photoData: pickFirstNonEmpty(user.PhotoData, user.photoData, user.Photo, user.photo, existing.photoData),
+            photoFileName: pickFirstNonEmpty(user.PhotoFileName, user.photoFileName, existing.photoFileName),
+            documents,
+            hrInfo,
+            isActive: user.IsActive !== false && user.isActive !== false,
+            createdDate: pickFirstNonEmpty(user.CreatedDate, user.createdDate, existing.createdDate),
+            modifiedDate: pickFirstNonEmpty(user.ModifiedDate, user.modifiedDate, existing.modifiedDate),
+            failedLoginAttempts: Number(pickFirstNonEmpty(user.FailedLoginAttempts, user.failedLoginAttempts, existing.failedLoginAttempts, 0)) || 0,
             permissions: existing.permissions || (typeof getDefaultPermissions === 'function' ? getDefaultPermissions(user.Role || user.role || 'user') : {})
         };
+
+        localUsers[username].photo = localUsers[username].photoData || localUsers[username].photo || null;
     });
     
     // REPLACE localStorage with API users only (database is source of truth)
