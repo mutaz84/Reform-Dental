@@ -19219,14 +19219,14 @@
         </div>
     </div>
 
-    <!-- Requirements View (Employee-facing compliances) -->
+    <!-- My Compliances View (Employee-facing compliances) -->
     <div class="content-view" id="view-requirements" style="display: none;">
         <div class="dashboard-grid">
             <div class="main-content">
                 <div class="section-header">
                     <h2 class="section-title">
                         <i class="fas fa-clipboard-check" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
-                        <span>My Requirements</span>
+                        <span>My Compliances</span>
                     </h2>
                     <div class="section-actions">
                         <button onclick="initializeRequirementsView(true)" class="btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">
@@ -19259,7 +19259,7 @@
 
                 <div class="compliances-container" style="background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color);">
                     <div class="table-header" style="padding: 1rem; border-bottom: 1px solid var(--border-color);">
-                        <h3 style="margin: 0; color: var(--text-primary);">Assigned Requirements</h3>
+                        <h3 style="margin: 0; color: var(--text-primary);">My Compliances</h3>
                     </div>
                     <div id="requirementsList" style="max-height: 600px; overflow-y: auto; padding: 1rem;">
                         <div style="padding: 1rem; text-align: center; color: var(--text-secondary);">Loading requirements...</div>
@@ -20659,6 +20659,14 @@
                 if (typeof clearAllDuties === 'function') {
                     clearAllDuties();
                 }
+                if (typeof clearAllUserCompliances === 'function') {
+                    clearAllUserCompliances();
+                }
+                if (typeof loadAllCompliances === 'function') {
+                    loadAllCompliances();
+                } else if (typeof renderCompliancesCheckboxes === 'function') {
+                    renderCompliancesCheckboxes();
+                }
             }
         }
 
@@ -20849,6 +20857,9 @@
             };
 
             const selectedDutyIds = getSelectedDutyIds();
+            const selectedComplianceIds = (typeof getSelectedComplianceIds === 'function')
+                ? getSelectedComplianceIds()
+                : [];
 
             if (isEditMode) {
                 if (!Number.isInteger(Number(addUserEditRecordId)) || Number(addUserEditRecordId) <= 0) {
@@ -20870,6 +20881,9 @@
 
                 if (typeof saveViewUserDutyAssignments === 'function') {
                     await saveViewUserDutyAssignments(Number(addUserEditRecordId), selectedDutyIds);
+                }
+                if (typeof saveViewUserComplianceAssignments === 'function') {
+                    await saveViewUserComplianceAssignments(Number(addUserEditRecordId), selectedComplianceIds);
                 }
 
                 if (typeof syncUsersFromAPI === 'function') {
@@ -20914,8 +20928,18 @@
                         savedUser
                     });
                 }
+
+                // Assign selected compliances to the new user
+                if (selectedComplianceIds.length > 0 && Number.isInteger(persistedUserId) && persistedUserId > 0) {
+                    await saveViewUserComplianceAssignments(persistedUserId, selectedComplianceIds);
+                } else if (selectedComplianceIds.length > 0) {
+                    console.warn('⚠️ Unable to assign compliances: persisted user ID missing after create.', {
+                        username,
+                        savedUser
+                    });
+                }
             } catch (error) {
-                console.error('Error saving user to API or assigning duties:', error);
+                console.error('Error saving user to API or assigning duties/compliances:', error);
                 // Still show success for local save
             }
             
@@ -20924,11 +20948,17 @@
             errorDiv.style.background = '#d4edda';
             errorDiv.style.borderColor = '#c3e6cb';
             errorDiv.style.color = '#155724';
-            errorDiv.textContent = `Employee "${fullName}" created successfully!${selectedDutyIds.length > 0 ? ` (${selectedDutyIds.length} duties assigned)` : ''}`;
+            const assignmentSummary = [];
+            if (selectedDutyIds.length > 0) assignmentSummary.push(`${selectedDutyIds.length} duties assigned`);
+            if (selectedComplianceIds.length > 0) assignmentSummary.push(`${selectedComplianceIds.length} compliances assigned`);
+            errorDiv.textContent = `Employee "${fullName}" created successfully!${assignmentSummary.length ? ` (${assignmentSummary.join(', ')})` : ''}`;
             
             // Reset form
             document.getElementById('createUserForm').reset();
             clearAllDuties();
+            if (typeof clearAllUserCompliances === 'function') {
+                clearAllUserCompliances();
+            }
             
             // Clear uploaded files
             uploadedPhoto = null;
@@ -21620,6 +21650,41 @@
             }).join('');
         }
 
+        function renderViewUserCompliances(userId) {
+            const container = document.getElementById('viewUserCompliancesContainer');
+            if (!container) return;
+
+            const compliances = Array.isArray(window.compliancesData) ? window.compliancesData : [];
+            if (!compliances.length) {
+                container.innerHTML = '<div style="color: var(--text-tertiary); font-style: italic;">No compliances available.</div>';
+                return;
+            }
+
+            const userIdNumber = Number(userId);
+            container.innerHTML = compliances.map((record) => {
+                const compliance = normalizeComplianceRecord(record) || record;
+                const complianceId = Number(compliance.id || compliance.Id);
+                const assignedUserIds = Array.isArray(compliance.assignedUserIds)
+                    ? compliance.assignedUserIds
+                    : (Array.isArray(compliance.AssignedUserIds) ? compliance.AssignedUserIds : []);
+                const assignedId = Number(compliance.userId ?? compliance.UserId ?? 0);
+                const checked = userIdNumber > 0 && (
+                    assignedId === userIdNumber ||
+                    assignedUserIds.map((value) => Number(value)).includes(userIdNumber)
+                );
+
+                return `
+                    <label style="display:flex; align-items:flex-start; gap:0.6rem; padding:0.55rem; border:1px solid var(--border-color); border-radius:6px; background:var(--card-bg);">
+                        <input type="checkbox" name="viewSelectedCompliances" value="${complianceId}" ${checked ? 'checked' : ''} style="margin-top:0.2rem;">
+                        <div>
+                            <div style="font-weight:600; color: var(--text-primary);">${escapeUserViewValue(compliance.title || '(Untitled Compliance)')}</div>
+                            <div style="font-size:0.8rem; color: var(--text-tertiary);">${escapeUserViewValue(getComplianceTypeDisplay(compliance))}</div>
+                        </div>
+                    </label>
+                `;
+            }).join('');
+        }
+
         function selectAllViewUserDuties() {
             document.querySelectorAll('#viewUserDutiesContainer input[name="viewSelectedDuties"]').forEach((input) => {
                 input.checked = true;
@@ -21638,6 +21703,55 @@
                 selected.push(Number(input.value));
             });
             return selected.filter((id) => Number.isInteger(id) && id > 0);
+        }
+
+        function selectAllViewUserCompliances() {
+            document.querySelectorAll('#viewUserCompliancesContainer input[name="viewSelectedCompliances"]').forEach((input) => {
+                input.checked = true;
+            });
+        }
+
+        function clearAllViewUserCompliances() {
+            document.querySelectorAll('#viewUserCompliancesContainer input[name="viewSelectedCompliances"]').forEach((input) => {
+                input.checked = false;
+            });
+        }
+
+        function getSelectedComplianceIdsForView() {
+            const selected = [];
+            document.querySelectorAll('#viewUserCompliancesContainer input[name="viewSelectedCompliances"]:checked').forEach((input) => {
+                selected.push(Number(input.value));
+            });
+            return selected.filter((id) => Number.isInteger(id) && id > 0);
+        }
+
+        async function saveViewUserComplianceAssignments(userId, selectedComplianceIds) {
+            const userIdNumber = Number(userId);
+            if (!Number.isInteger(userIdNumber) || userIdNumber <= 0) return;
+
+            const selectedComplianceIdsNormalized = Array.from(new Set(
+                (Array.isArray(selectedComplianceIds) ? selectedComplianceIds : [])
+                    .map((value) => Number(value))
+                    .filter((value) => Number.isInteger(value) && value > 0)
+            ));
+
+            const response = await fetch('/api/compliances/assignments', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: userIdNumber,
+                    selectedComplianceIds: selectedComplianceIdsNormalized
+                })
+            });
+
+            if (!response.ok) {
+                const details = await response.text().catch(() => '');
+                throw new Error(`Failed updating compliance assignments (${response.status}): ${details}`);
+            }
+
+            if (typeof loadAllCompliances === 'function') {
+                try { await loadAllCompliances(); } catch (_) {}
+            }
         }
 
         async function saveViewUserDutyAssignments(userId, selectedDutyIds) {
@@ -21805,6 +21919,9 @@
             user.modifiedDate = document.getElementById('viewUserModifiedDate').value.trim() || new Date().toISOString();
 
             const selectedDutyIds = getSelectedDutyIdsForView();
+            const selectedComplianceIds = (typeof getSelectedComplianceIdsForView === 'function')
+                ? getSelectedComplianceIdsForView()
+                : [];
             let userRecordId = Number(document.getElementById('viewUserRecordId')?.value || getUserRecordId(user) || 0);
             if (!Number.isFinite(userRecordId) || userRecordId <= 0) {
                 const sqlRecord = await fetchSingleUserRecordFromSQL(originalUsername, null);
@@ -21827,6 +21944,9 @@
 
             if (persistedUserId) {
                 await saveViewUserDutyAssignments(persistedUserId, selectedDutyIds);
+                if (typeof saveViewUserComplianceAssignments === 'function') {
+                    await saveViewUserComplianceAssignments(persistedUserId, selectedComplianceIds);
+                }
             }
 
             if (typeof syncUsersFromAPI === 'function') {
@@ -21951,6 +22071,14 @@
                                 <div id="viewUserDutiesContainer" style="display:grid; grid-template-columns:repeat(2,minmax(240px,1fr)); gap:0.5rem;"></div>
                             </div>
                             <div style="grid-column:1 / -1; margin-top:0.4rem; padding-top:0.75rem; border-top:1px solid var(--border-color);">
+                                <div style="font-weight:700; color: var(--text-primary); margin-bottom:0.6rem;">Compliances</div>
+                                <div style="display:flex; gap:0.5rem; margin-bottom:0.5rem;">
+                                    <button type="button" onclick="selectAllViewUserCompliances()" style="padding:0.4rem 0.65rem; border:1px solid var(--border-color); background:var(--card-bg); color:var(--text-primary); border-radius:6px; cursor:pointer;">Select All</button>
+                                    <button type="button" onclick="clearAllViewUserCompliances()" style="padding:0.4rem 0.65rem; border:1px solid var(--border-color); background:var(--card-bg); color:var(--text-primary); border-radius:6px; cursor:pointer;">Clear All</button>
+                                </div>
+                                <div id="viewUserCompliancesContainer" style="display:grid; grid-template-columns:repeat(2,minmax(240px,1fr)); gap:0.5rem;"></div>
+                            </div>
+                            <div style="grid-column:1 / -1; margin-top:0.4rem; padding-top:0.75rem; border-top:1px solid var(--border-color);">
                                 <div style="font-weight:700; color: var(--text-primary); margin-bottom:0.6rem;">Photo & Documents</div>
                                 <div style="display:grid; grid-template-columns:160px 1fr; gap:1rem; align-items:start;">
                                     <div style="display:flex; flex-direction:column; gap:0.5rem; align-items:center;">
@@ -21999,6 +22127,7 @@
             renderViewUserPhotoPreview();
             renderViewUserDocumentsPreview();
             renderViewUserDuties(user.id || user.dbId || user.Id);
+            renderViewUserCompliances(user.id || user.dbId || user.Id);
             renderViewUserAdditionalFields(user);
         }
 
@@ -22436,6 +22565,26 @@
                 checkbox.checked = assignedTo === recordId || assignedUserIds.map((value) => Number(value)).includes(recordId);
             });
 
+            if (typeof loadAllCompliances === 'function') {
+                try {
+                    await loadAllCompliances();
+                } catch (_) {}
+            }
+            if (typeof clearAllUserCompliances === 'function') {
+                clearAllUserCompliances();
+            }
+            document.querySelectorAll('input[name="selectedCompliances"]').forEach((checkbox) => {
+                const complianceId = Number(checkbox.value);
+                const compliance = Array.isArray(window.compliancesData)
+                    ? window.compliancesData.find((item) => Number(item.id || item.Id) === complianceId)
+                    : null;
+                const assignedUserIds = Array.isArray(compliance?.assignedUserIds)
+                    ? compliance.assignedUserIds
+                    : (Array.isArray(compliance?.AssignedUserIds) ? compliance.AssignedUserIds : []);
+                const assignedTo = Number(compliance?.userId ?? compliance?.UserId ?? 0);
+                checkbox.checked = assignedTo === recordId || assignedUserIds.map((value) => Number(value)).includes(recordId);
+            });
+
             const errorDiv = document.getElementById('createUserError');
             if (errorDiv) errorDiv.style.display = 'none';
             return;
@@ -22649,6 +22798,12 @@
 
         function getComplianceStatusPresentation(compliance) {
             const explicitStatus = String(compliance?.status || '').toLowerCase();
+            if (explicitStatus === 'pending_approval') {
+                return { color: '#f59e0b', text: 'Pending Approval', icon: 'fa-user-clock' };
+            }
+            if (explicitStatus === 'completed') {
+                return { color: '#10b981', text: 'Completed', icon: 'fa-check-circle' };
+            }
             if (explicitStatus === 'expired') {
                 return { color: '#ef4444', text: 'Expired', icon: 'fa-times-circle' };
             }
@@ -22876,6 +23031,7 @@
             sorted.forEach((item) => {
                 const status = String(item.status || 'pending').toLowerCase();
                 const isCompleted = status === 'completed';
+                const isPendingApproval = status === 'pending_approval';
                 const card = document.createElement('div');
                 card.style.cssText = 'border: 1px solid var(--border-color); border-radius: 10px; padding: 0.9rem; margin-bottom: 0.75rem; background: var(--bg-secondary);';
                 card.innerHTML = `
@@ -22884,12 +23040,12 @@
                             <div style="font-weight:600; color: var(--text-primary);">${item.title || '(Untitled Compliance)'}</div>
                             <div style="font-size:0.8rem; color: var(--text-secondary); margin-top:0.15rem;">${getComplianceTypeDisplay(item)} • Due: ${formatComplianceDate(item.expiryDate)}</div>
                         </div>
-                        <span style="font-size:0.75rem; padding:0.2rem 0.55rem; border-radius:999px; background:${isCompleted ? '#10b98120' : '#f59e0b20'}; color:${isCompleted ? '#10b981' : '#f59e0b'}; font-weight:600;">${isCompleted ? 'Completed' : (status || 'Pending')}</span>
+                        <span style="font-size:0.75rem; padding:0.2rem 0.55rem; border-radius:999px; background:${isCompleted ? '#10b98120' : (isPendingApproval ? '#f59e0b20' : '#3b82f620')}; color:${isCompleted ? '#10b981' : (isPendingApproval ? '#f59e0b' : '#3b82f6')}; font-weight:600;">${isCompleted ? 'Completed' : (isPendingApproval ? 'Pending Approval' : (status || 'Pending'))}</span>
                     </div>
                     <div style="font-size:0.85rem; color: var(--text-secondary); margin-top:0.5rem;">${item.description || 'No description provided.'}</div>
                     <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
                         <button onclick="openComplianceFromRequirement(${item.id || 0})" class="btn-secondary" style="padding:0.45rem 0.75rem;">Open</button>
-                        ${!isCompleted ? `<button onclick="markRequirementCompleted(${item.id || 0})" class="btn-primary" style="padding:0.45rem 0.75rem;">Mark Completed</button>` : ''}
+                        ${(!isCompleted && !isPendingApproval) ? `<button onclick="markRequirementCompleted(${item.id || 0})" class="btn-primary" style="padding:0.45rem 0.75rem;">Submit for Approval</button>` : ''}
                     </div>
                 `;
                 listEl.appendChild(card);
@@ -22917,7 +23073,7 @@
                 const compliance = normalizeComplianceRecord(await response.json());
                 const payload = {
                     ...(compliance || {}),
-                    status: 'completed',
+                    status: 'pending_approval',
                     modifiedById: getCurrentUserId()
                 };
 
@@ -22937,7 +23093,7 @@
                 }
 
                 if (typeof showNotification === 'function') {
-                    showNotification('Requirement marked as completed.', 'success');
+                    showNotification('Compliance submitted for manager approval.', 'success');
                 }
 
                 await initializeRequirementsView(true);
@@ -22947,7 +23103,7 @@
             } catch (error) {
                 console.error('Failed to mark requirement completed:', error);
                 if (typeof showNotification === 'function') {
-                    showNotification('Unable to mark requirement as completed.', 'error');
+                    showNotification('Unable to submit compliance for approval.', 'error');
                 }
             }
         }
@@ -23131,6 +23287,47 @@
         }
 
         // Load compliances for a specific user
+        function canCurrentUserApproveCompliances() {
+            const role = String(localStorage.getItem('userRole') || '').toLowerCase();
+            return ['admin', 'owner', 'manager', 'administrator', 'superadmin'].includes(role);
+        }
+
+        async function approveComplianceCompletion(complianceId, userLookup) {
+            if (!complianceId) return;
+            try {
+                const response = await fetchComplianceApi('compliances', `/${encodeURIComponent(complianceId)}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const compliance = normalizeComplianceRecord(await response.json());
+                const payload = {
+                    ...(compliance || {}),
+                    status: 'completed',
+                    modifiedById: getCurrentUserId()
+                };
+
+                const updateResponse = await fetchComplianceApi('compliances', `/${encodeURIComponent(complianceId)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!updateResponse.ok) throw new Error(`HTTP ${updateResponse.status}`);
+
+                if (typeof showNotification === 'function') {
+                    showNotification('Compliance approved and marked completed.', 'success');
+                }
+
+                await loadUserCompliances(userLookup);
+                loadComplianceSummaryByUser(true).then(() => {
+                    if (typeof displayUsersList === 'function') displayUsersList();
+                }).catch(() => {});
+            } catch (error) {
+                console.error('Failed to approve compliance:', error);
+                if (typeof showNotification === 'function') {
+                    showNotification('Unable to approve compliance.', 'error');
+                }
+            }
+        }
+
         async function loadUserCompliances(userLookup) {
             const userId = resolveComplianceUserId(typeof userLookup === 'object' ? userLookup?.userId : userLookup);
             const username = typeof userLookup === 'object'
@@ -23173,6 +23370,8 @@
                 compliances.forEach((compliance) => {
                     const complianceId = compliance.id || compliance.Id;
                     const statusPresentation = getComplianceStatusPresentation(compliance);
+                    const statusValue = String(compliance.status || '').toLowerCase();
+                    const canApprove = canCurrentUserApproveCompliances() && statusValue === 'pending_approval' && complianceId;
 
                     const row = document.createElement('tr');
                     row.innerHTML = `
@@ -23194,6 +23393,9 @@
                                 <button onclick="editCompliance(${complianceId})" style="padding: 0.5rem; background: #f59e0b; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Edit">
                                     <i class="fas fa-edit"></i>
                                 </button>
+                                ${canApprove ? `<button onclick="approveComplianceCompletion(${complianceId}, { userId: ${userId || 'null'}, username: '${String(username || '').replace(/'/g, "\\'")}' })" style="padding: 0.5rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Approve Completion">
+                                    <i class="fas fa-check"></i>
+                                </button>` : ''}
                                 <button onclick="deleteCompliance(${complianceId})" style="padding: 0.5rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Delete">
                                     <i class="fas fa-trash"></i>
                                 </button>
@@ -24193,6 +24395,11 @@
                         .map(normalizeComplianceRecord)
                         .filter(Boolean);
 
+                    window.compliancesData = compliances;
+                    if (typeof renderCompliancesCheckboxes === 'function') {
+                        renderCompliancesCheckboxes();
+                    }
+
                     // Update statistics
                     updateComplianceStatistics(compliances);
 
@@ -24224,6 +24431,11 @@
                         });
                     });
                 });
+
+                window.compliancesData = compliances;
+                if (typeof renderCompliancesCheckboxes === 'function') {
+                    renderCompliancesCheckboxes();
+                }
 
                 // Update statistics
                 updateComplianceStatistics(compliances);
@@ -36169,6 +36381,12 @@
             const duties = Array.isArray(window.dutiesData)
                 ? window.dutiesData
                 : safeParseLocalStorageJSON('dutiesDataCache', [], { expect: 'array' });
+            const complianceRecords = Array.isArray(window.compliancesData)
+                ? window.compliancesData
+                : [];
+            if (!complianceRecords.length && typeof loadAllCompliances === 'function') {
+                loadAllCompliances().catch(() => {});
+            }
             const compliances = safeParseLocalStorageJSON('userCompliances', {}, { expect: 'object' }) || {};
             const legacyDuties = (typeof employeeDutiesDatabase !== 'undefined' && Array.isArray(employeeDutiesDatabase)) ? employeeDutiesDatabase : [];
 
@@ -36244,6 +36462,28 @@
                 return apiCount + legacyCount;
             };
 
+            const countAssignedCompliances = (identitySet, username) => {
+                if (!identitySet.size) return 0;
+
+                const apiCount = complianceRecords.filter((record) => {
+                    const compliance = normalizeComplianceRecord(record) || record;
+                    const assignedUserIds = Array.isArray(compliance?.assignedUserIds)
+                        ? compliance.assignedUserIds
+                        : (Array.isArray(compliance?.AssignedUserIds) ? compliance.AssignedUserIds : []);
+
+                    const complianceKeys = [
+                        compliance?.userId,
+                        compliance?.UserId,
+                        ...assignedUserIds
+                    ].map(normalize).filter(Boolean);
+
+                    return complianceKeys.some((key) => identitySet.has(key));
+                }).length;
+
+                const legacyList = Array.isArray(compliances[username]) ? compliances[username] : [];
+                return apiCount || legacyList.length;
+            };
+
             if (!userEntries.length) {
                 container.innerHTML = '<div style="font-size:0.78rem; color:var(--text-secondary);">No saved users found.</div>';
                 return;
@@ -36252,7 +36492,7 @@
             container.innerHTML = userEntries.map(([username, user]) => {
                 const identitySet = buildIdentitySet(username, user || {});
                 const dutyCount = countAssignedDuties(identitySet);
-                const complianceList = Array.isArray(compliances[username]) ? compliances[username] : [];
+                const complianceCount = countAssignedCompliances(identitySet, username);
                 const fullName = String(user?.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || username);
                 const role = String(user?.role || 'user');
                 const status = String(user?.status || user?.employmentStatus || 'Active');
@@ -36267,7 +36507,7 @@
                         <div style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.4rem;">
                             <span style="font-size:0.68rem; padding:0.15rem 0.4rem; border-radius:999px; border:1px solid var(--border-color); color:var(--text-secondary);">Status: ${status}</span>
                             <span style="font-size:0.68rem; padding:0.15rem 0.4rem; border-radius:999px; border:1px solid var(--border-color); color:var(--text-secondary);">Duties: ${dutyCount}</span>
-                            <span style="font-size:0.68rem; padding:0.15rem 0.4rem; border-radius:999px; border:1px solid var(--border-color); color:var(--text-secondary);">Compliances: ${complianceList.length}</span>
+                            <span style="font-size:0.68rem; padding:0.15rem 0.4rem; border-radius:999px; border:1px solid var(--border-color); color:var(--text-secondary);">Compliances: ${complianceCount}</span>
                         </div>
                     </div>
                 `;
@@ -48058,6 +48298,40 @@ window.addEventListener('load', function() {
                 </label>
             `).join('');
         }
+
+        function renderCompliancesCheckboxes() {
+            const container = document.getElementById('compliancesCheckboxContainer');
+            if (!container) return;
+
+            const compliances = Array.isArray(window.compliancesData) ? window.compliancesData : [];
+            if (!compliances.length) {
+                container.innerHTML = `
+                    <div style="color: var(--text-tertiary); font-style: italic; padding: 1rem; grid-column: 1 / -1; text-align: center;">
+                        <i class="fas fa-info-circle"></i> No compliances available. Create compliances in the Manager tab.
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = compliances.map((record) => {
+                const compliance = normalizeComplianceRecord(record) || record;
+                const complianceId = compliance.id || compliance.Id;
+                return `
+                    <label style="display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem; background: var(--card-bg); border-radius: 6px; cursor: pointer; border: 1px solid var(--border-color); transition: all 0.2s;"
+                           onmouseover="this.style.borderColor='var(--accent-primary)'"
+                           onmouseout="this.style.borderColor='var(--border-color)'">
+                        <input type="checkbox" name="selectedCompliances" value="${complianceId}" style="margin-top: 0.25rem; width: 18px; height: 18px; cursor: pointer;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">${compliance.title || '(Untitled Compliance)'}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.25rem;">
+                                <i class="fas fa-file-contract" style="margin-right: 0.25rem;"></i>${getComplianceTypeDisplay(compliance)}
+                            </div>
+                            ${compliance.description ? `<div style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.25rem;">${String(compliance.description).substring(0, 60)}${String(compliance.description).length > 60 ? '...' : ''}</div>` : ''}
+                        </div>
+                    </label>
+                `;
+            }).join('');
+        }
         
         // Select/Clear all duties
         function selectAllDuties() {
@@ -48067,6 +48341,14 @@ window.addEventListener('load', function() {
         function clearAllDuties() {
             document.querySelectorAll('input[name="selectedDuties"]').forEach(cb => cb.checked = false);
         }
+
+        function selectAllUserCompliances() {
+            document.querySelectorAll('input[name="selectedCompliances"]').forEach(cb => cb.checked = true);
+        }
+
+        function clearAllUserCompliances() {
+            document.querySelectorAll('input[name="selectedCompliances"]').forEach(cb => cb.checked = false);
+        }
         
         // Get selected duty IDs
         function getSelectedDutyIds() {
@@ -48075,6 +48357,14 @@ window.addEventListener('load', function() {
                 selected.push(parseInt(cb.value));
             });
             return selected;
+        }
+
+        function getSelectedComplianceIds() {
+            const selected = [];
+            document.querySelectorAll('input[name="selectedCompliances"]:checked').forEach(cb => {
+                selected.push(parseInt(cb.value));
+            });
+            return selected.filter((id) => Number.isInteger(id) && id > 0);
         }
         
         // Assign duties to user
@@ -48091,6 +48381,22 @@ window.addEventListener('load', function() {
                 console.log(`Assigned ${dutyIds.length} duties to user ${userId}`);
             } catch (error) {
                 console.error('Error assigning duties:', error);
+            }
+        }
+
+        async function assignCompliancesToUser(userId, complianceIds) {
+            try {
+                await fetch('/api/compliances/assignments', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: Number(userId),
+                        selectedComplianceIds: Array.isArray(complianceIds) ? complianceIds : []
+                    })
+                });
+                console.log(`Assigned ${complianceIds.length} compliances to user ${userId}`);
+            } catch (error) {
+                console.error('Error assigning compliances:', error);
             }
         }
         
@@ -59020,6 +59326,30 @@ document.addEventListener('keydown', function(e) {
                         </div>
                     </div>
 
+                    <!-- Assigned Compliances Section -->
+                    <div style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+                        <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
+                            <i class="fas fa-file-contract" style="margin-right: 0.5rem;"></i>Assigned Compliances
+                            <button type="button" onclick="openComplianceTypesManager(); return false;" class="category-gear-btn" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0; margin-left: 0.5rem;" title="Manage Compliance Types">
+                                <i class="fas fa-cog"></i>
+                            </button>
+                        </h5>
+                        <p style="font-size: 0.85rem; color: var(--text-tertiary); margin-bottom: 1rem;">Select the compliances this employee must complete:</p>
+                        <div id="compliancesCheckboxContainer" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; max-height: 300px; overflow-y: auto; padding: 0.5rem; background: var(--bg-secondary); border-radius: 8px;">
+                            <div style="color: var(--text-tertiary); font-style: italic; padding: 1rem; grid-column: 1 / -1; text-align: center;">
+                                <i class="fas fa-spinner fa-spin"></i> Loading compliances...
+                            </div>
+                        </div>
+                        <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
+                            <button type="button" onclick="selectAllUserCompliances()" style="padding: 0.5rem 1rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem;">
+                                <i class="fas fa-check-double"></i> Select All
+                            </button>
+                            <button type="button" onclick="clearAllUserCompliances()" style="padding: 0.5rem 1rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-size: 0.85rem;">
+                                <i class="fas fa-times"></i> Clear All
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Photo & Documents Section -->
                     <div style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
                         <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">Photo & Documents</h5>
@@ -67631,6 +67961,14 @@ console.log('✅ Global functions exported to window object');
                             <a href="#" class="nav-item" onclick="openDutiesManagement(); return false;">
                                 <i class="fas fa-clipboard-list"></i>
                                 <span>Manage Duties</span>
+                            </a>
+                            <a href="#" class="nav-item" onclick="switchContentView('compliances', event); return false;">
+                                <i class="fas fa-file-contract"></i>
+                                <span>Manage Compliances</span>
+                            </a>
+                            <a href="#" class="nav-item" onclick="openComplianceTypesManager(); return false;">
+                                <i class="fas fa-cogs"></i>
+                                <span>Compliance Types</span>
                             </a>
                             <a href="#" class="nav-item" onclick="openTasksManagement(); return false;">
                                 <i class="fas fa-tasks"></i>

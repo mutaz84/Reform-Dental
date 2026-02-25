@@ -92,6 +92,12 @@ function normalizeComplianceRow(row) {
         title: pick('title', 'Title', ''),
         description: pick('description', 'Description', ''),
         userId: pick('userId', 'UserId'),
+        assignedUserIds: Array.isArray(pick('assignedUserIds', 'AssignedUserIds', []))
+            ? pick('assignedUserIds', 'AssignedUserIds', [])
+            : [],
+        AssignedUserIds: Array.isArray(pick('assignedUserIds', 'AssignedUserIds', []))
+            ? pick('assignedUserIds', 'AssignedUserIds', [])
+            : [],
         clinicId: pick('clinicId', 'ClinicId'),
         issueDate: pick('issueDate', 'IssueDate'),
         expiryDate: pick('expiryDate', 'ExpiryDate'),
@@ -111,6 +117,66 @@ function normalizeComplianceRow(row) {
         modifiedById: pick('modifiedById', 'ModifiedById'),
         modifiedDate: pick('modifiedDate', 'ModifiedDate')
     };
+}
+
+async function mapComplianceAssignments(pool, compliances, options = {}) {
+    const complianceList = Array.isArray(compliances) ? compliances : [];
+    const { hasAssignmentTable = false } = options;
+
+    if (!hasAssignmentTable || complianceList.length === 0) {
+        return complianceList.map((row) => {
+            const firstAssigned = toNullableInt(row?.UserId ?? row?.userId);
+            const assignedUserIds = firstAssigned ? [firstAssigned] : [];
+            return {
+                ...row,
+                assignedUserIds,
+                AssignedUserIds: assignedUserIds,
+                userId: firstAssigned,
+                UserId: firstAssigned
+            };
+        });
+    }
+
+    const ids = Array.from(new Set(
+        complianceList
+            .map((row) => toNullableInt(row?.Id ?? row?.id))
+            .filter((value) => Number.isInteger(value) && value > 0)
+    ));
+
+    if (ids.length === 0) {
+        return complianceList;
+    }
+
+    const assignmentResult = await pool.request().query(`
+SELECT ComplianceId, UserId
+FROM UserComplianceAssignments
+WHERE ComplianceId IN (${ids.join(', ')})`);
+
+    const assignmentMap = new Map();
+    (assignmentResult.recordset || []).forEach((row) => {
+        const complianceId = toNullableInt(row?.ComplianceId);
+        const userId = toNullableInt(row?.UserId);
+        if (!complianceId || !userId) return;
+        if (!assignmentMap.has(complianceId)) assignmentMap.set(complianceId, []);
+        assignmentMap.get(complianceId).push(userId);
+    });
+
+    return complianceList.map((row) => {
+        const complianceId = toNullableInt(row?.Id ?? row?.id);
+        const mapped = assignmentMap.get(complianceId) || [];
+        const fallbackUserId = toNullableInt(row?.UserId ?? row?.userId);
+        const assignedUserIds = mapped.length
+            ? Array.from(new Set(mapped))
+            : (fallbackUserId ? [fallbackUserId] : []);
+        const firstAssigned = assignedUserIds.length ? assignedUserIds[0] : null;
+        return {
+            ...row,
+            assignedUserIds,
+            AssignedUserIds: assignedUserIds,
+            userId: firstAssigned,
+            UserId: firstAssigned
+        };
+    });
 }
 
 module.exports = async function (context, req) {
@@ -145,55 +211,176 @@ module.exports = async function (context, req) {
         const hasComplianceTypeJoin = hasComplianceTypesTable && hasColumn(complianceColumns, 'ComplianceTypeId') && hasColumn(complianceTypeColumns, 'Id') && hasColumn(complianceTypeColumns, 'Name');
         const hasIsActive = hasColumn(complianceColumns, 'IsActive');
         const hasModifiedDate = hasColumn(complianceColumns, 'ModifiedDate');
+        const assignmentColumns = await getTableColumns(pool, 'UserComplianceAssignments');
+        const hasAssignmentTable = assignmentColumns.size > 0
+            && hasColumn(assignmentColumns, 'ComplianceId')
+            && hasColumn(assignmentColumns, 'UserId');
 
-        const id = req.params.id ? Number.parseInt(req.params.id, 10) : null;
+        const routeIdRaw = req.params.id ? String(req.params.id).trim() : '';
+        const id = routeIdRaw && /^\d+$/.test(routeIdRaw)
+            ? Number.parseInt(routeIdRaw, 10)
+            : null;
+
+        if (req.method === 'PUT' && routeIdRaw.toLowerCase() === 'assignments') {
+            const body = req.body || {};
+            const targetUserId = toNullableInt(body.userId || req.query.userId);
+            const selectedComplianceIds = Array.from(new Set(
+                (Array.isArray(body.selectedComplianceIds) ? body.selectedComplianceIds : [])
+                    .map((value) => toNullableInt(value))
+                    .filter((value) => Number.isInteger(value) && value > 0)
+            ));
+
+            if (!targetUserId || targetUserId <= 0) {
+                context.res = { status: 400, headers, body: { error: 'Valid userId is required.' } };
+                return;
+            }
+
+            if (!hasAssignmentTable) {
+                context.res = { status: 501, headers, body: { error: 'UserComplianceAssignments table is required for bulk assignments.' } };
+                return;
+            }
+
+            const tx = new sql.Transaction(pool);
+            await tx.begin();
+            try {
+                await new sql.Request(tx)
+                    .input('userId', sql.Int, targetUserId)
+                    .query('DELETE FROM UserComplianceAssignments WHERE UserId = @userId');
+
+                for (const complianceId of selectedComplianceIds) {
+                    await new sql.Request(tx)
+                        .input('userId', sql.Int, targetUserId)
+                        .input('complianceId', sql.Int, complianceId)
+                        .query(`
+INSERT INTO UserComplianceAssignments (UserId, ComplianceId)
+SELECT @userId, @complianceId
+WHERE EXISTS (
+    SELECT 1 FROM Compliances c WHERE c.Id = @complianceId ${hasIsActive ? 'AND c.IsActive = 1' : ''}
+)`);
+                }
+
+                if (hasColumn(complianceColumns, 'UserId')) {
+                    await new sql.Request(tx)
+                        .input('userId', sql.Int, targetUserId)
+                        .query('UPDATE Compliances SET UserId = NULL WHERE UserId = @userId');
+
+                    if (selectedComplianceIds.length) {
+                        await new sql.Request(tx)
+                            .input('userId', sql.Int, targetUserId)
+                            .query(`UPDATE Compliances SET UserId = @userId WHERE Id IN (${selectedComplianceIds.join(', ')})`);
+                    }
+                }
+
+                await tx.commit();
+                context.res = {
+                    status: 200,
+                    headers,
+                    body: {
+                        message: 'Compliance assignments updated',
+                        userId: targetUserId,
+                        assignedComplianceIds: selectedComplianceIds
+                    }
+                };
+            } catch (assignmentError) {
+                await tx.rollback();
+                throw assignmentError;
+            }
+            return;
+        }
 
         if (req.method === 'GET') {
             const viewMode = String(req.query.view || '').trim().toLowerCase();
 
             if (viewMode === 'summary-by-user') {
-                if (!hasColumn(complianceColumns, 'UserId')) {
+                if (!hasAssignmentTable && !hasColumn(complianceColumns, 'UserId')) {
                     context.res = { status: 200, headers, body: [] };
                     return;
                 }
 
                 const userColumns = await getTableColumns(pool, 'Users');
                 const hasUsersTable = userColumns.size > 0 && hasColumn(userColumns, 'Id');
-                const hasStatus = hasColumn(complianceColumns, 'Status');
-                const hasExpiryDate = hasColumn(complianceColumns, 'ExpiryDate');
-                const statusExpr = hasStatus
-                    ? "LOWER(LTRIM(RTRIM(ISNULL(c.Status, ''))))"
-                    : "''";
-                const employeeNameExpr = hasUsersTable
-                    ? "COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(ISNULL(u.FirstName, ''), ' ', ISNULL(u.LastName, '')))), ''), NULLIF(LTRIM(RTRIM(ISNULL(u.Username, ''))), ''), CONCAT('User #', CAST(c.UserId AS NVARCHAR(20))))"
-                    : "CONCAT('User #', CAST(c.UserId AS NVARCHAR(20)))";
-                const joinUsersClause = hasUsersTable ? 'LEFT JOIN Users u ON u.Id = c.UserId' : '';
+                const whereParts = [];
+                if (hasIsActive) whereParts.push('c.IsActive = 1');
+                const summaryRows = await pool.request().query(`
+SELECT c.Id, c.UserId, c.Status, c.ExpiryDate
+FROM Compliances c
+${whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : ''}`);
 
-                const whereParts = ['c.UserId IS NOT NULL'];
-                if (hasIsActive) {
-                    whereParts.push('c.IsActive = 1');
+                const compliances = summaryRows.recordset || [];
+                const byComplianceId = new Map();
+                compliances.forEach((row) => {
+                    const complianceId = toNullableInt(row?.Id);
+                    if (complianceId) byComplianceId.set(complianceId, row);
+                });
+
+                const userNameById = {};
+                if (hasUsersTable) {
+                    const usersResult = await pool.request().query(`
+SELECT Id,
+       COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(ISNULL(FirstName, ''), ' ', ISNULL(LastName, '')))), ''), NULLIF(LTRIM(RTRIM(ISNULL(Username, ''))), '')) AS EmployeeName
+FROM Users`);
+                    (usersResult.recordset || []).forEach((row) => {
+                        const userId = toNullableInt(row?.Id);
+                        if (userId) userNameById[userId] = row?.EmployeeName || `User #${userId}`;
+                    });
                 }
 
-                const overdueExpr = hasExpiryDate
-                    ? `SUM(CASE WHEN CAST(c.ExpiryDate AS DATE) < CAST(SYSUTCDATETIME() AS DATE) AND ${statusExpr} <> 'completed' THEN 1 ELSE 0 END) AS OverdueCount`
-                    : 'CAST(0 AS INT) AS OverdueCount';
+                let assignmentRows = [];
+                if (hasAssignmentTable) {
+                    assignmentRows = (await pool.request().query('SELECT UserId, ComplianceId FROM UserComplianceAssignments')).recordset || [];
+                } else {
+                    assignmentRows = compliances
+                        .map((row) => ({ UserId: row?.UserId, ComplianceId: row?.Id }))
+                        .filter((row) => toNullableInt(row?.UserId) && toNullableInt(row?.ComplianceId));
+                }
 
-                const result = await pool.request().query(`
-SELECT
-    c.UserId,
-    ${employeeNameExpr} AS EmployeeName,
-    COUNT(1) AS TotalCount,
-    SUM(CASE WHEN ${statusExpr} = 'completed' THEN 1 ELSE 0 END) AS CompletedCount,
-    SUM(CASE WHEN ${statusExpr} = 'in_progress' THEN 1 ELSE 0 END) AS InProgressCount,
-    SUM(CASE WHEN ${statusExpr} IN ('pending', '', 'active') THEN 1 ELSE 0 END) AS PendingCount,
-    ${overdueExpr}
-FROM Compliances c
-${joinUsersClause}
-WHERE ${whereParts.join(' AND ')}
-GROUP BY c.UserId, ${employeeNameExpr}
-ORDER BY EmployeeName`);
+                const grouped = new Map();
+                assignmentRows.forEach((assignment) => {
+                    const userId = toNullableInt(assignment?.UserId);
+                    const complianceId = toNullableInt(assignment?.ComplianceId);
+                    const compliance = byComplianceId.get(complianceId);
+                    if (!userId || !compliance) return;
 
-                context.res = { status: 200, headers, body: result.recordset || [] };
+                    if (!grouped.has(userId)) {
+                        grouped.set(userId, {
+                            UserId: userId,
+                            EmployeeName: userNameById[userId] || `User #${userId}`,
+                            TotalCount: 0,
+                            CompletedCount: 0,
+                            InProgressCount: 0,
+                            PendingCount: 0,
+                            OverdueCount: 0
+                        });
+                    }
+
+                    const bucket = grouped.get(userId);
+                    bucket.TotalCount += 1;
+
+                    const status = String(compliance?.Status || '').trim().toLowerCase();
+                    if (status === 'completed') {
+                        bucket.CompletedCount += 1;
+                    } else if (status === 'in_progress') {
+                        bucket.InProgressCount += 1;
+                    } else {
+                        bucket.PendingCount += 1;
+                    }
+
+                    if (compliance?.ExpiryDate && status !== 'completed') {
+                        const expiry = new Date(compliance.ExpiryDate);
+                        const today = new Date();
+                        expiry.setHours(0, 0, 0, 0);
+                        today.setHours(0, 0, 0, 0);
+                        if (!Number.isNaN(expiry.getTime()) && expiry < today) {
+                            bucket.OverdueCount += 1;
+                        }
+                    }
+                });
+
+                const result = Array.from(grouped.values()).sort((a, b) =>
+                    String(a.EmployeeName || '').localeCompare(String(b.EmployeeName || ''))
+                );
+
+                context.res = { status: 200, headers, body: result };
                 return;
             }
 
@@ -213,7 +400,8 @@ ORDER BY EmployeeName`);
                 }
 
                 const userIdFilter = toNullableInt(req.query.userId);
-                if (Number.isInteger(userIdFilter) && userIdFilter > 0 && hasColumn(complianceColumns, 'UserId')) {
+                const shouldFilterInMemoryByUser = !!(Number.isInteger(userIdFilter) && userIdFilter > 0 && hasAssignmentTable);
+                if (!shouldFilterInMemoryByUser && Number.isInteger(userIdFilter) && userIdFilter > 0 && hasColumn(complianceColumns, 'UserId')) {
                     request.input('userId', sql.Int, userIdFilter);
                     whereParts.push('c.UserId = @userId');
                 }
@@ -242,7 +430,11 @@ ${fromClause}
 WHERE ${whereParts.join(' AND ')}
 ORDER BY DaysUntilDue ASC, c.ExpiryDate ASC`);
 
-                context.res = { status: 200, headers, body: (result.recordset || []).map(normalizeComplianceRow) };
+                let rows = await mapComplianceAssignments(pool, result.recordset || [], { hasAssignmentTable });
+                if (shouldFilterInMemoryByUser) {
+                    rows = rows.filter((row) => (Array.isArray(row?.assignedUserIds) ? row.assignedUserIds : []).includes(userIdFilter));
+                }
+                context.res = { status: 200, headers, body: rows.map(normalizeComplianceRow) };
                 return;
             }
 
@@ -266,7 +458,8 @@ SELECT c.*, ${selectTypeName}
 ${fromClause}
 WHERE ${whereById.join(' AND ')}`);
 
-                const normalizedRow = result.recordset.length ? normalizeComplianceRow(result.recordset[0]) : null;
+                const withAssignments = await mapComplianceAssignments(pool, result.recordset || [], { hasAssignmentTable });
+                const normalizedRow = withAssignments.length ? normalizeComplianceRow(withAssignments[0]) : null;
 
                 context.res = {
                     status: normalizedRow ? 200 : 404,
@@ -285,7 +478,8 @@ WHERE ${whereById.join(' AND ')}`);
                 where.push('c.IsActive = 1');
             }
 
-            if (Number.isInteger(userId) && userId > 0 && hasColumn(complianceColumns, 'UserId')) {
+            const shouldFilterInMemoryByUser = !!(Number.isInteger(userId) && userId > 0 && hasAssignmentTable);
+            if (!shouldFilterInMemoryByUser && Number.isInteger(userId) && userId > 0 && hasColumn(complianceColumns, 'UserId')) {
                 request.input('userId', sql.Int, userId);
                 where.push('c.UserId = @userId');
             }
@@ -307,7 +501,11 @@ ${fromClause}
 ${whereClause}
 ${orderBy}`);
 
-            context.res = { status: 200, headers, body: (result.recordset || []).map(normalizeComplianceRow) };
+            let rows = await mapComplianceAssignments(pool, result.recordset || [], { hasAssignmentTable });
+            if (shouldFilterInMemoryByUser) {
+                rows = rows.filter((row) => (Array.isArray(row?.assignedUserIds) ? row.assignedUserIds : []).includes(userId));
+            }
+            context.res = { status: 200, headers, body: rows.map(normalizeComplianceRow) };
             return;
         }
 
@@ -319,11 +517,20 @@ ${orderBy}`);
                 return;
             }
 
+            const assignedUserIds = Array.from(new Set(
+                (Array.isArray(body.assignedUserIds) ? body.assignedUserIds : [])
+                    .map((value) => toNullableInt(value))
+                    .filter((value) => Number.isInteger(value) && value > 0)
+            ));
+            const compatibilityUserId = assignedUserIds.length
+                ? assignedUserIds[0]
+                : toNullableInt(body.userId);
+
             const fieldDefs = [
                 { column: 'Title', param: 'title', type: sql.NVarChar(255), value: body.title || '' },
                 { column: 'ComplianceTypeId', param: 'complianceTypeId', type: sql.Int, value: toNullableInt(body.complianceTypeId) },
                 { column: 'Description', param: 'description', type: sql.NVarChar(sql.MAX), value: body.description || null },
-                { column: 'UserId', param: 'userId', type: sql.Int, value: toNullableInt(body.userId) },
+                { column: 'UserId', param: 'userId', type: sql.Int, value: compatibilityUserId },
                 { column: 'ClinicId', param: 'clinicId', type: sql.Int, value: toNullableInt(body.clinicId) },
                 { column: 'IssueDate', param: 'issueDate', type: sql.Date, value: body.issueDate || null },
                 { column: 'ExpiryDate', param: 'expiryDate', type: sql.Date, value: body.expiryDate || null },
@@ -351,6 +558,19 @@ INSERT INTO Compliances (${insertColumns})
 OUTPUT INSERTED.*
 VALUES (${insertValues})`);
 
+            const createdComplianceId = toNullableInt(result.recordset?.[0]?.Id || result.recordset?.[0]?.id);
+            if (hasAssignmentTable && createdComplianceId) {
+                const assignmentIds = assignedUserIds.length
+                    ? assignedUserIds
+                    : (compatibilityUserId ? [compatibilityUserId] : []);
+                for (const assignedUserId of assignmentIds) {
+                    await pool.request()
+                        .input('userId', sql.Int, assignedUserId)
+                        .input('complianceId', sql.Int, createdComplianceId)
+                        .query('INSERT INTO UserComplianceAssignments (UserId, ComplianceId) VALUES (@userId, @complianceId)');
+                }
+            }
+
             context.res = { status: 201, headers, body: result.recordset[0] };
             return;
         }
@@ -359,11 +579,24 @@ VALUES (${insertValues})`);
             const body = req.body || {};
             const attachmentUrl = body.attachmentUrl || body.AttachmentUrl || body.attachmentData || body.AttachmentData || null;
 
+            const hasExplicitAssignedUserIds = Array.isArray(body.assignedUserIds);
+            const assignedUserIds = Array.from(new Set(
+                (hasExplicitAssignedUserIds ? body.assignedUserIds : [])
+                    .map((value) => toNullableInt(value))
+                    .filter((value) => Number.isInteger(value) && value > 0)
+            ));
+            const hasUserIdInPayload = Object.prototype.hasOwnProperty.call(body, 'userId') || Object.prototype.hasOwnProperty.call(body, 'UserId');
+            const compatibilityUserId = hasExplicitAssignedUserIds
+                ? (assignedUserIds[0] || null)
+                : (hasUserIdInPayload ? toNullableInt(body.userId ?? body.UserId) : null);
+
             const updateDefs = [
                 { column: 'Title', param: 'title', type: sql.NVarChar(255), value: body.title || '' },
                 { column: 'ComplianceTypeId', param: 'complianceTypeId', type: sql.Int, value: toNullableInt(body.complianceTypeId) },
                 { column: 'Description', param: 'description', type: sql.NVarChar(sql.MAX), value: body.description || null },
-                { column: 'UserId', param: 'userId', type: sql.Int, value: toNullableInt(body.userId) },
+                ...(hasExplicitAssignedUserIds || hasUserIdInPayload
+                    ? [{ column: 'UserId', param: 'userId', type: sql.Int, value: compatibilityUserId }]
+                    : []),
                 { column: 'ClinicId', param: 'clinicId', type: sql.Int, value: toNullableInt(body.clinicId) },
                 { column: 'IssueDate', param: 'issueDate', type: sql.Date, value: body.issueDate || null },
                 { column: 'ExpiryDate', param: 'expiryDate', type: sql.Date, value: body.expiryDate || null },
@@ -402,12 +635,44 @@ UPDATE Compliances
 SET ${setClauses.join(', ')}
 WHERE ${whereClauses.join(' AND ')}`);
 
+            if (hasAssignmentTable && (hasExplicitAssignedUserIds || hasUserIdInPayload)) {
+                const assignmentIds = hasExplicitAssignedUserIds
+                    ? assignedUserIds
+                    : (compatibilityUserId ? [compatibilityUserId] : []);
+
+                const tx = new sql.Transaction(pool);
+                await tx.begin();
+                try {
+                    await new sql.Request(tx)
+                        .input('complianceId', sql.Int, id)
+                        .query('DELETE FROM UserComplianceAssignments WHERE ComplianceId = @complianceId');
+
+                    for (const assignedUserId of assignmentIds) {
+                        await new sql.Request(tx)
+                            .input('userId', sql.Int, assignedUserId)
+                            .input('complianceId', sql.Int, id)
+                            .query('INSERT INTO UserComplianceAssignments (UserId, ComplianceId) VALUES (@userId, @complianceId)');
+                    }
+
+                    await tx.commit();
+                } catch (assignmentSyncError) {
+                    await tx.rollback();
+                    throw assignmentSyncError;
+                }
+            }
+
             context.res = { status: 200, headers, body: { message: 'Compliance updated' } };
             return;
         }
 
         if (req.method === 'DELETE' && id) {
             const deleteRequest = pool.request().input('id', sql.Int, id);
+
+            if (hasAssignmentTable) {
+                await pool.request()
+                    .input('id', sql.Int, id)
+                    .query('DELETE FROM UserComplianceAssignments WHERE ComplianceId = @id');
+            }
 
             if (hasIsActive) {
                 const setParts = ['IsActive = 0'];
