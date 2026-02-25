@@ -20093,7 +20093,7 @@
         async function saveUserToAPI(username, userData) {
             if (typeof API_BASE_URL === 'undefined') {
                 console.log('⚠️ API_BASE_URL not defined, skipping database sync');
-                return;
+                return null;
             }
             try {
                 console.log('📤 Saving user to database:', username);
@@ -20106,7 +20106,7 @@
                     body: JSON.stringify(payload)
                 });
                 
-                const result = await response.json();
+                const result = await response.json().catch(() => ({}));
                 
                 if (response.ok) {
                     console.log('✅ User saved to database:', username, result);
@@ -20121,13 +20121,16 @@
                             console.log('📝 Stored database ID:', result.id, 'for user:', username);
                         }
                     }
+                    return result;
                 } else {
                     console.error('❌ API error:', response.status, result);
                     showSyncStatus('Failed to save user to database: ' + (result.error || result.details || 'Unknown error'), false);
+                    return null;
                 }
             } catch (error) {
                 console.error('❌ Error saving user to API:', error);
                 showSyncStatus('Error saving to database: ' + error.message, false);
+                return null;
             }
         }
 
@@ -20135,7 +20138,7 @@
         async function updateUserViaAPI(userId, userData) {
             if (typeof API_BASE_URL === 'undefined') {
                 console.log('⚠️ API_BASE_URL not defined, skipping database sync');
-                return;
+                return false;
             }
             try {
                 console.log('📤 Updating user in database, ID:', userId);
@@ -20152,14 +20155,17 @@
                 if (response.ok) {
                     console.log('✅ User updated in database');
                     showSyncStatus('User updated in database', true);
+                    return true;
                 } else {
-                    const result = await response.json();
+                    const result = await response.json().catch(() => ({}));
                     console.error('❌ API error:', response.status, result);
                     showSyncStatus('Failed to update user: ' + (result.error || 'Unknown error'), false);
+                    return false;
                 }
             } catch (error) {
                 console.error('❌ Error updating user via API:', error);
                 showSyncStatus('Error updating user: ' + error.message, false);
+                return false;
             }
         }
 
@@ -21472,28 +21478,46 @@
 
             const selectedDutyIds = getSelectedDutyIdsForView();
             const userRecordId = getUserRecordId(user);
-            if (userRecordId) {
-                await saveViewUserDutyAssignments(userRecordId, selectedDutyIds);
-            }
 
-            saveUsers(users);
-
-            if (username !== originalUsername) {
-                users[username] = user;
-                delete users[originalUsername];
-                saveUsers(users);
-            }
+            let persisted = false;
+            let persistedUserId = userRecordId;
 
             if (userRecordId && typeof updateUserViaAPI === 'function') {
-                await updateUserViaAPI(userRecordId, user);
+                persisted = await updateUserViaAPI(userRecordId, user);
             } else if (typeof saveUserToAPI === 'function') {
-                await saveUserToAPI(username, user);
+                const created = await saveUserToAPI(username, user);
+                if (created && (created.id || created.Id)) {
+                    persistedUserId = created.id || created.Id;
+                    user.id = persistedUserId;
+                    persisted = true;
+                }
+            }
+
+            if (!persisted) {
+                if (typeof showNotification === 'function') {
+                    showNotification('Save failed: SQL update did not complete. Local data was not committed.', 'error');
+                }
+                return;
+            }
+
+            if (persistedUserId) {
+                await saveViewUserDutyAssignments(persistedUserId, selectedDutyIds);
+            }
+
+            if (typeof syncUsersFromAPI === 'function') {
+                await syncUsersFromAPI();
+            } else {
+                if (username !== originalUsername) {
+                    users[username] = user;
+                    delete users[originalUsername];
+                }
+                saveUsers(users);
             }
 
             displayUsersList();
             closeViewUserModal();
             if (typeof showNotification === 'function') {
-                showNotification('User updated successfully!', 'success');
+                showNotification('User updated successfully from database!', 'success');
             }
         }
 
