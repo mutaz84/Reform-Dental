@@ -20531,12 +20531,43 @@
             document.body.classList.remove('manage-users-active');
         }
 
+        let addUserModalMode = 'create';
+        let addUserEditRecordId = null;
+        let addUserOriginalUsername = '';
+
+        function setAddUserModalMode(mode) {
+            addUserModalMode = mode === 'edit' ? 'edit' : 'create';
+            const title = document.getElementById('addUserModalTitle');
+            const icon = document.getElementById('addUserSubmitIcon');
+            const text = document.getElementById('addUserSubmitText');
+            const passwordInput = document.getElementById('newPassword');
+
+            if (title) {
+                title.innerHTML = addUserModalMode === 'edit'
+                    ? '<i class="fas fa-user-edit"></i> Edit Employee'
+                    : '<i class="fas fa-user-plus"></i> Create New Employee';
+            }
+            if (icon) {
+                icon.className = addUserModalMode === 'edit' ? 'fas fa-save' : 'fas fa-user-plus';
+            }
+            if (text) {
+                text.textContent = addUserModalMode === 'edit' ? 'Save Employee' : 'Create Employee';
+            }
+            if (passwordInput) {
+                passwordInput.required = addUserModalMode !== 'edit';
+                passwordInput.placeholder = addUserModalMode === 'edit' ? 'Leave blank to keep existing password' : 'Enter password';
+            }
+        }
+
         // Open Add User Modal
         function openAddUserModal() {
             const modal = document.getElementById('addUserModal');
             if (modal) {
                 ensureUnifiedRightRailExpandedForModal();
                 modal.style.display = 'flex';
+                setAddUserModalMode('create');
+                addUserEditRecordId = null;
+                addUserOriginalUsername = '';
                 // Reset form
                 document.getElementById('createUserForm').reset();
                 document.getElementById('createUserError').style.display = 'none';
@@ -20552,6 +20583,9 @@
                 }
                 uploadedPhoto = null;
                 uploadedDocuments = [];
+                if (typeof clearAllDuties === 'function') {
+                    clearAllDuties();
+                }
             }
         }
 
@@ -20561,6 +20595,9 @@
             if (modal) {
                 modal.style.display = 'none';
             }
+            setAddUserModalMode('create');
+            addUserEditRecordId = null;
+            addUserOriginalUsername = '';
             // Clear form
             document.getElementById('createUserForm').reset();
             document.getElementById('createUserError').style.display = 'none';
@@ -20601,6 +20638,7 @@
         // Create new user
         async function createUser(event) {
             event.preventDefault();
+            const isEditMode = addUserModalMode === 'edit';
             
             // Get all form values
             const username = document.getElementById('newUsername').value.trim();
@@ -20657,7 +20695,7 @@
                 return;
             }
             
-            if (password.length < 6) {
+            if (!isEditMode && password.length < 6) {
                 errorDiv.style.display = 'block';
                 errorDiv.textContent = 'Password must be at least 6 characters long.';
                 return;
@@ -20674,7 +20712,7 @@
             const users = loadUsers();
             
             // Check if username already exists
-            if (users[username]) {
+            if ((!isEditMode && users[username]) || (isEditMode && username !== addUserOriginalUsername && users[username])) {
                 errorDiv.style.display = 'block';
                 errorDiv.textContent = 'Username already exists. Please choose a different username.';
                 return;
@@ -20685,9 +20723,9 @@
                 ? `${firstName} ${middleName} ${lastName}` 
                 : `${firstName} ${lastName}`;
             
-            // Add new user with all employee data
-            users[username] = {
-                password: password,
+            // Build full user payload from form data
+            const userDraft = {
+                password: isEditMode ? (users[addUserOriginalUsername]?.password || '') : password,
                 role: role,
                 name: fullName,
                 // Personal Information
@@ -20736,6 +20774,55 @@
                 modifiedDate: new Date().toISOString(),
                 failedLoginAttempts: 0
             };
+
+            const selectedDutyIds = getSelectedDutyIds();
+
+            if (isEditMode) {
+                if (!Number.isInteger(Number(addUserEditRecordId)) || Number(addUserEditRecordId) <= 0) {
+                    errorDiv.style.display = 'block';
+                    errorDiv.textContent = 'Cannot save: SQL record ID is missing.';
+                    return;
+                }
+
+                if (newPassword) {
+                    userDraft.password = newPassword;
+                }
+
+                const persisted = await updateUserViaAPI(Number(addUserEditRecordId), userDraft);
+                if (!persisted) {
+                    errorDiv.style.display = 'block';
+                    errorDiv.textContent = 'Save failed: SQL update did not complete. No local changes were applied.';
+                    return;
+                }
+
+                if (typeof saveViewUserDutyAssignments === 'function') {
+                    await saveViewUserDutyAssignments(Number(addUserEditRecordId), selectedDutyIds);
+                }
+
+                if (typeof syncUsersFromAPI === 'function') {
+                    await syncUsersFromAPI();
+                }
+
+                errorDiv.style.display = 'block';
+                errorDiv.style.background = '#d4edda';
+                errorDiv.style.borderColor = '#c3e6cb';
+                errorDiv.style.color = '#155724';
+                errorDiv.textContent = `Employee "${fullName}" updated successfully from SQL!`;
+
+                displayUsersList();
+
+                setTimeout(() => {
+                    errorDiv.style.display = 'none';
+                    errorDiv.style.background = '#fee';
+                    errorDiv.style.borderColor = '#fcc';
+                    errorDiv.style.color = '#c33';
+                    closeAddUserModal();
+                }, 1600);
+                return;
+            }
+
+            // Add new user (create mode)
+            users[username] = userDraft;
             
             // Save to storage
             saveUsers(users);
@@ -20745,7 +20832,6 @@
                 const savedUser = await saveUserToAPI(username, users[username]);
                 
                 // Assign selected duties to the new user
-                const selectedDutyIds = getSelectedDutyIds();
                 if (selectedDutyIds.length > 0 && savedUser && savedUser.id) {
                     await assignDutiesToUser(savedUser.id, selectedDutyIds);
                 }
@@ -20903,7 +20989,7 @@
                 if (!username) return;
 
                 if (action === 'profile') {
-                    openViewUserModal(username);
+                    openEditUserModal(username);
                     return;
                 }
 
@@ -20929,7 +21015,7 @@
             if (!username) return;
 
             if (action === 'profile') {
-                openViewUserModal(username);
+                openEditUserModal(username);
                 return;
             }
 
@@ -22122,8 +22208,108 @@
         });
         
         // Open edit user modal
-        function openEditUserModal(username) {
-            openViewUserModal(username);
+        async function openEditUserModal(username) {
+            const users = loadUsers();
+            const localUsername = Object.keys(users).find((key) => key.toLowerCase() === String(username || '').toLowerCase()) || username;
+            const localUser = users[localUsername] || null;
+            const sqlRecord = await fetchSingleUserRecordFromSQL(localUsername, getUserRecordId(localUser));
+            const user = sqlRecord
+                ? normalizeSqlUserForProfile(sqlRecord, localUser, localUsername)
+                : localUser;
+
+            if (!user) {
+                alert('User not found.');
+                return;
+            }
+
+            const recordId = Number(getUserRecordId(user) || 0);
+            if (!Number.isInteger(recordId) || recordId <= 0) {
+                alert('Cannot edit this user because SQL record ID is missing.');
+                return;
+            }
+
+            openAddUserModal();
+            setAddUserModalMode('edit');
+            addUserEditRecordId = recordId;
+            addUserOriginalUsername = String(user.username || localUsername || '').trim();
+
+            document.getElementById('newUsername').value = String(user.username || '').trim();
+            document.getElementById('newPassword').value = '';
+            document.getElementById('newRole').value = user.role || 'user';
+
+            const newTitle = document.getElementById('newTitle');
+            const standardTitles = ['', 'Dr.', 'Mr.', 'Mrs.', 'Ms.'];
+            if (user.title && !standardTitles.includes(user.title)) {
+                newTitle.value = 'Other';
+                document.getElementById('newCustomTitleContainer').style.display = 'block';
+                document.getElementById('newCustomTitle').value = user.title;
+            } else {
+                newTitle.value = user.title || '';
+                document.getElementById('newCustomTitleContainer').style.display = 'none';
+                document.getElementById('newCustomTitle').value = '';
+            }
+
+            document.getElementById('newFirstName').value = user.firstName || '';
+            document.getElementById('newMiddleName').value = user.middleName || '';
+            document.getElementById('newLastName').value = user.lastName || '';
+            document.getElementById('newGender').value = user.gender || '';
+            document.getElementById('newDateOfBirth').value = user.dateOfBirth || '';
+            document.getElementById('newSSN').value = user.ssn || '';
+            document.getElementById('newPersonalEmail').value = user.personalEmail || '';
+            document.getElementById('newWorkEmail').value = user.workEmail || '';
+            document.getElementById('newHomePhone').value = user.homePhone || '';
+            document.getElementById('newCellPhone').value = user.cellPhone || '';
+            document.getElementById('newAddress').value = user.address || '';
+            document.getElementById('newCity').value = user.city || '';
+            document.getElementById('newState').value = user.state || '';
+            document.getElementById('newZipCode').value = user.zipCode || '';
+            document.getElementById('newJobTitle').value = user.jobTitle || '';
+            document.getElementById('newStaffType').value = user.staffType || 'non-clinical';
+            document.getElementById('newEmployeeType').value = user.employeeType || 'full-time';
+            document.getElementById('newHireDate').value = user.hireDate || '';
+            document.getElementById('newEmployeeStatus').value = user.employeeStatus || 'Active';
+            document.getElementById('newNextReviewDate').value = user.nextReviewDate || '';
+            document.getElementById('newOfficeLocation').value = user.officeLocation || '';
+            document.getElementById('newDirectSupervisor').value = user.directSupervisor || '';
+            document.getElementById('newSeparationDate').value = user.separationDate || '';
+            document.getElementById('newSeparationReason').value = user.separationReason || '';
+            document.getElementById('newColor').value = user.color || '#06b6d4';
+            document.getElementById('emergencyContactName').value = user.emergencyContactName || '';
+            document.getElementById('emergencyContactRelationship').value = user.emergencyContactRelationship || '';
+            document.getElementById('emergencyContactPhone').value = user.emergencyContactPhone || '';
+            document.getElementById('emergencyContactEmail').value = user.emergencyContactEmail || '';
+            toggleNewSeparationFields();
+
+            const photoPreview = document.getElementById('photoPreview');
+            const removePhotoBtn = document.getElementById('removePhotoBtn');
+            if (user.photoData) {
+                photoPreview.innerHTML = `<img src="${user.photoData}" style="width: 100%; height: 100%; object-fit: cover;">`;
+                if (removePhotoBtn) removePhotoBtn.style.display = 'inline-block';
+                uploadedPhoto = { dataURL: user.photoData, fileName: user.photoFileName || '' };
+            } else {
+                photoPreview.innerHTML = '<i class="fas fa-user" style="font-size: 2.5rem; color: var(--text-tertiary);"></i>';
+                if (removePhotoBtn) removePhotoBtn.style.display = 'none';
+                uploadedPhoto = null;
+            }
+
+            uploadedDocuments = Array.isArray(user.documents) ? [...user.documents] : [];
+            renderUploadedDocumentsPreview();
+
+            if (typeof loadDutiesFromAPI === 'function') {
+                try {
+                    await loadDutiesFromAPI();
+                } catch (_) {}
+            }
+            clearAllDuties();
+            document.querySelectorAll('input[name="selectedDuties"]').forEach((checkbox) => {
+                const dutyId = Number(checkbox.value);
+                const duty = Array.isArray(window.dutiesData) ? window.dutiesData.find((item) => Number(item.Id) === dutyId) : null;
+                const assignedTo = Number(duty?.assignedToUserId ?? duty?.AssignedToUserId ?? 0);
+                checkbox.checked = assignedTo === recordId;
+            });
+
+            const errorDiv = document.getElementById('createUserError');
+            if (errorDiv) errorDiv.style.display = 'none';
             return;
 
             const users = loadUsers();
@@ -33475,19 +33661,59 @@
             }
         }
 
+        function renderUploadedDocumentsPreview() {
+            const documentsPreview = document.getElementById('documentsPreview');
+            const documentsList = document.getElementById('documentsList');
+            if (!documentsPreview || !documentsList) return;
+
+            documentsPreview.innerHTML = '';
+            if (!Array.isArray(uploadedDocuments) || uploadedDocuments.length === 0) {
+                documentsList.style.display = 'none';
+                return;
+            }
+
+            uploadedDocuments.forEach((doc) => {
+                const fileName = String(doc?.name || doc?.fileName || 'Document');
+                const fileType = String(doc?.type || '');
+                const fileSize = Number(doc?.size || 0);
+                const fileIcon = fileType.includes('pdf') ? 'fa-file-pdf'
+                    : fileType.includes('word') ? 'fa-file-word'
+                    : fileType.includes('image') ? 'fa-file-image'
+                    : 'fa-file';
+                const fileSizeKB = fileSize > 0 ? `${(fileSize / 1024).toFixed(1)} KB` : '';
+
+                const docItem = document.createElement('div');
+                docItem.style.cssText = 'padding: 0.75rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 6px; display: flex; align-items: center; justify-content: space-between;';
+                docItem.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <i class="fas ${fileIcon}" style="font-size: 1.5rem; color: var(--accent-primary);"></i>
+                        <div>
+                            <div style="font-weight: 500; color: var(--text-primary); font-size: 0.9rem;">${fileName}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-secondary);">${fileSizeKB}</div>
+                        </div>
+                    </div>
+                    <button type="button" onclick="removeDocument('${fileName.replace(/'/g, "\\'")}')" style="padding: 0.25rem 0.5rem; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                `;
+                documentsPreview.appendChild(docItem);
+            });
+
+            documentsList.style.display = 'block';
+        }
+
         // Remove document from upload list
         function removeDocument(fileName) {
-            uploadedDocuments = uploadedDocuments.filter(doc => doc.name !== fileName);
-            const docItems = document.getElementById('documentsPreview').children;
-            Array.from(docItems).forEach(item => {
-                if (item.textContent.includes(fileName)) {
-                    item.remove();
-                }
+            uploadedDocuments = (Array.isArray(uploadedDocuments) ? uploadedDocuments : []).filter((doc) => {
+                const candidate = String(doc?.name || doc?.fileName || '').trim();
+                return candidate !== String(fileName || '').trim();
             });
-            
+
+            renderUploadedDocumentsPreview();
+
             if (uploadedDocuments.length === 0) {
-                document.getElementById('documentsList').style.display = 'none';
-                document.getElementById('employeeDocuments').value = '';
+                const input = document.getElementById('employeeDocuments');
+                if (input) input.value = '';
             }
         }
 
@@ -58131,7 +58357,7 @@ document.addEventListener('keydown', function(e) {
 <div id="addUserModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 10002; align-items: center; justify-content: center;">
     <div style="width: 100vw; height: 100vh; max-width: 100vw; max-height: 100vh; margin: 0; border-radius: 0; overflow: hidden; background: var(--bg-primary);">
         <div style="position: sticky; top: 0; z-index: 10; background: linear-gradient(135deg, #10b981, #059669); border-bottom: 1px solid var(--border-color); padding: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: white;">
+            <h3 id="addUserModalTitle" style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: white;">
                 <i class="fas fa-user-plus"></i>
                 Create New Employee
             </h3>
@@ -58538,9 +58764,9 @@ document.addEventListener('keydown', function(e) {
                             <i class="fas fa-times" style="margin-right: 0.5rem;"></i>
                             Cancel
                         </button>
-                        <button type="submit" class="login-btn" style="width: auto; padding: 0.75rem 2rem;">
-                            <i class="fas fa-user-plus" style="margin-right: 0.5rem;"></i>
-                            Create Employee
+                        <button id="addUserSubmitBtn" type="submit" class="login-btn" style="width: auto; padding: 0.75rem 2rem;">
+                            <i id="addUserSubmitIcon" class="fas fa-user-plus" style="margin-right: 0.5rem;"></i>
+                            <span id="addUserSubmitText">Create Employee</span>
                         </button>
                     </div>
                 </form>
