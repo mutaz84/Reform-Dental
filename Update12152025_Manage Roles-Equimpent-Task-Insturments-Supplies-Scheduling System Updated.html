@@ -23334,7 +23334,7 @@
             return ['admin', 'owner', 'manager', 'administrator', 'superadmin'].includes(role);
         }
 
-        async function approveComplianceCompletion(complianceId, userLookup) {
+        async function approveComplianceCompletion(complianceId, userLookup, options = {}) {
             if (!complianceId) return;
             try {
                 const response = await fetchComplianceApi('compliances', `/${encodeURIComponent(complianceId)}`);
@@ -23358,15 +23358,137 @@
                     showNotification('Compliance approved and marked completed.', 'success');
                 }
 
-                await loadUserCompliances(userLookup);
+                const shouldReloadUserCompliances = !options?.skipUserComplianceReload;
+                const hasUserCompliancesList = !!document.getElementById('userCompliancesList');
+                if (shouldReloadUserCompliances && hasUserCompliancesList && userLookup) {
+                    await loadUserCompliances(userLookup);
+                }
                 loadComplianceSummaryByUser(true).then(() => {
                     if (typeof displayUsersList === 'function') displayUsersList();
                 }).catch(() => {});
+                if (typeof renderManagerPendingComplianceApprovals === 'function') {
+                    renderManagerPendingComplianceApprovals();
+                }
             } catch (error) {
                 console.error('Failed to approve compliance:', error);
                 if (typeof showNotification === 'function') {
                     showNotification('Unable to approve compliance.', 'error');
                 }
+            }
+        }
+
+        async function renderManagerPendingComplianceApprovals() {
+            const list = document.getElementById('managerPendingComplianceApprovalsList');
+            const countEl = document.getElementById('managerPendingComplianceApprovalsCount');
+            if (!list) return;
+
+            list.innerHTML = '<div style="font-size:0.75rem; color: var(--text-secondary); text-align:center; padding: 0.5rem;">Loading pending approvals...</div>';
+
+            try {
+                if ((!Array.isArray(window.compliancesData) || !window.compliancesData.length) && typeof loadAllCompliances === 'function') {
+                    await loadAllCompliances();
+                }
+
+                const allCompliances = Array.isArray(window.compliancesData) ? window.compliancesData : [];
+                const pending = allCompliances
+                    .map((record) => normalizeComplianceRecord(record) || record)
+                    .filter((record) => String(record?.status || '').toLowerCase() === 'pending_approval');
+
+                if (countEl) {
+                    countEl.textContent = pending.length ? `${pending.length} pending` : '';
+                }
+
+                if (!pending.length) {
+                    list.innerHTML = '<div style="margin-top:0.5rem; font-size:0.75rem; color: var(--text-secondary); text-align:center;">No pending compliance approvals</div>';
+                    return;
+                }
+
+                const users = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
+                const normalizedUsers = Object.entries(users).map(([username, user]) => ({
+                    username,
+                    user,
+                    complianceUserId: String(resolveComplianceUserId(username, user) || '').trim()
+                }));
+
+                const toSafeText = (value) => String(value ?? '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+
+                list.innerHTML = pending.map((compliance) => {
+                    const complianceId = compliance.id || compliance.Id;
+                    const assignedIds = Array.isArray(compliance.assignedUserIds)
+                        ? compliance.assignedUserIds
+                        : (Array.isArray(compliance.AssignedUserIds) ? compliance.AssignedUserIds : []);
+
+                    const resolvedUserId = String(
+                        assignedIds[0]
+                        || compliance.userId
+                        || compliance.UserId
+                        || ''
+                    ).trim();
+
+                    const userMatch = normalizedUsers.find((entry) => {
+                        const userId = String(entry.complianceUserId || '').trim();
+                        return userId && resolvedUserId && userId.toLowerCase() === resolvedUserId.toLowerCase();
+                    });
+
+                    const resolvedUsername = userMatch?.username || String(compliance.username || compliance.UserName || compliance.assignedToUsername || '').trim();
+                    const resolvedName = String(
+                        userMatch?.user?.name
+                        || (userMatch?.user?.firstName && userMatch?.user?.lastName ? `${userMatch.user.firstName} ${userMatch.user.lastName}` : '')
+                        || compliance.employeeName
+                        || compliance.assignedToName
+                        || resolvedUsername
+                        || 'Unknown user'
+                    ).trim();
+
+                    return `
+                        <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem; display: grid; gap: 0.25rem;">
+                            <div style="display:flex; justify-content:space-between; gap:0.5rem; align-items:center;">
+                                <div style="font-size:0.8rem; font-weight:600; color:var(--text-primary);">${toSafeText(compliance.title || '(Untitled Compliance)')}</div>
+                                <button
+                                    type="button"
+                                    class="manager-approve-compliance-btn"
+                                    data-compliance-id="${toSafeText(complianceId)}"
+                                    data-user-id="${toSafeText(resolvedUserId)}"
+                                    data-username="${toSafeText(resolvedUsername)}"
+                                    style="padding: 0.25rem 0.45rem; background: #10b981; color: white; border: none; border-radius: 6px; font-size: 0.7rem; cursor: pointer;"
+                                >Approve</button>
+                            </div>
+                            <div style="font-size:0.72rem; color:var(--text-secondary);">User: ${toSafeText(resolvedName)}</div>
+                            <div style="font-size:0.7rem; color:var(--text-secondary);">Type: ${toSafeText(getComplianceTypeDisplay(compliance))}</div>
+                            <div style="font-size:0.68rem; color:var(--text-secondary);">Submitted: ${toSafeText(formatComplianceDate(compliance.modifiedDate || compliance.completedDate || compliance.updatedAt || compliance.createdAt || compliance.issueDate))}</div>
+                        </div>
+                    `;
+                }).join('');
+
+                list.querySelectorAll('.manager-approve-compliance-btn').forEach((button) => {
+                    if (button.__managerApproveInit) return;
+                    button.__managerApproveInit = true;
+                    button.addEventListener('click', async () => {
+                        const complianceId = button.getAttribute('data-compliance-id');
+                        const userId = button.getAttribute('data-user-id') || '';
+                        const username = button.getAttribute('data-username') || '';
+                        if (!complianceId) return;
+
+                        button.disabled = true;
+                        button.textContent = 'Approving...';
+                        try {
+                            await approveComplianceCompletion(complianceId, { userId, username }, { skipUserComplianceReload: true });
+                            await renderManagerPendingComplianceApprovals();
+                        } finally {
+                            button.disabled = false;
+                            button.textContent = 'Approve';
+                        }
+                    });
+                });
+            } catch (error) {
+                console.error('Failed to load pending compliance approvals:', error);
+                if (countEl) countEl.textContent = '';
+                list.innerHTML = '<div style="margin-top:0.5rem; font-size:0.75rem; color: var(--text-secondary); text-align:center;">Unable to load pending approvals</div>';
             }
         }
 
@@ -68132,6 +68254,19 @@ console.log('✅ Global functions exported to window object');
                             </div>
                             <div id="managerSavedUsersData" style="display: grid; gap: 0.4rem; max-height: 220px; overflow-y: auto;"></div>
                         </div>
+                        <div class="manager-unassigned-tasks" style="margin-top: 0.75rem;">
+                            <div class="manager-ut-header" style="align-items: center;">
+                                <span class="manager-ut-title">
+                                    <i class="fas fa-check-circle" style="color: var(--accent-primary); margin-right: 0.35rem;"></i>
+                                    Pending Compliance Approvals
+                                </span>
+                                <div style="display:flex; align-items:center; gap:0.4rem;">
+                                    <span id="managerPendingComplianceApprovalsCount" style="font-size: 0.7rem; color: var(--text-secondary);"></span>
+                                    <button type="button" onclick="renderManagerPendingComplianceApprovals()" style="border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-primary); border-radius: 6px; padding: 0.25rem 0.5rem; font-size: 0.72rem; cursor: pointer;">Refresh</button>
+                                </div>
+                            </div>
+                            <div id="managerPendingComplianceApprovalsList" style="display: grid; gap: 0.4rem; max-height: 230px; overflow-y: auto;"></div>
+                        </div>
                         <div class="manager-panel-links">
                             <a href="#" class="nav-item" onclick="openDutiesManagement(); return false;">
                                 <i class="fas fa-clipboard-list"></i>
@@ -68205,6 +68340,7 @@ console.log('✅ Global functions exported to window object');
             state.managerTabBtn.addEventListener('click', () => {
                 setActiveTab('manager');
                 try { renderManagerSavedUsersData(); } catch (_) {}
+                try { renderManagerPendingComplianceApprovals(); } catch (_) {}
             });
         }
         const dividerToggle = rail.querySelector('#railDividerToggle');
@@ -68297,6 +68433,7 @@ console.log('✅ Global functions exported to window object');
         // Initialize Manager tab unassigned tasks
         try { if (typeof renderManagerUnassignedTasks === 'function') renderManagerUnassignedTasks(); } catch(_) {}
         try { if (typeof renderManagerSavedUsersData === 'function') renderManagerSavedUsersData(); } catch(_) {}
+        try { if (typeof renderManagerPendingComplianceApprovals === 'function') renderManagerPendingComplianceApprovals(); } catch(_) {}
 
         // Keep header height var in sync on resize
         window.addEventListener('resize', () => {
