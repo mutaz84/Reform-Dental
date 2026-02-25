@@ -19140,7 +19140,7 @@
                             <i class="fas fa-cog" style="margin-right: 0.5rem;"></i>Manage Types
                         </button>
                         <button onclick="openNewComplianceModal()" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">
-                            <i class="fas fa-plus" style="margin-right: 0.5rem;"></i>Add Compliance
+                            <i class="fas fa-plus" style="margin-right: 0.5rem;"></i>Create Template
                         </button>
                         <button onclick="loadAllCompliances()" class="btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">
                             <i class="fas fa-sync" style="margin-right: 0.5rem;"></i>Refresh
@@ -23366,190 +23366,11 @@
                 loadComplianceSummaryByUser(true).then(() => {
                     if (typeof displayUsersList === 'function') displayUsersList();
                 }).catch(() => {});
-                if (typeof renderManagerPendingComplianceApprovals === 'function') {
-                    renderManagerPendingComplianceApprovals();
-                }
             } catch (error) {
                 console.error('Failed to approve compliance:', error);
                 if (typeof showNotification === 'function') {
                     showNotification('Unable to approve compliance.', 'error');
                 }
-            }
-        }
-
-        async function renderManagerPendingComplianceApprovals() {
-            const list = document.getElementById('managerPendingComplianceApprovalsList');
-            const countEl = document.getElementById('managerPendingComplianceApprovalsCount');
-            if (!list) return;
-
-            list.innerHTML = '<div style="font-size:0.75rem; color: var(--text-secondary); text-align:center; padding: 0.5rem;">Loading pending approvals...</div>';
-
-            try {
-                if ((!Array.isArray(window.compliancesData) || !window.compliancesData.length) && typeof loadAllCompliances === 'function') {
-                    await loadAllCompliances();
-                }
-
-                const allCompliances = Array.isArray(window.compliancesData) ? window.compliancesData : [];
-                const pending = allCompliances
-                    .map((record) => normalizeComplianceRecord(record) || record)
-                    .filter((record) => String(record?.status || '').toLowerCase() === 'pending_approval');
-
-                if (countEl) {
-                    countEl.textContent = pending.length ? `${pending.length} pending` : '';
-                }
-
-                if (!pending.length) {
-                    list.innerHTML = '<div style="margin-top:0.5rem; font-size:0.75rem; color: var(--text-secondary); text-align:center;">No pending compliance approvals</div>';
-                    return;
-                }
-
-                const users = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
-                const normalizedUsers = Object.entries(users).map(([username, user]) => ({
-                    username,
-                    user,
-                    complianceUserId: String(resolveComplianceUserId(username, user) || '').trim()
-                }));
-
-                const toSafeText = (value) => String(value ?? '')
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;')
-                    .replace(/"/g, '&quot;')
-                    .replace(/'/g, '&#39;');
-
-                list.innerHTML = pending.map((compliance) => {
-                    const complianceId = compliance.id || compliance.Id;
-                    const assignedIds = Array.isArray(compliance.assignedUserIds)
-                        ? compliance.assignedUserIds
-                        : (Array.isArray(compliance.AssignedUserIds) ? compliance.AssignedUserIds : []);
-
-                    const resolvedUserId = String(
-                        assignedIds[0]
-                        || compliance.userId
-                        || compliance.UserId
-                        || ''
-                    ).trim();
-
-                    const userMatch = normalizedUsers.find((entry) => {
-                        const userId = String(entry.complianceUserId || '').trim();
-                        return userId && resolvedUserId && userId.toLowerCase() === resolvedUserId.toLowerCase();
-                    });
-
-                    const resolvedUsername = userMatch?.username || String(compliance.username || compliance.UserName || compliance.assignedToUsername || '').trim();
-                    const resolvedName = String(
-                        userMatch?.user?.name
-                        || (userMatch?.user?.firstName && userMatch?.user?.lastName ? `${userMatch.user.firstName} ${userMatch.user.lastName}` : '')
-                        || compliance.employeeName
-                        || compliance.assignedToName
-                        || resolvedUsername
-                        || 'Unknown user'
-                    ).trim();
-                    const submittedDate = formatComplianceDate(compliance.modifiedDate || compliance.completedDate || compliance.updatedAt || compliance.createdAt || compliance.issueDate);
-                    const issuedDate = formatComplianceDate(compliance.issueDate);
-                    const expiryDate = formatComplianceDate(compliance.expiryDate);
-                    const hasAttachment = !!(compliance.attachmentData || compliance.attachmentUrl);
-
-                    return `
-                        <div data-manager-compliance-row="1" style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem; display: grid; gap: 0.25rem;">
-                            <div style="display:flex; justify-content:space-between; gap:0.5rem; align-items:center;">
-                                <div style="font-size:0.8rem; font-weight:600; color:var(--text-primary);">${toSafeText(compliance.title || '(Untitled Compliance)')}</div>
-                                <div style="display:flex; gap:0.35rem; align-items:center;">
-                                    <button
-                                        type="button"
-                                        class="manager-review-compliance-btn"
-                                        data-compliance-id="${toSafeText(complianceId)}"
-                                        style="padding: 0.25rem 0.45rem; background: #3b82f6; color: white; border: none; border-radius: 6px; font-size: 0.7rem; cursor: pointer;"
-                                    >Review</button>
-                                    <button
-                                        type="button"
-                                        class="manager-approve-compliance-btn"
-                                        data-compliance-id="${toSafeText(complianceId)}"
-                                        data-user-id="${toSafeText(resolvedUserId)}"
-                                        data-username="${toSafeText(resolvedUsername)}"
-                                        disabled
-                                        style="padding: 0.25rem 0.45rem; background: #10b981; color: white; border: none; border-radius: 6px; font-size: 0.7rem; cursor: not-allowed; opacity: 0.55;"
-                                        title="Review required before approval"
-                                    >Approve</button>
-                                </div>
-                            </div>
-                            <div style="font-size:0.72rem; color:var(--text-secondary);">User: ${toSafeText(resolvedName)}</div>
-                            <div style="font-size:0.7rem; color:var(--text-secondary);">Type: ${toSafeText(getComplianceTypeDisplay(compliance))}</div>
-                            <div style="font-size:0.68rem; color:var(--text-secondary);">Submitted: ${toSafeText(submittedDate)}</div>
-                            <div class="manager-compliance-review-details" style="display:none; margin-top:0.25rem; padding:0.45rem; border-radius:6px; border:1px solid var(--border-color); background: var(--bg-secondary);">
-                                <div style="font-size:0.7rem; color:var(--text-primary); font-weight:600; margin-bottom:0.25rem;">Review Summary</div>
-                                <div style="font-size:0.68rem; color:var(--text-secondary);">Description: ${toSafeText(compliance.description || 'No description provided.')}</div>
-                                <div style="font-size:0.68rem; color:var(--text-secondary);">Issue Date: ${toSafeText(issuedDate)}</div>
-                                <div style="font-size:0.68rem; color:var(--text-secondary);">Expiry Date: ${toSafeText(expiryDate)}</div>
-                                <div style="font-size:0.68rem; color:var(--text-secondary);">Status: ${toSafeText(String(compliance.status || 'pending_approval'))}</div>
-                                ${hasAttachment ? `<button type="button" class="manager-review-attachment-btn" data-compliance-id="${toSafeText(complianceId)}" style="margin-top:0.35rem; padding:0.2rem 0.45rem; background:#6366f1; color:white; border:none; border-radius:6px; font-size:0.66rem; cursor:pointer;">View Attachment</button>` : ''}
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-
-                list.querySelectorAll('.manager-review-compliance-btn').forEach((button) => {
-                    if (button.__managerReviewInit) return;
-                    button.__managerReviewInit = true;
-                    button.addEventListener('click', () => {
-                        const row = button.closest('[data-manager-compliance-row="1"]');
-                        if (!row) return;
-
-                        const reviewDetails = row.querySelector('.manager-compliance-review-details');
-                        const approveButton = row.querySelector('.manager-approve-compliance-btn');
-
-                        if (reviewDetails) {
-                            reviewDetails.style.display = 'block';
-                        }
-                        if (approveButton) {
-                            approveButton.disabled = false;
-                            approveButton.style.cursor = 'pointer';
-                            approveButton.style.opacity = '1';
-                            approveButton.removeAttribute('title');
-                        }
-
-                        button.textContent = 'Reviewed';
-                        button.disabled = true;
-                        button.style.opacity = '0.75';
-                        button.style.cursor = 'default';
-                    });
-                });
-
-                list.querySelectorAll('.manager-review-attachment-btn').forEach((button) => {
-                    if (button.__managerAttachmentInit) return;
-                    button.__managerAttachmentInit = true;
-                    button.addEventListener('click', () => {
-                        const complianceId = button.getAttribute('data-compliance-id');
-                        if (complianceId && typeof viewComplianceAttachment === 'function') {
-                            viewComplianceAttachment(complianceId);
-                        }
-                    });
-                });
-
-                list.querySelectorAll('.manager-approve-compliance-btn').forEach((button) => {
-                    if (button.__managerApproveInit) return;
-                    button.__managerApproveInit = true;
-                    button.addEventListener('click', async () => {
-                        if (button.disabled) return;
-                        const complianceId = button.getAttribute('data-compliance-id');
-                        const userId = button.getAttribute('data-user-id') || '';
-                        const username = button.getAttribute('data-username') || '';
-                        if (!complianceId) return;
-
-                        button.disabled = true;
-                        button.textContent = 'Approving...';
-                        try {
-                            await approveComplianceCompletion(complianceId, { userId, username }, { skipUserComplianceReload: true });
-                            await renderManagerPendingComplianceApprovals();
-                        } finally {
-                            button.disabled = false;
-                            button.textContent = 'Approve';
-                        }
-                    });
-                });
-            } catch (error) {
-                console.error('Failed to load pending compliance approvals:', error);
-                if (countEl) countEl.textContent = '';
-                list.innerHTML = '<div style="margin-top:0.5rem; font-size:0.75rem; color: var(--text-secondary); text-align:center;">Unable to load pending approvals</div>';
             }
         }
 
@@ -23595,8 +23416,6 @@
                 compliances.forEach((compliance) => {
                     const complianceId = compliance.id || compliance.Id;
                     const statusPresentation = getComplianceStatusPresentation(compliance);
-                    const statusValue = String(compliance.status || '').toLowerCase();
-                    const canApprove = canCurrentUserApproveCompliances() && statusValue === 'pending_approval' && complianceId;
 
                     const row = document.createElement('tr');
                     row.innerHTML = `
@@ -23618,9 +23437,6 @@
                                 <button onclick="editCompliance(${complianceId})" style="padding: 0.5rem; background: #f59e0b; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Edit">
                                     <i class="fas fa-edit"></i>
                                 </button>
-                                ${canApprove ? `<button onclick="approveComplianceCompletion(${complianceId}, { userId: ${userId || 'null'}, username: '${String(username || '').replace(/'/g, "\\'")}' })" style="padding: 0.5rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Approve Completion">
-                                    <i class="fas fa-check"></i>
-                                </button>` : ''}
                                 <button onclick="deleteCompliance(${complianceId})" style="padding: 0.5rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer;" title="Delete">
                                     <i class="fas fa-trash"></i>
                                 </button>
@@ -24183,10 +23999,110 @@
             }
         }
 
-        // Open Add Compliance Modal
-        async function openAddComplianceModal() {
+        function populateComplianceEmployeeSelector(selectedUserId = '') {
+            const select = document.getElementById('complianceEmployeeSelector');
+            if (!select) return;
+
+            const users = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
+            const selectedNormalized = String(selectedUserId || '').trim();
+
+            const options = ['<option value="">Select Employee</option>'];
+            Object.entries(users).forEach(([username, user]) => {
+                const resolvedId = resolveComplianceUserId(username, user);
+                if (!resolvedId) return;
+                const label = String(user?.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || username);
+                options.push(`<option value="${String(resolvedId)}">${label} (#${String(resolvedId)})</option>`);
+            });
+
+            select.innerHTML = options.join('');
+            if (selectedNormalized) {
+                select.value = selectedNormalized;
+            }
+
+            if (!select.__syncInit) {
+                select.__syncInit = true;
+                select.addEventListener('change', () => {
+                    const hidden = document.getElementById('complianceEmployeeId');
+                    if (hidden) hidden.value = String(select.value || '').trim();
+                });
+            }
+        }
+
+        function setComplianceModalReadOnly(readOnly) {
+            const form = document.getElementById('complianceForm');
+            if (!form) return;
+
+            form.querySelectorAll('input, select, textarea').forEach((field) => {
+                if (!field || field.type === 'hidden') return;
+                if (field.id === 'complianceEmployeeSelector') return;
+                field.disabled = !!readOnly;
+            });
+
+            const employeeSelector = document.getElementById('complianceEmployeeSelector');
+            if (employeeSelector) {
+                employeeSelector.disabled = !!readOnly;
+            }
+        }
+
+        function applyComplianceModalMode(mode = 'standard') {
+            window.__complianceModalMode = mode;
+
             const formTitle = document.getElementById('complianceFormTitle');
-            if (formTitle) formTitle.textContent = 'Add Compliance';
+            const saveBtn = document.getElementById('complianceSaveBtn');
+            const approveBtn = document.getElementById('complianceApproveBtn');
+            const employeeGroup = document.getElementById('complianceEmployeeAssignGroup');
+            const employeeSelector = document.getElementById('complianceEmployeeSelector');
+            const titleInput = document.getElementById('complianceTitle');
+            const issueDateInput = document.getElementById('complianceIssueDate');
+            const complianceStatus = document.getElementById('complianceStatus');
+
+            if (titleInput) titleInput.required = mode !== 'template';
+            if (issueDateInput) issueDateInput.required = false;
+
+            if (mode === 'template') {
+                if (formTitle) formTitle.textContent = 'Create Compliance Template';
+                if (saveBtn) {
+                    saveBtn.style.display = '';
+                    saveBtn.innerHTML = '<i class="fas fa-save" style="margin-right: 0.5rem;"></i>Create Template';
+                }
+                if (approveBtn) approveBtn.style.display = 'none';
+                if (employeeGroup) employeeGroup.style.display = '';
+                if (employeeSelector) employeeSelector.required = true;
+                if (complianceStatus) complianceStatus.value = 'pending';
+                setComplianceModalReadOnly(false);
+                return;
+            }
+
+            if (mode === 'review') {
+                if (formTitle) formTitle.textContent = 'Review Compliance Submission';
+                if (saveBtn) saveBtn.style.display = 'none';
+                if (approveBtn) {
+                    approveBtn.style.display = '';
+                    approveBtn.disabled = false;
+                    approveBtn.innerHTML = '<i class="fas fa-check" style="margin-right: 0.5rem;"></i>Approve Compliance';
+                }
+                if (employeeGroup) employeeGroup.style.display = '';
+                if (employeeSelector) employeeSelector.required = false;
+                setComplianceModalReadOnly(true);
+                return;
+            }
+
+            const isNewRecord = !document.getElementById('complianceId')?.value;
+            if (formTitle) formTitle.textContent = isNewRecord ? 'Add Compliance' : 'Edit Compliance';
+            if (saveBtn) {
+                saveBtn.style.display = '';
+                saveBtn.innerHTML = '<i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save Compliance';
+            }
+            if (approveBtn) approveBtn.style.display = 'none';
+            if (employeeGroup) employeeGroup.style.display = '';
+            if (employeeSelector) employeeSelector.required = !document.getElementById('complianceId')?.value;
+            setComplianceModalReadOnly(false);
+        }
+
+        // Open Add Compliance Modal
+        async function openAddComplianceModal(options = {}) {
+            const mode = String(options?.mode || 'standard');
+            const presetUserId = String(options?.presetUserId || document.getElementById('complianceEmployeeId')?.value || '').trim();
 
             const complianceId = document.getElementById('complianceId');
             if (complianceId) complianceId.value = '';
@@ -24225,7 +24141,10 @@
             if (complianceNotes) complianceNotes.value = '';
 
             const complianceEmployeeId = document.getElementById('complianceEmployeeId');
-            if (complianceEmployeeId) complianceEmployeeId.value = '';
+            if (complianceEmployeeId) complianceEmployeeId.value = presetUserId;
+
+            const complianceType = document.getElementById('complianceType');
+            if (complianceType) complianceType.value = '';
 
             // Reset file input
             const complianceAttachment = document.getElementById('complianceAttachment');
@@ -24244,7 +24163,9 @@
             if (attachmentPreview) attachmentPreview.innerHTML = '';
 
             // Load compliance types
-            loadComplianceTypes();
+            await loadComplianceTypes();
+            populateComplianceEmployeeSelector(presetUserId);
+            applyComplianceModalMode(mode);
 
             // Show modal
             ensureUnifiedRightRailExpandedForModal();
@@ -24256,16 +24177,22 @@
         async function saveCompliance(event) {
             event.preventDefault();
 
-            const userFieldValue = document.getElementById('complianceEmployeeId')?.value;
-            const resolvedUserId = resolveComplianceUserId(userFieldValue);
+            const modalMode = String(window.__complianceModalMode || 'standard');
+            const isTemplateMode = modalMode === 'template';
             const complianceId = document.getElementById('complianceId')?.value;
+            const employeeSelector = document.getElementById('complianceEmployeeSelector');
+            const selectedEmployeeRaw = String(employeeSelector?.value || document.getElementById('complianceEmployeeId')?.value || '').trim();
+            const resolvedUserId = resolveComplianceUserId(selectedEmployeeRaw);
 
-            if (userFieldValue && !resolvedUserId) {
+            if (!resolvedUserId) {
                 if (typeof showNotification === 'function') {
-                    showNotification('Unable to resolve employee database ID. Please select a valid employee and try again.', 'error');
+                    showNotification('Please select a valid employee for this compliance.', 'error');
                 }
                 return;
             }
+
+            const hiddenEmployeeId = document.getElementById('complianceEmployeeId');
+            if (hiddenEmployeeId) hiddenEmployeeId.value = String(resolvedUserId);
 
             // Handle file attachment
             let attachmentData = document.getElementById('complianceAttachmentData')?.value || null;
@@ -24278,7 +24205,6 @@
                 attachmentName = file.name;
                 attachmentType = file.type;
 
-                // Convert file to base64 for storage
                 attachmentData = await new Promise((resolve) => {
                     const reader = new FileReader();
                     reader.onload = (e) => resolve(e.target.result);
@@ -24290,33 +24216,45 @@
             if (!attachmentName) attachmentName = '';
             if (!attachmentType) attachmentType = '';
 
+            const complianceTypeField = document.getElementById('complianceType');
+            const complianceTypeRaw = complianceTypeField?.value || '';
+            const complianceTypeLabel = complianceTypeField?.selectedOptions?.[0]?.textContent || 'Compliance';
+            const titleInput = document.getElementById('complianceTitle')?.value || '';
+            const statusValue = document.getElementById('complianceStatus')?.value || 'active';
+
             const compliance = {
-                title: document.getElementById('complianceTitle')?.value || '',
-                complianceTypeId: parseInt(document.getElementById('complianceType')?.value) || document.getElementById('complianceType')?.value || '',
+                title: titleInput || (isTemplateMode ? `${complianceTypeLabel} Template` : ''),
+                complianceTypeId: parseInt(complianceTypeRaw) || complianceTypeRaw || '',
                 description: document.getElementById('complianceDescription')?.value || '',
-                userId: resolvedUserId, // For employee compliances
-                clinicId: null, // For clinic compliances (can be set if needed)
+                userId: resolvedUserId,
+                clinicId: null,
                 issueDate: document.getElementById('complianceIssueDate')?.value || '',
                 expiryDate: document.getElementById('complianceExpiryDate')?.value || '',
                 reminderDate: document.getElementById('complianceReminderDate')?.value || '',
-                status: document.getElementById('complianceStatus')?.value || 'active',
-                attachmentData: attachmentData, // Base64 encoded file data
-                attachmentName: attachmentName, // Original file name
-                attachmentType: attachmentType, // MIME type
+                status: isTemplateMode ? 'pending' : statusValue,
+                attachmentData: attachmentData,
+                attachmentName: attachmentName,
+                attachmentType: attachmentType,
                 documentType: document.getElementById('complianceDocumentType')?.value || '',
                 referenceNumber: document.getElementById('complianceReferenceNumber')?.value || '',
                 issuingAuthority: document.getElementById('complianceIssuingAuthority')?.value || '',
                 cost: parseFloat(document.getElementById('complianceCost')?.value) || 0,
                 notes: document.getElementById('complianceNotes')?.value || '',
-                createdById: getCurrentUserId(), // You'll need to implement this
+                createdById: getCurrentUserId(),
                 modifiedById: getCurrentUserId()
             };
+
+            if (!compliance.title) {
+                if (typeof showNotification === 'function') {
+                    showNotification('Title is required for this compliance.', 'error');
+                }
+                return;
+            }
 
             if (isComplianceApiConfigured()) {
                 try {
                     let response;
                     if (complianceId) {
-                        // Update existing compliance
                         response = await fetchComplianceApi('compliances', `${complianceId}`, {
                             method: 'PUT',
                             headers: {
@@ -24325,7 +24263,6 @@
                             body: JSON.stringify(compliance)
                         });
                     } else {
-                        // Create new compliance
                         response = await fetchComplianceApi('compliances', '', {
                             method: 'POST',
                             headers: {
@@ -24356,7 +24293,7 @@
                     }
                     closeComplianceModal();
                     if (typeof showNotification === 'function') {
-                        showNotification('Compliance saved successfully!', 'success');
+                        showNotification(isTemplateMode ? 'Compliance template created and assigned.' : 'Compliance saved successfully!', 'success');
                     }
                     return;
                 } catch (error) {
@@ -24370,6 +24307,31 @@
 
             if (typeof showNotification === 'function') {
                 showNotification('Compliance API is not configured. Save is disabled in API-only mode.', 'error');
+            }
+        }
+
+        async function approveComplianceFromModal() {
+            const complianceId = document.getElementById('complianceId')?.value;
+            const userId = document.getElementById('complianceEmployeeId')?.value || '';
+            if (!complianceId) return;
+
+            const approveBtn = document.getElementById('complianceApproveBtn');
+            if (approveBtn) {
+                approveBtn.disabled = true;
+                approveBtn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right: 0.5rem;"></i>Approving...';
+            }
+
+            try {
+                await approveComplianceCompletion(complianceId, { userId }, { skipUserComplianceReload: true });
+                closeComplianceModal();
+                if (typeof loadAllCompliances === 'function') {
+                    await loadAllCompliances();
+                }
+            } finally {
+                if (approveBtn) {
+                    approveBtn.disabled = false;
+                    approveBtn.innerHTML = '<i class="fas fa-check" style="margin-right: 0.5rem;"></i>Approve Compliance';
+                }
             }
         }
 
@@ -24508,6 +24470,13 @@
                     document.getElementById('complianceEmployeeId').value = fullCompliance.userId || resolvedUserId || '';
                     document.getElementById('complianceId').value = fullCompliance.id || fullCompliance.Id || apiComplianceId;
 
+                    const selectedEmployeeId = document.getElementById('complianceEmployeeId').value;
+                    populateComplianceEmployeeSelector(selectedEmployeeId);
+                    if (selectedEmployeeId) {
+                        const employeeSelector = document.getElementById('complianceEmployeeSelector');
+                        if (employeeSelector) employeeSelector.value = String(selectedEmployeeId);
+                    }
+
                     document.getElementById('complianceAttachmentData').value = fullCompliance.attachmentData || '';
                     document.getElementById('complianceAttachmentName').value = fullCompliance.attachmentName || '';
                     document.getElementById('complianceAttachmentType').value = fullCompliance.attachmentType || '';
@@ -24519,6 +24488,11 @@
                             ? `<i class="fas fa-paperclip" style="margin-right: 0.35rem;"></i>Current: ${fullCompliance.attachmentName}`
                             : '';
                     }
+
+                    const currentViewId = document.querySelector('.content-view.active')?.id || '';
+                    const statusValue = String(fullCompliance.status || '').toLowerCase();
+                    const canReviewAndApprove = canCurrentUserApproveCompliances() && statusValue === 'pending_approval' && currentViewId === 'view-compliances';
+                    applyComplianceModalMode(canReviewAndApprove ? 'review' : 'standard');
 
                     document.getElementById('complianceModal').style.display = 'flex';
                     return;
@@ -24708,7 +24682,7 @@
                     <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
                         <i class="fas fa-file-contract" style="font-size: 4rem; margin-bottom: 1rem; opacity: 0.5;"></i>
                         <h3>No compliances found</h3>
-                        <p>Click "New Compliance" to add your first compliance record.</p>
+                        <p>Click "Create Template" to add your first compliance template.</p>
                     </div>
                 `;
                 return;
@@ -24719,29 +24693,18 @@
                 const complianceId = compliance.id || compliance.Id;
                 const hasLocalIndex = compliance.localIndex !== undefined;
                 const actionsDisabled = hasLocalIndex || !complianceId || !isComplianceApiConfigured();
+                const statusValue = String(compliance.status || '').toLowerCase();
+                const canReviewPending = canCurrentUserApproveCompliances() && statusValue === 'pending_approval';
                 const editCall = hasLocalIndex
                     ? `editCompliance('${compliance.userId || ''}', ${compliance.localIndex})`
                     : `editCompliance(${complianceId})`;
                 const deleteCall = hasLocalIndex
                     ? `deleteCompliance('${compliance.userId || ''}', ${compliance.localIndex})`
                     : `deleteCompliance(${complianceId})`;
-                const expiryDate = new Date(compliance.expiryDate);
-                const today = new Date();
-                const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-
-                let statusColor = '#10b981'; // green
-                let statusText = 'Active';
-                let statusIcon = 'fa-check-circle';
-
-                if (daysUntilExpiry < 0) {
-                    statusColor = '#ef4444'; // red
-                    statusText = 'Expired';
-                    statusIcon = 'fa-times-circle';
-                } else if (daysUntilExpiry <= 30) {
-                    statusColor = '#f59e0b'; // yellow
-                    statusText = `Expires in ${daysUntilExpiry} days`;
-                    statusIcon = 'fa-exclamation-triangle';
-                }
+                const statusPresentation = getComplianceStatusPresentation(compliance);
+                const statusColor = statusPresentation.color;
+                const statusText = statusPresentation.text;
+                const statusIcon = statusPresentation.icon;
 
                 const row = document.createElement('div');
                 row.className = 'compliance-item';
@@ -24781,8 +24744,8 @@
                         ${(compliance.attachmentUrl || compliance.attachmentData) ? `<button ${!actionsDisabled ? `onclick="viewComplianceAttachment(${complianceId})"` : 'disabled'} class="action-btn" style="${actionsDisabled ? 'opacity:0.5;cursor:not-allowed;' : ''}" title="${!actionsDisabled ? 'View Attachment' : 'Action unavailable in fallback mode'}">
                             <i class="fas fa-paperclip"></i>
                         </button>` : ''}
-                        <button ${!actionsDisabled ? `onclick="${editCall}"` : 'disabled'} class="action-btn" style="${actionsDisabled ? 'opacity:0.5;cursor:not-allowed;' : ''}" title="${!actionsDisabled ? 'Edit' : 'Edit unavailable in fallback mode'}">
-                            <i class="fas fa-edit"></i>
+                        <button ${!actionsDisabled ? `onclick="${editCall}"` : 'disabled'} class="action-btn" style="${actionsDisabled ? 'opacity:0.5;cursor:not-allowed;' : ''}" title="${!actionsDisabled ? (canReviewPending ? 'Review Submission' : 'Edit') : 'Action unavailable in fallback mode'}">
+                            <i class="fas ${canReviewPending ? 'fa-clipboard-check' : 'fa-edit'}"></i>
                         </button>
                         <button ${!actionsDisabled ? `onclick="${deleteCall}"` : 'disabled'} class="action-btn delete" style="${actionsDisabled ? 'opacity:0.5;cursor:not-allowed;' : ''}" title="${!actionsDisabled ? 'Delete' : 'Delete unavailable in fallback mode'}">
                             <i class="fas fa-trash"></i>
@@ -24822,40 +24785,14 @@
 
         // Open new compliance modal
         function openNewComplianceModal() {
-            // Reset form
-            document.getElementById('complianceTitle').value = '';
-            document.getElementById('complianceDescription').value = '';
-            document.getElementById('complianceType').value = '';
-            document.getElementById('complianceIssueDate').value = '';
-            document.getElementById('complianceExpiryDate').value = '';
-            document.getElementById('complianceReminderDate').value = '';
-            document.getElementById('complianceStatus').value = 'active';
-            document.getElementById('complianceDocumentType').value = '';
-            document.getElementById('complianceReferenceNumber').value = '';
-            document.getElementById('complianceIssuingAuthority').value = '';
-            document.getElementById('complianceCost').value = '';
-            document.getElementById('complianceNotes').value = '';
-            document.getElementById('complianceEmployeeId').value = '';
-            document.getElementById('complianceId').value = '';
-            
-            // Reset file input
-            document.getElementById('complianceAttachment').value = '';
-            document.getElementById('complianceAttachmentData').value = '';
-            document.getElementById('complianceAttachmentName').value = '';
-            document.getElementById('complianceAttachmentType').value = '';
-            document.getElementById('attachmentPreview').innerHTML = '';
-
-            // Load compliance types
-            loadComplianceTypes();
-
-            // Show modal
-            ensureUnifiedRightRailExpandedForModal();
-            document.getElementById('complianceModal').style.display = 'flex';
+            openAddComplianceModal({ mode: 'template' });
         }
 
         // Close Compliance Modal
         function closeComplianceModal() {
-            document.getElementById('complianceModal').style.display = 'none';
+            const complianceModal = document.getElementById('complianceModal');
+            if (complianceModal) complianceModal.style.display = 'none';
+            applyComplianceModalMode('standard');
         }
 
         // ========== END COMPLIANCES MANAGEMENT FUNCTIONS ==========
@@ -60471,6 +60408,18 @@ document.addEventListener('keydown', function(e) {
                 <input type="hidden" id="complianceAttachmentName">
                 <input type="hidden" id="complianceAttachmentType">
 
+                <div id="complianceEmployeeAssignGroup" style="margin-bottom: 1.5rem; display: none;">
+                    <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
+                        <i class="fas fa-user" style="margin-right: 0.5rem;"></i>Assigned Employee
+                    </h5>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="complianceEmployeeSelector">Employee *</label>
+                        <select id="complianceEmployeeSelector" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            <option value="">Select Employee</option>
+                        </select>
+                    </div>
+                </div>
+
                 <!-- Compliance Type -->
                 <div style="margin-bottom: 1.5rem;">
                     <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
@@ -60628,7 +60577,10 @@ document.addEventListener('keydown', function(e) {
                     <button type="button" onclick="closeComplianceModal()" style="padding: 0.75rem 1.5rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; font-weight: 500;">
                         Cancel
                     </button>
-                    <button type="submit" style="padding: 0.75rem 1.5rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">
+                    <button type="button" id="complianceApproveBtn" onclick="approveComplianceFromModal()" style="display:none; padding: 0.75rem 1.5rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">
+                        <i class="fas fa-check" style="margin-right: 0.5rem;"></i>Approve Compliance
+                    </button>
+                    <button type="submit" id="complianceSaveBtn" style="padding: 0.75rem 1.5rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">
                         <i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save Compliance
                     </button>
                 </div>
@@ -68315,19 +68267,6 @@ console.log('✅ Global functions exported to window object');
                             </div>
                             <div id="managerSavedUsersData" style="display: grid; gap: 0.4rem; max-height: 220px; overflow-y: auto;"></div>
                         </div>
-                        <div class="manager-unassigned-tasks" style="margin-top: 0.75rem;">
-                            <div class="manager-ut-header" style="align-items: center;">
-                                <span class="manager-ut-title">
-                                    <i class="fas fa-check-circle" style="color: var(--accent-primary); margin-right: 0.35rem;"></i>
-                                    Pending Compliance Approvals
-                                </span>
-                                <div style="display:flex; align-items:center; gap:0.4rem;">
-                                    <span id="managerPendingComplianceApprovalsCount" style="font-size: 0.7rem; color: var(--text-secondary);"></span>
-                                    <button type="button" onclick="renderManagerPendingComplianceApprovals()" style="border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-primary); border-radius: 6px; padding: 0.25rem 0.5rem; font-size: 0.72rem; cursor: pointer;">Refresh</button>
-                                </div>
-                            </div>
-                            <div id="managerPendingComplianceApprovalsList" style="display: grid; gap: 0.4rem; max-height: 230px; overflow-y: auto;"></div>
-                        </div>
                         <div class="manager-panel-links">
                             <a href="#" class="nav-item" onclick="openDutiesManagement(); return false;">
                                 <i class="fas fa-clipboard-list"></i>
@@ -68401,7 +68340,6 @@ console.log('✅ Global functions exported to window object');
             state.managerTabBtn.addEventListener('click', () => {
                 setActiveTab('manager');
                 try { renderManagerSavedUsersData(); } catch (_) {}
-                try { renderManagerPendingComplianceApprovals(); } catch (_) {}
             });
         }
         const dividerToggle = rail.querySelector('#railDividerToggle');
@@ -68494,7 +68432,6 @@ console.log('✅ Global functions exported to window object');
         // Initialize Manager tab unassigned tasks
         try { if (typeof renderManagerUnassignedTasks === 'function') renderManagerUnassignedTasks(); } catch(_) {}
         try { if (typeof renderManagerSavedUsersData === 'function') renderManagerSavedUsersData(); } catch(_) {}
-        try { if (typeof renderManagerPendingComplianceApprovals === 'function') renderManagerPendingComplianceApprovals(); } catch(_) {}
 
         // Keep header height var in sync on resize
         window.addEventListener('resize', () => {
