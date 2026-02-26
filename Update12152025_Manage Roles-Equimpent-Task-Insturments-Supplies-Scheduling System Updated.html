@@ -70694,7 +70694,8 @@ console.log('✅ Global functions exported to window object');
             ptoCredits: 'attendancePtoCreditsV1',
             ptoRequests: 'attendancePtoRequestsV1',
             notifications: 'attendanceNotificationsV1',
-            absences: 'attendanceAbsencesV1'
+            absences: 'attendanceAbsencesV1',
+            activeClockMap: 'attendanceActiveClockMapV1'
         };
 
         const ATTENDANCE_API = {
@@ -71022,6 +71023,52 @@ console.log('✅ Global functions exported to window object');
 
         function writeJSON(key, value) {
             localStorage.setItem(key, JSON.stringify(value));
+        }
+
+        function getActiveClockMap() {
+            return readJSON(STORAGE.activeClockMap, {});
+        }
+
+        function saveActiveClockMap(data) {
+            writeJSON(STORAGE.activeClockMap, data || {});
+        }
+
+        function setActiveClockRecordForContext(context, recordId) {
+            if (!recordId) return;
+            const map = getActiveClockMap();
+            const candidates = getContextIdentityCandidateSet(context);
+            candidates.forEach((key) => {
+                if (key) map[key] = String(recordId);
+            });
+            saveActiveClockMap(map);
+        }
+
+        function clearActiveClockRecordForContext(context, specificRecordId = null) {
+            const map = getActiveClockMap();
+            const candidates = getContextIdentityCandidateSet(context);
+            const target = specificRecordId ? String(specificRecordId) : null;
+            candidates.forEach((key) => {
+                if (!key) return;
+                if (!target || String(map[key] || '') === target) {
+                    delete map[key];
+                }
+            });
+            saveActiveClockMap(map);
+        }
+
+        function findOpenRecordFromActivePointer(context) {
+            const map = getActiveClockMap();
+            const candidates = getContextIdentityCandidateSet(context);
+            const activeIds = Array.from(new Set(Array.from(candidates)
+                .map((key) => String(map[key] || '').trim())
+                .filter(Boolean)));
+            if (!activeIds.length) return null;
+
+            const records = getRecords();
+            const matches = records
+                .filter((record) => activeIds.includes(String(record?.id || '')) && !!record?.clockIn && !record?.clockOut)
+                .sort((a, b) => new Date(b.clockIn || 0).getTime() - new Date(a.clockIn || 0).getTime());
+            return matches[0] || null;
         }
 
         function getUsersMap() {
@@ -71468,6 +71515,7 @@ console.log('✅ Global functions exported to window object');
             record.flags = flags;
 
             updateRecord(record);
+            setActiveClockRecordForContext(context, record.id);
             addNotification('__managers__', `${displayName} clocked in at ${formatDateTime(now)}.`, 'info');
             if (typeof showNotification === 'function') showNotification('Clock in recorded.', 'success');
             refreshAttendanceView();
@@ -71481,9 +71529,10 @@ console.log('✅ Global functions exported to window object');
             const now = new Date();
             const dateISO = toISODate(now);
             const openRecords = getOpenRecordsForContext(context);
-            const existing = openRecords.length > 0
-                ? openRecords[openRecords.length - 1]
-                : findTodayRecord(username, dateISO, {
+            const pointerRecord = findOpenRecordFromActivePointer(context);
+            let existing = pointerRecord
+                || (openRecords.length > 0 ? openRecords[openRecords.length - 1] : null)
+                || findTodayRecord(username, dateISO, {
                     allowOpenFallback: true,
                     identityHints: [
                         context.rawUsername,
@@ -71500,6 +71549,7 @@ console.log('✅ Global functions exported to window object');
             }
 
             if (existing.clockOut) {
+                clearActiveClockRecordForContext(context, existing.id);
                 if (typeof showNotification === 'function') showNotification('Clock out already recorded.', 'warning');
                 return;
             }
@@ -71527,6 +71577,7 @@ console.log('✅ Global functions exported to window object');
             existing.displayName = displayName;
             existing.flags = Array.from(new Set(flags));
             updateRecord(existing);
+            clearActiveClockRecordForContext(context, existing.id);
 
             let autoClosedCount = 0;
             if (openRecords.length > 1) {
@@ -71540,6 +71591,7 @@ console.log('✅ Global functions exported to window object');
                     record.displayName = record.displayName || displayName;
                     record.flags = Array.from(new Set(staleFlags));
                     updateRecord(record);
+                    clearActiveClockRecordForContext(context, record.id);
                     autoClosedCount += 1;
                 });
             }
