@@ -71205,6 +71205,51 @@ console.log('✅ Global functions exported to window object');
             const identityCandidates = options.identityCandidates instanceof Set ? options.identityCandidates : null;
             const identityMap = new Map();
 
+            const getRecordIdentitySet = (record) => {
+                const set = new Set();
+                const canonicalFromUsername = resolveCanonicalUsername(record?.username);
+                const canonicalFromDisplay = resolveCanonicalUsername(record?.displayName);
+                [
+                    record?.username,
+                    record?.displayName,
+                    canonicalFromUsername,
+                    canonicalFromDisplay,
+                    record?.workEmail,
+                    record?.personalEmail
+                ].forEach((value) => {
+                    const normalized = toIdentityKey(value);
+                    if (normalized) set.add(normalized);
+                });
+
+                const canonical = canonicalFromUsername || canonicalFromDisplay;
+                if (canonical) {
+                    const users = getUsersMap();
+                    const user = users[canonical] || null;
+                    getUserIdentityKeys(canonical, user || {}).forEach((value) => {
+                        const normalized = toIdentityKey(value);
+                        if (normalized) set.add(normalized);
+                    });
+                }
+
+                return set;
+            };
+
+            const findExistingIdentity = (recordIdentitySet) => {
+                if (!recordIdentitySet.size) return '';
+                return Array.from(identityMap.keys()).find((existingKey) => {
+                    const existing = identityMap.get(existingKey);
+                    if (!existing || !(existing.identities instanceof Set)) return false;
+                    return Array.from(recordIdentitySet).some((key) => existing.identities.has(key));
+                }) || '';
+            };
+
+            const fallbackMinutesFromClock = (record) => {
+                if (!record?.clockIn || !record?.clockOut) return 0;
+                const diffMs = new Date(record.clockOut).getTime() - new Date(record.clockIn).getTime();
+                if (!Number.isFinite(diffMs) || diffMs <= 0) return 0;
+                return Math.max(1, Math.round(diffMs / 60000));
+            };
+
             records
                 .filter((record) => {
                     if (!record || !isRecordOnIsoDay(record, todayISO)) return false;
@@ -71216,19 +71261,23 @@ console.log('✅ Global functions exported to window object');
                     return identityCandidates.has(recordUser) || identityCandidates.has(recordDisplay);
                 })
                 .forEach((record) => {
-                    const identity = resolveCanonicalUsername(record.username)
+                    const recordIdentitySet = getRecordIdentitySet(record);
+                    const identity = findExistingIdentity(recordIdentitySet)
+                        || resolveCanonicalUsername(record.username)
+                        || resolveCanonicalUsername(record.displayName)
                         || toIdentityKey(record.username)
                         || toIdentityKey(record.displayName)
                         || String(record.id || '');
                     const current = identityMap.get(identity) || {
                         employee: record.displayName || record.username || '-',
-                        date: record.date || todayISO,
+                        date: todayISO,
                         clockIn: null,
                         clockOut: null,
                         minutesWorked: 0,
                         hasOpenRecord: false,
                         hasClockOut: false,
-                        sortTime: 0
+                        sortTime: 0,
+                        identities: new Set()
                     };
 
                     const inTime = record.clockIn ? new Date(record.clockIn).getTime() : 0;
@@ -71240,13 +71289,16 @@ console.log('✅ Global functions exported to window object');
                         current.clockOut = record.clockOut || current.clockOut;
                     }
 
-                    current.minutesWorked += Number(record.minutesWorked || 0) || 0;
+                    const storedMinutes = Number(record.minutesWorked || 0) || 0;
+                    const computedMinutes = fallbackMinutesFromClock(record);
+                    current.minutesWorked += Math.max(storedMinutes, computedMinutes);
                     current.hasOpenRecord = current.hasOpenRecord || (!!record.clockIn && !record.clockOut);
                     current.hasClockOut = current.hasClockOut || !!record.clockOut;
                     current.sortTime = Math.max(current.sortTime, outTime || inTime || 0);
                     if ((record.displayName || '').trim()) {
                         current.employee = record.displayName;
                     }
+                    recordIdentitySet.forEach((key) => current.identities.add(key));
                     identityMap.set(identity, current);
                 });
 
