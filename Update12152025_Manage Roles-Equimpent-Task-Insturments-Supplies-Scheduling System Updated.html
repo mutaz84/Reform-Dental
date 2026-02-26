@@ -71304,15 +71304,26 @@ console.log('✅ Global functions exported to window object');
 
             return Array.from(identityMap.values())
                 .map((row) => {
+                    const earliestInMs = row.clockIn ? new Date(row.clockIn).getTime() : 0;
+                    const latestOutMs = row.clockOut ? new Date(row.clockOut).getTime() : 0;
+                    const spanMinutes = (earliestInMs > 0 && latestOutMs > earliestInMs)
+                        ? Math.round((latestOutMs - earliestInMs) / 60000)
+                        : 0;
+                    const normalizedMinutesWorked = Math.max(Number(row.minutesWorked || 0), spanMinutes);
+
                     let status = 'Not Clocked';
-                    if (row.hasOpenRecord) status = 'Clocked In';
-                    else if (row.hasClockOut) status = 'Clocked Out';
+                    if (latestOutMs > 0 && latestOutMs >= earliestInMs) {
+                        status = 'Clocked Out';
+                    } else if (earliestInMs > 0 || row.hasOpenRecord) {
+                        status = 'Clocked In';
+                    }
+
                     return {
                         ...(includeEmployee ? { employee: row.employee } : {}),
                         date: row.date,
                         clockIn: row.clockIn,
                         clockOut: row.clockOut,
-                        minutesWorked: row.minutesWorked,
+                        minutesWorked: normalizedMinutesWorked,
                         status,
                         sortTime: row.sortTime
                     };
