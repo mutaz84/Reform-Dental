@@ -16790,6 +16790,22 @@
                                 </div>
                             </div>
                             <div class="attendance-card">
+                                <h3><i class="fas fa-file-alt"></i> Daily Timesheet Report</h3>
+                                <div class="attendance-table-wrap" style="max-height:220px;">
+                                    <table class="attendance-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Date</th>
+                                                <th>Clock In</th>
+                                                <th>Clock Out</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="attendanceEmployeeDailyReportBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div class="attendance-card">
                                 <h3><i class="fas fa-bell"></i> My PTO &amp; Attendance Notifications</h3>
                                 <div id="attendanceNotificationsList" style="display:flex; flex-direction:column; gap:0.45rem;"></div>
                             </div>
@@ -16863,6 +16879,26 @@
                                     <div class="attendance-btn-row">
                                         <button class="btn-primary" type="button" onclick="if(window.saveAttendancePolicyAndCredit){window.saveAttendancePolicyAndCredit();}">Save Policy &amp; Set Balance</button>
                                         <button class="btn-secondary" type="button" onclick="if(window.addPtoHoursForSelectedEmployee){window.addPtoHoursForSelectedEmployee();}">Add PTO Hours</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="attendance-grid" style="margin-top:0.9rem;">
+                                <div class="attendance-card" style="padding:0.7rem;">
+                                    <h3 style="font-size:0.88rem;"><i class="fas fa-file-alt"></i> Daily Team Timesheet Report</h3>
+                                    <div class="attendance-table-wrap" style="max-height:240px;">
+                                        <table class="attendance-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Employee</th>
+                                                    <th>Date</th>
+                                                    <th>Clock In</th>
+                                                    <th>Clock Out</th>
+                                                    <th>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="attendanceManagerDailyReportBody"></tbody>
+                                        </table>
                                     </div>
                                 </div>
                             </div>
@@ -72046,6 +72082,40 @@ console.log('✅ Global functions exported to window object');
                 `).join('') || '<tr><td colspan="5" class="attendance-note">No attendance records yet.</td></tr>';
             }
 
+            const employeeDailyReportBody = document.getElementById('attendanceEmployeeDailyReportBody');
+            if (employeeDailyReportBody) {
+                const myIdentityCandidates = getAttendanceIdentityCandidates(context.username, [
+                    context.rawUsername,
+                    context.displayName,
+                    context.user?.name,
+                    context.user?.workEmail,
+                    context.user?.personalEmail
+                ]);
+                const activityTime = (record) => new Date(record?.clockOut || record?.clockIn || `${record?.date || todayISO}T00:00:00`).getTime();
+                const myTodayRows = getRecords()
+                    .filter((record) => {
+                        if (record?.date !== todayISO) return false;
+                        const recordUser = toIdentityKey(record?.username);
+                        const recordDisplay = toIdentityKey(record?.displayName);
+                        return myIdentityCandidates.has(recordUser) || myIdentityCandidates.has(recordDisplay);
+                    })
+                    .sort((a, b) => activityTime(b) - activityTime(a));
+
+                employeeDailyReportBody.innerHTML = myTodayRows.map((record) => {
+                    let status = 'Not Clocked';
+                    if (record?.clockIn && !record?.clockOut) status = 'Clocked In';
+                    else if (record?.clockOut) status = 'Clocked Out';
+                    return `
+                        <tr>
+                            <td>${formatDate(record.date)}</td>
+                            <td>${record.clockIn ? formatDateTime(record.clockIn) : '-'}</td>
+                            <td>${record.clockOut ? formatDateTime(record.clockOut) : '-'}</td>
+                            <td>${status}</td>
+                        </tr>
+                    `;
+                }).join('') || '<tr><td colspan="4" class="attendance-note">No clock activity found for today.</td></tr>';
+            }
+
             const notificationsEl = document.getElementById('attendanceNotificationsList');
             if (notificationsEl) {
                 const allNotifications = getNotifications();
@@ -72146,6 +72216,42 @@ console.log('✅ Global functions exported to window object');
                             </tr>
                         `;
                     }).join('') || '<tr><td colspan="4" class="attendance-note">No employees scheduled today.</td></tr>';
+                }
+
+                const managerDailyReportBody = document.getElementById('attendanceManagerDailyReportBody');
+                if (managerDailyReportBody) {
+                    const activityTime = (record) => new Date(record?.clockOut || record?.clockIn || `${record?.date || todayISO}T00:00:00`).getTime();
+                    const teamReportByIdentity = new Map();
+                    recordsToday
+                        .filter((record) => !!record?.clockIn || !!record?.clockOut)
+                        .forEach((record) => {
+                            const identity = resolveCanonicalUsername(record.username)
+                                || toIdentityKey(record.username)
+                                || toIdentityKey(record.displayName)
+                                || String(record.id || '');
+                            const existing = teamReportByIdentity.get(identity);
+                            if (!existing || activityTime(record) > activityTime(existing)) {
+                                teamReportByIdentity.set(identity, record);
+                            }
+                        });
+
+                    const reportRows = Array.from(teamReportByIdentity.values())
+                        .sort((a, b) => activityTime(b) - activityTime(a));
+
+                    managerDailyReportBody.innerHTML = reportRows.map((record) => {
+                        let status = 'Not Clocked';
+                        if (record?.clockIn && !record?.clockOut) status = 'Clocked In';
+                        else if (record?.clockOut) status = 'Clocked Out';
+                        return `
+                            <tr>
+                                <td>${record.displayName || record.username || '-'}</td>
+                                <td>${formatDate(record.date || todayISO)}</td>
+                                <td>${record.clockIn ? formatDateTime(record.clockIn) : '-'}</td>
+                                <td>${record.clockOut ? formatDateTime(record.clockOut) : '-'}</td>
+                                <td>${status}</td>
+                            </tr>
+                        `;
+                    }).join('') || '<tr><td colspan="5" class="attendance-note">No team clock activity found for today.</td></tr>';
                 }
 
                 const queueBody = document.getElementById('attendancePtoQueueBody');
