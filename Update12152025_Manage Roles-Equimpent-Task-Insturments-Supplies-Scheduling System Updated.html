@@ -6955,6 +6955,109 @@
             color: var(--accent-primary, #3b82f6);
         }
 
+        .attendance-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1rem;
+            margin-top: 0.75rem;
+        }
+        .attendance-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 0.9rem;
+        }
+        .attendance-card h3 {
+            margin: 0 0 0.75rem 0;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+        }
+        .attendance-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(120px, 1fr));
+            gap: 0.5rem;
+        }
+        .attendance-stat {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-secondary);
+            padding: 0.55rem;
+        }
+        .attendance-stat-label {
+            font-size: 0.72rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.2rem;
+        }
+        .attendance-stat-value {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .attendance-table-wrap {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: auto;
+            max-height: 280px;
+        }
+        .attendance-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.78rem;
+        }
+        .attendance-table th,
+        .attendance-table td {
+            padding: 0.48rem;
+            border-bottom: 1px solid var(--border-color);
+            text-align: left;
+            color: var(--text-primary);
+            white-space: nowrap;
+        }
+        .attendance-table th {
+            position: sticky;
+            top: 0;
+            background: var(--bg-secondary);
+            font-weight: 700;
+            z-index: 1;
+        }
+        .attendance-tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.14rem 0.4rem;
+            border-radius: 999px;
+            font-size: 0.67rem;
+            font-weight: 700;
+            margin-right: 0.25rem;
+            margin-bottom: 0.2rem;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        .attendance-input-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 0.55rem;
+            margin-bottom: 0.6rem;
+        }
+        .attendance-input-row input,
+        .attendance-input-row select,
+        .attendance-input-row textarea {
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .attendance-btn-row {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-top: 0.45rem;
+        }
+        .attendance-note {
+            font-size: 0.73rem;
+            color: var(--text-secondary);
+        }
+
         /* Disable the top measures cards (My Tasks / Completed Today / Overdue / Weekly Completion) */
         .stats-grid[data-user-stats],
         [data-user-stats] {
@@ -15394,6 +15497,10 @@
                         <span>My Schedule</span>
                         <span class="nav-badge">5</span>
                     </a>
+                    <a href="#" class="nav-item" onclick="if(window.switchContentView){window.switchContentView('attendance', event); return false;}">
+                        <i class="fas fa-user-clock"></i>
+                        <span>My Attendance</span>
+                    </a>
                     <a href="#" class="nav-item" onclick="if(window.switchContentView){window.switchContentView('duties', event); return false;}">
                         <i class="fas fa-clipboard-check"></i>
                         <span>My Duties</span>
@@ -15436,7 +15543,7 @@
                         <span>Pay Stubs</span>
                         <span class="nav-badge">2</span>
                     </a>
-                    <a href="#" class="nav-item">
+                    <a href="#" class="nav-item" onclick="if(window.switchContentView){window.switchContentView('attendance', event); return false;}">
                         <i class="fas fa-calendar"></i>
                         <span>Time Off</span>
                     </a>
@@ -16568,6 +16675,213 @@
                                     <span>Chat</span>
                                     <span class="chat-unread-badge" style="display: none; position: absolute; top: 4px; right: 8px; background: #ef4444; color: white; font-size: 0.65rem; min-width: 18px; height: 18px; border-radius: 9px; align-items: center; justify-content: center; font-weight: 600;">0</span>
                                 </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- My Attendance View -->
+            <div class="content-view" id="view-attendance">
+                <div class="dashboard-grid">
+                    <div class="calendar-section" id="attendanceSection">
+                        <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.6rem;">
+                            <h2 class="section-title">
+                                <i class="fas fa-user-clock" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+                                My Attendance &amp; PTO
+                            </h2>
+                            <div class="attendance-btn-row" style="margin-top:0;">
+                                <button class="btn-secondary" type="button" onclick="if(window.refreshAttendanceView){window.refreshAttendanceView();}">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                                <button class="btn-primary" type="button" onclick="if(window.auditAttendanceAbsences){window.auditAttendanceAbsences();}">
+                                    <i class="fas fa-user-check"></i> Audit Absences
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="attendance-grid">
+                            <div class="attendance-card">
+                                <h3><i class="fas fa-fingerprint"></i> Clock In / Clock Out</h3>
+                                <div id="attendanceTodaySchedule" class="attendance-note" style="margin-bottom:0.45rem;"></div>
+                                <div class="attendance-stat-grid" style="margin-bottom:0.55rem;">
+                                    <div class="attendance-stat">
+                                        <div class="attendance-stat-label">Today Status</div>
+                                        <div class="attendance-stat-value" id="attendanceTodayStatus">Not clocked in</div>
+                                    </div>
+                                    <div class="attendance-stat">
+                                        <div class="attendance-stat-label">Today Hours</div>
+                                        <div class="attendance-stat-value" id="attendanceTodayHours">0.00 h</div>
+                                    </div>
+                                </div>
+                                <div class="attendance-btn-row">
+                                    <button class="btn-primary" type="button" onclick="if(window.attendanceClockIn){window.attendanceClockIn();}">
+                                        <i class="fas fa-sign-in-alt"></i> Clock In
+                                    </button>
+                                    <button class="btn-secondary" type="button" onclick="if(window.attendanceClockOut){window.attendanceClockOut();}">
+                                        <i class="fas fa-sign-out-alt"></i> Clock Out
+                                    </button>
+                                </div>
+                                <div id="attendanceCurrentFlags" style="margin-top:0.6rem;"></div>
+                                <div class="attendance-note" style="margin-top:0.55rem;">System compares your clock times to scheduled office hours and manager-approved flexibility.</div>
+                            </div>
+
+                            <div class="attendance-card">
+                                <h3><i class="fas fa-umbrella-beach"></i> Request PTO</h3>
+                                <div class="attendance-stat-grid" style="margin-bottom:0.55rem;">
+                                    <div class="attendance-stat">
+                                        <div class="attendance-stat-label">PTO Balance</div>
+                                        <div class="attendance-stat-value" id="attendancePtoBalance">0.00 h</div>
+                                    </div>
+                                    <div class="attendance-stat">
+                                        <div class="attendance-stat-label">Pending Requests</div>
+                                        <div class="attendance-stat-value" id="attendancePtoPendingCount">0</div>
+                                    </div>
+                                </div>
+                                <div class="attendance-input-row">
+                                    <div>
+                                        <label>Start Date</label>
+                                        <input type="date" id="attendancePtoStart">
+                                    </div>
+                                    <div>
+                                        <label>End Date</label>
+                                        <input type="date" id="attendancePtoEnd">
+                                    </div>
+                                    <div>
+                                        <label>Hours Needed</label>
+                                        <input type="number" id="attendancePtoHours" min="1" step="0.5" placeholder="8">
+                                    </div>
+                                </div>
+                                <div class="attendance-input-row" style="grid-template-columns:1fr;">
+                                    <div>
+                                        <label>Reason</label>
+                                        <textarea id="attendancePtoReason" rows="2" placeholder="Family event, medical visit, vacation..."></textarea>
+                                    </div>
+                                </div>
+                                <div class="attendance-btn-row">
+                                    <button class="btn-primary" type="button" onclick="if(window.submitPtoRequest){window.submitPtoRequest();}">
+                                        <i class="fas fa-paper-plane"></i> Submit PTO Request
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="attendance-grid" style="margin-top:0.95rem;">
+                            <div class="attendance-card">
+                                <h3><i class="fas fa-history"></i> My Attendance History</h3>
+                                <div class="attendance-table-wrap">
+                                    <table class="attendance-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Date</th>
+                                                <th>Clock In</th>
+                                                <th>Clock Out</th>
+                                                <th>Worked</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="attendanceMyHistoryBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div class="attendance-card">
+                                <h3><i class="fas fa-bell"></i> My PTO &amp; Attendance Notifications</h3>
+                                <div id="attendanceNotificationsList" style="display:flex; flex-direction:column; gap:0.45rem;"></div>
+                            </div>
+                        </div>
+
+                        <div id="attendanceManagerSection" class="attendance-card" style="margin-top:1rem; display:none;">
+                            <h3><i class="fas fa-user-shield"></i> Attendance Manager</h3>
+
+                            <div class="attendance-stat-grid" id="attendanceManagerStats" style="margin-bottom:0.7rem;"></div>
+
+                            <div class="attendance-grid" style="margin-top:0;">
+                                <div class="attendance-card" style="padding:0.7rem;">
+                                    <h3 style="font-size:0.88rem;"><i class="fas fa-users"></i> Today Scheduled vs Clocked</h3>
+                                    <div class="attendance-table-wrap" style="max-height:240px;">
+                                        <table class="attendance-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Employee</th>
+                                                    <th>Schedule</th>
+                                                    <th>Clock</th>
+                                                    <th>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="attendanceManagerTodayBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="attendance-card" style="padding:0.7rem;">
+                                    <h3 style="font-size:0.88rem;"><i class="fas fa-user-cog"></i> Flexibility &amp; PTO Credit</h3>
+                                    <div class="attendance-input-row">
+                                        <div>
+                                            <label>Employee</label>
+                                            <select id="attendancePolicyUser"></select>
+                                        </div>
+                                        <div>
+                                            <label>Allow Flexibility</label>
+                                            <select id="attendanceAllowFlex">
+                                                <option value="true">Yes</option>
+                                                <option value="false">No</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="attendance-input-row">
+                                        <div>
+                                            <label>Before Time (min)</label>
+                                            <input type="number" id="attendanceFlexBefore" min="0" step="1" value="0">
+                                        </div>
+                                        <div>
+                                            <label>After Time (min)</label>
+                                            <input type="number" id="attendanceFlexAfter" min="0" step="1" value="0">
+                                        </div>
+                                        <div>
+                                            <label>PTO Credit (hours)</label>
+                                            <input type="number" id="attendancePtoCreditInput" min="0" step="0.5" value="80">
+                                        </div>
+                                    </div>
+                                    <div class="attendance-btn-row">
+                                        <button class="btn-primary" type="button" onclick="if(window.saveAttendancePolicyAndCredit){window.saveAttendancePolicyAndCredit();}">Save Employee Policy</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="attendance-grid" style="margin-top:0.9rem;">
+                                <div class="attendance-card" style="padding:0.7rem;">
+                                    <h3 style="font-size:0.88rem;"><i class="fas fa-hourglass-half"></i> PTO Approval Queue</h3>
+                                    <div class="attendance-table-wrap" style="max-height:220px;">
+                                        <table class="attendance-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Employee</th>
+                                                    <th>Dates</th>
+                                                    <th>Hours</th>
+                                                    <th>Reason</th>
+                                                    <th>Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="attendancePtoQueueBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="attendance-card" style="padding:0.7rem;">
+                                    <h3 style="font-size:0.88rem;"><i class="fas fa-calculator"></i> Hours Calculator</h3>
+                                    <div class="attendance-input-row">
+                                        <div>
+                                            <label>Employee</label>
+                                            <select id="attendanceHoursEmployee"></select>
+                                        </div>
+                                        <div>
+                                            <label>Day</label>
+                                            <input type="date" id="attendanceHoursDate">
+                                        </div>
+                                    </div>
+                                    <div class="attendance-btn-row">
+                                        <button class="btn-secondary" type="button" onclick="if(window.calculateAttendanceHours){window.calculateAttendanceHours();}">Calculate</button>
+                                    </div>
+                                    <div class="attendance-stat-grid" id="attendanceHoursStats" style="margin-top:0.7rem;"></div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -68501,6 +68815,10 @@ console.log('✅ Global functions exported to window object');
                             <div id="managerUnassignedTasksList"></div>
                         </div>
                         <div class="manager-panel-links">
+                            <a href="#" class="nav-item" onclick="switchContentView('attendance', event); return false;">
+                                <i class="fas fa-user-clock"></i>
+                                <span>Attendance Manager</span>
+                            </a>
                             <a href="#" class="nav-item" onclick="openDutiesManagement(); return false;">
                                 <i class="fas fa-clipboard-list"></i>
                                 <span>Manage Duties</span>
@@ -70344,6 +70662,1182 @@ console.log('✅ Global functions exported to window object');
                 top: parseInt(panel.style.top)
             }));
         });
+    })();
+
+    (function installAttendanceAndPtoModule() {
+        if (window.__attendanceModuleInstalled) return;
+        window.__attendanceModuleInstalled = true;
+
+        const STORAGE = {
+            records: 'attendanceClockRecordsV1',
+            policies: 'attendanceFlexPoliciesV1',
+            ptoCredits: 'attendancePtoCreditsV1',
+            ptoRequests: 'attendancePtoRequestsV1',
+            notifications: 'attendanceNotificationsV1',
+            absences: 'attendanceAbsencesV1'
+        };
+
+        const ATTENDANCE_API = {
+            records: '/api/attendance-records',
+            policies: '/api/attendance-policies',
+            ptoCredits: '/api/pto-credits',
+            ptoRequests: '/api/pto-requests',
+            notifications: '/api/attendance-notifications',
+            absences: '/api/attendance-absences'
+        };
+
+        const attendanceApiState = {
+            initialized: false,
+            available: null
+        };
+
+        async function attendanceApiRequest(url, options = {}) {
+            const response = await fetch(url, {
+                method: options.method || 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(options.headers || {})
+                },
+                body: options.body ? JSON.stringify(options.body) : undefined
+            });
+            if (!response.ok) {
+                throw new Error(`Attendance API ${response.status}: ${url}`);
+            }
+            if (response.status === 204) return null;
+            const text = await response.text();
+            if (!text) return null;
+            return JSON.parse(text);
+        }
+
+        function fireAndForget(promise) {
+            Promise.resolve(promise)
+                .then(() => {
+                    attendanceApiState.available = true;
+                })
+                .catch(() => {
+                    attendanceApiState.available = false;
+                });
+        }
+
+        function mapApiRecordToLocal(item) {
+            const date = item?.date || item?.workDate || item?.WorkDate || null;
+            const username = item?.username || item?.Username || '';
+            const fallbackId = date && username ? `att-${date}-${username}` : `att-${Date.now()}`;
+            return {
+                id: item?.localId || item?.localRecordId || fallbackId,
+                dbId: item?.id || item?.Id || null,
+                username,
+                displayName: item?.displayName || item?.DisplayName || username,
+                date,
+                scheduledStart: item?.scheduledStart || item?.ScheduledStart || null,
+                scheduledEnd: item?.scheduledEnd || item?.ScheduledEnd || null,
+                clockIn: item?.clockIn || item?.ClockIn || null,
+                clockOut: item?.clockOut || item?.ClockOut || null,
+                minutesWorked: Number(item?.minutesWorked || item?.MinutesWorked || 0) || 0,
+                flags: Array.isArray(item?.flags) ? item.flags : []
+            };
+        }
+
+        function mapApiPtoRequestToLocal(item) {
+            return {
+                id: String(item?.id || item?.Id || ''),
+                username: item?.username || item?.Username || '',
+                employeeName: item?.employeeName || item?.EmployeeName || item?.username || '',
+                startDate: item?.startDate || item?.StartDate || '',
+                endDate: item?.endDate || item?.EndDate || '',
+                hours: Number(item?.hours || item?.Hours || 0) || 0,
+                reason: item?.reason || item?.Reason || '',
+                status: item?.status || item?.Status || 'pending',
+                createdAt: item?.createdAt || item?.CreatedAt || null,
+                reviewedAt: item?.reviewedAt || item?.ReviewedAt || null,
+                reviewedBy: item?.reviewedBy || item?.ReviewedBy || null
+            };
+        }
+
+        function mapApiNotificationToLocal(item) {
+            return {
+                id: String(item?.id || item?.Id || `note-${Date.now()}`),
+                user: item?.user || item?.username || item?.Username || '',
+                message: item?.message || item?.Message || '',
+                type: item?.type || item?.notificationType || item?.NotificationType || 'info',
+                createdAt: item?.createdAt || item?.CreatedAt || new Date().toISOString()
+            };
+        }
+
+        function mapApiAbsenceToLocal(item) {
+            const date = item?.date || item?.workDate || item?.WorkDate || null;
+            const username = item?.username || item?.Username || '';
+            return {
+                id: String(item?.id || item?.Id || `abs-${date || 'na'}-${username || 'na'}`),
+                username,
+                displayName: item?.displayName || item?.DisplayName || username,
+                date,
+                recordedAt: item?.recordedAt || item?.RecordedAt || new Date().toISOString(),
+                reason: item?.reason || item?.Reason || ''
+            };
+        }
+
+        async function loadAttendanceDataFromApi() {
+            if (attendanceApiState.initialized) return;
+            attendanceApiState.initialized = true;
+
+            try {
+                const [records, policies, credits, requests, notifications, absences] = await Promise.all([
+                    attendanceApiRequest(ATTENDANCE_API.records),
+                    attendanceApiRequest(ATTENDANCE_API.policies),
+                    attendanceApiRequest(ATTENDANCE_API.ptoCredits),
+                    attendanceApiRequest(ATTENDANCE_API.ptoRequests),
+                    attendanceApiRequest(`${ATTENDANCE_API.notifications}?limit=300`),
+                    attendanceApiRequest(ATTENDANCE_API.absences)
+                ]);
+
+                if (Array.isArray(records)) {
+                    writeJSON(STORAGE.records, records.map(mapApiRecordToLocal));
+                }
+
+                if (Array.isArray(policies)) {
+                    const mapped = {};
+                    policies.forEach((item) => {
+                        const username = item?.username || item?.Username;
+                        if (!username) return;
+                        mapped[username] = {
+                            allowFlex: !!(item?.allowFlex ?? item?.AllowFlex),
+                            beforeMins: Number(item?.beforeMins ?? item?.BeforeMins ?? 0) || 0,
+                            afterMins: Number(item?.afterMins ?? item?.AfterMins ?? 0) || 0
+                        };
+                    });
+                    writeJSON(STORAGE.policies, mapped);
+                }
+
+                if (Array.isArray(credits)) {
+                    const mapped = {};
+                    credits.forEach((item) => {
+                        const username = item?.username || item?.Username;
+                        if (!username) return;
+                        mapped[username] = Number(item?.creditHours ?? item?.CreditHours ?? 0) || 0;
+                    });
+                    writeJSON(STORAGE.ptoCredits, mapped);
+                }
+
+                if (Array.isArray(requests)) {
+                    writeJSON(STORAGE.ptoRequests, requests.map(mapApiPtoRequestToLocal));
+                }
+
+                if (Array.isArray(notifications)) {
+                    writeJSON(STORAGE.notifications, notifications.map(mapApiNotificationToLocal));
+                }
+
+                if (Array.isArray(absences)) {
+                    writeJSON(STORAGE.absences, absences.map(mapApiAbsenceToLocal));
+                }
+
+                attendanceApiState.available = true;
+            } catch (_) {
+                attendanceApiState.available = false;
+            }
+        }
+
+        function syncRecordToApi(record) {
+            return attendanceApiRequest(ATTENDANCE_API.records, {
+                method: 'POST',
+                body: {
+                    id: record.id,
+                    localId: record.id,
+                    username: record.username,
+                    displayName: record.displayName,
+                    date: record.date,
+                    scheduledStart: record.scheduledStart,
+                    scheduledEnd: record.scheduledEnd,
+                    clockIn: record.clockIn,
+                    clockOut: record.clockOut,
+                    minutesWorked: record.minutesWorked,
+                    flags: Array.isArray(record.flags) ? record.flags : []
+                }
+            });
+        }
+
+        function syncNotificationToApi(notification) {
+            return attendanceApiRequest(ATTENDANCE_API.notifications, {
+                method: 'POST',
+                body: {
+                    user: notification.user,
+                    message: notification.message,
+                    type: notification.type || 'info'
+                }
+            });
+        }
+
+        function syncAbsenceToApi(absence) {
+            return attendanceApiRequest(ATTENDANCE_API.absences, {
+                method: 'POST',
+                body: {
+                    username: absence.username,
+                    displayName: absence.displayName,
+                    date: absence.date,
+                    reason: absence.reason
+                }
+            });
+        }
+
+        function syncPtoRequestToApi(request) {
+            return attendanceApiRequest(ATTENDANCE_API.ptoRequests, {
+                method: 'POST',
+                body: {
+                    username: request.username,
+                    employeeName: request.employeeName,
+                    startDate: request.startDate,
+                    endDate: request.endDate,
+                    hours: request.hours,
+                    reason: request.reason,
+                    status: request.status || 'pending'
+                }
+            });
+        }
+
+        function syncPtoReviewToApi(request) {
+            const numericId = Number.parseInt(String(request?.id || ''), 10);
+            if (!Number.isInteger(numericId)) {
+                return Promise.resolve(null);
+            }
+            return attendanceApiRequest(`${ATTENDANCE_API.ptoRequests}/${request.id}`, {
+                method: 'PUT',
+                body: {
+                    status: request.status,
+                    reviewedBy: request.reviewedBy,
+                    reviewedAt: request.reviewedAt
+                }
+            });
+        }
+
+        function syncPolicyToApi(username, policy, modifiedBy) {
+            return attendanceApiRequest(`${ATTENDANCE_API.policies}/${encodeURIComponent(username)}`, {
+                method: 'PUT',
+                body: {
+                    username,
+                    allowFlex: !!policy.allowFlex,
+                    beforeMins: Number(policy.beforeMins || 0),
+                    afterMins: Number(policy.afterMins || 0),
+                    modifiedBy
+                }
+            });
+        }
+
+        function syncPtoCreditToApi(username, creditHours, modifiedBy) {
+            return attendanceApiRequest(`${ATTENDANCE_API.ptoCredits}/${encodeURIComponent(username)}`, {
+                method: 'PUT',
+                body: {
+                    username,
+                    creditHours: Number(creditHours || 0),
+                    modifiedBy
+                }
+            });
+        }
+
+        function readJSON(key, fallback) {
+            try {
+                const raw = localStorage.getItem(key);
+                if (!raw) return fallback;
+                const parsed = JSON.parse(raw);
+                return parsed == null ? fallback : parsed;
+            } catch (_) {
+                return fallback;
+            }
+        }
+
+        function writeJSON(key, value) {
+            localStorage.setItem(key, JSON.stringify(value));
+        }
+
+        function getUsersMap() {
+            if (typeof window.loadUsers === 'function') {
+                return window.loadUsers() || {};
+            }
+            return readJSON('appUsers', {});
+        }
+
+        function toISODate(inputDate = new Date()) {
+            const d = new Date(inputDate);
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function formatDate(input) {
+            if (!input) return '-';
+            const d = new Date(input);
+            if (Number.isNaN(d.getTime())) return String(input);
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        function formatDateTime(input) {
+            if (!input) return '-';
+            const d = new Date(input);
+            if (Number.isNaN(d.getTime())) return String(input);
+            return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        }
+
+        function formatHours(minutes) {
+            const value = Number(minutes || 0) / 60;
+            return `${value.toFixed(2)} h`;
+        }
+
+        function parseHMToMinutes(hm) {
+            if (!hm || typeof hm !== 'string' || hm.indexOf(':') < 0) return null;
+            const [h, m] = hm.split(':').map((x) => Number(x));
+            if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+            return (h * 60) + m;
+        }
+
+        function timestampMinutes(dateObj) {
+            return (dateObj.getHours() * 60) + dateObj.getMinutes();
+        }
+
+        function getCurrentUserContext() {
+            const users = getUsersMap();
+            const username = String(localStorage.getItem('loggedInUser') || '').trim();
+            const user = users[username] || {};
+            const first = String(user.firstName || '').trim();
+            const last = String(user.lastName || '').trim();
+            const fullName = [first, last].filter(Boolean).join(' ').trim();
+            const displayName = String(user.name || fullName || username || 'Unknown User').trim();
+            const role = String(user.role || localStorage.getItem('userRole') || 'user').toLowerCase();
+            return { username, user, role, displayName };
+        }
+
+        function isManagerRole(role) {
+            const normalized = String(role || '').toLowerCase();
+            return ['admin', 'owner', 'manager', 'administrator', 'superadmin'].includes(normalized);
+        }
+
+        function getAllEmployees() {
+            const users = getUsersMap();
+            return Object.keys(users || {}).map((username) => {
+                const user = users[username] || {};
+                const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+                const displayName = user.name || fullName || username;
+                return {
+                    username,
+                    displayName,
+                    role: String(user.role || 'user').toLowerCase(),
+                    hireDate: user.hireDate || null,
+                    separationDate: user.separationDate || null,
+                    isActive: user.isActive !== false
+                };
+            });
+        }
+
+        function getNameKeys(username, userObj) {
+            const names = new Set();
+            const first = String(userObj?.firstName || '').trim();
+            const last = String(userObj?.lastName || '').trim();
+            const full = [first, last].filter(Boolean).join(' ').trim();
+            [username, userObj?.name, full].forEach((item) => {
+                const value = String(item || '').trim().toLowerCase();
+                if (value) names.add(value);
+            });
+            return names;
+        }
+
+        function splitEmployeeNames(rawNames) {
+            return String(rawNames || '')
+                .split(',')
+                .map((name) => name.trim())
+                .filter(Boolean);
+        }
+
+        function getScheduleForDate(targetDate = new Date()) {
+            const dateObj = new Date(targetDate);
+            const dateISO = toISODate(dateObj);
+            const dayLabel = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+            const users = getUsersMap();
+
+            const nameToUsername = {};
+            Object.keys(users || {}).forEach((username) => {
+                const keys = getNameKeys(username, users[username]);
+                keys.forEach((key) => {
+                    nameToUsername[key] = username;
+                });
+            });
+
+            const shifts = Array.isArray(window.myScheduleShifts) ? window.myScheduleShifts : [];
+            const scheduled = {};
+
+            function withinDateRange(shift) {
+                if (shift.startDate && dateISO < shift.startDate) return false;
+                if (shift.endDate && dateISO > shift.endDate) return false;
+                return true;
+            }
+
+            function upsertPerson(personName, shift) {
+                const keyName = String(personName || '').trim();
+                if (!keyName) return;
+                const normalizedName = keyName.toLowerCase();
+                const username = nameToUsername[normalizedName] || keyName;
+                const usersMap = getUsersMap();
+                const user = usersMap[username] || {};
+                const displayName = user.name || keyName;
+
+                if (!scheduled[username]) {
+                    scheduled[username] = {
+                        username,
+                        displayName,
+                        startTime: shift.startTime || null,
+                        endTime: shift.endTime || null,
+                        clinic: shift.clinic || '',
+                        room: shift.room || ''
+                    };
+                } else {
+                    const current = scheduled[username];
+                    const currentStart = parseHMToMinutes(current.startTime);
+                    const nextStart = parseHMToMinutes(shift.startTime);
+                    if (Number.isFinite(nextStart) && (!Number.isFinite(currentStart) || nextStart < currentStart)) {
+                        current.startTime = shift.startTime;
+                    }
+                    const currentEnd = parseHMToMinutes(current.endTime);
+                    const nextEnd = parseHMToMinutes(shift.endTime);
+                    if (Number.isFinite(nextEnd) && (!Number.isFinite(currentEnd) || nextEnd > currentEnd)) {
+                        current.endTime = shift.endTime;
+                    }
+                }
+            }
+
+            shifts.forEach((shift) => {
+                if (!Array.isArray(shift.days) || !shift.days.includes(dayLabel)) return;
+                if (!withinDateRange(shift)) return;
+                upsertPerson(shift.name, shift);
+                splitEmployeeNames(shift.assistant).forEach((assistantName) => upsertPerson(assistantName, shift));
+            });
+
+            return scheduled;
+        }
+
+        function getRecords() {
+            return readJSON(STORAGE.records, []);
+        }
+
+        function saveRecords(records) {
+            writeJSON(STORAGE.records, records);
+        }
+
+        function getPolicies() {
+            return readJSON(STORAGE.policies, {});
+        }
+
+        function savePolicies(data) {
+            writeJSON(STORAGE.policies, data);
+        }
+
+        function getPtoCredits() {
+            return readJSON(STORAGE.ptoCredits, {});
+        }
+
+        function savePtoCredits(data) {
+            writeJSON(STORAGE.ptoCredits, data);
+        }
+
+        function getPtoRequests() {
+            return readJSON(STORAGE.ptoRequests, []);
+        }
+
+        function savePtoRequests(data) {
+            writeJSON(STORAGE.ptoRequests, data);
+        }
+
+        function getNotifications() {
+            return readJSON(STORAGE.notifications, []);
+        }
+
+        function saveNotifications(data) {
+            writeJSON(STORAGE.notifications, data);
+        }
+
+        function getAbsences() {
+            return readJSON(STORAGE.absences, []);
+        }
+
+        function saveAbsences(data) {
+            writeJSON(STORAGE.absences, data);
+        }
+
+        function addNotification(targetUser, message, type = 'info') {
+            const notifications = getNotifications();
+            const notification = {
+                id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                user: targetUser,
+                message,
+                type,
+                createdAt: new Date().toISOString()
+            };
+            notifications.unshift(notification);
+            saveNotifications(notifications.slice(0, 300));
+            fireAndForget(syncNotificationToApi(notification));
+        }
+
+        function getPtoCreditForUser(username) {
+            const credits = getPtoCredits();
+            const value = Number(credits[username]);
+            return Number.isFinite(value) ? value : 80;
+        }
+
+        function findTodayRecord(username, dateISO) {
+            const records = getRecords();
+            return records.find((record) => record.username === username && record.date === dateISO);
+        }
+
+        function describeFlag(flag) {
+            const map = {
+                late_to_work: 'Late to work',
+                clock_in_before_time: 'Clock in before time',
+                early_clock_out: 'Early clock out',
+                delay_clock_out: 'Delay clock out',
+                unauthorized_before_clock_in: 'Unauthorized early clock in',
+                unauthorized_late_clock_in: 'Unauthorized late clock in',
+                unauthorized_early_clock_out: 'Unauthorized early clock out',
+                unauthorized_delay_clock_out: 'Unauthorized delayed clock out',
+                unscheduled_clock_in: 'Unscheduled clock in'
+            };
+            return map[flag] || flag;
+        }
+
+        function updateRecord(record) {
+            const records = getRecords();
+            const index = records.findIndex((entry) => entry.id === record.id);
+            if (index >= 0) {
+                records[index] = record;
+            } else {
+                records.push(record);
+            }
+            saveRecords(records);
+            fireAndForget(syncRecordToApi(record));
+        }
+
+        function attendanceClockIn() {
+            const { username, displayName } = getCurrentUserContext();
+            if (!username) return;
+
+            const now = new Date();
+            const dateISO = toISODate(now);
+            const existing = findTodayRecord(username, dateISO);
+            if (existing && existing.clockIn && !existing.clockOut) {
+                if (typeof showNotification === 'function') showNotification('Already clocked in for today.', 'warning');
+                return;
+            }
+
+            const scheduleMap = getScheduleForDate(now);
+            const schedule = scheduleMap[username] || null;
+            const policies = getPolicies();
+            const policy = policies[username] || { allowFlex: false, beforeMins: 0, afterMins: 0 };
+            const beforeLimit = policy.allowFlex ? Number(policy.beforeMins || 0) : 0;
+            const afterLimit = policy.allowFlex ? Number(policy.afterMins || 0) : 0;
+
+            const flags = [];
+            if (schedule && schedule.startTime) {
+                const plannedStart = parseHMToMinutes(schedule.startTime);
+                const actual = timestampMinutes(now);
+                const delta = actual - plannedStart;
+                if (delta > 0) flags.push('late_to_work');
+                if (delta < 0) flags.push('clock_in_before_time');
+                if (delta < (beforeLimit * -1)) flags.push('unauthorized_before_clock_in');
+                if (delta > afterLimit) flags.push('unauthorized_late_clock_in');
+            } else {
+                flags.push('unscheduled_clock_in');
+            }
+
+            const record = existing || {
+                id: `att-${dateISO}-${username}`,
+                username,
+                displayName,
+                date: dateISO,
+                createdAt: now.toISOString()
+            };
+
+            record.displayName = displayName;
+            record.scheduledStart = schedule?.startTime || null;
+            record.scheduledEnd = schedule?.endTime || null;
+            record.clockIn = now.toISOString();
+            record.clockOut = null;
+            record.minutesWorked = 0;
+            record.flags = flags;
+
+            updateRecord(record);
+            addNotification('__managers__', `${displayName} clocked in at ${formatDateTime(now)}.`, 'info');
+            if (typeof showNotification === 'function') showNotification('Clock in recorded.', 'success');
+            refreshAttendanceView();
+        }
+
+        function attendanceClockOut() {
+            const { username, displayName } = getCurrentUserContext();
+            if (!username) return;
+
+            const now = new Date();
+            const dateISO = toISODate(now);
+            const existing = findTodayRecord(username, dateISO);
+
+            if (!existing || !existing.clockIn) {
+                if (typeof showNotification === 'function') showNotification('Clock in first, then clock out.', 'warning');
+                return;
+            }
+
+            if (existing.clockOut) {
+                if (typeof showNotification === 'function') showNotification('Clock out already recorded.', 'warning');
+                return;
+            }
+
+            const policies = getPolicies();
+            const policy = policies[username] || { allowFlex: false, beforeMins: 0, afterMins: 0 };
+            const beforeLimit = policy.allowFlex ? Number(policy.beforeMins || 0) : 0;
+            const afterLimit = policy.allowFlex ? Number(policy.afterMins || 0) : 0;
+
+            const flags = Array.isArray(existing.flags) ? [...existing.flags] : [];
+
+            if (existing.scheduledEnd) {
+                const plannedEnd = parseHMToMinutes(existing.scheduledEnd);
+                const actual = timestampMinutes(now);
+                const delta = actual - plannedEnd;
+                if (delta < 0) flags.push('early_clock_out');
+                if (delta > 0) flags.push('delay_clock_out');
+                if (delta < (beforeLimit * -1)) flags.push('unauthorized_early_clock_out');
+                if (delta > afterLimit) flags.push('unauthorized_delay_clock_out');
+            }
+
+            const workedMinutes = Math.max(0, Math.round((new Date(now).getTime() - new Date(existing.clockIn).getTime()) / 60000));
+            existing.clockOut = now.toISOString();
+            existing.minutesWorked = workedMinutes;
+            existing.displayName = displayName;
+            existing.flags = Array.from(new Set(flags));
+            updateRecord(existing);
+
+            addNotification('__managers__', `${displayName} clocked out at ${formatDateTime(now)} (${formatHours(workedMinutes)}).`, 'info');
+            if (typeof showNotification === 'function') showNotification('Clock out recorded.', 'success');
+            refreshAttendanceView();
+        }
+
+        function isDateInPto(request, dateISO) {
+            if (request.status !== 'approved') return false;
+            return dateISO >= request.startDate && dateISO <= request.endDate;
+        }
+
+        function auditAttendanceAbsences(targetDate = null) {
+            const dateISO = targetDate || toISODate(new Date());
+            const scheduleMap = getScheduleForDate(new Date(dateISO));
+            const records = getRecords();
+            const ptoRequests = getPtoRequests();
+            const absences = getAbsences();
+
+            let added = 0;
+            Object.keys(scheduleMap).forEach((username) => {
+                const hasClock = records.some((record) => record.username === username && record.date === dateISO && !!record.clockIn);
+                const hasPto = ptoRequests.some((request) => request.username === username && isDateInPto(request, dateISO));
+                if (hasClock || hasPto) return;
+
+                const exists = absences.some((entry) => entry.username === username && entry.date === dateISO);
+                if (exists) return;
+
+                absences.push({
+                    id: `abs-${dateISO}-${username}`,
+                    username,
+                    displayName: scheduleMap[username]?.displayName || username,
+                    date: dateISO,
+                    recordedAt: new Date().toISOString(),
+                    reason: 'Scheduled but not clocked in'
+                });
+                fireAndForget(syncAbsenceToApi(absences[absences.length - 1]));
+                added += 1;
+            });
+
+            saveAbsences(absences);
+            if (added > 0) {
+                addNotification('__managers__', `${added} absence record(s) created for ${formatDate(dateISO)}.`, 'warning');
+            }
+            if (typeof showNotification === 'function') {
+                showNotification(added > 0 ? `${added} absence record(s) created.` : 'No new absences to record.', added > 0 ? 'warning' : 'success');
+            }
+            refreshAttendanceView();
+        }
+
+        function autoAuditAbsencesForToday() {
+            const now = new Date();
+            const nowMinutes = timestampMinutes(now);
+            const dateISO = toISODate(now);
+            const scheduleMap = getScheduleForDate(now);
+            const records = getRecords();
+            const ptoRequests = getPtoRequests();
+            const absences = getAbsences();
+            let added = 0;
+
+            Object.keys(scheduleMap).forEach((username) => {
+                const schedule = scheduleMap[username] || {};
+                const scheduledStart = parseHMToMinutes(schedule.startTime);
+                if (!Number.isFinite(scheduledStart)) return;
+                if (nowMinutes < (scheduledStart + 15)) return;
+
+                const hasClock = records.some((record) => record.username === username && record.date === dateISO && !!record.clockIn);
+                const hasPto = ptoRequests.some((request) => request.username === username && isDateInPto(request, dateISO));
+                if (hasClock || hasPto) return;
+
+                const exists = absences.some((entry) => entry.username === username && entry.date === dateISO);
+                if (exists) return;
+
+                absences.push({
+                    id: `abs-${dateISO}-${username}`,
+                    username,
+                    displayName: schedule.displayName || username,
+                    date: dateISO,
+                    recordedAt: new Date().toISOString(),
+                    reason: 'Scheduled but not clocked in'
+                });
+                fireAndForget(syncAbsenceToApi(absences[absences.length - 1]));
+                added += 1;
+            });
+
+            if (added > 0) {
+                saveAbsences(absences);
+                addNotification('__managers__', `${added} automatic absence record(s) were created for ${formatDate(dateISO)}.`, 'warning');
+            }
+        }
+
+        function countWeekdayHours(startDate, endDate) {
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+
+            let count = 0;
+            const cursor = new Date(start);
+            while (cursor <= end) {
+                const day = cursor.getDay();
+                if (day !== 0 && day !== 6) count += 1;
+                cursor.setDate(cursor.getDate() + 1);
+            }
+            return count * 8;
+        }
+
+        function submitPtoRequest() {
+            const { username, displayName } = getCurrentUserContext();
+            if (!username) return;
+
+            const startDate = document.getElementById('attendancePtoStart')?.value || '';
+            const endDate = document.getElementById('attendancePtoEnd')?.value || '';
+            const reason = String(document.getElementById('attendancePtoReason')?.value || '').trim();
+            let hours = Number(document.getElementById('attendancePtoHours')?.value || 0);
+
+            if (!startDate || !endDate) {
+                if (typeof showNotification === 'function') showNotification('Select PTO start and end dates.', 'warning');
+                return;
+            }
+            if (endDate < startDate) {
+                if (typeof showNotification === 'function') showNotification('End date must be on/after start date.', 'error');
+                return;
+            }
+
+            if (!Number.isFinite(hours) || hours <= 0) {
+                hours = countWeekdayHours(startDate, endDate);
+            }
+
+            const balance = getPtoCreditForUser(username);
+            if (hours > balance) {
+                if (typeof showNotification === 'function') showNotification(`PTO request exceeds credit (${balance.toFixed(2)} h available).`, 'error');
+                return;
+            }
+
+            const requests = getPtoRequests();
+            const createdRequest = {
+                id: `pto-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                username,
+                employeeName: displayName,
+                startDate,
+                endDate,
+                hours: Number(hours.toFixed(2)),
+                reason,
+                status: 'pending',
+                createdAt: new Date().toISOString(),
+                reviewedAt: null,
+                reviewedBy: null
+            };
+            requests.unshift(createdRequest);
+            savePtoRequests(requests);
+            fireAndForget(
+                syncPtoRequestToApi(createdRequest).then((saved) => {
+                    if (saved && saved.id) {
+                        createdRequest.id = String(saved.id);
+                        savePtoRequests(requests);
+                    }
+                })
+            );
+
+            addNotification('__managers__', `PTO request pending from ${displayName} (${startDate} to ${endDate}, ${hours.toFixed(2)}h).`, 'warning');
+            addNotification(username, 'PTO request submitted and waiting for manager review.', 'info');
+            if (typeof showNotification === 'function') showNotification('PTO request submitted.', 'success');
+
+            const reasonEl = document.getElementById('attendancePtoReason');
+            const hoursEl = document.getElementById('attendancePtoHours');
+            if (reasonEl) reasonEl.value = '';
+            if (hoursEl) hoursEl.value = '';
+            refreshAttendanceView();
+        }
+
+        function reviewPtoRequest(requestId, approved) {
+            const context = getCurrentUserContext();
+            if (!isManagerRole(context.role)) {
+                if (typeof showNotification === 'function') showNotification('Only manager roles can review PTO.', 'error');
+                return;
+            }
+
+            const requests = getPtoRequests();
+            const request = requests.find((item) => item.id === requestId);
+            if (!request || request.status !== 'pending') return;
+
+            if (approved) {
+                const credits = getPtoCredits();
+                const currentCredit = getPtoCreditForUser(request.username);
+                if (request.hours > currentCredit) {
+                    if (typeof showNotification === 'function') showNotification('Insufficient PTO credit to approve this request.', 'error');
+                    return;
+                }
+                credits[request.username] = Number((currentCredit - request.hours).toFixed(2));
+                savePtoCredits(credits);
+            }
+
+            request.status = approved ? 'approved' : 'denied';
+            request.reviewedAt = new Date().toISOString();
+            request.reviewedBy = context.displayName;
+            savePtoRequests(requests);
+            fireAndForget(syncPtoReviewToApi(request));
+
+            addNotification(request.username, `Your PTO request (${request.startDate} to ${request.endDate}) was ${request.status}.`, approved ? 'success' : 'warning');
+            if (typeof showNotification === 'function') showNotification(`PTO request ${request.status}.`, approved ? 'success' : 'warning');
+            refreshAttendanceView();
+        }
+
+        function saveAttendancePolicyAndCredit() {
+            const context = getCurrentUserContext();
+            if (!isManagerRole(context.role)) {
+                if (typeof showNotification === 'function') showNotification('Only manager roles can save policies.', 'error');
+                return;
+            }
+
+            const userSelect = document.getElementById('attendancePolicyUser');
+            const allowFlexEl = document.getElementById('attendanceAllowFlex');
+            const beforeEl = document.getElementById('attendanceFlexBefore');
+            const afterEl = document.getElementById('attendanceFlexAfter');
+            const creditEl = document.getElementById('attendancePtoCreditInput');
+
+            const username = userSelect?.value || '';
+            if (!username) {
+                if (typeof showNotification === 'function') showNotification('Select an employee first.', 'warning');
+                return;
+            }
+
+            const policies = getPolicies();
+            policies[username] = {
+                allowFlex: String(allowFlexEl?.value || 'false') === 'true',
+                beforeMins: Math.max(0, Number(beforeEl?.value || 0) || 0),
+                afterMins: Math.max(0, Number(afterEl?.value || 0) || 0)
+            };
+            savePolicies(policies);
+            fireAndForget(syncPolicyToApi(username, policies[username], context.displayName));
+
+            const credits = getPtoCredits();
+            credits[username] = Math.max(0, Number(creditEl?.value || 0) || 0);
+            savePtoCredits(credits);
+            fireAndForget(syncPtoCreditToApi(username, credits[username], context.displayName));
+
+            if (typeof showNotification === 'function') showNotification('Attendance policy and PTO credit saved.', 'success');
+            refreshAttendanceView();
+        }
+
+        function populateManagerEmployeeSelectors() {
+            const employees = getAllEmployees().filter((emp) => emp.username !== 'admin' && emp.isActive !== false);
+            const ids = ['attendancePolicyUser', 'attendanceHoursEmployee'];
+
+            ids.forEach((id) => {
+                const select = document.getElementById(id);
+                if (!select) return;
+                const current = select.value;
+                select.innerHTML = employees.map((emp) => `<option value="${emp.username}">${emp.displayName}</option>`).join('');
+                if (current && employees.some((emp) => emp.username === current)) {
+                    select.value = current;
+                }
+            });
+        }
+
+        function renderCurrentPolicy() {
+            const userSelect = document.getElementById('attendancePolicyUser');
+            const username = userSelect?.value;
+            if (!username) return;
+            const policies = getPolicies();
+            const policy = policies[username] || { allowFlex: false, beforeMins: 0, afterMins: 0 };
+            const credits = getPtoCredits();
+
+            const allowFlexEl = document.getElementById('attendanceAllowFlex');
+            const beforeEl = document.getElementById('attendanceFlexBefore');
+            const afterEl = document.getElementById('attendanceFlexAfter');
+            const creditEl = document.getElementById('attendancePtoCreditInput');
+
+            if (allowFlexEl) allowFlexEl.value = policy.allowFlex ? 'true' : 'false';
+            if (beforeEl) beforeEl.value = Number(policy.beforeMins || 0);
+            if (afterEl) afterEl.value = Number(policy.afterMins || 0);
+            if (creditEl) creditEl.value = Number.isFinite(Number(credits[username])) ? Number(credits[username]) : 80;
+        }
+
+        function calculateAttendanceHours() {
+            const select = document.getElementById('attendanceHoursEmployee');
+            const dateInput = document.getElementById('attendanceHoursDate');
+            const targetUsername = select?.value;
+            const targetDate = dateInput?.value || toISODate(new Date());
+            if (!targetUsername) return;
+
+            const records = getRecords().filter((record) => record.username === targetUsername && Number(record.minutesWorked || 0) > 0);
+            const employees = getAllEmployees();
+            const employee = employees.find((item) => item.username === targetUsername) || {};
+
+            const target = new Date(targetDate);
+            const weekStart = new Date(target);
+            weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+            const weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekEnd.getDate() + 6);
+
+            const monthKey = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}`;
+            const hireDate = employee.hireDate ? new Date(employee.hireDate) : null;
+            const separationDate = employee.separationDate ? new Date(employee.separationDate) : new Date();
+
+            const totalBy = {
+                day: 0,
+                week: 0,
+                month: 0,
+                employment: 0
+            };
+
+            records.forEach((record) => {
+                const minutes = Number(record.minutesWorked || 0);
+                const recordDate = new Date(record.date);
+                if (record.date === targetDate) totalBy.day += minutes;
+                if (recordDate >= weekStart && recordDate <= weekEnd) totalBy.week += minutes;
+                if (String(record.date || '').slice(0, 7) === monthKey) totalBy.month += minutes;
+
+                if (hireDate) {
+                    if (recordDate >= hireDate && recordDate <= separationDate) totalBy.employment += minutes;
+                } else {
+                    totalBy.employment += minutes;
+                }
+            });
+
+            const holder = document.getElementById('attendanceHoursStats');
+            if (!holder) return;
+            holder.innerHTML = `
+                <div class="attendance-stat"><div class="attendance-stat-label">Day</div><div class="attendance-stat-value">${formatHours(totalBy.day)}</div></div>
+                <div class="attendance-stat"><div class="attendance-stat-label">Week</div><div class="attendance-stat-value">${formatHours(totalBy.week)}</div></div>
+                <div class="attendance-stat"><div class="attendance-stat-label">Month</div><div class="attendance-stat-value">${formatHours(totalBy.month)}</div></div>
+                <div class="attendance-stat"><div class="attendance-stat-label">Hire to Leave</div><div class="attendance-stat-value">${formatHours(totalBy.employment)}</div></div>
+            `;
+        }
+
+        function renderAttendanceView() {
+            const root = document.getElementById('view-attendance');
+            if (!root) return;
+
+            const context = getCurrentUserContext();
+            const todayISO = toISODate(new Date());
+            const scheduleMap = getScheduleForDate(new Date());
+            const mySchedule = scheduleMap[context.username] || null;
+            const myRecord = findTodayRecord(context.username, todayISO);
+
+            const managerSection = document.getElementById('attendanceManagerSection');
+            const managerVisible = isManagerRole(context.role);
+            if (managerSection) managerSection.style.display = managerVisible ? '' : 'none';
+
+            const scheduleEl = document.getElementById('attendanceTodaySchedule');
+            if (scheduleEl) {
+                scheduleEl.textContent = mySchedule
+                    ? `Scheduled today: ${mySchedule.startTime || '--:--'} - ${mySchedule.endTime || '--:--'} (${mySchedule.clinic || 'Clinic'})`
+                    : 'No shift scheduled for today.';
+            }
+
+            const statusEl = document.getElementById('attendanceTodayStatus');
+            const hoursEl = document.getElementById('attendanceTodayHours');
+            const flagsEl = document.getElementById('attendanceCurrentFlags');
+            if (statusEl) {
+                if (!myRecord?.clockIn) statusEl.textContent = 'Not clocked in';
+                else if (myRecord?.clockIn && !myRecord?.clockOut) statusEl.textContent = `Clocked in at ${formatDateTime(myRecord.clockIn)}`;
+                else statusEl.textContent = `Clocked out at ${formatDateTime(myRecord.clockOut)}`;
+            }
+            if (hoursEl) {
+                hoursEl.textContent = myRecord ? formatHours(myRecord.minutesWorked || 0) : '0.00 h';
+            }
+            if (flagsEl) {
+                const flags = Array.isArray(myRecord?.flags) ? myRecord.flags : [];
+                flagsEl.innerHTML = flags.length
+                    ? flags.map((flag) => `<span class="attendance-tag">${describeFlag(flag)}</span>`).join('')
+                    : '<span class="attendance-note">No attendance exceptions for today.</span>';
+            }
+
+            const ptoBalanceEl = document.getElementById('attendancePtoBalance');
+            if (ptoBalanceEl) ptoBalanceEl.textContent = `${getPtoCreditForUser(context.username).toFixed(2)} h`;
+
+            const myRequests = getPtoRequests().filter((request) => request.username === context.username);
+            const pendingCount = myRequests.filter((request) => request.status === 'pending').length;
+            const pendingEl = document.getElementById('attendancePtoPendingCount');
+            if (pendingEl) pendingEl.textContent = String(pendingCount);
+
+            const historyBody = document.getElementById('attendanceMyHistoryBody');
+            if (historyBody) {
+                const rows = getRecords()
+                    .filter((record) => record.username === context.username)
+                    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+                    .slice(0, 20);
+
+                historyBody.innerHTML = rows.map((record) => `
+                    <tr>
+                        <td>${formatDate(record.date)}</td>
+                        <td>${record.clockIn ? formatDateTime(record.clockIn) : '-'}</td>
+                        <td>${record.clockOut ? formatDateTime(record.clockOut) : '-'}</td>
+                        <td>${formatHours(record.minutesWorked || 0)}</td>
+                        <td>${(record.flags || []).map((flag) => `<span class="attendance-tag">${describeFlag(flag)}</span>`).join('') || '<span class="attendance-note">Normal</span>'}</td>
+                    </tr>
+                `).join('') || '<tr><td colspan="5" class="attendance-note">No attendance records yet.</td></tr>';
+            }
+
+            const notificationsEl = document.getElementById('attendanceNotificationsList');
+            if (notificationsEl) {
+                const allNotifications = getNotifications();
+                const userNotifs = allNotifications
+                    .filter((note) => note.user === context.username)
+                    .slice(0, 12);
+                notificationsEl.innerHTML = userNotifs.length
+                    ? userNotifs.map((note) => `<div style="padding:0.55rem; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-secondary);"><div style="font-size:0.82rem; color:var(--text-primary);">${note.message}</div><div class="attendance-note">${formatDateTime(note.createdAt)}</div></div>`).join('')
+                    : '<div class="attendance-note">No notifications yet.</div>';
+            }
+
+            if (managerVisible) {
+                autoAuditAbsencesForToday();
+                populateManagerEmployeeSelectors();
+                renderCurrentPolicy();
+
+                const managerStats = document.getElementById('attendanceManagerStats');
+                const recordsToday = getRecords().filter((record) => record.date === todayISO);
+                const clockedInNow = recordsToday.filter((record) => !!record.clockIn && !record.clockOut).length;
+                const completedToday = recordsToday.filter((record) => !!record.clockOut).length;
+                const scheduledCount = Object.keys(scheduleMap).length;
+                const absencesToday = getAbsences().filter((entry) => entry.date === todayISO).length;
+
+                if (managerStats) {
+                    managerStats.innerHTML = `
+                        <div class="attendance-stat"><div class="attendance-stat-label">Scheduled Today</div><div class="attendance-stat-value">${scheduledCount}</div></div>
+                        <div class="attendance-stat"><div class="attendance-stat-label">Clocked In Now</div><div class="attendance-stat-value">${clockedInNow}</div></div>
+                        <div class="attendance-stat"><div class="attendance-stat-label">Clocked Out</div><div class="attendance-stat-value">${completedToday}</div></div>
+                        <div class="attendance-stat"><div class="attendance-stat-label">Absences Recorded</div><div class="attendance-stat-value">${absencesToday}</div></div>
+                    `;
+                }
+
+                const todayBody = document.getElementById('attendanceManagerTodayBody');
+                if (todayBody) {
+                    todayBody.innerHTML = Object.keys(scheduleMap).map((username) => {
+                        const schedule = scheduleMap[username];
+                        const record = recordsToday.find((entry) => entry.username === username);
+                        const ptoApproved = getPtoRequests().some((request) => request.username === username && isDateInPto(request, todayISO));
+
+                        let clockLabel = '-';
+                        let status = 'Scheduled';
+                        if (record?.clockIn && !record?.clockOut) {
+                            clockLabel = `IN ${formatDateTime(record.clockIn)}`;
+                            status = 'Clocked In';
+                        } else if (record?.clockOut) {
+                            clockLabel = `OUT ${formatDateTime(record.clockOut)}`;
+                            status = 'Clocked Out';
+                        } else if (ptoApproved) {
+                            status = 'PTO Approved';
+                        } else {
+                            status = 'Not Clocked';
+                        }
+
+                        return `
+                            <tr>
+                                <td>${schedule.displayName || username}</td>
+                                <td>${schedule.startTime || '--:--'} - ${schedule.endTime || '--:--'}</td>
+                                <td>${clockLabel}</td>
+                                <td>${status}</td>
+                            </tr>
+                        `;
+                    }).join('') || '<tr><td colspan="4" class="attendance-note">No employees scheduled today.</td></tr>';
+                }
+
+                const queueBody = document.getElementById('attendancePtoQueueBody');
+                if (queueBody) {
+                    const queue = getPtoRequests().filter((request) => request.status === 'pending');
+                    queueBody.innerHTML = queue.map((request) => `
+                        <tr>
+                            <td>${request.employeeName || request.username}</td>
+                            <td>${request.startDate} → ${request.endDate}</td>
+                            <td>${Number(request.hours || 0).toFixed(2)} h</td>
+                            <td title="${String(request.reason || '').replace(/"/g, '&quot;')}">${String(request.reason || '-').slice(0, 30) || '-'}</td>
+                            <td>
+                                <button type="button" class="btn-primary" style="padding:0.2rem 0.35rem;" onclick="window.reviewPtoRequest('${request.id}', true)">Approve</button>
+                                <button type="button" class="btn-secondary" style="padding:0.2rem 0.35rem;" onclick="window.reviewPtoRequest('${request.id}', false)">Deny</button>
+                            </td>
+                        </tr>
+                    `).join('') || '<tr><td colspan="5" class="attendance-note">No PTO requests pending approval.</td></tr>';
+                }
+            }
+
+            const dateEl = document.getElementById('attendanceHoursDate');
+            if (dateEl && !dateEl.value) dateEl.value = todayISO;
+            calculateAttendanceHours();
+        }
+
+        function refreshAttendanceView() {
+            renderAttendanceView();
+        }
+
+        window.attendanceClockIn = attendanceClockIn;
+        window.attendanceClockOut = attendanceClockOut;
+        window.auditAttendanceAbsences = auditAttendanceAbsences;
+        window.submitPtoRequest = submitPtoRequest;
+        window.reviewPtoRequest = reviewPtoRequest;
+        window.saveAttendancePolicyAndCredit = saveAttendancePolicyAndCredit;
+        window.calculateAttendanceHours = calculateAttendanceHours;
+        window.refreshAttendanceView = refreshAttendanceView;
+
+        document.addEventListener('change', (event) => {
+            const targetId = event?.target?.id;
+            if (targetId === 'attendancePolicyUser') {
+                renderCurrentPolicy();
+            }
+            if (targetId === 'attendanceHoursEmployee' || targetId === 'attendanceHoursDate') {
+                calculateAttendanceHours();
+            }
+        });
+
+        function installAttendanceSwitchHook() {
+            if (typeof window.switchContentView !== 'function') return;
+            if (window.switchContentView.__attendanceWrapped) return;
+            const original = window.switchContentView;
+            window.switchContentView = function(viewName, event, options) {
+                const result = original.apply(this, arguments);
+                if (String(viewName || '') === 'attendance') {
+                    setTimeout(() => refreshAttendanceView(), 0);
+                }
+                return result;
+            };
+            window.switchContentView.__attendanceWrapped = true;
+        }
+
+        async function onReady() {
+            installAttendanceSwitchHook();
+            await loadAttendanceDataFromApi();
+            setTimeout(() => refreshAttendanceView(), 400);
+            setInterval(() => {
+                const attendanceView = document.getElementById('view-attendance');
+                if (attendanceView && attendanceView.classList.contains('active')) {
+                    refreshAttendanceView();
+                }
+            }, 60000);
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', onReady);
+        } else {
+            onReady();
+        }
     })();
 
     // ===== EXPOSE PUBLIC API =====
