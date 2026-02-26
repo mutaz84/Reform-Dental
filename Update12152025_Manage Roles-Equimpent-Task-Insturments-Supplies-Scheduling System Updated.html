@@ -71200,6 +71200,25 @@ console.log('✅ Global functions exported to window object');
             return inIso === dayISO || outIso === dayISO;
         }
 
+        function getWorkedMinutesForRecord(record) {
+            const storedMinutes = Number(record?.minutesWorked || 0) || 0;
+            if (!record?.clockIn || !record?.clockOut) return storedMinutes;
+            const diffMs = new Date(record.clockOut).getTime() - new Date(record.clockIn).getTime();
+            const computedMinutes = (Number.isFinite(diffMs) && diffMs > 0) ? Math.round(diffMs / 60000) : 0;
+            return Math.max(storedMinutes, computedMinutes);
+        }
+
+        function recordMatchesIdentityCandidates(record, identityCandidates) {
+            if (!(identityCandidates instanceof Set) || !identityCandidates.size) return false;
+            const directCandidates = [
+                toIdentityKey(record?.username),
+                toIdentityKey(record?.displayName),
+                toIdentityKey(resolveCanonicalUsername(record?.username)),
+                toIdentityKey(resolveCanonicalUsername(record?.displayName))
+            ].filter(Boolean);
+            return directCandidates.some((key) => identityCandidates.has(key));
+        }
+
         function buildDailyAttendanceReportRows(records, todayISO, options = {}) {
             const includeEmployee = options.includeEmployee === true;
             const identityCandidates = options.identityCandidates instanceof Set ? options.identityCandidates : null;
@@ -71243,22 +71262,13 @@ console.log('✅ Global functions exported to window object');
                 }) || '';
             };
 
-            const fallbackMinutesFromClock = (record) => {
-                if (!record?.clockIn || !record?.clockOut) return 0;
-                const diffMs = new Date(record.clockOut).getTime() - new Date(record.clockIn).getTime();
-                if (!Number.isFinite(diffMs) || diffMs <= 0) return 0;
-                return Math.max(1, Math.round(diffMs / 60000));
-            };
-
             records
                 .filter((record) => {
                     if (!record || !isRecordOnIsoDay(record, todayISO)) return false;
                     const hasClockActivity = !!record.clockIn || !!record.clockOut;
                     if (!hasClockActivity) return false;
                     if (!identityCandidates) return true;
-                    const recordUser = toIdentityKey(record.username);
-                    const recordDisplay = toIdentityKey(record.displayName);
-                    return identityCandidates.has(recordUser) || identityCandidates.has(recordDisplay);
+                    return recordMatchesIdentityCandidates(record, identityCandidates);
                 })
                 .forEach((record) => {
                     const recordIdentitySet = getRecordIdentitySet(record);
@@ -71289,9 +71299,7 @@ console.log('✅ Global functions exported to window object');
                         current.clockOut = record.clockOut || current.clockOut;
                     }
 
-                    const storedMinutes = Number(record.minutesWorked || 0) || 0;
-                    const computedMinutes = fallbackMinutesFromClock(record);
-                    current.minutesWorked += Math.max(storedMinutes, computedMinutes);
+                    current.minutesWorked += getWorkedMinutesForRecord(record);
                     current.hasOpenRecord = current.hasOpenRecord || (!!record.clockIn && !record.clockOut);
                     current.hasClockOut = current.hasClockOut || !!record.clockOut;
                     current.sortTime = Math.max(current.sortTime, outTime || inTime || 0);
@@ -72291,6 +72299,18 @@ console.log('✅ Global functions exported to window object');
                     context.user?.personalEmail
                 ]
             });
+            const myIdentityCandidates = getAttendanceIdentityCandidates(context.username, [
+                context.rawUsername,
+                context.displayName,
+                context.user?.name,
+                context.user?.workEmail,
+                context.user?.personalEmail
+            ]);
+            const myTodayRows = buildDailyAttendanceReportRows(recordsToday, todayISO, {
+                identityCandidates: myIdentityCandidates,
+                includeEmployee: false
+            });
+            const myTodaySummary = myTodayRows[0] || null;
 
             const titleEl = document.getElementById('attendanceViewTitle');
             if (titleEl) {
@@ -72317,12 +72337,18 @@ console.log('✅ Global functions exported to window object');
             const hoursEl = document.getElementById('attendanceTodayHours');
             const flagsEl = document.getElementById('attendanceCurrentFlags');
             if (statusEl) {
-                if (!myRecord?.clockIn) statusEl.textContent = 'Not clocked in';
+                if (myTodaySummary?.clockOut) statusEl.textContent = `Clocked out at ${formatDateTime(myTodaySummary.clockOut)}`;
+                else if (myTodaySummary?.clockIn) statusEl.textContent = `Clocked in at ${formatDateTime(myTodaySummary.clockIn)}`;
+                else if (!myRecord?.clockIn) statusEl.textContent = 'Not clocked in';
                 else if (myRecord?.clockIn && !myRecord?.clockOut) statusEl.textContent = `Clocked in at ${formatDateTime(myRecord.clockIn)}`;
                 else statusEl.textContent = `Clocked out at ${formatDateTime(myRecord.clockOut)}`;
             }
             if (hoursEl) {
-                hoursEl.textContent = myRecord ? formatHours(myRecord.minutesWorked || 0) : '0.00 h';
+                if (myTodaySummary) {
+                    hoursEl.textContent = formatHours(myTodaySummary.minutesWorked || 0);
+                } else {
+                    hoursEl.textContent = myRecord ? formatHours(getWorkedMinutesForRecord(myRecord)) : '0.00 h';
+                }
             }
             if (flagsEl) {
                 const flags = Array.isArray(myRecord?.flags) ? myRecord.flags : [];
@@ -72341,8 +72367,47 @@ console.log('✅ Global functions exported to window object');
 
             const historyBody = document.getElementById('attendanceMyHistoryBody');
             if (historyBody) {
-                const rows = allRecords
-                    .filter((record) => record.username === context.username)
+                const historyByDate = new Map();
+                allRecords
+                    .filter((record) => recordMatchesIdentityCandidates(record, myIdentityCandidates))
+                    .forEach((record) => {
+                        const day = toISODate(new Date(record?.clockOut || record?.clockIn || record?.date || todayISO));
+                        const existing = historyByDate.get(day) || {
+                            date: day,
+                            clockIn: null,
+                            clockOut: null,
+                            minutesWorked: 0,
+                            latestEvent: 0,
+                            flags: []
+                        };
+                        const inMs = record?.clockIn ? new Date(record.clockIn).getTime() : 0;
+                        const outMs = record?.clockOut ? new Date(record.clockOut).getTime() : 0;
+                        if (!existing.clockIn || (inMs && inMs < new Date(existing.clockIn).getTime())) {
+                            existing.clockIn = record.clockIn || existing.clockIn;
+                        }
+                        if (!existing.clockOut || (outMs && outMs > new Date(existing.clockOut).getTime())) {
+                            existing.clockOut = record.clockOut || existing.clockOut;
+                        }
+                        existing.minutesWorked += getWorkedMinutesForRecord(record);
+                        existing.latestEvent = Math.max(existing.latestEvent, outMs || inMs || 0);
+                        const rowFlags = Array.isArray(record?.flags) ? record.flags : [];
+                        existing.flags = [...existing.flags, ...rowFlags];
+                        historyByDate.set(day, existing);
+                    });
+
+                const rows = Array.from(historyByDate.values())
+                    .map((row) => {
+                        const inMs = row.clockIn ? new Date(row.clockIn).getTime() : 0;
+                        const outMs = row.clockOut ? new Date(row.clockOut).getTime() : 0;
+                        const spanMinutes = (inMs > 0 && outMs > inMs) ? Math.round((outMs - inMs) / 60000) : 0;
+                        const minutesWorked = Math.max(Number(row.minutesWorked || 0), spanMinutes);
+                        const uniqueFlags = Array.from(new Set((row.flags || []).filter(Boolean)));
+                        return {
+                            ...row,
+                            minutesWorked,
+                            flags: uniqueFlags
+                        };
+                    })
                     .sort((a, b) => String(b.date).localeCompare(String(a.date)))
                     .slice(0, 20);
 
@@ -72359,17 +72424,6 @@ console.log('✅ Global functions exported to window object');
 
             const employeeDailyReportBody = document.getElementById('attendanceEmployeeDailyReportBody');
             if (employeeDailyReportBody) {
-                const myIdentityCandidates = getAttendanceIdentityCandidates(context.username, [
-                    context.rawUsername,
-                    context.displayName,
-                    context.user?.name,
-                    context.user?.workEmail,
-                    context.user?.personalEmail
-                ]);
-                const myTodayRows = buildDailyAttendanceReportRows(recordsToday, todayISO, {
-                    identityCandidates: myIdentityCandidates,
-                    includeEmployee: false
-                });
                 window.__attendanceEmployeeDailyReportRows = myTodayRows;
 
                 employeeDailyReportBody.innerHTML = myTodayRows.map((row) => {
