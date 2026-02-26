@@ -70804,7 +70804,7 @@ console.log('✅ Global functions exported to window object');
 
         function mapAndStorePtoCredits(credits) {
             if (!Array.isArray(credits)) return;
-            const mapped = {};
+            const mapped = { ...getPtoCredits() };
             credits.forEach((item) => {
                 const usernameRaw = item?.username || item?.Username;
                 const username = String(usernameRaw || '').trim();
@@ -70822,6 +70822,29 @@ console.log('✅ Global functions exported to window object');
                 }
             });
             writeJSON(STORAGE.ptoCredits, mapped);
+        }
+
+        function persistPtoCreditLocal(username, value) {
+            const credits = getPtoCredits();
+            const resolvedValue = Math.max(0, Number(value || 0) || 0);
+            const canonicalUsername = resolveCanonicalUsername(username) || String(username || '').trim();
+
+            if (canonicalUsername) {
+                credits[canonicalUsername] = resolvedValue;
+            }
+
+            const normalizedInput = normalizeUsernameKey(username);
+            if (normalizedInput) {
+                credits[normalizedInput] = resolvedValue;
+            }
+
+            const normalizedCanonical = normalizeUsernameKey(canonicalUsername);
+            if (normalizedCanonical) {
+                credits[normalizedCanonical] = resolvedValue;
+            }
+
+            savePtoCredits(credits);
+            return resolvedValue;
         }
 
         async function loadAttendanceDataFromApi(forceReload = false) {
@@ -71587,14 +71610,12 @@ console.log('✅ Global functions exported to window object');
             if (!request || request.status !== 'pending') return;
 
             if (approved) {
-                const credits = getPtoCredits();
                 const currentCredit = getPtoCreditForUser(request.username);
                 if (request.hours > currentCredit) {
                     if (typeof showNotification === 'function') showNotification('Insufficient PTO credit to approve this request.', 'error');
                     return;
                 }
-                credits[request.username] = Number((currentCredit - request.hours).toFixed(2));
-                savePtoCredits(credits);
+                persistPtoCreditLocal(request.username, Number((currentCredit - request.hours).toFixed(2)));
             }
 
             request.status = approved ? 'approved' : 'denied';
@@ -71636,14 +71657,8 @@ console.log('✅ Global functions exported to window object');
             savePolicies(policies);
             fireAndForget(syncPolicyToApi(username, policies[username], context.displayName));
 
-            const credits = getPtoCredits();
-            credits[username] = Math.max(0, Number(creditEl?.value || 0) || 0);
-            const normalizedCreditKey = normalizeUsernameKey(username);
-            if (normalizedCreditKey && normalizedCreditKey !== username) {
-                credits[normalizedCreditKey] = credits[username];
-            }
-            savePtoCredits(credits);
-            fireAndForget(syncPtoCreditToApi(username, credits[username], context.displayName));
+            const targetCredit = persistPtoCreditLocal(username, creditEl?.value || 0);
+            fireAndForget(syncPtoCreditToApi(username, targetCredit, context.displayName));
 
             if (typeof showNotification === 'function') showNotification('Attendance policy and PTO credit saved.', 'success');
             refreshAttendanceView();
@@ -71670,15 +71685,9 @@ console.log('✅ Global functions exported to window object');
                 return;
             }
 
-            const credits = getPtoCredits();
             const current = getPtoCreditForUser(username);
             const updated = Number((current + addHours).toFixed(2));
-            credits[username] = updated;
-            const normalizedCreditKey = normalizeUsernameKey(username);
-            if (normalizedCreditKey && normalizedCreditKey !== username) {
-                credits[normalizedCreditKey] = updated;
-            }
-            savePtoCredits(credits);
+            persistPtoCreditLocal(username, updated);
             fireAndForget(syncPtoCreditToApi(username, updated, context.displayName));
 
             const employee = getAllEmployees().find((entry) => entry.username === username);
