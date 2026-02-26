@@ -71222,47 +71222,7 @@ console.log('✅ Global functions exported to window object');
         function buildDailyAttendanceReportRows(records, todayISO, options = {}) {
             const includeEmployee = options.includeEmployee === true;
             const identityCandidates = options.identityCandidates instanceof Set ? options.identityCandidates : null;
-            const identityMap = new Map();
-
-            const getRecordIdentitySet = (record) => {
-                const set = new Set();
-                const canonicalFromUsername = resolveCanonicalUsername(record?.username);
-                const canonicalFromDisplay = resolveCanonicalUsername(record?.displayName);
-                [
-                    record?.username,
-                    record?.displayName,
-                    canonicalFromUsername,
-                    canonicalFromDisplay,
-                    record?.workEmail,
-                    record?.personalEmail
-                ].forEach((value) => {
-                    const normalized = toIdentityKey(value);
-                    if (normalized) set.add(normalized);
-                });
-
-                const canonical = canonicalFromUsername || canonicalFromDisplay;
-                if (canonical) {
-                    const users = getUsersMap();
-                    const user = users[canonical] || null;
-                    getUserIdentityKeys(canonical, user || {}).forEach((value) => {
-                        const normalized = toIdentityKey(value);
-                        if (normalized) set.add(normalized);
-                    });
-                }
-
-                return set;
-            };
-
-            const findExistingIdentity = (recordIdentitySet) => {
-                if (!recordIdentitySet.size) return '';
-                return Array.from(identityMap.keys()).find((existingKey) => {
-                    const existing = identityMap.get(existingKey);
-                    if (!existing || !(existing.identities instanceof Set)) return false;
-                    return Array.from(recordIdentitySet).some((key) => existing.identities.has(key));
-                }) || '';
-            };
-
-            records
+            return records
                 .filter((record) => {
                     if (!record || !isRecordOnIsoDay(record, todayISO)) return false;
                     const hasClockActivity = !!record.clockIn || !!record.clockOut;
@@ -71270,70 +71230,28 @@ console.log('✅ Global functions exported to window object');
                     if (!identityCandidates) return true;
                     return recordMatchesIdentityCandidates(record, identityCandidates);
                 })
-                .forEach((record) => {
-                    const recordIdentitySet = getRecordIdentitySet(record);
-                    const identity = findExistingIdentity(recordIdentitySet)
-                        || resolveCanonicalUsername(record.username)
-                        || resolveCanonicalUsername(record.displayName)
-                        || toIdentityKey(record.username)
-                        || toIdentityKey(record.displayName)
-                        || String(record.id || '');
-                    const current = identityMap.get(identity) || {
-                        employee: record.displayName || record.username || '-',
-                        date: todayISO,
-                        clockIn: null,
-                        clockOut: null,
-                        minutesWorked: 0,
-                        hasOpenRecord: false,
-                        hasClockOut: false,
-                        sortTime: 0,
-                        identities: new Set()
-                    };
-
-                    const inTime = record.clockIn ? new Date(record.clockIn).getTime() : 0;
-                    const outTime = record.clockOut ? new Date(record.clockOut).getTime() : 0;
-                    if (!current.clockIn || (inTime && inTime < new Date(current.clockIn).getTime())) {
-                        current.clockIn = record.clockIn || current.clockIn;
-                    }
-                    if (!current.clockOut || (outTime && outTime > new Date(current.clockOut).getTime())) {
-                        current.clockOut = record.clockOut || current.clockOut;
-                    }
-
-                    current.minutesWorked += getWorkedMinutesForRecord(record);
-                    current.hasOpenRecord = current.hasOpenRecord || (!!record.clockIn && !record.clockOut);
-                    current.hasClockOut = current.hasClockOut || !!record.clockOut;
-                    current.sortTime = Math.max(current.sortTime, outTime || inTime || 0);
-                    if ((record.displayName || '').trim()) {
-                        current.employee = record.displayName;
-                    }
-                    recordIdentitySet.forEach((key) => current.identities.add(key));
-                    identityMap.set(identity, current);
-                });
-
-            return Array.from(identityMap.values())
                 .map((row) => {
-                    const earliestInMs = row.clockIn ? new Date(row.clockIn).getTime() : 0;
-                    const latestOutMs = row.clockOut ? new Date(row.clockOut).getTime() : 0;
-                    const spanMinutes = (earliestInMs > 0 && latestOutMs > earliestInMs)
-                        ? Math.round((latestOutMs - earliestInMs) / 60000)
-                        : 0;
-                    const normalizedMinutesWorked = Math.max(Number(row.minutesWorked || 0), spanMinutes);
+                    const inMs = row.clockIn ? new Date(row.clockIn).getTime() : 0;
+                    const outMs = row.clockOut ? new Date(row.clockOut).getTime() : 0;
+                    const eventTimestamp = row.clockOut || row.clockIn || row.date || todayISO;
+                    const displayDate = toISODate(new Date(eventTimestamp));
+                    const normalizedMinutesWorked = getWorkedMinutesForRecord(row);
 
                     let status = 'Not Clocked';
-                    if (latestOutMs > 0 && latestOutMs >= earliestInMs) {
+                    if (outMs > 0 && outMs >= inMs) {
                         status = 'Clocked Out';
-                    } else if (earliestInMs > 0 || row.hasOpenRecord) {
+                    } else if (inMs > 0) {
                         status = 'Clocked In';
                     }
 
                     return {
-                        ...(includeEmployee ? { employee: row.employee } : {}),
-                        date: row.date,
+                        ...(includeEmployee ? { employee: row.displayName || row.username || '-' } : {}),
+                        date: displayDate,
                         clockIn: row.clockIn,
                         clockOut: row.clockOut,
                         minutesWorked: normalizedMinutesWorked,
                         status,
-                        sortTime: row.sortTime
+                        sortTime: Math.max(inMs, outMs, new Date(eventTimestamp).getTime() || 0)
                     };
                 })
                 .sort((a, b) => Number(b.sortTime || 0) - Number(a.sortTime || 0));
@@ -72310,7 +72228,8 @@ console.log('✅ Global functions exported to window object');
                 identityCandidates: myIdentityCandidates,
                 includeEmployee: false
             });
-            const myTodaySummary = myTodayRows[0] || null;
+            const myLatestRow = myTodayRows[0] || null;
+            const myTodayWorkedMinutes = myTodayRows.reduce((sum, row) => sum + Number(row?.minutesWorked || 0), 0);
 
             const titleEl = document.getElementById('attendanceViewTitle');
             if (titleEl) {
@@ -72337,15 +72256,15 @@ console.log('✅ Global functions exported to window object');
             const hoursEl = document.getElementById('attendanceTodayHours');
             const flagsEl = document.getElementById('attendanceCurrentFlags');
             if (statusEl) {
-                if (myTodaySummary?.clockOut) statusEl.textContent = `Clocked out at ${formatDateTime(myTodaySummary.clockOut)}`;
-                else if (myTodaySummary?.clockIn) statusEl.textContent = `Clocked in at ${formatDateTime(myTodaySummary.clockIn)}`;
+                if (myLatestRow?.clockOut) statusEl.textContent = `Clocked out at ${formatDateTime(myLatestRow.clockOut)}`;
+                else if (myLatestRow?.clockIn) statusEl.textContent = `Clocked in at ${formatDateTime(myLatestRow.clockIn)}`;
                 else if (!myRecord?.clockIn) statusEl.textContent = 'Not clocked in';
                 else if (myRecord?.clockIn && !myRecord?.clockOut) statusEl.textContent = `Clocked in at ${formatDateTime(myRecord.clockIn)}`;
                 else statusEl.textContent = `Clocked out at ${formatDateTime(myRecord.clockOut)}`;
             }
             if (hoursEl) {
-                if (myTodaySummary) {
-                    hoursEl.textContent = formatHours(myTodaySummary.minutesWorked || 0);
+                if (myTodayRows.length) {
+                    hoursEl.textContent = formatHours(myTodayWorkedMinutes);
                 } else {
                     hoursEl.textContent = myRecord ? formatHours(getWorkedMinutesForRecord(myRecord)) : '0.00 h';
                 }
@@ -72367,48 +72286,18 @@ console.log('✅ Global functions exported to window object');
 
             const historyBody = document.getElementById('attendanceMyHistoryBody');
             if (historyBody) {
-                const historyByDate = new Map();
-                allRecords
+                const rows = allRecords
                     .filter((record) => recordMatchesIdentityCandidates(record, myIdentityCandidates))
-                    .forEach((record) => {
-                        const day = toISODate(new Date(record?.clockOut || record?.clockIn || record?.date || todayISO));
-                        const existing = historyByDate.get(day) || {
-                            date: day,
-                            clockIn: null,
-                            clockOut: null,
-                            minutesWorked: 0,
-                            latestEvent: 0,
-                            flags: []
-                        };
-                        const inMs = record?.clockIn ? new Date(record.clockIn).getTime() : 0;
-                        const outMs = record?.clockOut ? new Date(record.clockOut).getTime() : 0;
-                        if (!existing.clockIn || (inMs && inMs < new Date(existing.clockIn).getTime())) {
-                            existing.clockIn = record.clockIn || existing.clockIn;
-                        }
-                        if (!existing.clockOut || (outMs && outMs > new Date(existing.clockOut).getTime())) {
-                            existing.clockOut = record.clockOut || existing.clockOut;
-                        }
-                        existing.minutesWorked += getWorkedMinutesForRecord(record);
-                        existing.latestEvent = Math.max(existing.latestEvent, outMs || inMs || 0);
-                        const rowFlags = Array.isArray(record?.flags) ? record.flags : [];
-                        existing.flags = [...existing.flags, ...rowFlags];
-                        historyByDate.set(day, existing);
-                    });
-
-                const rows = Array.from(historyByDate.values())
                     .map((row) => {
-                        const inMs = row.clockIn ? new Date(row.clockIn).getTime() : 0;
-                        const outMs = row.clockOut ? new Date(row.clockOut).getTime() : 0;
-                        const spanMinutes = (inMs > 0 && outMs > inMs) ? Math.round((outMs - inMs) / 60000) : 0;
-                        const minutesWorked = Math.max(Number(row.minutesWorked || 0), spanMinutes);
-                        const uniqueFlags = Array.from(new Set((row.flags || []).filter(Boolean)));
+                        const eventTimestamp = row?.clockOut || row?.clockIn || row?.date || todayISO;
                         return {
                             ...row,
-                            minutesWorked,
-                            flags: uniqueFlags
+                            date: toISODate(new Date(eventTimestamp)),
+                            minutesWorked: getWorkedMinutesForRecord(row),
+                            sortTime: new Date(eventTimestamp).getTime() || 0
                         };
                     })
-                    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+                    .sort((a, b) => Number(b.sortTime || 0) - Number(a.sortTime || 0))
                     .slice(0, 20);
 
                 historyBody.innerHTML = rows.map((record) => `
