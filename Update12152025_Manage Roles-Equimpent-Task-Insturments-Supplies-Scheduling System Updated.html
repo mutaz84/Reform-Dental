@@ -70708,8 +70708,13 @@ console.log('✅ Global functions exported to window object');
 
         const attendanceApiState = {
             initialized: false,
-            available: null
+            available: null,
+            loading: false
         };
+
+        function normalizeUsernameKey(username) {
+            return String(username || '').trim().toLowerCase();
+        }
 
         async function attendanceApiRequest(url, options = {}) {
             const response = await fetch(url, {
@@ -70797,9 +70802,27 @@ console.log('✅ Global functions exported to window object');
             };
         }
 
-        async function loadAttendanceDataFromApi() {
-            if (attendanceApiState.initialized) return;
-            attendanceApiState.initialized = true;
+        function mapAndStorePtoCredits(credits) {
+            if (!Array.isArray(credits)) return;
+            const mapped = {};
+            credits.forEach((item) => {
+                const usernameRaw = item?.username || item?.Username;
+                const username = String(usernameRaw || '').trim();
+                if (!username) return;
+                const value = Number(item?.creditHours ?? item?.CreditHours ?? 0) || 0;
+                mapped[username] = value;
+                const normalized = normalizeUsernameKey(username);
+                if (normalized && normalized !== username) {
+                    mapped[normalized] = value;
+                }
+            });
+            writeJSON(STORAGE.ptoCredits, mapped);
+        }
+
+        async function loadAttendanceDataFromApi(forceReload = false) {
+            if (attendanceApiState.loading) return;
+            if (!forceReload && attendanceApiState.initialized) return;
+            attendanceApiState.loading = true;
 
             try {
                 const [records, policies, credits, requests, notifications, absences] = await Promise.all([
@@ -70829,15 +70852,7 @@ console.log('✅ Global functions exported to window object');
                     writeJSON(STORAGE.policies, mapped);
                 }
 
-                if (Array.isArray(credits)) {
-                    const mapped = {};
-                    credits.forEach((item) => {
-                        const username = item?.username || item?.Username;
-                        if (!username) return;
-                        mapped[username] = Number(item?.creditHours ?? item?.CreditHours ?? 0) || 0;
-                    });
-                    writeJSON(STORAGE.ptoCredits, mapped);
-                }
+                mapAndStorePtoCredits(credits);
 
                 if (Array.isArray(requests)) {
                     writeJSON(STORAGE.ptoRequests, requests.map(mapApiPtoRequestToLocal));
@@ -70851,6 +70866,19 @@ console.log('✅ Global functions exported to window object');
                     writeJSON(STORAGE.absences, absences.map(mapApiAbsenceToLocal));
                 }
 
+                attendanceApiState.available = true;
+                attendanceApiState.initialized = true;
+            } catch (_) {
+                attendanceApiState.available = false;
+            } finally {
+                attendanceApiState.loading = false;
+            }
+        }
+
+        async function refreshPtoCreditsFromApi() {
+            try {
+                const credits = await attendanceApiRequest(ATTENDANCE_API.ptoCredits);
+                mapAndStorePtoCredits(credits);
                 attendanceApiState.available = true;
             } catch (_) {
                 attendanceApiState.available = false;
@@ -71196,8 +71224,16 @@ console.log('✅ Global functions exported to window object');
 
         function getPtoCreditForUser(username) {
             const credits = getPtoCredits();
-            const value = Number(credits[username]);
-            return Number.isFinite(value) ? value : 0;
+            const exact = Number(credits[username]);
+            if (Number.isFinite(exact)) return exact;
+
+            const normalized = normalizeUsernameKey(username);
+            const normalizedDirect = Number(credits[normalized]);
+            if (Number.isFinite(normalizedDirect)) return normalizedDirect;
+
+            const key = Object.keys(credits).find((item) => normalizeUsernameKey(item) === normalized);
+            const fallback = Number(key ? credits[key] : NaN);
+            return Number.isFinite(fallback) ? fallback : 0;
         }
 
         function findTodayRecord(username, dateISO) {
@@ -71559,6 +71595,10 @@ console.log('✅ Global functions exported to window object');
 
             const credits = getPtoCredits();
             credits[username] = Math.max(0, Number(creditEl?.value || 0) || 0);
+            const normalizedCreditKey = normalizeUsernameKey(username);
+            if (normalizedCreditKey && normalizedCreditKey !== username) {
+                credits[normalizedCreditKey] = credits[username];
+            }
             savePtoCredits(credits);
             fireAndForget(syncPtoCreditToApi(username, credits[username], context.displayName));
 
@@ -71591,6 +71631,10 @@ console.log('✅ Global functions exported to window object');
             const current = getPtoCreditForUser(username);
             const updated = Number((current + addHours).toFixed(2));
             credits[username] = updated;
+            const normalizedCreditKey = normalizeUsernameKey(username);
+            if (normalizedCreditKey && normalizedCreditKey !== username) {
+                credits[normalizedCreditKey] = updated;
+            }
             savePtoCredits(credits);
             fireAndForget(syncPtoCreditToApi(username, updated, context.displayName));
 
@@ -71861,7 +71905,8 @@ console.log('✅ Global functions exported to window object');
             calculateAttendanceHours();
         }
 
-        function refreshAttendanceView() {
+        async function refreshAttendanceView() {
+            await refreshPtoCreditsFromApi();
             renderAttendanceView();
         }
 
