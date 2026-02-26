@@ -72080,6 +72080,22 @@ console.log('✅ Global functions exported to window object');
                 const clockedInUsers = Array.from(clockedInByIdentity.values())
                     .map((record) => record.displayName || record.username)
                     .filter(Boolean);
+                const clockedOutByIdentity = new Map();
+                recordsToday
+                    .filter((record) => !!record.clockOut)
+                    .forEach((record) => {
+                        const identity = resolveCanonicalUsername(record.username)
+                            || toIdentityKey(record.username)
+                            || toIdentityKey(record.displayName)
+                            || String(record.id || '');
+                        const existing = clockedOutByIdentity.get(identity);
+                        if (!existing || String(record.clockOut || '') > String(existing.clockOut || '')) {
+                            clockedOutByIdentity.set(identity, record);
+                        }
+                    });
+                const clockedOutUsers = Array.from(clockedOutByIdentity.values())
+                    .map((record) => record.displayName || record.username)
+                    .filter(Boolean);
                 const completedToday = recordsToday.filter((record) => !!record.clockOut).length;
                 const scheduledCount = Object.keys(scheduleMap).length;
                 const absencesToday = getAbsences().filter((entry) => entry.date === todayISO).length;
@@ -72091,6 +72107,7 @@ console.log('✅ Global functions exported to window object');
                         <div class="attendance-stat"><div class="attendance-stat-label">Clocked Out</div><div class="attendance-stat-value">${completedToday}</div></div>
                         <div class="attendance-stat"><div class="attendance-stat-label">Absences Recorded</div><div class="attendance-stat-value">${absencesToday}</div></div>
                         <div class="attendance-stat attendance-stat-wide"><div class="attendance-stat-label">Who Is Clocked In</div><div class="attendance-stat-value">${clockedInUsers.length ? clockedInUsers.map((name) => `<span class="attendance-tag">${name}</span>`).join('') : '<span class="attendance-note">None</span>'}</div></div>
+                        <div class="attendance-stat attendance-stat-wide"><div class="attendance-stat-label">Who Clocked Out</div><div class="attendance-stat-value">${clockedOutUsers.length ? clockedOutUsers.map((name) => `<span class="attendance-tag">${name}</span>`).join('') : '<span class="attendance-note">None</span>'}</div></div>
                     `;
                 }
 
