@@ -15497,7 +15497,7 @@
                         <span>My Schedule</span>
                         <span class="nav-badge">5</span>
                     </a>
-                    <a href="#" class="nav-item" onclick="if(window.switchContentView){window.switchContentView('attendance', event); return false;}">
+                    <a href="#" class="nav-item" onclick="if(window.openMyAttendance){return window.openMyAttendance(event);} if(window.switchContentView){window.switchContentView('attendance', event); return false;}">
                         <i class="fas fa-user-clock"></i>
                         <span>My Attendance</span>
                     </a>
@@ -15543,7 +15543,7 @@
                         <span>Pay Stubs</span>
                         <span class="nav-badge">2</span>
                     </a>
-                    <a href="#" class="nav-item" onclick="if(window.switchContentView){window.switchContentView('attendance', event); return false;}">
+                    <a href="#" class="nav-item" onclick="if(window.openMyAttendance){return window.openMyAttendance(event);} if(window.switchContentView){window.switchContentView('attendance', event); return false;}">
                         <i class="fas fa-calendar"></i>
                         <span>Time Off</span>
                     </a>
@@ -16688,17 +16688,19 @@
                         <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.6rem;">
                             <h2 class="section-title">
                                 <i class="fas fa-user-clock" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
-                                My Attendance &amp; PTO
+                                <span id="attendanceViewTitle">My Attendance &amp; PTO</span>
                             </h2>
                             <div class="attendance-btn-row" style="margin-top:0;">
                                 <button class="btn-secondary" type="button" onclick="if(window.refreshAttendanceView){window.refreshAttendanceView();}">
                                     <i class="fas fa-sync-alt"></i> Refresh
                                 </button>
-                                <button class="btn-primary" type="button" onclick="if(window.auditAttendanceAbsences){window.auditAttendanceAbsences();}">
+                                <button class="btn-primary" id="attendanceAuditAbsencesBtn" type="button" onclick="if(window.auditAttendanceAbsences){window.auditAttendanceAbsences();}">
                                     <i class="fas fa-user-check"></i> Audit Absences
                                 </button>
                             </div>
                         </div>
+
+                        <div id="attendanceEmployeeSection">
 
                         <div class="attendance-grid">
                             <div class="attendance-card">
@@ -16788,6 +16790,8 @@
                                 <h3><i class="fas fa-bell"></i> My PTO &amp; Attendance Notifications</h3>
                                 <div id="attendanceNotificationsList" style="display:flex; flex-direction:column; gap:0.45rem;"></div>
                             </div>
+                        </div>
+
                         </div>
 
                         <div id="attendanceManagerSection" class="attendance-card" style="margin-top:1rem; display:none;">
@@ -68815,9 +68819,9 @@ console.log('✅ Global functions exported to window object');
                             <div id="managerUnassignedTasksList"></div>
                         </div>
                         <div class="manager-panel-links">
-                            <a href="#" class="nav-item" onclick="switchContentView('attendance', event); return false;">
+                            <a href="#" class="nav-item" onclick="if(window.openManageAttendance){return window.openManageAttendance(event);} switchContentView('attendance', event); return false;">
                                 <i class="fas fa-user-clock"></i>
-                                <span>Attendance Manager</span>
+                                <span>Manage Attendance</span>
                             </a>
                             <a href="#" class="nav-item" onclick="openDutiesManagement(); return false;">
                                 <i class="fas fa-clipboard-list"></i>
@@ -71637,14 +71641,27 @@ console.log('✅ Global functions exported to window object');
             if (!root) return;
 
             const context = getCurrentUserContext();
+            const viewMode = window.__attendanceViewMode === 'manager' ? 'manager' : 'employee';
+            const managerRole = isManagerRole(context.role);
+            const managerMode = managerRole && viewMode === 'manager';
             const todayISO = toISODate(new Date());
             const scheduleMap = getScheduleForDate(new Date());
             const mySchedule = scheduleMap[context.username] || null;
             const myRecord = findTodayRecord(context.username, todayISO);
 
+            const titleEl = document.getElementById('attendanceViewTitle');
+            if (titleEl) {
+                titleEl.textContent = managerMode ? 'Manage Attendance' : 'My Attendance & PTO';
+            }
+
+            const employeeSection = document.getElementById('attendanceEmployeeSection');
+            if (employeeSection) employeeSection.style.display = managerMode ? 'none' : '';
+
+            const auditBtn = document.getElementById('attendanceAuditAbsencesBtn');
+            if (auditBtn) auditBtn.style.display = managerMode ? '' : 'none';
+
             const managerSection = document.getElementById('attendanceManagerSection');
-            const managerVisible = isManagerRole(context.role);
-            if (managerSection) managerSection.style.display = managerVisible ? '' : 'none';
+            if (managerSection) managerSection.style.display = managerMode ? '' : 'none';
 
             const scheduleEl = document.getElementById('attendanceTodaySchedule');
             if (scheduleEl) {
@@ -71708,7 +71725,7 @@ console.log('✅ Global functions exported to window object');
                     : '<div class="attendance-note">No notifications yet.</div>';
             }
 
-            if (managerVisible) {
+            if (managerMode) {
                 autoAuditAbsencesForToday();
                 populateManagerEmployeeSelectors();
                 renderCurrentPolicy();
@@ -71797,6 +71814,24 @@ console.log('✅ Global functions exported to window object');
         window.calculateAttendanceHours = calculateAttendanceHours;
         window.refreshAttendanceView = refreshAttendanceView;
 
+        window.openMyAttendance = function(event) {
+            if (event) event.preventDefault();
+            window.__attendanceViewMode = 'employee';
+            if (typeof window.switchContentView === 'function') {
+                window.switchContentView('attendance', event, { attendanceMode: 'employee' });
+            }
+            return false;
+        };
+
+        window.openManageAttendance = function(event) {
+            if (event) event.preventDefault();
+            window.__attendanceViewMode = 'manager';
+            if (typeof window.switchContentView === 'function') {
+                window.switchContentView('attendance', event, { attendanceMode: 'manager' });
+            }
+            return false;
+        };
+
         document.addEventListener('change', (event) => {
             const targetId = event?.target?.id;
             if (targetId === 'attendancePolicyUser') {
@@ -71814,6 +71849,12 @@ console.log('✅ Global functions exported to window object');
             window.switchContentView = function(viewName, event, options) {
                 const result = original.apply(this, arguments);
                 if (String(viewName || '') === 'attendance') {
+                    const requestedMode = String(options?.attendanceMode || '').toLowerCase();
+                    if (requestedMode === 'manager' || requestedMode === 'employee') {
+                        window.__attendanceViewMode = requestedMode;
+                    } else if (!window.__attendanceViewMode) {
+                        window.__attendanceViewMode = 'employee';
+                    }
                     setTimeout(() => refreshAttendanceView(), 0);
                 }
                 return result;
