@@ -71192,6 +71192,14 @@ console.log('✅ Global functions exported to window object');
             return `${value.toFixed(2)} h`;
         }
 
+        function isRecordOnIsoDay(record, dayISO) {
+            if (!record) return false;
+            if (String(record.date || '') === String(dayISO || '')) return true;
+            const inIso = record.clockIn ? toISODate(new Date(record.clockIn)) : '';
+            const outIso = record.clockOut ? toISODate(new Date(record.clockOut)) : '';
+            return inIso === dayISO || outIso === dayISO;
+        }
+
         function buildDailyAttendanceReportRows(records, todayISO, options = {}) {
             const includeEmployee = options.includeEmployee === true;
             const identityCandidates = options.identityCandidates instanceof Set ? options.identityCandidates : null;
@@ -71199,7 +71207,7 @@ console.log('✅ Global functions exported to window object');
 
             records
                 .filter((record) => {
-                    if (!record || record.date !== todayISO) return false;
+                    if (!record || !isRecordOnIsoDay(record, todayISO)) return false;
                     const hasClockActivity = !!record.clockIn || !!record.clockOut;
                     if (!hasClockActivity) return false;
                     if (!identityCandidates) return true;
@@ -72207,7 +72215,7 @@ console.log('✅ Global functions exported to window object');
             const managerMode = managerRole && viewMode === 'manager';
             const todayISO = toISODate(new Date());
             const allRecords = getRecords();
-            const recordsToday = allRecords.filter((record) => record.date === todayISO);
+            const recordsToday = allRecords.filter((record) => isRecordOnIsoDay(record, todayISO));
             const scheduleMap = getScheduleForDate(new Date());
             const mySchedule = scheduleMap[context.username] || null;
             const myRecord = findTodayRecord(context.username, todayISO, {
