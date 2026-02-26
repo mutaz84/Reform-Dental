@@ -15931,11 +15931,6 @@
                             
                             // Refresh schedule calendar
                             window.refreshMySchedule = async function() {
-                                if (typeof migrateLocalSchedulesToAPI === 'function') {
-                                    await migrateLocalSchedulesToAPI();
-                                } else if (typeof window.migrateLocalSchedulesToAPI === 'function') {
-                                    await window.migrateLocalSchedulesToAPI();
-                                }
                                 if (typeof syncSchedulesFromAPI === 'function') {
                                     await syncSchedulesFromAPI();
                                 } else if (typeof window.syncSchedulesFromAPI === 'function') {
@@ -16449,12 +16444,6 @@
                             
                             async function initializeMyScheduleView() {
                                 try {
-                                    if (typeof migrateLocalSchedulesToAPI === 'function') {
-                                        await migrateLocalSchedulesToAPI();
-                                    } else if (typeof window.migrateLocalSchedulesToAPI === 'function') {
-                                        await window.migrateLocalSchedulesToAPI();
-                                    }
-
                                     if (typeof syncSchedulesFromAPI === 'function') {
                                         await syncSchedulesFromAPI();
                                     } else if (typeof window.syncSchedulesFromAPI === 'function') {
@@ -27578,13 +27567,22 @@
                 if (!confirmDelete) return;
                 
                 // Delete from myScheduleShifts
+                let failedDeletes = 0;
                 for (const shiftId of row.shiftIds) {
                     const index = window.myScheduleShifts.findIndex(s => s.id === shiftId);
                     if (index > -1) {
                         const shiftToDelete = window.myScheduleShifts[index];
-                        await persistShiftDeleteToAPI(shiftToDelete, { silent: true });
-                        window.myScheduleShifts.splice(index, 1);
+                        const deletedOnApi = await persistShiftDeleteToAPI(shiftToDelete, { silent: true });
+                        if (deletedOnApi || !shiftLikelyFromDatabase(shiftToDelete)) {
+                            window.myScheduleShifts.splice(index, 1);
+                        } else {
+                            failedDeletes++;
+                        }
                     }
+                }
+
+                if (failedDeletes > 0) {
+                    alert(`⚠️ ${failedDeletes} schedule(s) could not be deleted from database. Please retry.`);
                 }
                 
                 // Refresh calendar
@@ -27593,7 +27591,7 @@
                 }
                 
                 if (typeof showNotification === 'function') {
-                    showNotification('Schedule deleted successfully', 'success');
+                    showNotification(failedDeletes > 0 ? 'Some schedules were not deleted from database' : 'Schedule deleted successfully', failedDeletes > 0 ? 'warning' : 'success');
                 }
             }
             
@@ -47881,8 +47879,14 @@ window.addEventListener('load', function() {
                 // Remove from array
                 const index = window.myScheduleShifts.findIndex(s => s.id === shiftId);
                 if (index > -1) {
-                    await persistShiftDeleteToAPI(window.myScheduleShifts[index], { silent: true, showToast: true });
-                    window.myScheduleShifts.splice(index, 1);
+                    const shiftToDelete = window.myScheduleShifts[index];
+                    const deletedOnApi = await persistShiftDeleteToAPI(shiftToDelete, { silent: true, showToast: true });
+                    if (deletedOnApi || !shiftLikelyFromDatabase(shiftToDelete)) {
+                        window.myScheduleShifts.splice(index, 1);
+                    } else {
+                        alert('⚠️ Could not delete this schedule from database. Please retry.');
+                        return;
+                    }
                     console.log('🗑️ Shift deleted:', shiftId);
                     
                     // Close modal
@@ -48161,14 +48165,20 @@ window.addEventListener('load', function() {
             
             if (confirmDelete) {
                 let deletedCount = 0;
+                let failedDeletes = 0;
                 
                 // Delete all shifts with these IDs (in reverse order to avoid index issues)
                 for (const shiftId of shiftIds) {
                     const index = window.myScheduleShifts.findIndex(s => s.id === shiftId);
                     if (index > -1) {
-                        await persistShiftDeleteToAPI(window.myScheduleShifts[index], { silent: true });
-                        window.myScheduleShifts.splice(index, 1);
-                        deletedCount++;
+                        const shiftToDelete = window.myScheduleShifts[index];
+                        const deletedOnApi = await persistShiftDeleteToAPI(shiftToDelete, { silent: true });
+                        if (deletedOnApi || !shiftLikelyFromDatabase(shiftToDelete)) {
+                            window.myScheduleShifts.splice(index, 1);
+                            deletedCount++;
+                        } else {
+                            failedDeletes++;
+                        }
                     }
                 }
                 
@@ -48183,7 +48193,11 @@ window.addEventListener('load', function() {
                     window.renderMyScheduleCalendar();
                 }
                 
-                alert(`✅ ${deletedCount > 1 ? deletedCount + ' schedules' : 'Schedule'} deleted successfully!`);
+                if (failedDeletes > 0) {
+                    alert(`⚠️ Deleted ${deletedCount} schedule(s), but ${failedDeletes} could not be deleted from database.`);
+                } else {
+                    alert(`✅ ${deletedCount > 1 ? deletedCount + ' schedules' : 'Schedule'} deleted successfully!`);
+                }
             }
         };
         
@@ -48444,12 +48458,23 @@ window.addEventListener('load', function() {
             const role = providerData?.role || 'Staff';
             
             // Delete all old shifts
+            let failedOldDeletes = 0;
             for (const shiftId of shiftIds) {
                 const index = window.myScheduleShifts.findIndex(s => s.id === shiftId);
                 if (index > -1) {
-                    await persistShiftDeleteToAPI(window.myScheduleShifts[index], { silent: true });
-                    window.myScheduleShifts.splice(index, 1);
+                    const shiftToDelete = window.myScheduleShifts[index];
+                    const deletedOnApi = await persistShiftDeleteToAPI(shiftToDelete, { silent: true });
+                    if (deletedOnApi || !shiftLikelyFromDatabase(shiftToDelete)) {
+                        window.myScheduleShifts.splice(index, 1);
+                    } else {
+                        failedOldDeletes++;
+                    }
                 }
+            }
+
+            if (failedOldDeletes > 0) {
+                alert(`⚠️ Could not delete ${failedOldDeletes} existing schedule(s) from database. Update cancelled to prevent duplicates.`);
+                return;
             }
             
             // Create new shifts for each selected room
@@ -66846,13 +66871,35 @@ async function persistShiftUpdateToAPI(shift, options = {}) {
 async function persistShiftDeleteToAPI(shift, options = {}) {
     const shouldToast = options.showToast === true || (options.showToast !== false && !options.silent);
     if (!shift) return false;
-    const dbId = toNumericId(shift.dbId || shift.apiId);
+    let dbId = toNumericId(shift.dbId || shift.apiId);
+
+    if (!dbId && shift.id) {
+        const idMatch = String(shift.id).match(/^shift-(\d+)$/);
+        if (idMatch && idMatch[1]) {
+            dbId = toNumericId(idMatch[1]);
+        }
+    }
+
+    if (!dbId) {
+        try {
+            const response = await fetch(`${getScheduleApiBaseUrl()}/schedules`);
+            if (response.ok) {
+                const apiList = await response.json();
+                const targetFp = buildScheduleFingerprintFromShape(shift);
+                const matched = (Array.isArray(apiList) ? apiList : []).find(row => {
+                    return buildScheduleFingerprintFromShape(row) === targetFp;
+                });
+                dbId = toNumericId(matched?.Id || matched?.id);
+            }
+        } catch (_) {}
+    }
+
     if (!dbId) {
         if (!options.silent) {
-            console.warn('⚠️ No schedule dbId found; delete will only apply locally:', shift.id);
+            console.warn('⚠️ No schedule dbId found; unable to confirm database delete:', shift.id);
         }
         if (shouldToast) {
-            notifySchedulePersistence('Schedule delete', false, 'local only');
+            notifySchedulePersistence('Schedule delete', false, 'missing db id');
         }
         return false;
     }
@@ -67115,6 +67162,12 @@ async function migrateLocalSchedulesToAPI() {
     } finally {
         window.__scheduleMigrationInFlight = false;
     }
+}
+
+function shiftLikelyFromDatabase(shift) {
+    if (!shift) return false;
+    if (toNumericId(shift.dbId || shift.apiId)) return true;
+    return /^shift-\d+$/.test(String(shift.id || ''));
 }
 
 // ============ VENDORS API FUNCTIONS ============
