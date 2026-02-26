@@ -70810,10 +70810,15 @@ console.log('✅ Global functions exported to window object');
                 const username = String(usernameRaw || '').trim();
                 if (!username) return;
                 const value = Number(item?.creditHours ?? item?.CreditHours ?? 0) || 0;
-                mapped[username] = value;
+                const canonicalUsername = resolveCanonicalUsername(username) || username;
+                mapped[canonicalUsername] = value;
                 const normalized = normalizeUsernameKey(username);
                 if (normalized && normalized !== username) {
                     mapped[normalized] = value;
+                }
+                const canonicalNormalized = normalizeUsernameKey(canonicalUsername);
+                if (canonicalNormalized && canonicalNormalized !== canonicalUsername) {
+                    mapped[canonicalNormalized] = value;
                 }
             });
             writeJSON(STORAGE.ptoCredits, mapped);
@@ -71003,6 +71008,35 @@ console.log('✅ Global functions exported to window object');
             return readJSON('appUsers', {});
         }
 
+        function toIdentityKey(value) {
+            return String(value || '').trim().toLowerCase();
+        }
+
+        function getUserIdentityKeys(userKey, userObj = null) {
+            const user = userObj || {};
+            const identities = new Set();
+            const first = String(user.firstName || '').trim();
+            const last = String(user.lastName || '').trim();
+            const full = [first, last].filter(Boolean).join(' ').trim();
+            [userKey, user.username, user.name, full, user.workEmail, user.personalEmail].forEach((item) => {
+                const normalized = toIdentityKey(item);
+                if (normalized) identities.add(normalized);
+            });
+            return identities;
+        }
+
+        function resolveCanonicalUsername(rawValue) {
+            const users = getUsersMap();
+            const target = toIdentityKey(rawValue);
+            if (!target) return '';
+
+            const direct = Object.keys(users || {}).find((key) => toIdentityKey(key) === target);
+            if (direct) return direct;
+
+            const matched = Object.keys(users || {}).find((key) => getUserIdentityKeys(key, users[key]).has(target));
+            return matched || '';
+        }
+
         function toISODate(inputDate = new Date()) {
             const d = new Date(inputDate);
             const year = d.getFullYear();
@@ -71043,14 +71077,15 @@ console.log('✅ Global functions exported to window object');
 
         function getCurrentUserContext() {
             const users = getUsersMap();
-            const username = String(localStorage.getItem('loggedInUser') || '').trim();
-            const user = users[username] || {};
+            const rawUsername = String(localStorage.getItem('loggedInUser') || '').trim();
+            const canonicalUsername = resolveCanonicalUsername(rawUsername) || rawUsername;
+            const user = users[canonicalUsername] || users[rawUsername] || {};
             const first = String(user.firstName || '').trim();
             const last = String(user.lastName || '').trim();
             const fullName = [first, last].filter(Boolean).join(' ').trim();
-            const displayName = String(user.name || fullName || username || 'Unknown User').trim();
+            const displayName = String(user.name || fullName || canonicalUsername || rawUsername || 'Unknown User').trim();
             const role = String(user.role || localStorage.getItem('userRole') || 'user').toLowerCase();
-            return { username, user, role, displayName };
+            return { username: canonicalUsername, rawUsername, user, role, displayName };
         }
 
         function isManagerRole(role) {
@@ -71224,15 +71259,23 @@ console.log('✅ Global functions exported to window object');
 
         function getPtoCreditForUser(username) {
             const credits = getPtoCredits();
-            const exact = Number(credits[username]);
-            if (Number.isFinite(exact)) return exact;
+            const users = getUsersMap();
+            const canonical = resolveCanonicalUsername(username);
+            const user = users[canonical] || users[username] || null;
+            const candidates = new Set([
+                toIdentityKey(username),
+                toIdentityKey(canonical),
+                ...Array.from(getUserIdentityKeys(canonical || username, user || {}))
+            ]);
 
-            const normalized = normalizeUsernameKey(username);
-            const normalizedDirect = Number(credits[normalized]);
-            if (Number.isFinite(normalizedDirect)) return normalizedDirect;
-
-            const key = Object.keys(credits).find((item) => normalizeUsernameKey(item) === normalized);
-            const fallback = Number(key ? credits[key] : NaN);
+            let fallback = NaN;
+            Object.keys(credits).some((key) => {
+                if (!candidates.has(toIdentityKey(key))) return false;
+                const value = Number(credits[key]);
+                if (!Number.isFinite(value)) return false;
+                fallback = value;
+                return true;
+            });
             return Number.isFinite(fallback) ? fallback : 0;
         }
 
