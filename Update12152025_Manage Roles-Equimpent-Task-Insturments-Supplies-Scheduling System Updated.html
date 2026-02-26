@@ -71102,7 +71102,18 @@ console.log('✅ Global functions exported to window object');
             const users = getUsersMap();
             const rawUsername = String(localStorage.getItem('loggedInUser') || '').trim();
             const canonicalUsername = resolveCanonicalUsername(rawUsername) || rawUsername;
-            const user = users[canonicalUsername] || users[rawUsername] || {};
+            const sessionUser = (() => {
+                try {
+                    const raw = localStorage.getItem('currentUser');
+                    return raw ? JSON.parse(raw) : {};
+                } catch (_) {
+                    return {};
+                }
+            })();
+            const user = {
+                ...(sessionUser || {}),
+                ...(users[canonicalUsername] || users[rawUsername] || {})
+            };
             const first = String(user.firstName || '').trim();
             const last = String(user.lastName || '').trim();
             const fullName = [first, last].filter(Boolean).join(' ').trim();
@@ -71471,7 +71482,7 @@ console.log('✅ Global functions exported to window object');
             const dateISO = toISODate(now);
             const openRecords = getOpenRecordsForContext(context);
             const existing = openRecords.length > 0
-                ? openRecords[0]
+                ? openRecords[openRecords.length - 1]
                 : findTodayRecord(username, dateISO, {
                     allowOpenFallback: true,
                     identityHints: [
@@ -71517,10 +71528,26 @@ console.log('✅ Global functions exported to window object');
             existing.flags = Array.from(new Set(flags));
             updateRecord(existing);
 
+            let autoClosedCount = 0;
+            if (openRecords.length > 1) {
+                const staleRecords = openRecords.filter((record) => String(record.id || '') !== String(existing.id || ''));
+                staleRecords.forEach((record) => {
+                    const staleFlags = Array.isArray(record.flags) ? [...record.flags] : [];
+                    staleFlags.push('auto_closed_duplicate_open');
+                    const staleMinutes = Math.max(0, Math.round((new Date(now).getTime() - new Date(record.clockIn || now).getTime()) / 60000));
+                    record.clockOut = now.toISOString();
+                    record.minutesWorked = staleMinutes;
+                    record.displayName = record.displayName || displayName;
+                    record.flags = Array.from(new Set(staleFlags));
+                    updateRecord(record);
+                    autoClosedCount += 1;
+                });
+            }
+
             addNotification('__managers__', `${displayName} clocked out at ${formatDateTime(now)} (${formatHours(workedMinutes)}).`, 'info');
             if (typeof showNotification === 'function') {
-                if (openRecords.length > 1) {
-                    showNotification(`Clock out recorded for oldest open entry. ${openRecords.length - 1} open record(s) remaining.`, 'warning');
+                if (autoClosedCount > 0) {
+                    showNotification(`Clock out recorded. Auto-closed ${autoClosedCount} duplicate open record(s).`, 'warning');
                 } else {
                     showNotification('Clock out recorded.', 'success');
                 }
