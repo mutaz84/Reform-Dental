@@ -72360,39 +72360,33 @@ console.log('✅ Global functions exported to window object');
                 renderCurrentPolicy();
 
                 const managerStats = document.getElementById('attendanceManagerStats');
-                const clockedInByIdentity = new Map();
+                const getRecordEventTime = (record) => new Date(record?.clockOut || record?.clockIn || 0).getTime() || 0;
+                const latestByIdentity = new Map();
                 recordsToday
-                    .filter((record) => !!record.clockIn && !record.clockOut)
+                    .filter((record) => !!record?.clockIn || !!record?.clockOut)
                     .forEach((record) => {
                         const identity = resolveCanonicalUsername(record.username)
+                            || resolveCanonicalUsername(record.displayName)
                             || toIdentityKey(record.username)
                             || toIdentityKey(record.displayName)
                             || String(record.id || '');
-                        if (!clockedInByIdentity.has(identity)) {
-                            clockedInByIdentity.set(identity, record);
+                        const existing = latestByIdentity.get(identity);
+                        if (!existing || getRecordEventTime(record) >= getRecordEventTime(existing)) {
+                            latestByIdentity.set(identity, record);
                         }
                     });
-                const clockedInNow = clockedInByIdentity.size;
-                const clockedInUsers = Array.from(clockedInByIdentity.values())
-                    .map((record) => record.displayName || record.username)
+
+                const latestRows = Array.from(latestByIdentity.values());
+                const activeNowRows = latestRows.filter((record) => !!record?.clockIn && !record?.clockOut);
+                const clockedOutRows = latestRows.filter((record) => !!record?.clockOut);
+                const clockedInNow = activeNowRows.length;
+                const clockedInUsers = activeNowRows
+                    .map((record) => getCanonicalEmployeeDisplayName(record))
                     .filter(Boolean);
-                const clockedOutByIdentity = new Map();
-                recordsToday
-                    .filter((record) => !!record.clockOut)
-                    .forEach((record) => {
-                        const identity = resolveCanonicalUsername(record.username)
-                            || toIdentityKey(record.username)
-                            || toIdentityKey(record.displayName)
-                            || String(record.id || '');
-                        const existing = clockedOutByIdentity.get(identity);
-                        if (!existing || String(record.clockOut || '') > String(existing.clockOut || '')) {
-                            clockedOutByIdentity.set(identity, record);
-                        }
-                    });
-                const clockedOutUsers = Array.from(clockedOutByIdentity.values())
-                    .map((record) => record.displayName || record.username)
+                const clockedOutUsers = clockedOutRows
+                    .map((record) => getCanonicalEmployeeDisplayName(record))
                     .filter(Boolean);
-                const completedToday = recordsToday.filter((record) => !!record.clockOut).length;
+                const completedToday = clockedOutRows.length;
                 const scheduledCount = Object.keys(scheduleMap).length;
                 const absencesToday = getAbsences().filter((entry) => entry.date === todayISO).length;
 
@@ -72412,21 +72406,19 @@ console.log('✅ Global functions exported to window object');
                     todayBody.innerHTML = Object.keys(scheduleMap).map((username) => {
                         const schedule = scheduleMap[username];
                         const userCandidates = getAttendanceIdentityCandidates(username);
-                        const record = recordsToday.find((entry) => {
-                            const entryUser = toIdentityKey(entry?.username);
-                            const entryDisplay = toIdentityKey(entry?.displayName);
-                            return userCandidates.has(entryUser) || userCandidates.has(entryDisplay);
-                        });
+                        const latestRecord = recordsToday
+                            .filter((entry) => recordMatchesIdentityCandidates(entry, userCandidates) && (!!entry?.clockIn || !!entry?.clockOut))
+                            .sort((a, b) => getRecordEventTime(b) - getRecordEventTime(a))[0] || null;
                         const ptoApproved = getPtoRequests().some((request) => request.username === username && isDateInPto(request, todayISO));
 
                         let clockLabel = '-';
                         let status = 'Scheduled';
-                        if (record?.clockIn && !record?.clockOut) {
-                            clockLabel = `IN ${formatDateTime(record.clockIn)}`;
-                            status = 'Clocked In';
-                        } else if (record?.clockOut) {
-                            clockLabel = `OUT ${formatDateTime(record.clockOut)}`;
+                        if (latestRecord?.clockOut) {
+                            clockLabel = `OUT ${formatDateTime(latestRecord.clockOut)}`;
                             status = 'Clocked Out';
+                        } else if (latestRecord?.clockIn && !latestRecord?.clockOut) {
+                            clockLabel = `IN ${formatDateTime(latestRecord.clockIn)}`;
+                            status = 'Clocked In';
                         } else if (ptoApproved) {
                             status = 'PTO Approved';
                         } else {
