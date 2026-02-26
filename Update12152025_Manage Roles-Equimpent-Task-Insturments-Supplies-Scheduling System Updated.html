@@ -71302,9 +71302,38 @@ console.log('✅ Global functions exported to window object');
             return Number.isFinite(fallback) ? fallback : 0;
         }
 
-        function findTodayRecord(username, dateISO) {
+        function getAttendanceIdentityCandidates(username) {
+            const users = getUsersMap();
+            const canonical = resolveCanonicalUsername(username);
+            const user = users[canonical] || users[username] || null;
+            return new Set([
+                toIdentityKey(username),
+                toIdentityKey(canonical),
+                ...Array.from(getUserIdentityKeys(canonical || username, user || {}))
+            ]);
+        }
+
+        function findTodayRecord(username, dateISO, options = {}) {
+            const allowOpenFallback = options.allowOpenFallback === true;
             const records = getRecords();
-            return records.find((record) => record.username === username && record.date === dateISO);
+            const candidates = getAttendanceIdentityCandidates(username);
+
+            const todayRecord = records.find((record) => {
+                const recordUser = toIdentityKey(record?.username);
+                return record?.date === dateISO && candidates.has(recordUser);
+            });
+            if (todayRecord) return todayRecord;
+
+            if (!allowOpenFallback) return null;
+
+            const openRecord = [...records]
+                .filter((record) => {
+                    const recordUser = toIdentityKey(record?.username);
+                    return candidates.has(recordUser) && !!record?.clockIn && !record?.clockOut;
+                })
+                .sort((a, b) => new Date(b.clockIn || 0).getTime() - new Date(a.clockIn || 0).getTime())[0] || null;
+
+            return openRecord;
         }
 
         function describeFlag(flag) {
@@ -71394,7 +71423,7 @@ console.log('✅ Global functions exported to window object');
 
             const now = new Date();
             const dateISO = toISODate(now);
-            const existing = findTodayRecord(username, dateISO);
+            const existing = findTodayRecord(username, dateISO, { allowOpenFallback: true });
 
             if (!existing || !existing.clockIn) {
                 if (typeof showNotification === 'function') showNotification('Clock in first, then clock out.', 'warning');
