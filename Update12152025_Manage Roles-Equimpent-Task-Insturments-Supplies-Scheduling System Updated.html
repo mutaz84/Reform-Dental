@@ -71317,10 +71317,16 @@ console.log('✅ Global functions exported to window object');
             const allowOpenFallback = options.allowOpenFallback === true;
             const records = getRecords();
             const candidates = getAttendanceIdentityCandidates(username);
+            const hintValues = Array.isArray(options.identityHints) ? options.identityHints : [];
+            hintValues.forEach((hint) => {
+                const normalized = toIdentityKey(hint);
+                if (normalized) candidates.add(normalized);
+            });
 
             const todayRecord = records.find((record) => {
                 const recordUser = toIdentityKey(record?.username);
-                return record?.date === dateISO && candidates.has(recordUser);
+                const recordDisplay = toIdentityKey(record?.displayName);
+                return record?.date === dateISO && (candidates.has(recordUser) || candidates.has(recordDisplay));
             });
             if (todayRecord) return todayRecord;
 
@@ -71329,7 +71335,8 @@ console.log('✅ Global functions exported to window object');
             const openRecord = [...records]
                 .filter((record) => {
                     const recordUser = toIdentityKey(record?.username);
-                    return candidates.has(recordUser) && !!record?.clockIn && !record?.clockOut;
+                    const recordDisplay = toIdentityKey(record?.displayName);
+                    return (candidates.has(recordUser) || candidates.has(recordDisplay)) && !!record?.clockIn && !record?.clockOut;
                 })
                 .sort((a, b) => new Date(b.clockIn || 0).getTime() - new Date(a.clockIn || 0).getTime())[0] || null;
 
@@ -71418,12 +71425,22 @@ console.log('✅ Global functions exported to window object');
         }
 
         function attendanceClockOut() {
-            const { username, displayName } = getCurrentUserContext();
+            const context = getCurrentUserContext();
+            const { username, displayName } = context;
             if (!username) return;
 
             const now = new Date();
             const dateISO = toISODate(now);
-            const existing = findTodayRecord(username, dateISO, { allowOpenFallback: true });
+            const existing = findTodayRecord(username, dateISO, {
+                allowOpenFallback: true,
+                identityHints: [
+                    context.rawUsername,
+                    context.displayName,
+                    context.user?.name,
+                    context.user?.workEmail,
+                    context.user?.personalEmail
+                ]
+            });
 
             if (!existing || !existing.clockIn) {
                 if (typeof showNotification === 'function') showNotification('Clock in first, then clock out.', 'warning');
@@ -71827,7 +71844,16 @@ console.log('✅ Global functions exported to window object');
             const todayISO = toISODate(new Date());
             const scheduleMap = getScheduleForDate(new Date());
             const mySchedule = scheduleMap[context.username] || null;
-            const myRecord = findTodayRecord(context.username, todayISO);
+            const myRecord = findTodayRecord(context.username, todayISO, {
+                allowOpenFallback: true,
+                identityHints: [
+                    context.rawUsername,
+                    context.displayName,
+                    context.user?.name,
+                    context.user?.workEmail,
+                    context.user?.personalEmail
+                ]
+            });
 
             const titleEl = document.getElementById('attendanceViewTitle');
             if (titleEl) {
