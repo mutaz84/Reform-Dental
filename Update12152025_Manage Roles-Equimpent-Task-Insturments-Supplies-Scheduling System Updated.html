@@ -71343,6 +71343,34 @@ console.log('✅ Global functions exported to window object');
             return openRecord;
         }
 
+        function getContextIdentityCandidateSet(context) {
+            const candidates = getAttendanceIdentityCandidates(context?.username || '');
+            const hints = [
+                context?.rawUsername,
+                context?.displayName,
+                context?.user?.name,
+                context?.user?.workEmail,
+                context?.user?.personalEmail
+            ];
+            hints.forEach((hint) => {
+                const normalized = toIdentityKey(hint);
+                if (normalized) candidates.add(normalized);
+            });
+            return candidates;
+        }
+
+        function getOpenRecordsForContext(context) {
+            const records = getRecords();
+            const candidates = getContextIdentityCandidateSet(context);
+            return records
+                .filter((record) => {
+                    const recordUser = toIdentityKey(record?.username);
+                    const recordDisplay = toIdentityKey(record?.displayName);
+                    return (candidates.has(recordUser) || candidates.has(recordDisplay)) && !!record?.clockIn && !record?.clockOut;
+                })
+                .sort((a, b) => new Date(a.clockIn || 0).getTime() - new Date(b.clockIn || 0).getTime());
+        }
+
         function describeFlag(flag) {
             const map = {
                 late_to_work: 'Late to work',
@@ -71371,11 +71399,21 @@ console.log('✅ Global functions exported to window object');
         }
 
         function attendanceClockIn() {
-            const { username, displayName } = getCurrentUserContext();
+            const context = getCurrentUserContext();
+            const { username, displayName } = context;
             if (!username) return;
 
             const now = new Date();
             const dateISO = toISODate(now);
+            const openRecords = getOpenRecordsForContext(context);
+            if (openRecords.length > 0) {
+                const oldestOpen = openRecords[0];
+                if (typeof showNotification === 'function') {
+                    showNotification(`You already have an open clock-in from ${formatDateTime(oldestOpen.clockIn)}. Please clock out first.`, 'warning');
+                }
+                refreshAttendanceView();
+                return;
+            }
             const existing = findTodayRecord(username, dateISO);
             if (existing && existing.clockIn && !existing.clockOut) {
                 if (typeof showNotification === 'function') showNotification('Already clocked in for today.', 'warning');
@@ -71431,16 +71469,19 @@ console.log('✅ Global functions exported to window object');
 
             const now = new Date();
             const dateISO = toISODate(now);
-            const existing = findTodayRecord(username, dateISO, {
-                allowOpenFallback: true,
-                identityHints: [
-                    context.rawUsername,
-                    context.displayName,
-                    context.user?.name,
-                    context.user?.workEmail,
-                    context.user?.personalEmail
-                ]
-            });
+            const openRecords = getOpenRecordsForContext(context);
+            const existing = openRecords.length > 0
+                ? openRecords[0]
+                : findTodayRecord(username, dateISO, {
+                    allowOpenFallback: true,
+                    identityHints: [
+                        context.rawUsername,
+                        context.displayName,
+                        context.user?.name,
+                        context.user?.workEmail,
+                        context.user?.personalEmail
+                    ]
+                });
 
             if (!existing || !existing.clockIn) {
                 if (typeof showNotification === 'function') showNotification('Clock in first, then clock out.', 'warning');
@@ -71477,7 +71518,13 @@ console.log('✅ Global functions exported to window object');
             updateRecord(existing);
 
             addNotification('__managers__', `${displayName} clocked out at ${formatDateTime(now)} (${formatHours(workedMinutes)}).`, 'info');
-            if (typeof showNotification === 'function') showNotification('Clock out recorded.', 'success');
+            if (typeof showNotification === 'function') {
+                if (openRecords.length > 1) {
+                    showNotification(`Clock out recorded for oldest open entry. ${openRecords.length - 1} open record(s) remaining.`, 'warning');
+                } else {
+                    showNotification('Clock out recorded.', 'success');
+                }
+            }
             refreshAttendanceView();
         }
 
@@ -71938,9 +71985,20 @@ console.log('✅ Global functions exported to window object');
 
                 const managerStats = document.getElementById('attendanceManagerStats');
                 const recordsToday = getRecords().filter((record) => record.date === todayISO);
-                const clockedInNow = recordsToday.filter((record) => !!record.clockIn && !record.clockOut).length;
-                const clockedInUsers = recordsToday
+                const clockedInByIdentity = new Map();
+                recordsToday
                     .filter((record) => !!record.clockIn && !record.clockOut)
+                    .forEach((record) => {
+                        const identity = resolveCanonicalUsername(record.username)
+                            || toIdentityKey(record.username)
+                            || toIdentityKey(record.displayName)
+                            || String(record.id || '');
+                        if (!clockedInByIdentity.has(identity)) {
+                            clockedInByIdentity.set(identity, record);
+                        }
+                    });
+                const clockedInNow = clockedInByIdentity.size;
+                const clockedInUsers = Array.from(clockedInByIdentity.values())
                     .map((record) => record.displayName || record.username)
                     .filter(Boolean);
                 const completedToday = recordsToday.filter((record) => !!record.clockOut).length;
@@ -71961,7 +72019,12 @@ console.log('✅ Global functions exported to window object');
                 if (todayBody) {
                     todayBody.innerHTML = Object.keys(scheduleMap).map((username) => {
                         const schedule = scheduleMap[username];
-                        const record = recordsToday.find((entry) => entry.username === username);
+                        const userCandidates = getAttendanceIdentityCandidates(username);
+                        const record = recordsToday.find((entry) => {
+                            const entryUser = toIdentityKey(entry?.username);
+                            const entryDisplay = toIdentityKey(entry?.displayName);
+                            return userCandidates.has(entryUser) || userCandidates.has(entryDisplay);
+                        });
                         const ptoApproved = getPtoRequests().some((request) => request.username === username && isDateInPto(request, todayISO));
 
                         let clockLabel = '-';
