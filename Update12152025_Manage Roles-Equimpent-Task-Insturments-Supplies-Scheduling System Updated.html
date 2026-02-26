@@ -6986,6 +6986,9 @@
             background: var(--bg-secondary);
             padding: 0.55rem;
         }
+        .attendance-stat-wide {
+            grid-column: 1 / -1;
+        }
         .attendance-stat-label {
             font-size: 0.72rem;
             color: var(--text-secondary);
@@ -16817,7 +16820,7 @@
                                     </div>
                                 </div>
                                 <div class="attendance-card" style="padding:0.7rem;">
-                                    <h3 style="font-size:0.88rem;"><i class="fas fa-user-cog"></i> Flexibility &amp; PTO Credit</h3>
+                                    <h3 style="font-size:0.88rem;"><i class="fas fa-user-cog"></i> Flexibility &amp; PTO Manager</h3>
                                     <div class="attendance-input-row">
                                         <div>
                                             <label>Employee</label>
@@ -16841,17 +16844,28 @@
                                             <input type="number" id="attendanceFlexAfter" min="0" step="1" value="0">
                                         </div>
                                         <div>
-                                            <label>PTO Credit (hours)</label>
+                                            <label>Set PTO Balance (hours)</label>
                                             <input type="number" id="attendancePtoCreditInput" min="0" step="0.5" value="0">
                                         </div>
                                     </div>
+                                    <div class="attendance-stat-grid" style="margin-bottom:0.45rem;">
+                                        <div class="attendance-stat attendance-stat-wide">
+                                            <div class="attendance-stat-label">Current PTO Balance</div>
+                                            <div class="attendance-stat-value" id="attendanceSelectedPtoBalance">0.00 h</div>
+                                        </div>
+                                    </div>
+                                    <div class="attendance-input-row" style="grid-template-columns:minmax(180px, 1fr);">
+                                        <div>
+                                            <label>Add PTO Hours</label>
+                                            <input type="number" id="attendancePtoAddHours" min="0" step="0.5" placeholder="8">
+                                        </div>
+                                    </div>
                                     <div class="attendance-btn-row">
-                                        <button class="btn-primary" type="button" onclick="if(window.saveAttendancePolicyAndCredit){window.saveAttendancePolicyAndCredit();}">Save Employee Policy</button>
+                                        <button class="btn-primary" type="button" onclick="if(window.saveAttendancePolicyAndCredit){window.saveAttendancePolicyAndCredit();}">Save Policy &amp; Set Balance</button>
+                                        <button class="btn-secondary" type="button" onclick="if(window.addPtoHoursForSelectedEmployee){window.addPtoHoursForSelectedEmployee();}">Add PTO Hours</button>
                                     </div>
                                 </div>
                             </div>
-
-                            <div id="attendanceClockedInNowList" class="attendance-note" style="margin-top:0.6rem;"></div>
 
                             <div class="attendance-grid" style="margin-top:0.9rem;">
                                 <div class="attendance-card" style="padding:0.7rem;">
@@ -71552,6 +71566,43 @@ console.log('✅ Global functions exported to window object');
             refreshAttendanceView();
         }
 
+        function addPtoHoursForSelectedEmployee() {
+            const context = getCurrentUserContext();
+            if (!isManagerRole(context.role)) {
+                if (typeof showNotification === 'function') showNotification('Only manager roles can manage PTO hours.', 'error');
+                return;
+            }
+
+            const userSelect = document.getElementById('attendancePolicyUser');
+            const addHoursEl = document.getElementById('attendancePtoAddHours');
+            const username = userSelect?.value || '';
+            const addHours = Number(addHoursEl?.value || 0);
+
+            if (!username) {
+                if (typeof showNotification === 'function') showNotification('Select an employee first.', 'warning');
+                return;
+            }
+            if (!Number.isFinite(addHours) || addHours <= 0) {
+                if (typeof showNotification === 'function') showNotification('Enter PTO hours greater than 0.', 'warning');
+                return;
+            }
+
+            const credits = getPtoCredits();
+            const current = getPtoCreditForUser(username);
+            const updated = Number((current + addHours).toFixed(2));
+            credits[username] = updated;
+            savePtoCredits(credits);
+            fireAndForget(syncPtoCreditToApi(username, updated, context.displayName));
+
+            const employee = getAllEmployees().find((entry) => entry.username === username);
+            const targetName = employee?.displayName || username;
+            addNotification(username, `${context.displayName} added ${addHours.toFixed(2)} PTO hour(s). New balance: ${updated.toFixed(2)} h.`, 'info');
+
+            if (addHoursEl) addHoursEl.value = '';
+            if (typeof showNotification === 'function') showNotification(`Added ${addHours.toFixed(2)} h PTO to ${targetName}.`, 'success');
+            refreshAttendanceView();
+        }
+
         function populateManagerEmployeeSelectors() {
             const employees = getAllEmployees().filter((emp) => emp.username !== 'admin' && emp.isActive !== false);
             const ids = ['attendancePolicyUser', 'attendanceHoursEmployee'];
@@ -71579,11 +71630,13 @@ console.log('✅ Global functions exported to window object');
             const beforeEl = document.getElementById('attendanceFlexBefore');
             const afterEl = document.getElementById('attendanceFlexAfter');
             const creditEl = document.getElementById('attendancePtoCreditInput');
+            const balanceEl = document.getElementById('attendanceSelectedPtoBalance');
 
             if (allowFlexEl) allowFlexEl.value = policy.allowFlex ? 'true' : 'false';
             if (beforeEl) beforeEl.value = Number(policy.beforeMins || 0);
             if (afterEl) afterEl.value = Number(policy.afterMins || 0);
             if (creditEl) creditEl.value = Number.isFinite(Number(credits[username])) ? Number(credits[username]) : 0;
+            if (balanceEl) balanceEl.textContent = `${getPtoCreditForUser(username).toFixed(2)} h`;
         }
 
         function calculateAttendanceHours() {
@@ -71749,14 +71802,8 @@ console.log('✅ Global functions exported to window object');
                         <div class="attendance-stat"><div class="attendance-stat-label">Clocked In Now</div><div class="attendance-stat-value">${clockedInNow}</div></div>
                         <div class="attendance-stat"><div class="attendance-stat-label">Clocked Out</div><div class="attendance-stat-value">${completedToday}</div></div>
                         <div class="attendance-stat"><div class="attendance-stat-label">Absences Recorded</div><div class="attendance-stat-value">${absencesToday}</div></div>
+                        <div class="attendance-stat attendance-stat-wide"><div class="attendance-stat-label">Who Is Clocked In</div><div class="attendance-stat-value">${clockedInUsers.length ? clockedInUsers.map((name) => `<span class="attendance-tag">${name}</span>`).join('') : '<span class="attendance-note">None</span>'}</div></div>
                     `;
-                }
-
-                const clockedInListEl = document.getElementById('attendanceClockedInNowList');
-                if (clockedInListEl) {
-                    clockedInListEl.innerHTML = clockedInUsers.length
-                        ? `Clocked in now: ${clockedInUsers.map((name) => `<span class="attendance-tag">${name}</span>`).join('')}`
-                        : 'Clocked in now: none';
                 }
 
                 const todayBody = document.getElementById('attendanceManagerTodayBody');
@@ -71824,6 +71871,7 @@ console.log('✅ Global functions exported to window object');
         window.submitPtoRequest = submitPtoRequest;
         window.reviewPtoRequest = reviewPtoRequest;
         window.saveAttendancePolicyAndCredit = saveAttendancePolicyAndCredit;
+        window.addPtoHoursForSelectedEmployee = addPtoHoursForSelectedEmployee;
         window.calculateAttendanceHours = calculateAttendanceHours;
         window.refreshAttendanceView = refreshAttendanceView;
 
