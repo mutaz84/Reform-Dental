@@ -70753,7 +70753,8 @@ console.log('✅ Global functions exported to window object');
             ptoRequests: 'attendancePtoRequestsV1',
             notifications: 'attendanceNotificationsV1',
             absences: 'attendanceAbsencesV1',
-            activeClockMap: 'attendanceActiveClockMapV1'
+            activeClockMap: 'attendanceActiveClockMapV1',
+            pendingRecordSync: 'attendancePendingRecordSyncV1'
         };
 
         const ATTENDANCE_API = {
@@ -70806,7 +70807,7 @@ console.log('✅ Global functions exported to window object');
         function mapApiRecordToLocal(item) {
             const date = item?.date || item?.workDate || item?.WorkDate || null;
             const username = item?.username || item?.Username || '';
-            const fallbackId = date && username ? `att-${date}-${username}` : `att-${Date.now()}`;
+            const fallbackId = item?.id ? `att-db-${item.id}` : `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
             return {
                 id: item?.localId || item?.localRecordId || fallbackId,
                 dbId: item?.id || item?.Id || null,
@@ -70955,6 +70956,7 @@ console.log('✅ Global functions exported to window object');
 
                 attendanceApiState.available = true;
                 attendanceApiState.initialized = true;
+                await flushPendingRecordSyncQueue();
             } catch (_) {
                 attendanceApiState.available = false;
             } finally {
@@ -71081,6 +71083,37 @@ console.log('✅ Global functions exported to window object');
 
         function writeJSON(key, value) {
             localStorage.setItem(key, JSON.stringify(value));
+        }
+
+        function getPendingRecordSyncQueue() {
+            return readJSON(STORAGE.pendingRecordSync, []);
+        }
+
+        function savePendingRecordSyncQueue(queue) {
+            writeJSON(STORAGE.pendingRecordSync, Array.isArray(queue) ? queue : []);
+        }
+
+        function queueRecordForSync(record) {
+            if (!record?.id) return;
+            const queue = getPendingRecordSyncQueue();
+            const index = queue.findIndex((entry) => String(entry?.id || '') === String(record.id));
+            if (index >= 0) queue[index] = { ...record };
+            else queue.push({ ...record });
+            savePendingRecordSyncQueue(queue);
+        }
+
+        async function flushPendingRecordSyncQueue() {
+            const queue = getPendingRecordSyncQueue();
+            if (!queue.length) return;
+            const stillPending = [];
+            for (const item of queue) {
+                try {
+                    await syncRecordToApi(item);
+                } catch (_) {
+                    stillPending.push(item);
+                }
+            }
+            savePendingRecordSyncQueue(stillPending);
         }
 
         function getActiveClockMap() {
@@ -71703,7 +71736,12 @@ console.log('✅ Global functions exported to window object');
                 records.push(record);
             }
             saveRecords(records);
-            fireAndForget(syncRecordToApi(record));
+            fireAndForget(
+                syncRecordToApi(record).catch(() => {
+                    queueRecordForSync(record);
+                    throw new Error('record-sync-failed');
+                })
+            );
         }
 
         function attendanceClockIn() {
@@ -71720,11 +71758,6 @@ console.log('✅ Global functions exported to window object');
                     showNotification(`You already have an open clock-in from ${formatDateTime(oldestOpen.clockIn)}. Please clock out first.`, 'warning');
                 }
                 refreshAttendanceView();
-                return;
-            }
-            const existing = findTodayRecord(username, dateISO);
-            if (existing && existing.clockIn && !existing.clockOut) {
-                if (typeof showNotification === 'function') showNotification('Already clocked in for today.', 'warning');
                 return;
             }
 
@@ -71748,8 +71781,8 @@ console.log('✅ Global functions exported to window object');
                 flags.push('unscheduled_clock_in');
             }
 
-            const record = existing || {
-                id: `att-${dateISO}-${username}`,
+            const record = {
+                id: `att-${dateISO}-${username}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 username,
                 displayName,
                 date: dateISO,

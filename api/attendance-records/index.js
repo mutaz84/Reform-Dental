@@ -146,18 +146,26 @@ module.exports = async function (context, req) {
             const body = req.body || {};
             const username = String(body.username || '').trim();
             const workDate = toDateOnly(body.date || body.workDate);
+            const localId = String(body.localId || body.id || '').trim();
             if (!username || !workDate) {
                 context.res = { status: 400, headers, body: { error: 'username and date are required.' } };
                 return;
             }
 
-            const exists = await pool.request()
-                .input('username', sql.NVarChar(150), username)
-                .input('workDate', sql.Date, workDate)
-                .query('SELECT TOP 1 Id FROM AttendanceRecords WHERE Username = @username AND WorkDate = @workDate');
+            let exists;
+            if (localId) {
+                exists = await pool.request()
+                    .input('localId', sql.NVarChar(120), localId)
+                    .query('SELECT TOP 1 Id FROM AttendanceRecords WHERE LocalRecordId = @localId ORDER BY Id DESC');
+            } else {
+                exists = await pool.request()
+                    .input('username', sql.NVarChar(150), username)
+                    .input('workDate', sql.Date, workDate)
+                    .query('SELECT TOP 1 Id FROM AttendanceRecords WHERE Username = @username AND WorkDate = @workDate ORDER BY Id DESC');
+            }
 
             const payload = {
-                localId: body.localId || body.id || null,
+                localId: localId || null,
                 userId: toIntOrNull(body.userId),
                 username,
                 displayName: body.displayName || null,
