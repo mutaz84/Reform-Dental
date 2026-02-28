@@ -173,11 +173,14 @@ module.exports = async function (context, req) {
         };
     } catch (error) {
         context.log.error('Schedule share API error:', error);
+        const errorMessage = (error && error.message)
+            ? error.message
+            : 'Server error while sending schedule email.';
         context.res = {
             status: 500,
             headers,
             body: {
-                error: error?.message || 'Server error while sending schedule email.',
+                error: errorMessage,
                 code: 'SCHEDULE_SHARE_SERVER_ERROR'
             }
         };
