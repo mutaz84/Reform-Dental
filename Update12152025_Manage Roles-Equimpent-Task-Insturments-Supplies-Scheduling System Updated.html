@@ -16475,7 +16475,27 @@
                                 return String(value || '')
                                     .trim()
                                     .toLowerCase()
-                                    .replace(/\s+/g, ' ');
+                                    .replace(/\b(dr|doctor|dds|dmd)\.?\s*/g, '')
+                                    .replace(/[^a-z0-9\s]/g, ' ')
+                                    .replace(/\s+/g, ' ')
+                                    .trim();
+                            }
+
+                            function getFirstValidEmailFromUser(user) {
+                                if (!user || typeof user !== 'object') return '';
+
+                                const directCandidates = [
+                                    user.workEmail, user.WorkEmail, user.workemail, user.work_email,
+                                    user.personalEmail, user.PersonalEmail, user.personalemail, user.personal_email,
+                                    user.email, user.Email, user.userEmail, user.UserEmail,
+                                    user.primaryEmail, user.PrimaryEmail
+                                ];
+
+                                const directMatch = directCandidates.find(isValidEmailAddress);
+                                if (directMatch) return String(directMatch).trim();
+
+                                const genericMatch = Object.values(user).find(isValidEmailAddress);
+                                return genericMatch ? String(genericMatch).trim() : '';
                             }
 
                             function getUserDirectoryForScheduleShare() {
@@ -16489,21 +16509,33 @@
                                     const firstName = String(user.firstName || user.FirstName || '').trim();
                                     const lastName = String(user.lastName || user.LastName || '').trim();
                                     const fullName = `${firstName} ${lastName}`.trim();
+                                    const reverseFullName = `${lastName} ${firstName}`.trim();
                                     const displayName = String(user.name || user.Name || fullName || username || '').trim();
-                                    const workEmail = String(user.workEmail || user.WorkEmail || '').trim();
-                                    const personalEmail = String(user.personalEmail || user.PersonalEmail || '').trim();
-                                    const fallbackEmail = String(user.email || user.Email || '').trim();
-                                    const email = [workEmail, personalEmail, fallbackEmail].find(isValidEmailAddress) || '';
+                                    const workEmail = String(user.workEmail || user.WorkEmail || user.workemail || user.work_email || '').trim();
+                                    const personalEmail = String(user.personalEmail || user.PersonalEmail || user.personalemail || user.personal_email || '').trim();
+                                    const fallbackEmail = String(user.email || user.Email || user.userEmail || user.UserEmail || '').trim();
+                                    const email = getFirstValidEmailFromUser(user);
 
                                     entries.push({
                                         username: String(username || '').trim(),
                                         displayName,
                                         fullName,
+                                        reverseFullName,
                                         workEmail,
                                         personalEmail,
                                         fallbackEmail,
                                         email,
-                                        keys: [username, displayName, fullName, user.userName, user.username]
+                                        keys: [
+                                            username,
+                                            displayName,
+                                            fullName,
+                                            reverseFullName,
+                                            user.userName,
+                                            user.username,
+                                            user.UserName,
+                                            user.login,
+                                            user.Login
+                                        ]
                                             .map(normalizeNameKey)
                                             .filter(Boolean)
                                     });
@@ -16549,6 +16581,14 @@
                                     if (!lookup) return;
 
                                     let match = directory.find((entry) => entry.keys.includes(lookup));
+
+                                    if (!match) {
+                                        const lookupParts = lookup.split(' ').filter(Boolean);
+                                        if (lookupParts.length >= 2) {
+                                            const swappedLookup = normalizeNameKey(`${lookupParts.slice(1).join(' ')} ${lookupParts[0]}`);
+                                            match = directory.find((entry) => entry.keys.includes(swappedLookup));
+                                        }
+                                    }
 
                                     if (!match) {
                                         match = directory.find((entry) => {
