@@ -40,7 +40,7 @@ module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type'
     };
 
@@ -89,6 +89,47 @@ module.exports = async function (context, req) {
                 .query(`INSERT INTO Clinics (Name, Address, City, State, Phone, Email) 
                         OUTPUT INSERTED.Id VALUES (@name, @address, @city, @state, @phone, @email)`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
+        } else if (req.method === 'PUT' && id) {
+            const clinicId = Number.parseInt(id, 10);
+            if (!Number.isFinite(clinicId)) {
+                context.res = { status: 400, headers, body: { error: 'Invalid clinic id.' } };
+                return;
+            }
+
+            const body = req.body || {};
+            await pool.request()
+                .input('id', sql.Int, clinicId)
+                .input('name', sql.NVarChar, body.name)
+                .input('address', sql.NVarChar, body.address || null)
+                .input('city', sql.NVarChar, body.city || null)
+                .input('state', sql.NVarChar, body.state || null)
+                .input('phone', sql.NVarChar, body.phone || null)
+                .input('email', sql.NVarChar, body.email || null)
+                .query(`UPDATE Clinics
+                        SET Name=@name, Address=@address, City=@city, State=@state, Phone=@phone, Email=@email
+                        WHERE Id=@id`);
+
+            context.res = { status: 200, headers, body: { message: 'Clinic updated successfully' } };
+        } else if (req.method === 'DELETE' && id) {
+            const clinicId = Number.parseInt(id, 10);
+            if (!Number.isFinite(clinicId)) {
+                context.res = { status: 400, headers, body: { error: 'Invalid clinic id.' } };
+                return;
+            }
+
+            if (hasIsActive) {
+                await pool.request()
+                    .input('id', sql.Int, clinicId)
+                    .query('UPDATE Clinics SET IsActive = 0 WHERE Id = @id');
+            } else {
+                await pool.request()
+                    .input('id', sql.Int, clinicId)
+                    .query('DELETE FROM Clinics WHERE Id = @id');
+            }
+
+            context.res = { status: 200, headers, body: { message: 'Clinic deleted successfully' } };
+        } else {
+            context.res = { status: 405, headers, body: { error: 'Method not allowed.' } };
         }
 
         await pool.close();
