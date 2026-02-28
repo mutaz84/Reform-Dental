@@ -16716,7 +16716,19 @@
                                     }).from(tempContainer);
 
                                     const blob = await exporter.outputPdf('blob');
-                                    await exporter.save();
+                                    if (!blob || !blob.size) {
+                                        throw new Error('Generated PDF is empty.');
+                                    }
+
+                                    const blobUrl = URL.createObjectURL(blob);
+                                    const downloadLink = document.createElement('a');
+                                    downloadLink.href = blobUrl;
+                                    downloadLink.download = fileName;
+                                    document.body.appendChild(downloadLink);
+                                    downloadLink.click();
+                                    downloadLink.remove();
+                                    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+
                                     tempContainer.remove();
 
                                     const weekLabelText = document.getElementById('myScheduleWeekLabel')?.textContent || '';
