@@ -16595,6 +16595,18 @@
                                 `;
                             }
 
+                            function blobToBase64(blob) {
+                                return new Promise((resolve, reject) => {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => {
+                                        const result = String(reader.result || '');
+                                        resolve(result.replace(/^data:application\/pdf;base64,/i, ''));
+                                    };
+                                    reader.onerror = () => reject(new Error('Failed to encode PDF attachment.'));
+                                    reader.readAsDataURL(blob);
+                                });
+                            }
+
                             window.shareMySchedulePDF = async function() {
                                 try {
                                     const employeeFilter = document.getElementById('myScheduleEmployeeFilter');
@@ -16646,7 +16658,8 @@
                                     await exporter.save();
                                     tempContainer.remove();
 
-                                    const subject = encodeURIComponent(`Schedule PDF - ${document.getElementById('myScheduleWeekLabel')?.textContent || ''}`);
+                                    const weekLabelText = document.getElementById('myScheduleWeekLabel')?.textContent || '';
+                                    const subjectRaw = `Schedule PDF - ${weekLabelText}`;
                                     const bodyLines = [
                                         'Hi team,',
                                         '',
@@ -16657,11 +16670,41 @@
                                         '',
                                         'Thanks'
                                     ];
-                                    const body = encodeURIComponent(bodyLines.join('\n'));
-                                    const bcc = encodeURIComponent(emails.join(','));
+                                    const textBody = bodyLines.join('\n');
+                                    const htmlBody = `
+                                        <div style="font-family:Segoe UI, Arial, sans-serif; color:#111827;">
+                                            <p>Hi team,</p>
+                                            <p>Attached is the latest schedule PDF for this week.</p>
+                                            <p><strong>Recipient count:</strong> ${emails.length}</p>
+                                            <p>${unresolvedPeople.length ? `No valid email found for: ${unresolvedPeople.join(', ')}` : 'All scheduled people with valid emails were included.'}</p>
+                                            <p>Thanks</p>
+                                        </div>
+                                    `;
 
-                                    const mailtoUrl = `mailto:?bcc=${bcc}&subject=${subject}&body=${body}`;
-                                    window.location.href = mailtoUrl;
+                                    const fileBase64 = await blobToBase64(blob);
+
+                                    const apiBase = (typeof API_BASE_URL !== 'undefined' && API_BASE_URL)
+                                        ? String(API_BASE_URL).replace(/\/$/, '')
+                                        : '/api';
+
+                                    const response = await fetch(`${apiBase}/schedule-share`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            recipients: emails,
+                                            subject: subjectRaw,
+                                            text: textBody,
+                                            html: htmlBody,
+                                            fileName,
+                                            fileBase64
+                                        })
+                                    });
+
+                                    const result = await response.json().catch(() => ({}));
+                                    if (!response.ok) {
+                                        const details = result?.error || result?.details || `HTTP ${response.status}`;
+                                        throw new Error(details);
+                                    }
 
                                     if (blob && navigator.canShare && navigator.share) {
                                         try {
@@ -16674,17 +16717,17 @@
                                                 });
                                             }
                                         } catch (_) {
-                                            // Keep mailto flow even if Web Share is unavailable or canceled
+                                            // Keep direct-send flow even if Web Share is unavailable or canceled
                                         }
                                     }
 
                                     const shareMsg = unresolvedPeople.length
-                                        ? `Email draft opened for ${emails.length} recipient(s). PDF downloaded. Missing emails for: ${unresolvedPeople.join(', ')}`
-                                        : `Email draft opened for ${emails.length} recipient(s). PDF downloaded.`;
+                                        ? `Schedule emailed to ${emails.length} recipient(s). PDF downloaded. Missing emails for: ${unresolvedPeople.join(', ')}`
+                                        : `Schedule emailed to ${emails.length} recipient(s). PDF downloaded.`;
                                     if (typeof showNotification === 'function') showNotification(shareMsg, unresolvedPeople.length ? 'warning' : 'success');
                                 } catch (error) {
                                     console.error('Error sharing My Schedule PDF:', error);
-                                    const errMsg = 'Unable to share schedule PDF right now. Please try again.';
+                                    const errMsg = `Unable to send schedule email directly: ${error?.message || 'Please try again.'}`;
                                     if (typeof showNotification === 'function') showNotification(errMsg, 'error');
                                     else alert(errMsg);
                                 }
