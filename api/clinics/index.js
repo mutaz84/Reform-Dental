@@ -223,15 +223,25 @@ module.exports = async function (context, req) {
                 return;
             }
 
+            let result;
             if (hasIsActive) {
                 const softDeleteSet = hasModifiedDate ? 'IsActive = 0, ModifiedDate = GETUTCDATE()' : 'IsActive = 0';
-                await pool.request()
+                result = await pool.request()
                     .input('id', sql.Int, clinicId)
                     .query(`UPDATE Clinics SET ${softDeleteSet} WHERE Id = @id`);
             } else {
-                await pool.request()
+                result = await pool.request()
                     .input('id', sql.Int, clinicId)
                     .query('DELETE FROM Clinics WHERE Id = @id');
+            }
+
+            const rowsAffected = Array.isArray(result?.rowsAffected)
+                ? result.rowsAffected.reduce((sum, n) => sum + Number(n || 0), 0)
+                : 0;
+
+            if (rowsAffected === 0) {
+                context.res = { status: 404, headers, body: { error: 'Clinic not found or already deleted.' } };
+                return;
             }
 
             context.res = { status: 200, headers, body: { message: 'Clinic deleted successfully' } };

@@ -27380,18 +27380,32 @@
                     const response = await fetch(`${API_BASE_URL}/clinics/${numericId}`, {
                         method: 'DELETE'
                     });
+
+                    let payload = null;
+                    try {
+                        payload = await response.json();
+                    } catch (_) {}
                     
                     if (response.ok) {
                         // Refresh clinics from API
-                        await syncClinicsFromAPI();
+                        const synced = await syncClinicsFromAPI();
+                        if (!synced) {
+                            throw new Error('Delete request sent, but clinic sync failed. Please refresh and verify.');
+                        }
+
+                        const stillExists = loadOffices().some(o => String(o.officeID) === String(numericId) || String(o.officeID) === `clinic-${numericId}`);
+                        if (stillExists) {
+                            throw new Error('Clinic still exists after delete attempt. Database was not changed.');
+                        }
+
                         displayOfficesList();
                         showNotification('Clinic deleted successfully', 'success');
                     } else {
-                        throw new Error('Failed to delete clinic');
+                        throw new Error(payload?.error || payload?.message || `Failed to delete clinic (HTTP ${response.status})`);
                     }
                 } catch (error) {
                     console.error('Error deleting clinic:', error);
-                    showNotification('Failed to delete clinic', 'error');
+                    showNotification(`Failed to delete clinic: ${error?.message || 'Unknown error'}`, 'error');
                 }
             }
         }
