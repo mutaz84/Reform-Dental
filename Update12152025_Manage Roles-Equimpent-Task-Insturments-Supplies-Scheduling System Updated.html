@@ -16647,7 +16647,25 @@
                                 });
                             }
 
+                            function openScheduleShareMailDraft(recipientEmails, subject, bodyLines, fileName) {
+                                if (!Array.isArray(recipientEmails) || !recipientEmails.length) return false;
+
+                                const bcc = encodeURIComponent(recipientEmails.join(','));
+                                const safeSubject = encodeURIComponent(String(subject || 'Schedule PDF'));
+                                const finalBodyLines = [
+                                    ...(Array.isArray(bodyLines) ? bodyLines : [String(bodyLines || '')]),
+                                    '',
+                                    `The schedule PDF (${fileName || 'schedule.pdf'}) was downloaded by the app. Please attach it before sending.`
+                                ];
+                                const safeBody = encodeURIComponent(finalBodyLines.join('\n'));
+                                const mailtoUrl = `mailto:?bcc=${bcc}&subject=${safeSubject}&body=${safeBody}`;
+
+                                window.location.href = mailtoUrl;
+                                return true;
+                            }
+
                             window.shareMySchedulePDF = async function() {
+                                let draftFallbackContext = null;
                                 try {
                                     const employeeFilter = document.getElementById('myScheduleEmployeeFilter');
                                     const clinicFilter = document.getElementById('myScheduleClinicFilter');
@@ -16710,6 +16728,8 @@
                                         '',
                                         'Thanks'
                                     ];
+                                    draftFallbackContext = { emails, subjectRaw, bodyLines, fileName };
+
                                     const textBody = bodyLines.join('\n');
                                     const htmlBody = `
                                         <div style="font-family:Segoe UI, Arial, sans-serif; color:#111827;">
@@ -16748,6 +16768,14 @@
                                         const details = missingConfig
                                             ? `${result?.error || 'Email service is not configured.'} Missing: ${missingConfig}`
                                             : (result?.error || result?.details || `HTTP ${response.status}`);
+
+                                        const usedDraftFallback = openScheduleShareMailDraft(emails, subjectRaw, bodyLines, fileName);
+                                        if (usedDraftFallback) {
+                                            const fallbackMsg = `Direct send unavailable: ${details}. Opened email draft instead. PDF downloaded.`;
+                                            if (typeof showNotification === 'function') showNotification(fallbackMsg, 'warning');
+                                            return;
+                                        }
+
                                         throw new Error(details);
                                     }
 
@@ -16772,6 +16800,21 @@
                                     if (typeof showNotification === 'function') showNotification(shareMsg, unresolvedPeople.length ? 'warning' : 'success');
                                 } catch (error) {
                                     console.error('Error sharing My Schedule PDF:', error);
+
+                                    if (draftFallbackContext && Array.isArray(draftFallbackContext.emails) && draftFallbackContext.emails.length) {
+                                        const usedDraftFallback = openScheduleShareMailDraft(
+                                            draftFallbackContext.emails,
+                                            draftFallbackContext.subjectRaw,
+                                            draftFallbackContext.bodyLines,
+                                            draftFallbackContext.fileName
+                                        );
+                                        if (usedDraftFallback) {
+                                            const fallbackErrMsg = `Direct send failed: ${error?.message || 'Unknown error'}. Opened email draft instead. PDF downloaded.`;
+                                            if (typeof showNotification === 'function') showNotification(fallbackErrMsg, 'warning');
+                                            return;
+                                        }
+                                    }
+
                                     const errMsg = `Unable to send schedule email directly: ${error?.message || 'Please try again.'}`;
                                     if (typeof showNotification === 'function') showNotification(errMsg, 'error');
                                     else alert(errMsg);
