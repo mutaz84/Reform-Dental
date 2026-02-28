@@ -1,4 +1,60 @@
 const https = require('https');
+const sql = require('mssql');
+
+function getConfig() {
+    const connStr = process.env.SQL_CONNECTION_STRING;
+    if (connStr) {
+        const serverMatch = connStr.match(/Server=(?:tcp:)?([^,;]+)/i);
+        const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
+        const userMatch = connStr.match(/User ID=([^;]+)/i);
+        const passMatch = connStr.match(/Password=([^;]+)/i);
+
+        return {
+            server: serverMatch ? serverMatch[1] : '',
+            database: dbMatch ? dbMatch[1] : '',
+            user: userMatch ? userMatch[1] : '',
+            password: passMatch ? passMatch[1] : '',
+            options: { encrypt: true, trustServerCertificate: false }
+        };
+    }
+    return {};
+}
+
+async function logScheduleEmail(context, details) {
+    let pool;
+    try {
+        const config = getConfig();
+        if (!config.server || !config.database || !config.user) {
+            context.log.warn('schedule-email logging skipped: SQL connection is not configured.');
+            return;
+        }
+
+        pool = await sql.connect(config);
+        await pool.request()
+            .input('requestedBy', sql.NVarChar(150), String(details.requestedBy || '').trim() || null)
+            .input('recipients', sql.NVarChar(sql.MAX), String(details.recipients || '').trim())
+            .input('recipientCount', sql.Int, Number.isFinite(details.recipientCount) ? details.recipientCount : 0)
+            .input('subject', sql.NVarChar(300), String(details.subject || '').trim() || 'Schedule PDF')
+            .input('status', sql.NVarChar(30), String(details.status || 'Failed'))
+            .input('errorMessage', sql.NVarChar(sql.MAX), details.errorMessage ? String(details.errorMessage) : null)
+            .query(`
+                INSERT INTO dbo.ScheduleEmailLog
+                    (RequestedBy, Recipients, RecipientCount, Subject, Status, ErrorMessage)
+                VALUES
+                    (@requestedBy, @recipients, @recipientCount, @subject, @status, @errorMessage)
+            `);
+    } catch (logError) {
+        context.log.warn('schedule-email logging failed:', logError && logError.message ? logError.message : logError);
+    } finally {
+        if (pool) {
+            try {
+                await pool.close();
+            } catch (_) {
+                // ignore close errors
+            }
+        }
+    }
+}
 
 function sendToSendGrid(apiKey, payload) {
     return new Promise((resolve, reject) => {
@@ -54,8 +110,17 @@ module.exports = async function (context, req) {
         const sendGridApiKey = process.env.SENDGRID_API_KEY;
         const fromEmail = process.env.MAIL_FROM_EMAIL;
         const fromName = process.env.MAIL_FROM_NAME || 'Reform Dental Scheduler';
+        const requestedByHeader = req && req.headers ? (req.headers['x-ms-client-principal-name'] || req.headers['x-ms-client-principal-id']) : '';
 
         if (!sendGridApiKey || !fromEmail) {
+            await logScheduleEmail(context, {
+                requestedBy: requestedByHeader,
+                recipients: '',
+                recipientCount: 0,
+                subject: 'Schedule PDF',
+                status: 'Failed',
+                errorMessage: 'Email service is not configured. Missing SENDGRID_API_KEY or MAIL_FROM_EMAIL.'
+            });
             context.res = {
                 status: 500,
                 headers: headers,
@@ -84,6 +149,7 @@ module.exports = async function (context, req) {
         const html = String(payloadBody.html || '').trim();
         const fileName = String(payloadBody.fileName || 'schedule.pdf').trim();
         const fileBase64Raw = String(payloadBody.fileBase64 || '').trim();
+        const requestedBy = String(payloadBody.requestedBy || requestedByHeader || '').trim();
 
         const validEmailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         const uniqueRecipients = [];
@@ -95,22 +161,54 @@ module.exports = async function (context, req) {
         });
 
         if (!uniqueRecipients.length) {
+            await logScheduleEmail(context, {
+                requestedBy: requestedBy,
+                recipients: '',
+                recipientCount: 0,
+                subject: subject || 'Schedule PDF',
+                status: 'Failed',
+                errorMessage: 'No valid recipients provided.'
+            });
             context.res = { status: 400, headers: headers, body: { error: 'No valid recipients provided.' } };
             return;
         }
 
         if (!subject) {
+            await logScheduleEmail(context, {
+                requestedBy: requestedBy,
+                recipients: uniqueRecipients.join(','),
+                recipientCount: uniqueRecipients.length,
+                subject: 'Schedule PDF',
+                status: 'Failed',
+                errorMessage: 'Email subject is required.'
+            });
             context.res = { status: 400, headers: headers, body: { error: 'Email subject is required.' } };
             return;
         }
 
         if (!text && !html) {
+            await logScheduleEmail(context, {
+                requestedBy: requestedBy,
+                recipients: uniqueRecipients.join(','),
+                recipientCount: uniqueRecipients.length,
+                subject: subject,
+                status: 'Failed',
+                errorMessage: 'Email content is required.'
+            });
             context.res = { status: 400, headers: headers, body: { error: 'Email content is required.' } };
             return;
         }
 
         const fileBase64 = fileBase64Raw.replace(/^data:application\/pdf;base64,/i, '');
         if (!fileBase64) {
+            await logScheduleEmail(context, {
+                requestedBy: requestedBy,
+                recipients: uniqueRecipients.join(','),
+                recipientCount: uniqueRecipients.length,
+                subject: subject,
+                status: 'Failed',
+                errorMessage: 'PDF attachment data is required.'
+            });
             context.res = { status: 400, headers: headers, body: { error: 'PDF attachment data is required.' } };
             return;
         }
@@ -148,6 +246,14 @@ module.exports = async function (context, req) {
 
         if (!sendGridResponse.ok) {
             context.log.error('schedule-email send failed', sendGridResponse.status, sendGridResponse.body);
+            await logScheduleEmail(context, {
+                requestedBy: requestedBy,
+                recipients: uniqueRecipients.join(','),
+                recipientCount: uniqueRecipients.length,
+                subject: subject,
+                status: 'Failed',
+                errorMessage: sendGridResponse.body || `SendGrid status ${sendGridResponse.status}`
+            });
             context.res = {
                 status: 502,
                 headers: headers,
@@ -160,6 +266,15 @@ module.exports = async function (context, req) {
             return;
         }
 
+        await logScheduleEmail(context, {
+            requestedBy: requestedBy,
+            recipients: uniqueRecipients.join(','),
+            recipientCount: uniqueRecipients.length,
+            subject: subject,
+            status: 'Success',
+            errorMessage: null
+        });
+
         context.res = {
             status: 200,
             headers: headers,
@@ -170,6 +285,14 @@ module.exports = async function (context, req) {
         };
     } catch (error) {
         context.log.error('schedule-email server error', error);
+        await logScheduleEmail(context, {
+            requestedBy: '',
+            recipients: '',
+            recipientCount: 0,
+            subject: 'Schedule PDF',
+            status: 'Failed',
+            errorMessage: (error && error.message) ? error.message : 'Server error while sending schedule email.'
+        });
         context.res = {
             status: 500,
             headers: headers,
