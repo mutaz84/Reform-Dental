@@ -26920,9 +26920,18 @@
                     email: c.email || c.Email || '',
                     color: c.color || c.Color || '#06b6d4',
                     icon: c.icon || c.Icon || 'fa-hospital',
+                    website: c.website || c.Website || '',
+                    defaultDentist: c.defaultDentist || c.DefaultDentist || '',
+                    taxonomyNumber: c.taxonomyNumber || c.TaxonomyNumber || '',
+                    clinicNPI: c.clinicNPI || c.ClinicNPI || '',
+                    clinicTIN: c.clinicTIN || c.ClinicTIN || '',
+                    legalName: c.legalName || c.LegalName || '',
+                    legalAddress: c.legalAddress || c.LegalAddress || '',
                     description: c.description || c.Description || '',
-                    isActive: true,
-                    status: 'Active'
+                    operatingHours: c.operatingHours || c.OperatingHours || null,
+                    logo: c.logo || c.Logo || c.logoData || c.LogoData || null,
+                    isActive: c.isActive !== false && c.IsActive !== false,
+                    status: c.status || c.Status || ((c.isActive !== false && c.IsActive !== false) ? 'Active' : 'Inactive')
                 }));
             }
             // Fallback to localStorage clinics
@@ -26939,9 +26948,18 @@
                     email: c.email || '',
                     color: c.color || '#06b6d4',
                     icon: c.icon || 'fa-hospital',
+                    website: c.website || '',
+                    defaultDentist: c.defaultDentist || '',
+                    taxonomyNumber: c.taxonomyNumber || '',
+                    clinicNPI: c.clinicNPI || '',
+                    clinicTIN: c.clinicTIN || '',
+                    legalName: c.legalName || '',
+                    legalAddress: c.legalAddress || '',
                     description: c.description || '',
-                    isActive: true,
-                    status: 'Active'
+                    operatingHours: c.operatingHours || null,
+                    logo: c.logo || c.logoData || null,
+                    isActive: c.isActive !== false,
+                    status: c.status || (c.isActive !== false ? 'Active' : 'Inactive')
                 }));
             }
             return [];
@@ -26949,18 +26967,23 @@
 
         // Save clinic to API and refresh masterData
         function saveOffices(offices, newItem = null) {
-            // Sync new item to API if provided
-            if (newItem && typeof createClinicViaAPI === 'function') {
-                createClinicViaAPI(newItem);
-            }
+            console.warn('saveOffices is deprecated. Clinics are persisted via API only.');
         }
 
         // Open offices management modal
-        function openOfficesManagement() {
+        async function openOfficesManagement() {
             const modal = document.getElementById('officesManagementModal');
             if (modal) {
                 ensureUnifiedRightRailExpandedForModal();
                 modal.style.display = 'flex';
+
+                try {
+                    if (typeof syncClinicsFromAPI === 'function') {
+                        await syncClinicsFromAPI();
+                    }
+                } catch (e) {
+                    console.warn('Could not refresh clinics from API before opening management:', e);
+                }
 
                 const officesListSection = document.getElementById('officesListSection');
                 if (officesListSection) officesListSection.style.display = 'block';
@@ -27067,38 +27090,18 @@
                 return;
             }
             
-            // Load existing offices
+            // Refresh clinics from API first so create/edit checks use SQL source-of-truth
+            if (typeof syncClinicsFromAPI === 'function') {
+                await syncClinicsFromAPI();
+            }
+
+            // Load existing offices from API-synced cache
             const offices = loadOffices();
             
             if (isEdit) {
                 // Update existing office
                 const index = offices.findIndex(o => o.officeID === parseInt(editId));
                 if (index > -1) {
-                    offices[index] = {
-                        ...offices[index],
-                        officeName,
-                        logo: uploadedOfficeLogo,
-                        phone,
-                        address,
-                        city,
-                        state,
-                        zipCode,
-                        email,
-                        website,
-                        defaultDentist,
-                        color,
-                        taxonomyNumber,
-                        clinicNPI,
-                        clinicTIN,
-                        legalName,
-                        legalAddress,
-                        status,
-                        operatingHours,
-                        description,
-                        isActive,
-                        modifiedDate: new Date().toISOString()
-                    };
-                    
                     // Update via API
                     try {
                         const numericId = String(editId).replace('clinic-', '');
@@ -27111,16 +27114,30 @@
                             phone,
                             email,
                             color,
-                            description
+                            description,
+                            website,
+                            defaultDentist,
+                            taxonomyNumber,
+                            clinicNPI,
+                            clinicTIN,
+                            legalName,
+                            legalAddress,
+                            status,
+                            isActive,
+                            operatingHours,
+                            logo: uploadedOfficeLogo
                         });
                         await syncClinicsFromAPI();
                     } catch (err) {
-                        const message = String(error?.message || '');
+                        const message = String(err?.message || '');
                         if (message.includes('expected JSON but received HTML')) {
                             console.warn('Due compliance notifications unavailable because API returned HTML (likely backend/API route issue).');
                         } else {
-                            console.error('Failed to check due compliance notifications:', error);
+                            console.error('Failed to update clinic via API:', err);
                         }
+                        errorDiv.style.display = 'block';
+                        errorDiv.textContent = 'Failed to update clinic. Please try again.';
+                        return;
                     }
                     
                     errorDiv.style.display = 'block';
@@ -27149,7 +27166,18 @@
                         phone,
                         email,
                         color,
-                        description
+                        description,
+                        website,
+                        defaultDentist,
+                        taxonomyNumber,
+                        clinicNPI,
+                        clinicTIN,
+                        legalName,
+                        legalAddress,
+                        status,
+                        isActive,
+                        operatingHours,
+                        logo: uploadedOfficeLogo
                     });
                     
                     // Refresh clinics from API
@@ -36401,10 +36429,10 @@
                 this.clinics = safeParseLocalStorageJSON('clinics', this.clinics || [], { expect: 'array' });
                 return this.clinics;
             },
-            // Save clinics to localStorage
+            // Save clinics cache only (source of truth is API/SQL)
             saveClinics: function(clinics) {
                 this.clinics = clinics || this.clinics;
-                localStorage.setItem('clinics', JSON.stringify(this.clinics));
+                console.warn('masterData.saveClinics: API/SQL is source of truth. Refresh via syncClinicsFromAPI().');
             },
             // Load rooms from localStorage
             loadRooms: function() {
@@ -65695,7 +65723,23 @@ async function syncUsersFromAPI() {
 // Sync API clinics to localStorage
 async function syncClinicsFromAPI() {
     const apiClinics = await fetchClinicsFromAPI();
-    if (!apiClinics || apiClinics.length === 0) return false;
+    if (!apiClinics) return false;
+
+    if (apiClinics.length === 0) {
+        localStorage.setItem('clinics', JSON.stringify([]));
+        if (typeof masterData !== 'undefined') {
+            masterData.clinics = [];
+        }
+        try {
+            if (typeof loadClinicFilterDropdown === 'function') {
+                loadClinicFilterDropdown();
+            }
+        } catch (e) {
+            console.warn('Could not refresh clinic filter dropdown:', e);
+        }
+        console.log('✅ Synced 0 clinics from API (cache cleared)');
+        return true;
+    }
     
     // Convert API format to localStorage format
     const localClinics = apiClinics.map(clinic => ({
@@ -65705,10 +65749,35 @@ async function syncClinicsFromAPI() {
         address: clinic.Address || clinic.address || '',
         city: clinic.City || clinic.city || '',
         state: clinic.State || clinic.state || '',
+        zipCode: clinic.ZipCode || clinic.zipCode || '',
         phone: clinic.Phone || clinic.phone || '',
         email: clinic.Email || clinic.email || '',
         color: clinic.Color || clinic.color || '#3b82f6',
-        icon: clinic.Icon || clinic.icon || 'fa-hospital'
+        icon: clinic.Icon || clinic.icon || 'fa-hospital',
+        website: clinic.Website || clinic.website || '',
+        defaultDentist: clinic.DefaultDentist || clinic.defaultDentist || '',
+        taxonomyNumber: clinic.TaxonomyNumber || clinic.taxonomyNumber || '',
+        clinicNPI: clinic.ClinicNPI || clinic.clinicNPI || '',
+        clinicTIN: clinic.ClinicTIN || clinic.clinicTIN || '',
+        legalName: clinic.LegalName || clinic.legalName || '',
+        legalAddress: clinic.LegalAddress || clinic.legalAddress || '',
+        status: clinic.Status || clinic.status || ((clinic.IsActive !== false && clinic.isActive !== false) ? 'Active' : 'Inactive'),
+        isActive: clinic.IsActive !== false && clinic.isActive !== false,
+        description: clinic.Description || clinic.description || '',
+        operatingHours: (() => {
+            const raw = clinic.OperatingHours ?? clinic.operatingHours;
+            if (typeof raw === 'string') {
+                try { return JSON.parse(raw); } catch (_) { return null; }
+            }
+            return raw || null;
+        })(),
+        logo: (() => {
+            const raw = clinic.Logo ?? clinic.logo ?? clinic.LogoData ?? clinic.logoData;
+            if (typeof raw === 'string') {
+                try { return JSON.parse(raw); } catch (_) { return raw; }
+            }
+            return raw || null;
+        })()
     }));
     
     localStorage.setItem('clinics', JSON.stringify(localClinics));
@@ -65801,7 +65870,19 @@ async function createClinicViaAPI(clinicData) {
                 phone: clinicData.phone,
                 email: clinicData.email,
                 color: clinicData.color,
-                description: clinicData.description
+                description: clinicData.description,
+                icon: clinicData.icon,
+                website: clinicData.website,
+                defaultDentist: clinicData.defaultDentist,
+                taxonomyNumber: clinicData.taxonomyNumber,
+                clinicNPI: clinicData.clinicNPI,
+                clinicTIN: clinicData.clinicTIN,
+                legalName: clinicData.legalName,
+                legalAddress: clinicData.legalAddress,
+                status: clinicData.status,
+                isActive: clinicData.isActive,
+                operatingHours: clinicData.operatingHours,
+                logo: clinicData.logo
             })
         });
         
@@ -65833,7 +65914,19 @@ async function updateClinicViaAPI(id, clinicData) {
                 phone: clinicData.phone,
                 email: clinicData.email,
                 color: clinicData.color,
-                description: clinicData.description
+                description: clinicData.description,
+                icon: clinicData.icon,
+                website: clinicData.website,
+                defaultDentist: clinicData.defaultDentist,
+                taxonomyNumber: clinicData.taxonomyNumber,
+                clinicNPI: clinicData.clinicNPI,
+                clinicTIN: clinicData.clinicTIN,
+                legalName: clinicData.legalName,
+                legalAddress: clinicData.legalAddress,
+                status: clinicData.status,
+                isActive: clinicData.isActive,
+                operatingHours: clinicData.operatingHours,
+                logo: clinicData.logo
             })
         });
         
