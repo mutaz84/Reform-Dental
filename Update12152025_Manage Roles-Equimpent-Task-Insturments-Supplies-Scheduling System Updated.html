@@ -15740,6 +15740,9 @@
                                 <button onclick="exportMyScheduleToPDF()" style="padding: 0.5rem 0.75rem; background: #dc2626; border: none; border-radius: 6px; cursor: pointer; color: white; font-size: 0.75rem; display: flex; align-items: center; gap: 0.25rem;" title="Export to PDF">
                                     <i class="fas fa-file-pdf"></i> PDF
                                 </button>
+                                <button onclick="shareMySchedulePDF()" style="padding: 0.5rem 0.75rem; background: #2563eb; border: none; border-radius: 6px; cursor: pointer; color: white; font-size: 0.75rem; display: flex; align-items: center; gap: 0.25rem;" title="Share PDF by Email">
+                                    <i class="fas fa-share-alt"></i> Share
+                                </button>
                             </div>
                         </div>
                         
@@ -16460,6 +16463,231 @@
                                     </html>
                                 `);
                                 pdfWindow.document.close();
+                            };
+
+                            function isValidEmailAddress(value) {
+                                const email = String(value || '').trim();
+                                if (!email) return false;
+                                return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+                            }
+
+                            function normalizeNameKey(value) {
+                                return String(value || '')
+                                    .trim()
+                                    .toLowerCase()
+                                    .replace(/\s+/g, ' ');
+                            }
+
+                            function getUserDirectoryForScheduleShare() {
+                                const usersSource = (typeof window.loadUsers === 'function')
+                                    ? window.loadUsers()
+                                    : (safeParseLocalStorageJSON('appUsers', {}, { expect: 'object' }) || {});
+
+                                const entries = [];
+                                Object.entries(usersSource || {}).forEach(([username, user]) => {
+                                    if (!user || typeof user !== 'object') return;
+                                    const firstName = String(user.firstName || user.FirstName || '').trim();
+                                    const lastName = String(user.lastName || user.LastName || '').trim();
+                                    const fullName = `${firstName} ${lastName}`.trim();
+                                    const displayName = String(user.name || user.Name || fullName || username || '').trim();
+                                    const workEmail = String(user.workEmail || user.WorkEmail || '').trim();
+                                    const personalEmail = String(user.personalEmail || user.PersonalEmail || '').trim();
+                                    const fallbackEmail = String(user.email || user.Email || '').trim();
+                                    const email = [workEmail, personalEmail, fallbackEmail].find(isValidEmailAddress) || '';
+
+                                    entries.push({
+                                        username: String(username || '').trim(),
+                                        displayName,
+                                        fullName,
+                                        workEmail,
+                                        personalEmail,
+                                        fallbackEmail,
+                                        email,
+                                        keys: [username, displayName, fullName, user.userName, user.username]
+                                            .map(normalizeNameKey)
+                                            .filter(Boolean)
+                                    });
+                                });
+
+                                return entries;
+                            }
+
+                            function collectScheduledPeopleForWeek(filteredShifts) {
+                                const names = new Set();
+
+                                for (let i = 0; i < 7; i += 1) {
+                                    const date = new Date(window.myScheduleCurrentWeekStart);
+                                    date.setDate(date.getDate() + i);
+                                    const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+
+                                    const dayShifts = filteredShifts.filter(shift => {
+                                        if (!Array.isArray(shift.days) || !shift.days.includes(dayName)) return false;
+                                        return isDateInShiftRange(shift, date);
+                                    });
+
+                                    dayShifts.forEach((shift) => {
+                                        const providerName = String(shift.name || '').trim();
+                                        if (providerName) names.add(providerName);
+
+                                        const assistantNames = String(shift.assistant || '')
+                                            .split(',')
+                                            .map((item) => item.trim())
+                                            .filter(Boolean);
+                                        assistantNames.forEach((name) => names.add(name));
+                                    });
+                                }
+
+                                return Array.from(names);
+                            }
+
+                            function mapScheduledPeopleToEmails(scheduledPeople, directory) {
+                                const recipientEmails = new Set();
+                                const unresolvedPeople = [];
+
+                                scheduledPeople.forEach((personName) => {
+                                    const lookup = normalizeNameKey(personName);
+                                    if (!lookup) return;
+
+                                    let match = directory.find((entry) => entry.keys.includes(lookup));
+
+                                    if (!match) {
+                                        match = directory.find((entry) => {
+                                            return entry.keys.some((key) => key && (key.includes(lookup) || lookup.includes(key)));
+                                        });
+                                    }
+
+                                    if (match && isValidEmailAddress(match.email)) {
+                                        recipientEmails.add(match.email);
+                                    } else {
+                                        unresolvedPeople.push(personName);
+                                    }
+                                });
+
+                                return {
+                                    emails: Array.from(recipientEmails),
+                                    unresolvedPeople
+                                };
+                            }
+
+                            function buildScheduleShareFileName() {
+                                const weekLabel = document.getElementById('myScheduleWeekLabel');
+                                const label = String(weekLabel?.textContent || 'schedule').trim();
+                                const safeLabel = label.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase();
+                                return `my-schedule-${safeLabel || 'week'}.pdf`;
+                            }
+
+                            function buildSchedulePdfHtml(filterInfo) {
+                                const weekLabel = document.getElementById('myScheduleWeekLabel');
+                                return `
+                                    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; padding:20px; background:white; color:#111827;">
+                                        <div style="text-align:center; margin-bottom:20px; padding-bottom:15px; border-bottom:2px solid #e5e7eb;">
+                                            <h1 style="font-size:1.5rem; margin:0 0 6px 0;">My Schedule - Working Hours</h1>
+                                            <div style="font-size:1rem; color:#6b7280; margin-bottom:5px;">${weekLabel ? weekLabel.textContent : ''}</div>
+                                            ${filterInfo.length > 0 ? `<div style="font-size:0.85rem; color:#9ca3af;">Filters: ${filterInfo.join(' | ')}</div>` : ''}
+                                        </div>
+                                        <div style="display:grid; grid-template-columns:repeat(7, 1fr); border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+                                            ${generatePrintableCalendar()}
+                                        </div>
+                                        <div style="text-align:center; margin-top:20px; padding-top:15px; border-top:1px solid #e5e7eb; font-size:0.75rem; color:#9ca3af;">
+                                            Generated on ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                        </div>
+                                    </div>
+                                `;
+                            }
+
+                            window.shareMySchedulePDF = async function() {
+                                try {
+                                    const employeeFilter = document.getElementById('myScheduleEmployeeFilter');
+                                    const clinicFilter = document.getElementById('myScheduleClinicFilter');
+                                    const roomFilter = document.getElementById('myScheduleRoomFilter');
+
+                                    const filterInfo = [];
+                                    if (employeeFilter && employeeFilter.value) filterInfo.push('Employee: ' + employeeFilter.value);
+                                    if (clinicFilter && clinicFilter.value) filterInfo.push('Clinic: ' + clinicFilter.value);
+                                    if (roomFilter && roomFilter.value) filterInfo.push('Room: ' + roomFilter.value);
+
+                                    const filteredShifts = getFilteredShifts();
+                                    const scheduledPeople = collectScheduledPeopleForWeek(filteredShifts);
+                                    const directory = getUserDirectoryForScheduleShare();
+                                    const { emails, unresolvedPeople } = mapScheduledPeopleToEmails(scheduledPeople, directory);
+
+                                    if (!emails.length) {
+                                        const noEmailMsg = 'No valid recipient emails found for the scheduled people in this view.';
+                                        if (typeof showNotification === 'function') showNotification(noEmailMsg, 'warning');
+                                        else alert(noEmailMsg);
+                                        return;
+                                    }
+
+                                    if (typeof html2pdf !== 'function') {
+                                        const missingPdfMsg = 'PDF generator is not available right now. Please refresh and try again.';
+                                        if (typeof showNotification === 'function') showNotification(missingPdfMsg, 'error');
+                                        else alert(missingPdfMsg);
+                                        return;
+                                    }
+
+                                    const tempContainer = document.createElement('div');
+                                    tempContainer.style.position = 'fixed';
+                                    tempContainer.style.left = '-99999px';
+                                    tempContainer.style.top = '0';
+                                    tempContainer.style.width = '1400px';
+                                    tempContainer.innerHTML = buildSchedulePdfHtml(filterInfo);
+                                    document.body.appendChild(tempContainer);
+
+                                    const fileName = buildScheduleShareFileName();
+                                    const exporter = html2pdf().set({
+                                        margin: 0.4,
+                                        filename: fileName,
+                                        image: { type: 'jpeg', quality: 0.98 },
+                                        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+                                        jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' }
+                                    }).from(tempContainer);
+
+                                    const blob = await exporter.outputPdf('blob');
+                                    await exporter.save();
+                                    tempContainer.remove();
+
+                                    const subject = encodeURIComponent(`Schedule PDF - ${document.getElementById('myScheduleWeekLabel')?.textContent || ''}`);
+                                    const bodyLines = [
+                                        'Hi team,',
+                                        '',
+                                        'Attached is the latest schedule PDF for this week.',
+                                        '',
+                                        `Recipient count: ${emails.length}`,
+                                        unresolvedPeople.length ? `No valid email found for: ${unresolvedPeople.join(', ')}` : 'All scheduled people with valid emails were included.',
+                                        '',
+                                        'Thanks'
+                                    ];
+                                    const body = encodeURIComponent(bodyLines.join('\n'));
+                                    const bcc = encodeURIComponent(emails.join(','));
+
+                                    const mailtoUrl = `mailto:?bcc=${bcc}&subject=${subject}&body=${body}`;
+                                    window.location.href = mailtoUrl;
+
+                                    if (blob && navigator.canShare && navigator.share) {
+                                        try {
+                                            const pdfFile = new File([blob], fileName, { type: 'application/pdf' });
+                                            if (navigator.canShare({ files: [pdfFile] })) {
+                                                await navigator.share({
+                                                    title: 'My Schedule PDF',
+                                                    text: 'Schedule PDF is ready to share.',
+                                                    files: [pdfFile]
+                                                });
+                                            }
+                                        } catch (_) {
+                                            // Keep mailto flow even if Web Share is unavailable or canceled
+                                        }
+                                    }
+
+                                    const shareMsg = unresolvedPeople.length
+                                        ? `Email draft opened for ${emails.length} recipient(s). PDF downloaded. Missing emails for: ${unresolvedPeople.join(', ')}`
+                                        : `Email draft opened for ${emails.length} recipient(s). PDF downloaded.`;
+                                    if (typeof showNotification === 'function') showNotification(shareMsg, unresolvedPeople.length ? 'warning' : 'success');
+                                } catch (error) {
+                                    console.error('Error sharing My Schedule PDF:', error);
+                                    const errMsg = 'Unable to share schedule PDF right now. Please try again.';
+                                    if (typeof showNotification === 'function') showNotification(errMsg, 'error');
+                                    else alert(errMsg);
+                                }
                             };
                             
                             // Generate printable calendar HTML
