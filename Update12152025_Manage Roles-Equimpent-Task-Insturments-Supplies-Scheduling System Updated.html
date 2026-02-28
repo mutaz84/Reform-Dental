@@ -16647,13 +16647,32 @@
                                 });
                             }
 
-                            function openScheduleShareMailDraft(recipientEmails, subject, bodyLines, fileName) {
-                                if (!Array.isArray(recipientEmails) || !recipientEmails.length) return false;
+                            async function openScheduleShareMailDraft(recipientEmails, subject, bodyLines, fileName, blob) {
+                                if (!Array.isArray(recipientEmails) || !recipientEmails.length) return { opened: false, mode: 'none' };
+
+                                const safeSubjectText = String(subject || 'Schedule PDF');
+                                const safeBodyLines = Array.isArray(bodyLines) ? bodyLines : [String(bodyLines || '')];
+
+                                if (blob && navigator.share && navigator.canShare) {
+                                    try {
+                                        const pdfFile = new File([blob], fileName || 'schedule.pdf', { type: 'application/pdf' });
+                                        if (navigator.canShare({ files: [pdfFile] })) {
+                                            await navigator.share({
+                                                title: safeSubjectText,
+                                                text: safeBodyLines.join('\n'),
+                                                files: [pdfFile]
+                                            });
+                                            return { opened: true, mode: 'native-share' };
+                                        }
+                                    } catch (_) {
+                                        // Continue with mailto fallback
+                                    }
+                                }
 
                                 const bcc = encodeURIComponent(recipientEmails.join(','));
-                                const safeSubject = encodeURIComponent(String(subject || 'Schedule PDF'));
+                                const safeSubject = encodeURIComponent(safeSubjectText);
                                 const finalBodyLines = [
-                                    ...(Array.isArray(bodyLines) ? bodyLines : [String(bodyLines || '')]),
+                                    ...safeBodyLines,
                                     '',
                                     `The schedule PDF (${fileName || 'schedule.pdf'}) was downloaded by the app. Please attach it before sending.`
                                 ];
@@ -16661,11 +16680,12 @@
                                 const mailtoUrl = `mailto:?bcc=${bcc}&subject=${safeSubject}&body=${safeBody}`;
 
                                 window.location.href = mailtoUrl;
-                                return true;
+                                return { opened: true, mode: 'mailto' };
                             }
 
                             window.shareMySchedulePDF = async function() {
                                 let draftFallbackContext = null;
+                                let generatedPdfBlob = null;
                                 try {
                                     const employeeFilter = document.getElementById('myScheduleEmployeeFilter');
                                     const clinicFilter = document.getElementById('myScheduleClinicFilter');
@@ -16713,6 +16733,7 @@
                                     }).from(tempContainer);
 
                                     const blob = await exporter.outputPdf('blob');
+                                    generatedPdfBlob = blob;
                                     await exporter.save();
                                     tempContainer.remove();
 
@@ -16769,9 +16790,11 @@
                                             ? `${result?.error || 'Email service is not configured.'} Missing: ${missingConfig}`
                                             : (result?.error || result?.details || `HTTP ${response.status}`);
 
-                                        const usedDraftFallback = openScheduleShareMailDraft(emails, subjectRaw, bodyLines, fileName);
-                                        if (usedDraftFallback) {
-                                            const fallbackMsg = `Direct send unavailable: ${details}. Opened email draft instead. PDF downloaded.`;
+                                        const draftFallback = await openScheduleShareMailDraft(emails, subjectRaw, bodyLines, fileName, blob);
+                                        if (draftFallback.opened) {
+                                            const fallbackMsg = draftFallback.mode === 'native-share'
+                                                ? `Direct send unavailable: ${details}. Opened native share with PDF attached.`
+                                                : `Direct send unavailable: ${details}. Opened email draft instead. PDF downloaded.`;
                                             if (typeof showNotification === 'function') showNotification(fallbackMsg, 'warning');
                                             return;
                                         }
@@ -16802,14 +16825,17 @@
                                     console.error('Error sharing My Schedule PDF:', error);
 
                                     if (draftFallbackContext && Array.isArray(draftFallbackContext.emails) && draftFallbackContext.emails.length) {
-                                        const usedDraftFallback = openScheduleShareMailDraft(
+                                        const draftFallback = await openScheduleShareMailDraft(
                                             draftFallbackContext.emails,
                                             draftFallbackContext.subjectRaw,
                                             draftFallbackContext.bodyLines,
-                                            draftFallbackContext.fileName
+                                            draftFallbackContext.fileName,
+                                            generatedPdfBlob
                                         );
-                                        if (usedDraftFallback) {
-                                            const fallbackErrMsg = `Direct send failed: ${error?.message || 'Unknown error'}. Opened email draft instead. PDF downloaded.`;
+                                        if (draftFallback.opened) {
+                                            const fallbackErrMsg = draftFallback.mode === 'native-share'
+                                                ? `Direct send failed: ${error?.message || 'Unknown error'}. Opened native share with PDF attached.`
+                                                : `Direct send failed: ${error?.message || 'Unknown error'}. Opened email draft instead. PDF downloaded.`;
                                             if (typeof showNotification === 'function') showNotification(fallbackErrMsg, 'warning');
                                             return;
                                         }
