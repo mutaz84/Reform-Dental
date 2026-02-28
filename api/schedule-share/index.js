@@ -1,3 +1,40 @@
+const https = require('https');
+
+function postJson(url, payload, apiKey) {
+    return new Promise((resolve, reject) => {
+        const requestBody = JSON.stringify(payload);
+        const parsedUrl = new URL(url);
+
+        const request = https.request({
+            protocol: parsedUrl.protocol,
+            hostname: parsedUrl.hostname,
+            path: parsedUrl.pathname + (parsedUrl.search || ''),
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(requestBody)
+            }
+        }, (response) => {
+            let responseBody = '';
+            response.on('data', (chunk) => {
+                responseBody += chunk;
+            });
+            response.on('end', () => {
+                resolve({
+                    ok: response.statusCode >= 200 && response.statusCode < 300,
+                    status: response.statusCode || 500,
+                    text: responseBody
+                });
+            });
+        });
+
+        request.on('error', reject);
+        request.write(requestBody);
+        request.end();
+    });
+}
+
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
@@ -36,7 +73,9 @@ module.exports = async function (context, req) {
             return;
         }
 
-        const body = req.body || {};
+        const body = (typeof req.body === 'string')
+            ? JSON.parse(req.body || '{}')
+            : (req.body || {});
         const recipients = Array.isArray(body.recipients) ? body.recipients : [];
         const subject = String(body.subject || '').trim();
         const text = String(body.text || '').trim();
@@ -71,6 +110,13 @@ module.exports = async function (context, req) {
             return;
         }
 
+        try {
+            Buffer.from(fileBase64, 'base64');
+        } catch (_) {
+            context.res = { status: 400, headers, body: { error: 'Invalid PDF attachment encoding.' } };
+            return;
+        }
+
         const sendGridPayload = {
             personalizations: [
                 {
@@ -100,17 +146,10 @@ module.exports = async function (context, req) {
             sendGridPayload.content.push({ type: 'text/html', value: html });
         }
 
-        const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${sendGridApiKey}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(sendGridPayload)
-        });
+        const response = await postJson('https://api.sendgrid.com/v3/mail/send', sendGridPayload, sendGridApiKey);
 
         if (!response.ok) {
-            const errorText = await response.text().catch(() => '');
+            const errorText = String(response.text || '');
             context.log.error('Schedule share send failed:', response.status, errorText);
             context.res = {
                 status: 502,
@@ -138,7 +177,8 @@ module.exports = async function (context, req) {
             status: 500,
             headers,
             body: {
-                error: error?.message || 'Server error while sending schedule email.'
+                error: error?.message || 'Server error while sending schedule email.',
+                code: 'SCHEDULE_SHARE_SERVER_ERROR'
             }
         };
     }
