@@ -70,6 +70,28 @@ CREATE TABLE Clinics (
 );
 
 -- =============================================
+-- 2b. CLINIC WORKING HOURS TABLE
+-- =============================================
+DROP TABLE IF EXISTS ClinicWorkingHours;
+CREATE TABLE ClinicWorkingHours (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    ClinicId INT NOT NULL FOREIGN KEY REFERENCES Clinics(Id),
+    DayKey NVARCHAR(20) NOT NULL,
+    IsOpen BIT NOT NULL DEFAULT 0,
+    OpenTime TIME NULL,
+    CloseTime TIME NULL,
+    CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
+    ModifiedDate DATETIME2 DEFAULT GETUTCDATE(),
+    CONSTRAINT CK_ClinicWorkingHours_DayKey
+        CHECK (LOWER(DayKey) IN ('monday','tuesday','wednesday','thursday','friday','saturday','sunday')),
+    CONSTRAINT CK_ClinicWorkingHours_TimeRange
+        CHECK (IsOpen = 0 OR (OpenTime IS NOT NULL AND CloseTime IS NOT NULL AND OpenTime < CloseTime))
+);
+
+CREATE UNIQUE INDEX UX_ClinicWorkingHours_ClinicId_DayKey ON ClinicWorkingHours(ClinicId, DayKey);
+CREATE INDEX IX_ClinicWorkingHours_ClinicId ON ClinicWorkingHours(ClinicId);
+
+-- =============================================
 -- 3. ROOMS TABLE
 -- =============================================
 DROP TABLE IF EXISTS Rooms;
