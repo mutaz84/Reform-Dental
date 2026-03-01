@@ -21590,6 +21590,26 @@
             await persistCreateUserDraft(null, { remove: true });
         }
 
+        function forceReleaseCreateUserCloseOverlays() {
+            const closeOverlay = document.getElementById('rdTabCloseOverlay');
+            if (closeOverlay) {
+                closeOverlay.classList.remove('active');
+                closeOverlay.style.display = 'none';
+            }
+
+            const addUserModal = document.getElementById('addUserModal');
+            if (addUserModal && addUserModal.style.display !== 'none') {
+                const isParked = addUserModal.getAttribute('data-parked-for-tab-switch') === 'true';
+                if (!isParked) {
+                    addUserModal.style.display = 'none';
+                }
+            }
+
+            if (document && document.body && document.body.style) {
+                document.body.style.overflow = 'auto';
+            }
+        }
+
         function applyCreateUserDraftSelections(draft, attempt = 0) {
             const dutyIds = new Set((Array.isArray(draft?.selectedDutyIds) ? draft.selectedDutyIds : []).map((value) => Number(value)));
             const complianceIds = new Set((Array.isArray(draft?.selectedComplianceIds) ? draft.selectedComplianceIds : []).map((value) => Number(value)));
@@ -21894,6 +21914,7 @@
         function closeAddUserModal() {
             const modal = document.getElementById('addUserModal');
             const closeChoice = String(window.__rdLastCloseChoice || '').toLowerCase();
+            forceReleaseCreateUserCloseOverlays();
             if (modal) {
                 modal.style.display = 'none';
                 modal.removeAttribute('data-keep-open-across-tabs');
@@ -21923,6 +21944,7 @@
                 clearCreateUserDraft();
             }
             window.__rdLastCloseChoice = '';
+            forceReleaseCreateUserCloseOverlays();
         }
 
         // Toggle Separation Fields visibility for Add User modal
@@ -22237,7 +22259,7 @@
                 errorDiv.style.color = '#c33';
                 clearCreateUserDraft();
                 // Close the modal
-                document.getElementById('addUserModal').style.display = 'none';
+                closeAddUserModal();
             }, 3000);
         }
 
@@ -69619,7 +69641,35 @@ console.log('✅ Global functions exported to window object');
                 window.__rdLastCloseChoice = choice;
 
                 if (closeFunctionName && typeof window[closeFunctionName] === 'function') {
-                    window[closeFunctionName]();
+                    try {
+                        window[closeFunctionName]();
+                    } catch (error) {
+                        console.error('Close handler failed:', closeFunctionName, error);
+                    }
+
+                    setTimeout(() => {
+                        const overlay = document.getElementById('rdTabCloseOverlay');
+                        if (overlay) {
+                            overlay.classList.remove('active');
+                            overlay.style.display = 'none';
+                        }
+
+                        const addUserModal = document.getElementById('addUserModal');
+                        if (addUserModal && addUserModal.style.display !== 'none') {
+                            const isParked = addUserModal.getAttribute('data-parked-for-tab-switch') === 'true';
+                            if (!isParked) {
+                                addUserModal.style.display = 'none';
+                            }
+                        }
+
+                        if (document && document.body && document.body.style) {
+                            document.body.style.overflow = 'auto';
+                        }
+
+                        if (closeFunctionName !== 'closeAddUserModal') {
+                            window.__rdLastCloseChoice = '';
+                        }
+                    }, 40);
                     return;
                 }
 
