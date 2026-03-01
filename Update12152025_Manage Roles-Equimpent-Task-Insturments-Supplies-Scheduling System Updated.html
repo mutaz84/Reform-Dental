@@ -68919,7 +68919,9 @@ console.log('✅ Global functions exported to window object');
         dirty: Object.create(null),
         initialized: false
     };
+    const GLOBAL_SAVE_ACTIONS_ID = 'rdGlobalSaveProgressActions';
     const GLOBAL_SAVE_BTN_ID = 'rdGlobalSaveProgressBtn';
+    const GLOBAL_DISCARD_BTN_ID = 'rdGlobalDiscardProgressBtn';
 
     function injectStyles() {
         if (document.getElementById('rdViewTabsStyles')) return;
@@ -69205,50 +69207,99 @@ console.log('✅ Global functions exported to window object');
         }, true);
     }
 
-    function ensureGlobalSaveButton() {
-        let btn = document.getElementById(GLOBAL_SAVE_BTN_ID);
-        if (btn) return btn;
-
-        btn = document.createElement('button');
-        btn.id = GLOBAL_SAVE_BTN_ID;
-        btn.type = 'button';
-        btn.style.cssText = 'position: fixed; right: 18px; bottom: 18px; z-index: 10140; display: none; padding: 0.65rem 1rem; border-radius: 8px; border: 1px solid var(--accent-primary); background: var(--accent-primary); color: white; font-weight: 700; cursor: pointer; box-shadow: 0 8px 20px rgba(0,0,0,0.18);';
-        btn.innerHTML = '<i class="fas fa-save" style="margin-right: 0.4rem;"></i>Save Changes';
-        btn.addEventListener('click', async () => {
-            const active = normalizeViewName(state.active || getActiveViewId() || '');
-            if (!active || !state.dirty[active]) {
-                updateGlobalSaveButton();
-                return;
-            }
-
-            const saved = await attemptSaveView(active);
-            if (!saved) {
-                if (typeof window.showToast === 'function') {
-                    window.showToast('No save action found for this page. Please save manually.', 'warning');
-                }
-                return;
-            }
-
-            markDirty(active, false);
-            if (typeof window.showToast === 'function') {
-                window.showToast('Changes saved. Refreshing app...', 'success');
-            }
-
-            setTimeout(() => {
-                if (typeof window.location !== 'undefined' && typeof window.location.reload === 'function') {
-                    window.location.reload();
-                }
-            }, 450);
+    function clearAllDirtyStates() {
+        Object.keys(state.dirty).forEach((key) => {
+            state.dirty[key] = false;
         });
+    }
 
-        document.body.appendChild(btn);
-        return btn;
+    function ensureGlobalSaveControls() {
+        let host = document.getElementById(GLOBAL_SAVE_ACTIONS_ID);
+        if (!host) {
+            host = document.createElement('div');
+            host.id = GLOBAL_SAVE_ACTIONS_ID;
+            host.style.cssText = 'position: fixed; right: 18px; bottom: 18px; z-index: 10140; display: none; align-items: center; gap: 0.5rem;';
+            document.body.appendChild(host);
+        }
+
+        let saveBtn = document.getElementById(GLOBAL_SAVE_BTN_ID);
+        if (!saveBtn) {
+            saveBtn = document.createElement('button');
+            saveBtn.id = GLOBAL_SAVE_BTN_ID;
+            saveBtn.type = 'button';
+            saveBtn.style.cssText = 'padding: 0.65rem 1rem; border-radius: 8px; border: 1px solid var(--accent-primary); background: var(--accent-primary); color: white; font-weight: 700; cursor: pointer; box-shadow: 0 8px 20px rgba(0,0,0,0.18);';
+            saveBtn.innerHTML = '<i class="fas fa-save" style="margin-right: 0.4rem;"></i>Save Changes';
+            host.appendChild(saveBtn);
+        }
+
+        let discardBtn = document.getElementById(GLOBAL_DISCARD_BTN_ID);
+        if (!discardBtn) {
+            discardBtn = document.createElement('button');
+            discardBtn.id = GLOBAL_DISCARD_BTN_ID;
+            discardBtn.type = 'button';
+            discardBtn.style.cssText = 'padding: 0.65rem 1rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); font-weight: 700; cursor: pointer; box-shadow: 0 8px 20px rgba(0,0,0,0.14);';
+            discardBtn.innerHTML = '<i class="fas fa-times" style="margin-right: 0.4rem;"></i>Discard';
+            host.appendChild(discardBtn);
+        }
+
+        if (!saveBtn.dataset.boundClick) {
+            saveBtn.dataset.boundClick = '1';
+            saveBtn.addEventListener('click', async () => {
+                const active = normalizeViewName(state.active || getActiveViewId() || '');
+                if (!active || !state.dirty[active]) {
+                    updateGlobalSaveButton();
+                    return;
+                }
+
+                const saved = await attemptSaveView(active);
+                if (!saved) {
+                    if (typeof window.showToast === 'function') {
+                        window.showToast('No save action found for this page. Please save manually.', 'warning');
+                    }
+                    return;
+                }
+
+                markDirty(active, false);
+                if (typeof window.showToast === 'function') {
+                    window.showToast('Changes saved. Refreshing app...', 'success');
+                }
+
+                setTimeout(() => {
+                    if (typeof window.location !== 'undefined' && typeof window.location.reload === 'function') {
+                        window.location.reload();
+                    }
+                }, 450);
+            });
+        }
+
+        if (!discardBtn.dataset.boundClick) {
+            discardBtn.dataset.boundClick = '1';
+            discardBtn.addEventListener('click', () => {
+                const shouldDiscard = window.confirm('Discard unsaved changes and refresh the app?');
+                if (!shouldDiscard) return;
+
+                clearAllDirtyStates();
+                updateGlobalSaveButton();
+
+                if (typeof window.showToast === 'function') {
+                    window.showToast('Unsaved changes discarded. Refreshing app...', 'warning');
+                }
+
+                setTimeout(() => {
+                    if (typeof window.location !== 'undefined' && typeof window.location.reload === 'function') {
+                        window.location.reload();
+                    }
+                }, 250);
+            });
+        }
+
+        return { host, saveBtn, discardBtn };
     }
 
     function updateGlobalSaveButton() {
-        const btn = ensureGlobalSaveButton();
+        const controls = ensureGlobalSaveControls();
         const hasDirty = Object.keys(state.dirty).some((key) => !!state.dirty[key]);
-        btn.style.display = hasDirty ? 'inline-flex' : 'none';
+        controls.host.style.display = hasDirty ? 'inline-flex' : 'none';
     }
 
     function installClosePromptGuard() {
@@ -69530,7 +69581,7 @@ console.log('✅ Global functions exported to window object');
         if (state.initialized) return;
         injectStyles();
         ensureBar();
-        ensureGlobalSaveButton();
+        ensureGlobalSaveControls();
         installSwitchHook();
         wrapActivateManagementView();
         trackDirtyChanges();
