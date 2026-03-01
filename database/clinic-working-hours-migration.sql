@@ -39,33 +39,41 @@ BEGIN
         ON dbo.ClinicWorkingHours (ClinicId);
 END;
 
--- Backfill from Clinics.OperatingHours JSON when present and no rows exist yet
+-- Backfill from Clinics.OperatingHours JSON when present and no rows exist yet.
+-- Use dynamic SQL to avoid compile-time "Invalid column name 'OperatingHours'" on databases
+-- where Clinics.OperatingHours does not exist.
 IF COL_LENGTH('dbo.Clinics', 'OperatingHours') IS NOT NULL
-AND EXISTS (SELECT 1 FROM dbo.Clinics WHERE OperatingHours IS NOT NULL)
 AND NOT EXISTS (SELECT 1 FROM dbo.ClinicWorkingHours)
 BEGIN
-    INSERT INTO dbo.ClinicWorkingHours (ClinicId, DayKey, IsOpen, OpenTime, CloseTime)
-    SELECT
-        c.Id AS ClinicId,
-        LOWER(j.[key]) AS DayKey,
-        CASE
-            WHEN JSON_VALUE(j.[value], '$.isOpen') IN ('true', '1') THEN 1
-            ELSE 0
-        END AS IsOpen,
-        CASE
-            WHEN JSON_VALUE(j.[value], '$.isOpen') IN ('true', '1')
-                THEN TRY_CAST(JSON_VALUE(j.[value], '$.open') AS TIME)
-            ELSE NULL
-        END AS OpenTime,
-        CASE
-            WHEN JSON_VALUE(j.[value], '$.isOpen') IN ('true', '1')
-                THEN TRY_CAST(JSON_VALUE(j.[value], '$.close') AS TIME)
-            ELSE NULL
-        END AS CloseTime
-    FROM dbo.Clinics c
-    CROSS APPLY OPENJSON(c.OperatingHours) j
-    WHERE c.OperatingHours IS NOT NULL
-      AND LOWER(j.[key]) IN ('monday','tuesday','wednesday','thursday','friday','saturday','sunday');
+    DECLARE @backfillSql NVARCHAR(MAX) = N'
+        IF EXISTS (SELECT 1 FROM dbo.Clinics WHERE OperatingHours IS NOT NULL)
+        BEGIN
+            INSERT INTO dbo.ClinicWorkingHours (ClinicId, DayKey, IsOpen, OpenTime, CloseTime)
+            SELECT
+                c.Id AS ClinicId,
+                LOWER(j.[key]) AS DayKey,
+                CASE
+                    WHEN JSON_VALUE(j.[value], ''$.isOpen'') IN (''true'', ''1'') THEN 1
+                    ELSE 0
+                END AS IsOpen,
+                CASE
+                    WHEN JSON_VALUE(j.[value], ''$.isOpen'') IN (''true'', ''1'')
+                        THEN TRY_CAST(JSON_VALUE(j.[value], ''$.open'') AS TIME)
+                    ELSE NULL
+                END AS OpenTime,
+                CASE
+                    WHEN JSON_VALUE(j.[value], ''$.isOpen'') IN (''true'', ''1'')
+                        THEN TRY_CAST(JSON_VALUE(j.[value], ''$.close'') AS TIME)
+                    ELSE NULL
+                END AS CloseTime
+            FROM dbo.Clinics c
+            CROSS APPLY OPENJSON(c.OperatingHours) j
+            WHERE c.OperatingHours IS NOT NULL
+              AND LOWER(j.[key]) IN (''monday'',''tuesday'',''wednesday'',''thursday'',''friday'',''saturday'',''sunday'');
+        END;
+    ';
+
+    EXEC sp_executesql @backfillSql;
 END;
 
 PRINT 'ClinicWorkingHours migration complete.';
