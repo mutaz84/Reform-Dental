@@ -21479,7 +21479,12 @@
 
         function setTopTabsCreateUserVisibility(isVisible) {
             const tabsList = document.getElementById('rdViewTabsList');
-            if (!tabsList) return;
+            if (!tabsList) {
+                if (isVisible) {
+                    setTimeout(() => setTopTabsCreateUserVisibility(true), 120);
+                }
+                return;
+            }
 
             const existing = document.getElementById('rdVirtualCreateUserTab');
 
@@ -21547,6 +21552,25 @@
             const modal = document.getElementById('addUserModal');
             if (modal) {
                 ensureUnifiedRightRailExpandedForModal();
+
+                const tabsBar = document.getElementById('rdViewTabsBar');
+                const tabsBarHeight = tabsBar ? Math.ceil(tabsBar.getBoundingClientRect().height || 0) : 0;
+                const modalInner = modal.firstElementChild;
+
+                if (tabsBarHeight > 0) {
+                    modal.style.top = tabsBarHeight + 'px';
+                    if (modalInner) {
+                        modalInner.style.height = `calc(100vh - ${tabsBarHeight}px)`;
+                        modalInner.style.maxHeight = `calc(100vh - ${tabsBarHeight}px)`;
+                    }
+                } else {
+                    modal.style.top = '0';
+                    if (modalInner) {
+                        modalInner.style.height = '100vh';
+                        modalInner.style.maxHeight = '100vh';
+                    }
+                }
+
                 modal.style.display = 'flex';
                 setTopTabsCreateUserVisibility(true);
                 setAddUserModalMode('create');
@@ -21586,6 +21610,12 @@
             const modal = document.getElementById('addUserModal');
             if (modal) {
                 modal.style.display = 'none';
+                modal.style.top = '0';
+                const modalInner = modal.firstElementChild;
+                if (modalInner) {
+                    modalInner.style.height = '100vh';
+                    modalInner.style.maxHeight = '100vh';
+                }
             }
             setTopTabsCreateUserVisibility(false);
             if (typeof window.urrSetActiveTab === 'function') {
