@@ -21455,7 +21455,7 @@
             const icon = document.getElementById('addUserSubmitIcon');
             const text = document.getElementById('addUserSubmitText');
             const passwordInput = document.getElementById('newPassword');
-            const createTabLabel = document.getElementById('addUserTopCreateTabLabel');
+            const createTabLabel = document.getElementById('rdVirtualCreateUserTabLabel');
 
             if (title) {
                 title.innerHTML = addUserModalMode === 'edit'
@@ -21477,20 +21477,60 @@
             }
         }
 
-        function openManageUsersFromAddUser() {
-            const addUserModal = document.getElementById('addUserModal');
-            if (addUserModal) {
-                addUserModal.style.display = 'none';
+        function setTopTabsCreateUserVisibility(isVisible) {
+            const tabsList = document.getElementById('rdViewTabsList');
+            if (!tabsList) return;
+
+            const existing = document.getElementById('rdVirtualCreateUserTab');
+
+            if (!isVisible) {
+                if (existing) existing.remove();
+                const tabLabels = Array.from(tabsList.querySelectorAll('.rd-view-tab-label'));
+                const manageUsersTab = tabLabels.find((btn) => String(btn.textContent || '').trim().toLowerCase() === 'manage users');
+                if (manageUsersTab) {
+                    const tab = manageUsersTab.closest('.rd-view-tab');
+                    if (tab) tab.classList.add('active');
+                }
+                return;
             }
-            if (typeof switchContentView === 'function') {
-                switchContentView('manage-users', null, { force: true });
-            }
-            if (typeof openUserManagement === 'function') {
-                openUserManagement();
-            }
-            if (typeof window.urrSetActiveTab === 'function') {
-                window.urrSetActiveTab('manager');
-            }
+
+            if (existing) existing.remove();
+            tabsList.querySelectorAll('.rd-view-tab').forEach((tab) => tab.classList.remove('active'));
+
+            const virtualTab = document.createElement('div');
+            virtualTab.id = 'rdVirtualCreateUserTab';
+            virtualTab.className = 'rd-view-tab active';
+
+            const labelBtn = document.createElement('button');
+            labelBtn.type = 'button';
+            labelBtn.id = 'rdVirtualCreateUserTabLabel';
+            labelBtn.className = 'rd-view-tab-label';
+            labelBtn.textContent = addUserModalMode === 'edit' ? 'Edit Employee' : 'Create Employee';
+            labelBtn.title = labelBtn.textContent;
+            labelBtn.addEventListener('click', () => {
+                const addUserModal = document.getElementById('addUserModal');
+                if (addUserModal) {
+                    ensureUnifiedRightRailExpandedForModal();
+                    addUserModal.style.display = 'flex';
+                }
+            });
+
+            const closeBtn = document.createElement('button');
+            closeBtn.type = 'button';
+            closeBtn.className = 'rd-view-tab-close';
+            closeBtn.innerHTML = '&times;';
+            closeBtn.title = 'Close';
+            closeBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (typeof closeAddUserModal === 'function') {
+                    closeAddUserModal();
+                }
+            });
+
+            virtualTab.appendChild(labelBtn);
+            virtualTab.appendChild(closeBtn);
+            tabsList.appendChild(virtualTab);
         }
 
         // Open Add User Modal
@@ -21508,6 +21548,7 @@
             if (modal) {
                 ensureUnifiedRightRailExpandedForModal();
                 modal.style.display = 'flex';
+                setTopTabsCreateUserVisibility(true);
                 setAddUserModalMode('create');
                 addUserEditRecordId = null;
                 addUserOriginalUsername = '';
@@ -21546,6 +21587,7 @@
             if (modal) {
                 modal.style.display = 'none';
             }
+            setTopTabsCreateUserVisibility(false);
             if (typeof window.urrSetActiveTab === 'function') {
                 window.urrSetActiveTab('manager');
             }
@@ -50492,6 +50534,9 @@ window.addEventListener('load', function() {
                 const addUserModal = document.getElementById('addUserModal');
                 if (addUserModal) {
                     addUserModal.style.display = 'flex';
+                    if (typeof setTopTabsCreateUserVisibility === 'function') {
+                        setTopTabsCreateUserVisibility(true);
+                    }
                     // Refresh duties checkboxes in the user creation form
                     loadDutiesFromAPI().then(() => {
                         renderDutiesCheckboxes();
@@ -60754,18 +60799,8 @@ document.addEventListener('keydown', function(e) {
             </h3>
             <button class="close-btn" onclick="closeAddUserModal()" style="color: white; background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
         </div>
-
-        <div style="position: sticky; top: 76px; z-index: 9; background: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 0.5rem 1.5rem; display: flex; gap: 0.5rem; align-items: center;">
-            <button type="button" onclick="openManageUsersFromAddUser()" style="border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); border-radius: 8px; padding: 0.4rem 0.75rem; font-size: 0.8rem; font-weight: 600; cursor: pointer;">
-                <i class="fas fa-users" style="margin-right: 0.35rem;"></i>Manage Users
-            </button>
-            <span style="color: var(--text-tertiary); font-size: 0.8rem;">/</span>
-            <span id="addUserTopCreateTabLabel" style="border: 1px solid var(--accent-primary); background: var(--card-bg); color: var(--text-primary); border-radius: 8px; padding: 0.4rem 0.75rem; font-size: 0.8rem; font-weight: 700; box-shadow: 0 1px 2px var(--shadow);">
-                Create Employee
-            </span>
-        </div>
         
-        <div style="padding: 2rem; height: calc(100vh - 132px); overflow-y: auto;">
+        <div style="padding: 2rem; height: calc(100vh - 80px); overflow-y: auto;">
             <form id="createUserForm" onsubmit="createUser(event)" style="max-width: 1200px; margin: 0 auto;">
                     
                     <!-- Personal Information Section -->
