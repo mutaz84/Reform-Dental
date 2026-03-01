@@ -21784,53 +21784,55 @@
 
             if (!isVisible) {
                 if (existing) existing.remove();
-                const tabLabels = Array.from(tabsList.querySelectorAll('.rd-view-tab-label'));
-                const manageUsersTab = tabLabels.find((btn) => String(btn.textContent || '').trim().toLowerCase() === 'manage users');
-                if (manageUsersTab) {
-                    const tab = manageUsersTab.closest('.rd-view-tab');
-                    if (tab) tab.classList.add('active');
-                }
                 return;
             }
 
-            if (existing) existing.remove();
-            tabsList.querySelectorAll('.rd-view-tab').forEach((tab) => tab.classList.remove('active'));
+            let virtualTab = existing;
+            if (!virtualTab) {
+                virtualTab = document.createElement('div');
+                virtualTab.id = 'rdVirtualCreateUserTab';
+                virtualTab.className = 'rd-view-tab';
 
-            const virtualTab = document.createElement('div');
-            virtualTab.id = 'rdVirtualCreateUserTab';
-            virtualTab.className = 'rd-view-tab active';
+                const labelBtn = document.createElement('button');
+                labelBtn.type = 'button';
+                labelBtn.id = 'rdVirtualCreateUserTabLabel';
+                labelBtn.className = 'rd-view-tab-label';
+                labelBtn.addEventListener('click', () => {
+                    const addUserModal = document.getElementById('addUserModal');
+                    if (addUserModal) {
+                        ensureUnifiedRightRailExpandedForModal();
+                        addUserModal.removeAttribute('data-parked-for-tab-switch');
+                        addUserModal.style.display = 'flex';
+                    }
+                });
 
-            const labelBtn = document.createElement('button');
-            labelBtn.type = 'button';
-            labelBtn.id = 'rdVirtualCreateUserTabLabel';
-            labelBtn.className = 'rd-view-tab-label';
-            labelBtn.textContent = addUserModalMode === 'edit' ? 'Edit Employee' : 'Create Employee';
-            labelBtn.title = labelBtn.textContent;
-            labelBtn.addEventListener('click', () => {
-                const addUserModal = document.getElementById('addUserModal');
-                if (addUserModal) {
-                    ensureUnifiedRightRailExpandedForModal();
-                    addUserModal.removeAttribute('data-parked-for-tab-switch');
-                    addUserModal.style.display = 'flex';
-                }
-            });
+                const closeBtn = document.createElement('button');
+                closeBtn.type = 'button';
+                closeBtn.className = 'rd-view-tab-close';
+                closeBtn.innerHTML = '&times;';
+                closeBtn.title = 'Close';
+                closeBtn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (typeof closeAddUserModal === 'function') {
+                        closeAddUserModal();
+                    }
+                });
 
-            const closeBtn = document.createElement('button');
-            closeBtn.type = 'button';
-            closeBtn.className = 'rd-view-tab-close';
-            closeBtn.innerHTML = '&times;';
-            closeBtn.title = 'Close';
-            closeBtn.addEventListener('click', (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                if (typeof closeAddUserModal === 'function') {
-                    closeAddUserModal();
-                }
-            });
+                virtualTab.appendChild(labelBtn);
+                virtualTab.appendChild(closeBtn);
+                tabsList.appendChild(virtualTab);
+            }
 
-            virtualTab.appendChild(labelBtn);
-            virtualTab.appendChild(closeBtn);
-            tabsList.appendChild(virtualTab);
+            const createTabLabel = virtualTab.querySelector('#rdVirtualCreateUserTabLabel');
+            if (createTabLabel) {
+                createTabLabel.textContent = addUserModalMode === 'edit' ? 'Edit Employee' : 'Create Employee';
+                createTabLabel.title = createTabLabel.textContent;
+            }
+
+            const addUserModal = document.getElementById('addUserModal');
+            const isModalVisible = !!(addUserModal && addUserModal.style.display !== 'none');
+            virtualTab.classList.toggle('active', isModalVisible);
         }
         window.setTopTabsCreateUserVisibility = setTopTabsCreateUserVisibility;
 
