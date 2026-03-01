@@ -28400,6 +28400,150 @@
             });
         }
 
+        function getCurrentOfficeView() {
+            const offices = loadOffices();
+            return offices.find(o => String(o?.officeID) === String(currentOfficeViewId)) || null;
+        }
+
+        function getOfficeRelatedUsers(office) {
+            const users = (typeof loadUsers === 'function') ? loadUsers() : {};
+            if (!users || typeof users !== 'object') return [];
+
+            return Object.keys(users)
+                .filter(username => username !== 'admin')
+                .map(username => ({ username, user: users[username] || {} }))
+                .filter(({ user }) => {
+                    const refs = [];
+                    const pushRef = (value) => {
+                        if (Array.isArray(value)) {
+                            value.forEach(pushRef);
+                            return;
+                        }
+                        refs.push(value);
+                    };
+
+                    pushRef(user?.clinics);
+                    pushRef(user?.Clinics);
+                    pushRef(user?.clinicIds);
+                    pushRef(user?.ClinicIds);
+                    pushRef(user?.clinicId);
+                    pushRef(user?.ClinicId);
+                    pushRef(user?.officeID);
+                    pushRef(user?.OfficeID);
+                    pushRef(user?.officeLocation || user?.OfficeLocation || user?.clinic || user?.Clinic || user?.office || user?.Office);
+
+                    return refs.some(ref => doesOfficeReferenceMatch(office, ref));
+                })
+                .map(({ username, user }) => ({
+                    username,
+                    name: String(user?.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || username || 'Employee').trim(),
+                    role: String(user?.jobTitle || user?.JobTitle || user?.role || 'Staff').trim()
+                }));
+        }
+
+        async function saveOfficeViewWorkingHours() {
+            const office = getCurrentOfficeView();
+            if (!office) {
+                showNotification('Clinic details are no longer available.', 'error');
+                return;
+            }
+
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            const operatingHours = {};
+
+            days.forEach(day => {
+                const isOpen = document.getElementById(`ovh-${day}-open`)?.checked === true;
+                const openValue = document.getElementById(`ovh-${day}-start`)?.value || '';
+                const closeValue = document.getElementById(`ovh-${day}-end`)?.value || '';
+                operatingHours[day] = {
+                    isOpen,
+                    open: isOpen ? openValue : '',
+                    close: isOpen ? closeValue : ''
+                };
+            });
+
+            const payload = {
+                name: office.officeName || office.name || '',
+                address: office.address || '',
+                city: office.city || '',
+                state: office.state || '',
+                zipCode: office.zipCode || '',
+                phone: office.phone || '',
+                email: office.email || '',
+                color: office.color || '#06b6d4',
+                description: office.description || '',
+                icon: office.icon || 'fa-hospital',
+                website: office.website || '',
+                defaultDentist: office.defaultDentist || '',
+                taxonomyNumber: office.taxonomyNumber || '',
+                clinicNPI: office.clinicNPI || '',
+                clinicTIN: office.clinicTIN || '',
+                legalName: office.legalName || '',
+                legalAddress: office.legalAddress || '',
+                status: office.status || (office.isActive !== false ? 'Active' : 'Inactive'),
+                isActive: office.isActive !== false,
+                operatingHours,
+                logo: office.logo || null
+            };
+
+            try {
+                await updateClinicViaAPI(office.officeID, payload);
+                if (typeof syncClinicsFromAPI === 'function') {
+                    await syncClinicsFromAPI();
+                }
+                showNotification('Working hours updated successfully.', 'success');
+                renderOfficeViewContent();
+            } catch (error) {
+                console.error('Failed saving clinic working hours:', error);
+                showNotification('Failed to save working hours.', 'error');
+            }
+        }
+
+        async function openOfficeViewRoomCreate() {
+            const office = getCurrentOfficeView();
+            if (!office) return;
+
+            await openRoomsManagement();
+            openAddRoomForm();
+
+            const officeField = document.getElementById('newOfficeID');
+            if (officeField) officeField.value = String(office.officeID ?? '');
+        }
+
+        async function openOfficeViewRoomEdit(roomID) {
+            await openRoomsManagement();
+            editRoom(roomID);
+        }
+
+        function deleteOfficeViewRoom(roomID) {
+            deleteRoom(roomID);
+            renderOfficeViewContent();
+        }
+
+        async function openOfficeViewAddEmployee() {
+            const office = getCurrentOfficeView();
+            if (!office) return;
+
+            openAddUserModal({ skipDraftRestore: true });
+            if (typeof loadOfficesForUserForm === 'function') {
+                await loadOfficesForUserForm();
+            }
+
+            const officeLocationField = document.getElementById('newOfficeLocation');
+            if (officeLocationField) {
+                officeLocationField.value = office.officeName || office.name || '';
+            }
+        }
+
+        async function openOfficeViewEditEmployee(username) {
+            await openEditUserModal(username);
+        }
+
+        function deleteOfficeViewEmployee(username) {
+            deleteUser(username);
+            renderOfficeViewContent();
+        }
+
         function updateOfficeViewTabStyles() {
             const tabButtons = document.querySelectorAll('#officeViewTabs button[data-tab]');
             tabButtons.forEach(button => {
@@ -28424,21 +28568,43 @@
             if (currentOfficeViewTab === 'hours') {
                 const rows = getOfficeHoursRows(office);
                 content.innerHTML = `
+                    <div style="display: flex; justify-content: flex-end; margin-bottom: 0.75rem;">
+                        <button type="button" onclick="saveOfficeViewWorkingHours()" style="padding: 0.6rem 1rem; border: none; border-radius: 8px; background: #10b981; color: white; cursor: pointer; font-weight: 600;">
+                            <i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save Working Hours
+                        </button>
+                    </div>
                     <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
                         <table style="width: 100%; border-collapse: collapse;">
                             <thead>
                                 <tr style="background: var(--bg-secondary);">
                                     <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Day</th>
-                                    <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Working Hours</th>
+                                    <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Open</th>
+                                    <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Start</th>
+                                    <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">End</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                ${rows.map(row => `
+                                ${rows.map(row => {
+                                    const key = String(row.day || '').toLowerCase();
+                                    const dayHours = office?.operatingHours?.[key] || {};
+                                    const isOpen = dayHours?.isOpen === true;
+                                    const start = dayHours?.open || '09:00';
+                                    const end = dayHours?.close || '17:00';
+                                    return `
                                     <tr style="border-bottom: 1px solid var(--border-color);">
                                         <td style="padding: 0.75rem 1rem; color: var(--text-primary); font-weight: 600;">${row.day}</td>
-                                        <td style="padding: 0.75rem 1rem; color: var(--text-secondary);">${row.value}</td>
+                                        <td style="padding: 0.75rem 1rem; color: var(--text-secondary);">
+                                            <input type="checkbox" id="ovh-${key}-open" ${isOpen ? 'checked' : ''}>
+                                        </td>
+                                        <td style="padding: 0.75rem 1rem; color: var(--text-secondary);">
+                                            <input type="time" id="ovh-${key}-start" value="${start}" style="padding: 0.45rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-primary);">
+                                        </td>
+                                        <td style="padding: 0.75rem 1rem; color: var(--text-secondary);">
+                                            <input type="time" id="ovh-${key}-end" value="${end}" style="padding: 0.45rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-primary);">
+                                        </td>
                                     </tr>
-                                `).join('')}
+                                `;
+                                }).join('')}
                             </tbody>
                         </table>
                     </div>
@@ -28448,12 +28614,15 @@
 
             if (currentOfficeViewTab === 'rooms') {
                 const relatedRooms = getOfficeRelatedRooms(office);
-                if (!relatedRooms.length) {
-                    content.innerHTML = '<div style="padding: 1rem; color: var(--text-tertiary); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">No rooms are linked to this clinic.</div>';
-                    return;
-                }
-
                 content.innerHTML = `
+                    <div style="display: flex; justify-content: flex-end; margin-bottom: 0.75rem;">
+                        <button type="button" onclick="openOfficeViewRoomCreate()" style="padding: 0.6rem 1rem; border: none; border-radius: 8px; background: #3b82f6; color: white; cursor: pointer; font-weight: 600;">
+                            <i class="fas fa-plus" style="margin-right: 0.5rem;"></i>Add Room
+                        </button>
+                    </div>
+                    ${!relatedRooms.length ? `
+                        <div style="padding: 1rem; color: var(--text-tertiary); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">No rooms are linked to this clinic.</div>
+                    ` : `
                     <div style="display: grid; gap: 0.75rem;">
                         ${relatedRooms.map(room => `
                             <div style="padding: 0.9rem 1rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
@@ -28461,31 +28630,55 @@
                                     <div style="color: var(--text-primary); font-weight: 600;">${room?.roomName || room?.name || room?.roomType || 'Room'}</div>
                                     <div style="color: var(--text-tertiary); font-size: 0.85rem;">${room?.roomType || room?.roomCategory || 'General'}</div>
                                 </div>
-                                <span style="padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; background: ${room?.isActive !== false ? '#10b98120' : '#ef444420'}; color: ${room?.isActive !== false ? '#10b981' : '#ef4444'};">
-                                    ${room?.status || (room?.isActive !== false ? 'Active' : 'Inactive')}
-                                </span>
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span style="padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; background: ${room?.isActive !== false ? '#10b98120' : '#ef444420'}; color: ${room?.isActive !== false ? '#10b981' : '#ef4444'};">
+                                        ${room?.status || (room?.isActive !== false ? 'Active' : 'Inactive')}
+                                    </span>
+                                    <button type="button" onclick="openOfficeViewRoomEdit(${Number(room?.roomID || 0)})" style="padding: 0.45rem 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-primary); cursor: pointer;" title="Edit Room">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button type="button" onclick="deleteOfficeViewRoom(${Number(room?.roomID || 0)})" style="padding: 0.45rem 0.6rem; border: 1px solid #ef444455; border-radius: 6px; background: #ef444420; color: #ef4444; cursor: pointer;" title="Delete Room">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
                             </div>
                         `).join('')}
                     </div>
+                    `}
                 `;
                 return;
             }
 
-            const relatedEmployees = getOfficeRelatedEmployees(office);
-            if (!relatedEmployees.length) {
-                content.innerHTML = '<div style="padding: 1rem; color: var(--text-tertiary); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">No employees are linked to this clinic.</div>';
-                return;
-            }
+            const relatedEmployees = getOfficeRelatedUsers(office);
 
             content.innerHTML = `
+                <div style="display: flex; justify-content: flex-end; margin-bottom: 0.75rem;">
+                    <button type="button" onclick="openOfficeViewAddEmployee()" style="padding: 0.6rem 1rem; border: none; border-radius: 8px; background: #8b5cf6; color: white; cursor: pointer; font-weight: 600;">
+                        <i class="fas fa-user-plus" style="margin-right: 0.5rem;"></i>Add Employee
+                    </button>
+                </div>
+                ${!relatedEmployees.length ? `
+                    <div style="padding: 1rem; color: var(--text-tertiary); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">No employees are linked to this clinic.</div>
+                ` : `
                 <div style="display: grid; gap: 0.75rem;">
                     ${relatedEmployees.map(employee => `
                         <div style="padding: 0.9rem 1rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
-                            <div style="color: var(--text-primary); font-weight: 600;">${employee.title}</div>
-                            <div style="color: var(--text-tertiary); font-size: 0.85rem;">${employee.role}</div>
+                            <div>
+                                <div style="color: var(--text-primary); font-weight: 600;">${employee.name}</div>
+                                <div style="color: var(--text-tertiary); font-size: 0.85rem;">${employee.role}</div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <button type="button" onclick='openOfficeViewEditEmployee(${JSON.stringify(employee.username)})' style="padding: 0.45rem 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-primary); cursor: pointer;" title="Edit Employee">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button type="button" onclick='deleteOfficeViewEmployee(${JSON.stringify(employee.username)})' style="padding: 0.45rem 0.6rem; border: 1px solid #ef444455; border-radius: 6px; background: #ef444420; color: #ef4444; cursor: pointer;" title="Delete Employee">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
                         </div>
                     `).join('')}
                 </div>
+                `}
             `;
         }
 
