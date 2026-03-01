@@ -25765,21 +25765,54 @@
         // ========== END COMPLIANCES MANAGEMENT FUNCTIONS ==========
 
         // Open Compliance Types Manager Modal
-        function openComplianceTypesManager() {
-            loadComplianceTypesForManager();
+        function openComplianceTypesManager(fromUserCreation = false) {
+            const modal = document.getElementById('complianceTypesModal');
+            if (!modal) {
+                showNotification('Compliance Types manager is unavailable right now.', 'error');
+                return;
+            }
+
+            // If nested inside complianceModal, detach it so it can open independently.
+            const parentComplianceModal = modal.closest('#complianceModal');
+            if (parentComplianceModal) {
+                document.body.appendChild(modal);
+            }
+
+            const addUserModal = document.getElementById('addUserModal');
+            const isUserCreationOpen = addUserModal && addUserModal.style.display !== 'none';
+            if (fromUserCreation || isUserCreationOpen) {
+                modal.setAttribute('data-from-user-creation', 'true');
+                modal.style.zIndex = '10320';
+            } else {
+                modal.removeAttribute('data-from-user-creation');
+                modal.style.zIndex = '10120';
+            }
+
             ensureUnifiedRightRailExpandedForModal();
-            document.getElementById('complianceTypesModal').style.display = 'flex';
+            modal.style.display = 'flex';
+            Promise.resolve(loadComplianceTypesForManager()).catch((error) => {
+                console.error('Failed loading compliance types manager:', error);
+            });
         }
 
         // Close Compliance Types Manager Modal
         function closeComplianceTypesModal() {
             const modal = document.getElementById('complianceTypesModal');
-            if (modal) modal.style.display = 'none';
+            const fromUserCreation = modal && modal.getAttribute('data-from-user-creation') === 'true';
+            if (modal) {
+                modal.style.display = 'none';
+                modal.style.zIndex = '10120';
+                modal.removeAttribute('data-from-user-creation');
+            }
 
             const addUserModal = document.getElementById('addUserModal');
             const isUserCreationOpen = addUserModal && addUserModal.style.display !== 'none';
 
-            if (isUserCreationOpen) {
+            if (typeof loadComplianceTypes === 'function') {
+                Promise.resolve(loadComplianceTypes()).catch(() => {});
+            }
+
+            if (isUserCreationOpen || fromUserCreation) {
                 if (typeof loadCompliancesFromAPI === 'function') {
                     Promise.resolve(loadCompliancesFromAPI())
                         .catch((error) => {
@@ -49944,7 +49977,7 @@ window.addEventListener('load', function() {
             if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
 
             if (typeof openComplianceTypesManager === 'function') {
-                openComplianceTypesManager();
+                openComplianceTypesManager(true);
                 return;
             }
 
@@ -50489,7 +50522,12 @@ window.addEventListener('load', function() {
             modal.style.zIndex = '10001'; // Reset to default z-index
             // Refresh roles in user creation form
             syncRolesFromAPI().then(() => {
-                populateRoleTypeDropdown();
+                if (typeof populateRoleDropdowns === 'function') {
+                    populateRoleDropdowns();
+                }
+                if (typeof populateRoleTypeDropdown === 'function') {
+                    populateRoleTypeDropdown();
+                }
             });
         }
         
