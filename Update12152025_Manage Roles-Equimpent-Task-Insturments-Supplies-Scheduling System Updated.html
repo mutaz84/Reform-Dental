@@ -21454,6 +21454,274 @@
         let addUserModalMode = 'create';
         let addUserEditRecordId = null;
         let addUserOriginalUsername = '';
+        const CREATE_USER_DRAFTS_SETTINGS_KEY = 'rdCreateUserDrafts';
+        let createUserDraftSaveTimer = null;
+        let createUserDraftAutoSaveInstalled = false;
+        let createUserDraftLastSerialized = '';
+
+        function getCreateUserDraftOwnerKey() {
+            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
+            const dbUserId = Number(currentUser?.dbId ?? currentUser?.id ?? currentUser?.Id ?? window.currentDbUserId);
+            if (Number.isInteger(dbUserId) && dbUserId > 0) {
+                return `db:${dbUserId}`;
+            }
+
+            const username = String(
+                currentUser?.username ||
+                currentUser?.userName ||
+                localStorage.getItem('loggedInUser') ||
+                ''
+            ).trim().toLowerCase();
+            return username ? `user:${username}` : '';
+        }
+
+        function getCreateUserDraftLocalKey() {
+            const owner = getCreateUserDraftOwnerKey();
+            return owner ? `rdCreateUserDraft:${owner}` : 'rdCreateUserDraft:anonymous';
+        }
+
+        function isCreateUserModalOpen() {
+            const modal = document.getElementById('addUserModal');
+            return !!(modal && modal.style.display !== 'none');
+        }
+
+        function hasMeaningfulCreateUserDraft(draft) {
+            if (!draft || typeof draft !== 'object') return false;
+            const fields = draft.fields && typeof draft.fields === 'object' ? draft.fields : {};
+            const hasFieldValue = Object.keys(fields).some((key) => {
+                const value = fields[key];
+                if (typeof value === 'boolean') return value;
+                const normalized = String(value ?? '').trim();
+                return normalized !== '' && normalized !== '--Select--' && normalized !== '--';
+            });
+
+            const dutyCount = Array.isArray(draft.selectedDutyIds) ? draft.selectedDutyIds.length : 0;
+            const complianceCount = Array.isArray(draft.selectedComplianceIds) ? draft.selectedComplianceIds.length : 0;
+            const complianceTypeCount = Array.isArray(draft.selectedComplianceTypeIds) ? draft.selectedComplianceTypeIds.length : 0;
+
+            return hasFieldValue || dutyCount > 0 || complianceCount > 0 || complianceTypeCount > 0;
+        }
+
+        function buildCreateUserDraftSnapshot() {
+            if (addUserModalMode !== 'create') return null;
+            const form = document.getElementById('createUserForm');
+            if (!form) return null;
+
+            const fields = {};
+            form.querySelectorAll('input, select, textarea').forEach((el) => {
+                if (!el || !el.id) return;
+                const type = String(el.type || '').toLowerCase();
+                if (type === 'file') return;
+
+                if (type === 'checkbox' || type === 'radio') {
+                    fields[el.id] = !!el.checked;
+                    return;
+                }
+
+                fields[el.id] = el.value;
+            });
+
+            return {
+                version: 1,
+                mode: 'create',
+                updatedAt: new Date().toISOString(),
+                fields,
+                selectedDutyIds: typeof getSelectedDutyIds === 'function' ? getSelectedDutyIds() : [],
+                selectedComplianceIds: typeof getSelectedComplianceIds === 'function' ? getSelectedComplianceIds() : [],
+                selectedComplianceTypeIds: typeof getSelectedComplianceTypeIds === 'function' ? getSelectedComplianceTypeIds() : []
+            };
+        }
+
+        async function persistCreateUserDraft(snapshot, options = {}) {
+            const owner = getCreateUserDraftOwnerKey();
+            if (!owner) return;
+
+            const remove = !!options.remove;
+            const localKey = getCreateUserDraftLocalKey();
+            const serialized = remove ? '' : JSON.stringify(snapshot || {});
+
+            if (!remove && serialized === createUserDraftLastSerialized) {
+                return;
+            }
+
+            if (remove) {
+                localStorage.removeItem(localKey);
+                createUserDraftLastSerialized = '';
+            } else {
+                localStorage.setItem(localKey, serialized);
+                createUserDraftLastSerialized = serialized;
+            }
+
+            if (typeof API_BASE_URL === 'undefined' || !API_BASE_URL) return;
+
+            try {
+                let settings = {};
+                const readRes = await fetch(`${API_BASE_URL}/settings`, { cache: 'no-store' });
+                if (readRes.ok) {
+                    const payload = await readRes.json();
+                    if (payload && typeof payload === 'object') {
+                        settings = payload;
+                    }
+                }
+
+                const draftMap = (settings[CREATE_USER_DRAFTS_SETTINGS_KEY] && typeof settings[CREATE_USER_DRAFTS_SETTINGS_KEY] === 'object')
+                    ? settings[CREATE_USER_DRAFTS_SETTINGS_KEY]
+                    : {};
+
+                if (remove) {
+                    delete draftMap[owner];
+                } else {
+                    draftMap[owner] = snapshot;
+                }
+
+                settings[CREATE_USER_DRAFTS_SETTINGS_KEY] = draftMap;
+
+                await fetch(`${API_BASE_URL}/settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+            } catch (error) {
+                console.log('Create user draft cloud sync unavailable, using local cache only');
+            }
+        }
+
+        async function clearCreateUserDraft() {
+            await persistCreateUserDraft(null, { remove: true });
+        }
+
+        function applyCreateUserDraftSelections(draft, attempt = 0) {
+            const dutyIds = new Set((Array.isArray(draft?.selectedDutyIds) ? draft.selectedDutyIds : []).map((value) => Number(value)));
+            const complianceIds = new Set((Array.isArray(draft?.selectedComplianceIds) ? draft.selectedComplianceIds : []).map((value) => Number(value)));
+            const complianceTypeIds = new Set((Array.isArray(draft?.selectedComplianceTypeIds) ? draft.selectedComplianceTypeIds : []).map((value) => Number(value)));
+
+            let pending = false;
+
+            const dutyBoxes = document.querySelectorAll('input[name="selectedDuties"]');
+            if (!dutyBoxes.length && dutyIds.size) pending = true;
+            dutyBoxes.forEach((box) => {
+                box.checked = dutyIds.has(Number(box.value));
+            });
+
+            const complianceBoxes = document.querySelectorAll('input[name="selectedCompliances"]');
+            if (!complianceBoxes.length && complianceIds.size) pending = true;
+            complianceBoxes.forEach((box) => {
+                box.checked = complianceIds.has(Number(box.value));
+            });
+
+            const complianceTypeBoxes = document.querySelectorAll('input[name="selectedComplianceTypes"]');
+            if (!complianceTypeBoxes.length && complianceTypeIds.size) pending = true;
+            complianceTypeBoxes.forEach((box) => {
+                box.checked = complianceTypeIds.has(Number(box.value));
+            });
+
+            if (pending && attempt < 8) {
+                setTimeout(() => applyCreateUserDraftSelections(draft, attempt + 1), 180);
+            }
+        }
+
+        function applyCreateUserDraftToForm(draft) {
+            if (!draft || typeof draft !== 'object') return;
+            const fields = draft.fields && typeof draft.fields === 'object' ? draft.fields : {};
+
+            Object.keys(fields).forEach((id) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                const type = String(el.type || '').toLowerCase();
+                const value = fields[id];
+
+                if (type === 'checkbox' || type === 'radio') {
+                    el.checked = !!value;
+                    return;
+                }
+
+                el.value = value == null ? '' : value;
+            });
+
+            if (typeof toggleCustomTitle === 'function') {
+                toggleCustomTitle('new');
+            }
+            if (typeof toggleNewSeparationFields === 'function') {
+                toggleNewSeparationFields();
+            }
+
+            applyCreateUserDraftSelections(draft);
+        }
+
+        async function loadCreateUserDraft() {
+            const owner = getCreateUserDraftOwnerKey();
+            if (!owner) return null;
+
+            if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/settings`, { cache: 'no-store' });
+                    if (response.ok) {
+                        const settings = await response.json();
+                        const draftMap = settings && typeof settings === 'object'
+                            ? settings[CREATE_USER_DRAFTS_SETTINGS_KEY]
+                            : null;
+                        const cloudDraft = draftMap && typeof draftMap === 'object' ? draftMap[owner] : null;
+                        if (cloudDraft && typeof cloudDraft === 'object') {
+                            localStorage.setItem(getCreateUserDraftLocalKey(), JSON.stringify(cloudDraft));
+                            return cloudDraft;
+                        }
+                    }
+                } catch (error) {
+                    console.log('⚠️ Could not load create user draft from cloud, checking local cache');
+                }
+            }
+
+            return safeParseLocalStorageJSON(getCreateUserDraftLocalKey(), null, { expect: 'objectOrNull' });
+        }
+
+        function scheduleCreateUserDraftSave() {
+            if (addUserModalMode !== 'create') return;
+            if (!isCreateUserModalOpen()) return;
+
+            if (createUserDraftSaveTimer) {
+                clearTimeout(createUserDraftSaveTimer);
+            }
+
+            createUserDraftSaveTimer = setTimeout(async () => {
+                const snapshot = buildCreateUserDraftSnapshot();
+                if (!hasMeaningfulCreateUserDraft(snapshot)) return;
+                await persistCreateUserDraft(snapshot);
+            }, 1500);
+        }
+
+        function installCreateUserDraftAutoSave() {
+            if (createUserDraftAutoSaveInstalled) return;
+            createUserDraftAutoSaveInstalled = true;
+
+            document.addEventListener('input', (event) => {
+                const target = event.target;
+                if (!target || !target.closest) return;
+                if (!target.closest('#createUserForm')) return;
+                scheduleCreateUserDraftSave();
+            }, true);
+
+            document.addEventListener('change', (event) => {
+                const target = event.target;
+                if (!target || !target.closest) return;
+                if (!target.closest('#createUserForm')) return;
+                scheduleCreateUserDraftSave();
+            }, true);
+        }
+
+        async function maybeRestoreCreateUserDraftOnOpen() {
+            if (addUserModalMode !== 'create') return;
+
+            const draft = await loadCreateUserDraft();
+            if (!hasMeaningfulCreateUserDraft(draft)) return;
+
+            const shouldRestore = window.confirm('You have an unsaved Create Employee draft from your account. Restore it now?');
+            if (!shouldRestore) return;
+
+            applyCreateUserDraftToForm(draft);
+            if (typeof window.showToast === 'function') {
+                window.showToast('Draft restored for Create Employee.', 'success');
+            }
+        }
 
         function setAddUserModalMode(mode) {
             addUserModalMode = mode === 'edit' ? 'edit' : 'create';
@@ -21547,7 +21815,8 @@
         window.setTopTabsCreateUserVisibility = setTopTabsCreateUserVisibility;
 
         // Open Add User Modal
-        function openAddUserModal() {
+        function openAddUserModal(options = {}) {
+            const skipDraftRestore = !!(options && options.skipDraftRestore);
             const activeView = document.querySelector('.content-view.active');
             const activeViewId = activeView && activeView.id ? activeView.id : '';
             if (activeViewId !== 'view-manage-users' && typeof switchContentView === 'function') {
@@ -21586,6 +21855,7 @@
                 setAddUserModalMode('create');
                 addUserEditRecordId = null;
                 addUserOriginalUsername = '';
+                installCreateUserDraftAutoSave();
                 // Reset form
                 document.getElementById('createUserForm').reset();
                 document.getElementById('createUserError').style.display = 'none';
@@ -21612,12 +21882,18 @@
                 } else if (typeof renderCompliancesCheckboxes === 'function') {
                     renderCompliancesCheckboxes();
                 }
+                if (!skipDraftRestore) {
+                    setTimeout(() => {
+                        maybeRestoreCreateUserDraftOnOpen();
+                    }, 160);
+                }
             }
         }
 
         // Close Add User Modal
         function closeAddUserModal() {
             const modal = document.getElementById('addUserModal');
+            const closeChoice = String(window.__rdLastCloseChoice || '').toLowerCase();
             if (modal) {
                 modal.style.display = 'none';
                 modal.removeAttribute('data-keep-open-across-tabs');
@@ -21642,6 +21918,11 @@
             // Hide separation fields
             const sepContainer = document.getElementById('newSeparationFieldsContainer');
             if (sepContainer) sepContainer.style.display = 'none';
+
+            if (closeChoice === 'discard') {
+                clearCreateUserDraft();
+            }
+            window.__rdLastCloseChoice = '';
         }
 
         // Toggle Separation Fields visibility for Add User modal
@@ -21868,6 +22149,7 @@
                     errorDiv.style.background = '#fee';
                     errorDiv.style.borderColor = '#fcc';
                     errorDiv.style.color = '#c33';
+                    clearCreateUserDraft();
                     closeAddUserModal();
                 }, 1600);
                 return;
@@ -21953,6 +22235,7 @@
                 errorDiv.style.background = '#fee';
                 errorDiv.style.borderColor = '#fcc';
                 errorDiv.style.color = '#c33';
+                clearCreateUserDraft();
                 // Close the modal
                 document.getElementById('addUserModal').style.display = 'none';
             }, 3000);
@@ -23463,7 +23746,7 @@
                 return;
             }
 
-            openAddUserModal();
+            openAddUserModal({ skipDraftRestore: true });
             setAddUserModalMode('edit');
             addUserEditRecordId = recordId;
             addUserOriginalUsername = String(user.username || localUsername || '').trim();
@@ -69333,10 +69616,14 @@ console.log('✅ Global functions exported to window object');
                 }
 
                 markDirty(active, false);
+                window.__rdLastCloseChoice = choice;
 
                 if (closeFunctionName && typeof window[closeFunctionName] === 'function') {
                     window[closeFunctionName]();
+                    return;
                 }
+
+                window.__rdLastCloseChoice = '';
             })();
         }, true);
     }
