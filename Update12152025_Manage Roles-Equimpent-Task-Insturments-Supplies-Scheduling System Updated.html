@@ -36252,6 +36252,55 @@
                 });
             };
 
+            const resourceMatchesUserProfile = () => {
+                if (!(viewMode === 'employee' || viewMode === 'provider')) return false;
+                const usersRaw = (typeof loadUsers === 'function') ? loadUsers() : {};
+                const users = (usersRaw && typeof usersRaw === 'object') ? usersRaw : {};
+                const userList = Object.keys(users).map(key => users[key]).filter(Boolean);
+                if (!userList.length) return false;
+
+                const resourceUsername = String(resource?.extendedProps?.username || '').trim().toLowerCase();
+                const resourceDbId = toNumericId(resource?.extendedProps?.dbId);
+                const resourceTitle = String(resource?.title || '').trim().toLowerCase();
+
+                const matchedUser = userList.find(user => {
+                    const username = String(user?.username || user?.Username || '').trim().toLowerCase();
+                    const fullName = String(user?.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || '').trim().toLowerCase();
+                    const userDbId = toNumericId(user?.dbId || user?.id || user?.Id || user?.userId || user?.userID);
+                    if (resourceUsername && username && resourceUsername === username) return true;
+                    if (resourceDbId && userDbId && resourceDbId === userDbId) return true;
+                    if (resourceTitle && fullName && resourceTitle === fullName) return true;
+                    return false;
+                });
+
+                if (!matchedUser) return false;
+
+                const clinicRefs = [];
+                const addRef = (value) => {
+                    const raw = String(value || '').trim();
+                    if (!raw) return;
+                    clinicRefs.push(raw);
+                    const numeric = toNumericId(raw) || toNumericId(raw.replace(/^clinic-/i, ''));
+                    if (numeric) {
+                        clinicRefs.push(String(numeric));
+                        clinicRefs.push(`clinic-${numeric}`);
+                    }
+                };
+
+                if (Array.isArray(matchedUser?.clinics)) matchedUser.clinics.forEach(addRef);
+                if (Array.isArray(matchedUser?.Clinics)) matchedUser.Clinics.forEach(addRef);
+                if (Array.isArray(matchedUser?.clinicIds)) matchedUser.clinicIds.forEach(addRef);
+                if (Array.isArray(matchedUser?.ClinicIds)) matchedUser.ClinicIds.forEach(addRef);
+
+                addRef(matchedUser?.clinicId);
+                addRef(matchedUser?.ClinicId);
+                addRef(matchedUser?.officeID);
+                addRef(matchedUser?.OfficeID);
+                addRef(matchedUser?.officeLocation || matchedUser?.OfficeLocation || matchedUser?.clinic || matchedUser?.Clinic || matchedUser?.office || matchedUser?.Office);
+
+                return clinicRefs.some(matchesClinicRef);
+            };
+
             if (viewMode === 'room') {
                 if (resource?.id === 'room-unassigned') return false;
 
@@ -36286,6 +36335,8 @@
                 const hasDirectClinicMatch = clinics.some(matchesClinicRef);
                 if (hasDirectClinicMatch) return true;
 
+                if (resourceMatchesUserProfile()) return true;
+
                 return resourceMatchesShift();
             }
 
@@ -36295,7 +36346,11 @@
         function getClinicScopedResources(baseResources, viewMode) {
             if (!Array.isArray(baseResources) || !baseResources.length) return baseResources;
             if (!clinicFilter || viewMode === 'event') return baseResources;
-            return baseResources.filter(resource => isResourceInSelectedClinic(resource, viewMode));
+            const scoped = baseResources.filter(resource => isResourceInSelectedClinic(resource, viewMode));
+            if ((viewMode === 'employee' || viewMode === 'provider') && scoped.length === 0) {
+                return baseResources;
+            }
+            return scoped;
         }
 
         // Helper function to filter resources based on selected filter for current view
