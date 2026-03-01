@@ -67854,6 +67854,30 @@ function installApiStabilityGuard() {
 
 installApiStabilityGuard();
 
+function extractApiArrayPayload(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (!payload || typeof payload !== 'object') return null;
+
+    const candidates = [
+        payload.data,
+        payload.items,
+        payload.results,
+        payload.recordset,
+        payload.value,
+        payload.Data,
+        payload.Items,
+        payload.Results,
+        payload.Recordset,
+        payload.Value
+    ];
+
+    for (const candidate of candidates) {
+        if (Array.isArray(candidate)) return candidate;
+    }
+
+    return null;
+}
+
 // Fetch users from API and sync with localStorage
 async function fetchUsersFromAPI() {
     try {
@@ -67862,7 +67886,12 @@ async function fetchUsersFromAPI() {
             console.error('❌ Failed to fetch users:', response.status);
             return null;
         }
-        const users = await response.json();
+        const payload = await response.json();
+        const users = extractApiArrayPayload(payload);
+        if (!users) {
+            console.error('❌ Unexpected users API response shape:', payload);
+            return null;
+        }
         console.log('✅ Fetched', users.length, 'users from API');
         return users;
     } catch (error) {
@@ -67883,7 +67912,12 @@ async function fetchClinicsFromAPI() {
             }
             return null;
         }
-        const clinics = await response.json();
+        const payload = await response.json();
+        const clinics = extractApiArrayPayload(payload);
+        if (!clinics) {
+            console.error('❌ Unexpected clinics API response shape:', payload);
+            return null;
+        }
         console.log('✅ Fetched', clinics.length, 'clinics from API');
         return clinics;
     } catch (error) {
