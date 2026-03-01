@@ -28322,6 +28322,26 @@
                 pushRef(employee?.clinics);
                 pushRef(employee?.extendedProps?.clinicId);
                 pushRef(employee?.extendedProps?.officeID);
+                pushRef(employee?.extendedProps?.ClinicId);
+                pushRef(employee?.extendedProps?.OfficeID);
+                pushRef(employee?.extendedProps?.clinic);
+                pushRef(employee?.extendedProps?.Clinic);
+                pushRef(employee?.extendedProps?.office);
+                pushRef(employee?.extendedProps?.Office);
+                pushRef(employee?.extendedProps?.clinicName);
+                pushRef(employee?.extendedProps?.ClinicName);
+                pushRef(employee?.extendedProps?.officeName);
+                pushRef(employee?.extendedProps?.OfficeName);
+                pushRef(employee?.extendedProps?.officeLocation);
+                pushRef(employee?.extendedProps?.OfficeLocation);
+
+                pushRef(employee?.clinicId);
+                pushRef(employee?.officeID);
+                pushRef(employee?.clinic);
+                pushRef(employee?.office);
+                pushRef(employee?.clinicName);
+                pushRef(employee?.officeName);
+                pushRef(employee?.officeLocation);
 
                 return refs.some(ref => doesOfficeReferenceMatch(office, ref));
             });
@@ -28405,6 +28425,20 @@
             return offices.find(o => String(o?.officeID) === String(currentOfficeViewId)) || null;
         }
 
+        async function refreshOfficeViewEmployeesData() {
+            try {
+                if (typeof syncUsersFromAPI === 'function') {
+                    await syncUsersFromAPI();
+                }
+            } catch (error) {
+                console.warn('Could not sync users from API before clinic employee render:', error);
+            }
+
+            if (typeof loadEmployeeResourcesFromUsers === 'function') {
+                try { loadEmployeeResourcesFromUsers(); } catch (_) {}
+            }
+        }
+
         function getOfficeRelatedUsers(office) {
             const users = (typeof loadUsers === 'function') ? loadUsers() : {};
             if (!users || typeof users !== 'object') return [];
@@ -28438,6 +28472,10 @@
                 pushRef(user?.ClinicId);
                 pushRef(user?.officeID);
                 pushRef(user?.OfficeID);
+                    pushRef(user?.clinicName);
+                    pushRef(user?.ClinicName);
+                    pushRef(user?.officeName);
+                    pushRef(user?.OfficeName);
                 pushRef(user?.officeLocation || user?.OfficeLocation || user?.clinic || user?.Clinic || user?.office || user?.Office);
 
                 return refs.some(ref => doesOfficeReferenceMatch(office, ref));
@@ -28447,7 +28485,7 @@
 
             allUsernames.forEach(username => {
                 const user = users[username] || {};
-                if (!isUserLinkedToOffice(user)) return;
+                if (office && !isUserLinkedToOffice(user)) return;
 
                 merged.push({
                     username,
@@ -28457,7 +28495,17 @@
                 });
             });
 
-            const relatedFromResources = getOfficeRelatedEmployees(office);
+            const relatedFromResources = office
+                ? getOfficeRelatedEmployees(office)
+                : (
+                    Array.isArray(window.masterData?.getAllEmployees?.())
+                        ? window.masterData.getAllEmployees().map(employee => ({
+                            key: String(employee?.extendedProps?.username || employee?.id || employee?.title || '').trim().toLowerCase(),
+                            title: String(employee?.title || '').trim() || 'Employee',
+                            role: String(employee?.extendedProps?.role || '').trim() || 'Staff'
+                        }))
+                        : []
+                );
             relatedFromResources.forEach(employee => {
                 const resourceUsername = findUsername(employee?.key);
                 const displayName = String(employee?.title || '').trim() || 'Employee';
@@ -28697,7 +28745,7 @@
                 return;
             }
 
-            const relatedEmployees = getOfficeRelatedUsers(office);
+            const relatedEmployees = getOfficeRelatedUsers(null);
 
             content.innerHTML = `
                 <div style="display: flex; justify-content: flex-end; margin-bottom: 0.75rem;">
@@ -28733,6 +28781,16 @@
         function switchOfficeViewTab(tabName) {
             currentOfficeViewTab = tabName;
             updateOfficeViewTabStyles();
+
+            if (tabName === 'employees') {
+                refreshOfficeViewEmployeesData().finally(() => {
+                    if (currentOfficeViewTab === 'employees') {
+                        renderOfficeViewContent();
+                    }
+                });
+                return;
+            }
+
             renderOfficeViewContent();
         }
 
