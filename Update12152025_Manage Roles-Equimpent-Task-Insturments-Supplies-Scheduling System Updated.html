@@ -68919,6 +68919,7 @@ console.log('✅ Global functions exported to window object');
         dirty: Object.create(null),
         initialized: false
     };
+    const GLOBAL_SAVE_BTN_ID = 'rdGlobalSaveProgressBtn';
 
     function injectStyles() {
         if (document.getElementById('rdViewTabsStyles')) return;
@@ -69138,6 +69139,8 @@ console.log('✅ Global functions exported to window object');
             tab.appendChild(closeBtn);
             list.appendChild(tab);
         });
+
+        updateGlobalSaveButton();
     }
 
     function markDirty(viewName, dirty = true) {
@@ -69145,6 +69148,7 @@ console.log('✅ Global functions exported to window object');
         if (!name) return;
         state.dirty[name] = !!dirty;
         renderTabs();
+        updateGlobalSaveButton();
     }
 
     function shouldTrackDirtyInput(target) {
@@ -69159,14 +69163,17 @@ console.log('✅ Global functions exported to window object');
         if (/(filter|search|sort|zoom|viewmode|weeklabel|clinicfilter)/.test(fingerprint)) return false;
 
         const view = target.closest('.content-view');
-        return !!(view && view.id && view.id.startsWith('view-'));
+        if (view && view.id && view.id.startsWith('view-')) return true;
+
+        const modal = target.closest('[id$="Modal"], .modal, .modal-content, .login-card');
+        return !!modal;
     }
 
     function trackDirtyChanges() {
         document.addEventListener('input', (event) => {
             const target = event.target;
             if (!shouldTrackDirtyInput(target)) return;
-            const view = target.closest('.content-view');
+            const view = target.closest('.content-view') || document.querySelector('.content-view.active');
             if (!view) return;
             markDirty(view.id.replace('view-', ''), true);
         }, true);
@@ -69174,13 +69181,15 @@ console.log('✅ Global functions exported to window object');
         document.addEventListener('change', (event) => {
             const target = event.target;
             if (!shouldTrackDirtyInput(target)) return;
-            const view = target.closest('.content-view');
+            const view = target.closest('.content-view') || document.querySelector('.content-view.active');
             if (!view) return;
             markDirty(view.id.replace('view-', ''), true);
         }, true);
 
         document.addEventListener('submit', (event) => {
-            const view = event.target && event.target.closest ? event.target.closest('.content-view') : null;
+            const view = event.target && event.target.closest
+                ? (event.target.closest('.content-view') || document.querySelector('.content-view.active'))
+                : null;
             if (!view) return;
             markDirty(view.id.replace('view-', ''), false);
         }, true);
@@ -69190,9 +69199,101 @@ console.log('✅ Global functions exported to window object');
             if (!target) return;
             const signature = `${target.id || ''} ${target.className || ''} ${target.getAttribute('onclick') || ''}`.toLowerCase();
             if (!/(save|submit|update|create)/.test(signature)) return;
-            const view = target.closest('.content-view');
+            const view = target.closest('.content-view') || document.querySelector('.content-view.active');
             if (!view) return;
             setTimeout(() => markDirty(view.id.replace('view-', ''), false), 250);
+        }, true);
+    }
+
+    function ensureGlobalSaveButton() {
+        let btn = document.getElementById(GLOBAL_SAVE_BTN_ID);
+        if (btn) return btn;
+
+        btn = document.createElement('button');
+        btn.id = GLOBAL_SAVE_BTN_ID;
+        btn.type = 'button';
+        btn.style.cssText = 'position: fixed; right: 18px; bottom: 18px; z-index: 10140; display: none; padding: 0.65rem 1rem; border-radius: 8px; border: 1px solid var(--accent-primary); background: var(--accent-primary); color: white; font-weight: 700; cursor: pointer; box-shadow: 0 8px 20px rgba(0,0,0,0.18);';
+        btn.innerHTML = '<i class="fas fa-save" style="margin-right: 0.4rem;"></i>Save Changes';
+        btn.addEventListener('click', async () => {
+            const active = normalizeViewName(state.active || getActiveViewId() || '');
+            if (!active || !state.dirty[active]) {
+                updateGlobalSaveButton();
+                return;
+            }
+
+            const saved = await attemptSaveView(active);
+            if (!saved) {
+                if (typeof window.showToast === 'function') {
+                    window.showToast('No save action found for this page. Please save manually.', 'warning');
+                }
+                return;
+            }
+
+            markDirty(active, false);
+            if (typeof window.showToast === 'function') {
+                window.showToast('Changes saved. Refreshing app...', 'success');
+            }
+
+            setTimeout(() => {
+                if (typeof window.location !== 'undefined' && typeof window.location.reload === 'function') {
+                    window.location.reload();
+                }
+            }, 450);
+        });
+
+        document.body.appendChild(btn);
+        return btn;
+    }
+
+    function updateGlobalSaveButton() {
+        const btn = ensureGlobalSaveButton();
+        const hasDirty = Object.keys(state.dirty).some((key) => !!state.dirty[key]);
+        btn.style.display = hasDirty ? 'inline-flex' : 'none';
+    }
+
+    function installClosePromptGuard() {
+        if (window.__rdModalClosePromptGuardInstalled) return;
+        window.__rdModalClosePromptGuardInstalled = true;
+
+        document.addEventListener('click', (event) => {
+            const target = event.target && event.target.closest ? event.target.closest('button, [role="button"]') : null;
+            if (!target) return;
+            if (target.classList.contains('rd-view-tab-close')) return;
+
+            const onclickAttr = target.getAttribute('onclick') || '';
+            const isCloseIntent = target.classList.contains('close-btn') || /\bclose[A-Za-z0-9_]*\s*\(/.test(onclickAttr);
+            if (!isCloseIntent) return;
+
+            const active = normalizeViewName(state.active || getActiveViewId() || '');
+            if (!active || !state.dirty[active]) return;
+            if (target.closest('#rdTabCloseOverlay')) return;
+
+            const fnMatch = onclickAttr.match(/([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
+            const closeFunctionName = fnMatch ? fnMatch[1] : null;
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            (async () => {
+                const choice = await askCloseChoice(active);
+                if (choice === 'cancel') return;
+
+                if (choice === 'save') {
+                    const saved = await attemptSaveView(active);
+                    if (!saved) {
+                        if (typeof window.showToast === 'function') {
+                            window.showToast('No save action found for this popup. Please save manually.', 'warning');
+                        }
+                        return;
+                    }
+                }
+
+                markDirty(active, false);
+
+                if (closeFunctionName && typeof window[closeFunctionName] === 'function') {
+                    window[closeFunctionName]();
+                }
+            })();
         }, true);
     }
 
@@ -69285,8 +69386,21 @@ console.log('✅ Global functions exported to window object');
             return true;
         });
 
-        if (!saveBtn) return false;
-        saveBtn.click();
+        if (saveBtn) {
+            saveBtn.click();
+            await new Promise(resolve => setTimeout(resolve, 300));
+            return true;
+        }
+
+        const modalSaveBtn = Array.from(document.querySelectorAll(saveSelector)).find((btn) => {
+            if (btn.disabled) return false;
+            if (btn.offsetParent === null) return false;
+            const inModal = !!btn.closest('[id$="Modal"], .modal, .modal-content, .login-card');
+            return inModal;
+        });
+
+        if (!modalSaveBtn) return false;
+        modalSaveBtn.click();
         await new Promise(resolve => setTimeout(resolve, 300));
         return true;
     }
@@ -69416,10 +69530,13 @@ console.log('✅ Global functions exported to window object');
         if (state.initialized) return;
         injectStyles();
         ensureBar();
+        ensureGlobalSaveButton();
         installSwitchHook();
         wrapActivateManagementView();
         trackDirtyChanges();
+        installClosePromptGuard();
         initInitialTab();
+        updateGlobalSaveButton();
         state.initialized = true;
     }
 
