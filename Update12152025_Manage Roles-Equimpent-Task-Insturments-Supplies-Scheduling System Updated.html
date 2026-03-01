@@ -21430,6 +21430,11 @@
             modalIds.forEach(id => {
                 const modal = document.getElementById(id);
                 if (modal) {
+                    if (id === 'addUserModal' &&
+                        modal.style.display !== 'none' &&
+                        modal.getAttribute('data-keep-open-across-tabs') === 'true') {
+                        return;
+                    }
                     modal.style.display = 'none';
                 }
             });
@@ -21537,6 +21542,7 @@
             virtualTab.appendChild(closeBtn);
             tabsList.appendChild(virtualTab);
         }
+        window.setTopTabsCreateUserVisibility = setTopTabsCreateUserVisibility;
 
         // Open Add User Modal
         function openAddUserModal() {
@@ -21552,6 +21558,7 @@
             const modal = document.getElementById('addUserModal');
             if (modal) {
                 ensureUnifiedRightRailExpandedForModal();
+                modal.setAttribute('data-keep-open-across-tabs', 'true');
 
                 const tabsBar = document.getElementById('rdViewTabsBar');
                 const tabsBarHeight = tabsBar ? Math.ceil(tabsBar.getBoundingClientRect().height || 0) : 0;
@@ -21610,6 +21617,7 @@
             const modal = document.getElementById('addUserModal');
             if (modal) {
                 modal.style.display = 'none';
+                modal.removeAttribute('data-keep-open-across-tabs');
                 modal.style.top = '0';
                 const modalInner = modal.firstElementChild;
                 if (modalInner) {
@@ -69354,6 +69362,13 @@ console.log('✅ Global functions exported to window object');
         setTimeout(() => {
             const delayedHost = resolveTabsHost();
             ensureBar(delayedHost);
+            const addUserModal = document.getElementById('addUserModal');
+            const shouldKeepCreateTabVisible = addUserModal &&
+                addUserModal.style.display !== 'none' &&
+                addUserModal.getAttribute('data-keep-open-across-tabs') === 'true';
+            if (shouldKeepCreateTabVisible && typeof window.setTopTabsCreateUserVisibility === 'function') {
+                window.setTopTabsCreateUserVisibility(true);
+            }
         }, 0);
     }
 
