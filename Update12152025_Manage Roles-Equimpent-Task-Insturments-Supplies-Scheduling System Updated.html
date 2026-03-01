@@ -21439,6 +21439,12 @@
                     modal.style.display = 'none';
                 }
             });
+
+            if (typeof forceReleaseGlobalModalOverlays === 'function') {
+                forceReleaseGlobalModalOverlays();
+            } else if (document && document.body && document.body.style) {
+                document.body.style.overflow = 'auto';
+            }
         }
 
         // Close user management modal
@@ -27368,6 +27374,7 @@
             const modal = document.getElementById('roomsManagementModal');
             const closeChoice = String(window.__rdLastCloseChoice || '').toLowerCase();
             const roomDraftSnapshot = buildRoomDraftSnapshot();
+            forceReleaseGlobalModalOverlays();
             if (modal) {
                 modal.style.display = 'none';
                 modal.style.zIndex = '10001'; // Reset z-index
@@ -51211,31 +51218,46 @@ window.addEventListener('load', function() {
         // ============ ROLES MANAGEMENT ============
         
         let editingRoleId = null;
+
+        function normalizeRolesManagementCloseBehavior(fromUserCreation = false) {
+            const modal = document.getElementById('rolesManagementModal');
+            if (!modal) return;
+
+            const closeBtn = document.querySelector('#rolesManagementModal .login-header button[onclick*="closeRolesManagement"]')
+                || document.querySelector('#rolesManagementModal .login-header button[onclick*="closeRolesManagementFromUserCreation"]');
+
+            if (fromUserCreation) {
+                modal.setAttribute('data-from-user-creation', 'true');
+                modal.style.zIndex = '10200';
+                if (closeBtn) {
+                    closeBtn.setAttribute('onclick', 'closeRolesManagementFromUserCreation()');
+                }
+                const formActions = document.querySelector('#rolesManagementModal form .form-group:last-child');
+                if (formActions && !formActions.querySelector('.cancel-from-user-creation')) {
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.type = 'button';
+                    cancelBtn.className = 'cancel-from-user-creation';
+                    cancelBtn.style.cssText = 'padding: 0.75rem 1rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;';
+                    cancelBtn.innerHTML = '<i class="fas fa-arrow-left"></i> Back to User Creation';
+                    cancelBtn.onclick = closeRolesManagementFromUserCreation;
+                    formActions.appendChild(cancelBtn);
+                }
+                return;
+            }
+
+            modal.removeAttribute('data-from-user-creation');
+            modal.style.zIndex = '10001';
+            if (closeBtn) {
+                closeBtn.setAttribute('onclick', 'closeRolesManagement()');
+            }
+            document.querySelectorAll('#rolesManagementModal .cancel-from-user-creation').forEach((btn) => btn.remove());
+        }
         
         async function openRolesManagement(fromUserCreation = false) {
             const modal = document.getElementById('rolesManagementModal');
             if (modal) {
                 installManagementDraftAutoSave();
-                if (fromUserCreation) {
-                    modal.setAttribute('data-from-user-creation', 'true');
-                    modal.style.zIndex = '10200'; // Higher than user creation modal
-                    // Change close button behavior
-                    const closeBtn = document.querySelector('#rolesManagementModal .login-header button[onclick*="closeRolesManagement"]');
-                    if (closeBtn) {
-                        closeBtn.setAttribute('onclick', 'closeRolesManagementFromUserCreation()');
-                    }
-                    // Add cancel button to form if it exists
-                    const formActions = document.querySelector('#rolesManagementModal form .form-group:last-child');
-                    if (formActions && !formActions.querySelector('.cancel-from-user-creation')) {
-                        const cancelBtn = document.createElement('button');
-                        cancelBtn.type = 'button';
-                        cancelBtn.className = 'cancel-from-user-creation';
-                        cancelBtn.style.cssText = 'padding: 0.75rem 1rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;';
-                        cancelBtn.innerHTML = '<i class="fas fa-arrow-left"></i> Back to User Creation';
-                        cancelBtn.onclick = closeRolesManagementFromUserCreation;
-                        formActions.appendChild(cancelBtn);
-                    }
-                }
+                normalizeRolesManagementCloseBehavior(fromUserCreation);
                 ensureUnifiedRightRailExpandedForModal();
                 modal.style.display = 'flex';
 
@@ -51258,10 +51280,12 @@ window.addEventListener('load', function() {
             const modal = document.getElementById('rolesManagementModal');
             const closeChoice = String(window.__rdLastCloseChoice || '').toLowerCase();
             const roleDraftSnapshot = buildRoleDraftSnapshot();
+            forceReleaseGlobalModalOverlays();
             if (modal) {
                 modal.style.display = 'none';
                 modal.style.zIndex = '10001'; // Reset to default z-index
             }
+            normalizeRolesManagementCloseBehavior(false);
             editingRoleId = null;
             closeRoleForm();
             if (closeChoice === 'discard') {
@@ -51278,8 +51302,12 @@ window.addEventListener('load', function() {
         
         function closeRolesManagementFromUserCreation() {
             const modal = document.getElementById('rolesManagementModal');
-            modal.style.display = 'none';
-            modal.style.zIndex = '10001'; // Reset to default z-index
+            forceReleaseGlobalModalOverlays();
+            if (modal) {
+                modal.style.display = 'none';
+                modal.style.zIndex = '10001'; // Reset to default z-index
+            }
+            normalizeRolesManagementCloseBehavior(false);
             if (typeof window.urrSetActiveTab === 'function') {
                 window.urrSetActiveTab('manager');
             }
