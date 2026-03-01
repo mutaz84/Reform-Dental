@@ -15704,7 +15704,7 @@
                                 <label style="font-size: 0.7rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.25rem;">
                                     <i class="fas fa-hospital" style="margin-right: 0.25rem;"></i>Clinic
                                 </label>
-                                <select id="myScheduleClinicFilter" onchange="renderMyScheduleCalendar()" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary); font-size: 0.8rem; cursor: pointer;">
+                                <select id="myScheduleClinicFilter" onchange="filterMyScheduleByClinic(); renderMyScheduleCalendar()" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary); font-size: 0.8rem; cursor: pointer;">
                                     <option value="">All Clinics</option>
                                 </select>
                             </div>
@@ -15833,7 +15833,9 @@
                                     allEmployees = employeeResources.map(e => ({
                                         name: e.title,
                                         role: e.extendedProps?.role || '',
-                                        type: e.extendedProps?.type || ''
+                                        type: e.extendedProps?.type || '',
+                                        staffType: e.extendedProps?.staffType || '',
+                                        clinics: e.extendedProps?.clinics || []
                                     })).sort((a, b) => a.name.localeCompare(b.name));
                                 } else {
                                     // Fallback to shifts data
@@ -15884,6 +15886,31 @@
                                 if (currentRole) {
                                     filteredEmployees = filteredEmployees.filter(e => e.role === currentRole);
                                 }
+
+                                // Filter employees by selected clinic (assignment or existing clinic shifts)
+                                if (currentClinic) {
+                                    const clinicKey = String(currentClinic).trim().toLowerCase();
+                                    const shifts = window.myScheduleShifts || [];
+                                    const clinicEmployeeNames = new Set();
+
+                                    shifts.forEach(shift => {
+                                        if (String(shift?.clinic || '').trim().toLowerCase() !== clinicKey) return;
+                                        if (shift.name) clinicEmployeeNames.add(String(shift.name).trim());
+                                        if (shift.assistant) {
+                                            String(shift.assistant)
+                                                .split(',')
+                                                .map(name => name.trim())
+                                                .filter(Boolean)
+                                                .forEach(name => clinicEmployeeNames.add(name));
+                                        }
+                                    });
+
+                                    filteredEmployees = filteredEmployees.filter(e => {
+                                        const assignedClinics = Array.isArray(e.clinics) ? e.clinics : [];
+                                        const assignedMatch = assignedClinics.some(c => String(c).trim().toLowerCase() === clinicKey);
+                                        return assignedMatch || clinicEmployeeNames.has(e.name);
+                                    });
+                                }
                                 
                                 // Populate employees (filtered)
                                 filteredEmployees.forEach(emp => {
@@ -15903,8 +15930,25 @@
                                     clinicFilter.appendChild(option);
                                 });
                                 
+                                // Filter rooms by selected clinic
+                                let filteredRooms = rooms;
+                                if (currentClinic) {
+                                    const clinicObj = window.masterData?.getClinicByName?.(currentClinic);
+                                    const clinicId = clinicObj?.dbId || clinicObj?.clinicID || clinicObj?.officeID || clinicObj?.id;
+                                    const clinicRooms = clinicId ? (window.masterData?.getRoomsByClinic?.(clinicId) || []) : [];
+                                    if (Array.isArray(clinicRooms) && clinicRooms.length > 0) {
+                                        filteredRooms = [...new Set(clinicRooms.map(r => r?.name || r?.roomName || r?.roomType).filter(Boolean))].sort();
+                                    } else {
+                                        const clinicKey = String(currentClinic).trim().toLowerCase();
+                                        filteredRooms = [...new Set((window.myScheduleShifts || [])
+                                            .filter(s => String(s?.clinic || '').trim().toLowerCase() === clinicKey)
+                                            .map(s => s?.room)
+                                            .filter(Boolean))].sort();
+                                    }
+                                }
+
                                 // Populate rooms
-                                rooms.forEach(room => {
+                                filteredRooms.forEach(room => {
                                     const option = document.createElement('option');
                                     option.value = room;
                                     option.textContent = room;
@@ -15919,7 +15963,7 @@
                                 if (currentClinic && clinics.includes(currentClinic)) {
                                     clinicFilter.value = currentClinic;
                                 }
-                                if (currentRoom && rooms.includes(currentRoom)) {
+                                if (currentRoom && filteredRooms.includes(currentRoom)) {
                                     roomFilter.value = currentRoom;
                                 }
                             }
@@ -15992,32 +16036,12 @@
                             
                             // Filter employee dropdown by type/role
                             window.filterMyScheduleEmployees = function() {
-                                const allEmployees = window.masterData?.getAllEmployees() || [];
-                                const typeFilter = document.getElementById('myScheduleTypeFilter')?.value || '';
-                                const roleFilter = document.getElementById('myScheduleRoleFilter')?.value || '';
-                                const employeeSelect = document.getElementById('myScheduleEmployeeFilter');
-                                
-                                let filteredEmployees = allEmployees;
-                                
-                                // Filter by staffType
-                                if (typeFilter) {
-                                    filteredEmployees = filteredEmployees.filter(e => {
-                                        const staffType = e.extendedProps?.staffType || '';
-                                        return staffType === typeFilter;
-                                    });
-                                }
-                                
-                                // Filter by role
-                                if (roleFilter) {
-                                    filteredEmployees = filteredEmployees.filter(e => e.extendedProps?.role === roleFilter);
-                                }
-                                
-                                // Update employee dropdown
-                                if (employeeSelect) {
-                                    const currentValue = employeeSelect.value;
-                                    employeeSelect.innerHTML = '<option value="">All Employees</option>' +
-                                        filteredEmployees.map(e => `<option value="${e.title}" ${currentValue === e.title ? 'selected' : ''}>${e.title}</option>`).join('');
-                                }
+                                populateFilters();
+                            };
+
+                            // Re-filter dependent dropdowns whenever clinic changes
+                            window.filterMyScheduleByClinic = function() {
+                                populateFilters();
                             };
                             
                             // Clear all filters
@@ -35971,13 +35995,13 @@
                 let labelText = 'Filter:';
                 
                 if (currentViewMode === 'employee') {
-                    resources = resourcesMap.employee;
+                    resources = getClinicScopedResources(resourcesMap.employee, 'employee');
                     labelText = 'Filter by Employee:';
                 } else if (currentViewMode === 'room') {
-                    resources = resourcesMap.room;
+                    resources = getClinicScopedResources(resourcesMap.room, 'room');
                     labelText = 'Filter by Room:';
                 } else if (currentViewMode === 'provider') {
-                    resources = resourcesMap.provider;
+                    resources = getClinicScopedResources(resourcesMap.provider, 'provider');
                     labelText = 'Filter by Provider:';
                 } else if (currentViewMode === 'event') {
                     resources = resourcesMap.event;
@@ -36083,6 +36107,35 @@
         // Apply clinic filter (for date view)
         function applyClinicFilter(clinicId) {
             clinicFilter = clinicId || '';
+
+            try {
+                if (typeof initializeResourcesMap === 'function') {
+                    initializeResourcesMap();
+                }
+            } catch (e) {
+                console.warn('Could not refresh resources map on clinic change:', e.message);
+            }
+
+            const viewResources = {
+                employee: employeeResources,
+                room: roomResources,
+                provider: providerResources,
+                event: eventTypeResources
+            };
+            const activeFilter = filterStatePerView[currentViewMode];
+            const baseResources = viewResources[currentViewMode] || [];
+
+            if (activeFilter && Array.isArray(baseResources) && baseResources.length > 0) {
+                const scopedResources = getFilteredResources(baseResources, currentViewMode);
+                const stillExists = scopedResources.some(r => r.id === activeFilter);
+                if (!stillExists) {
+                    filterStatePerView[currentViewMode] = null;
+                    const filterSelect = document.getElementById('resourceFilterSelect');
+                    if (filterSelect) filterSelect.value = '';
+                }
+            }
+
+            updateFilterUI();
             
             // Re-render calendar dynamically
             if (window.calendarInstance && window.calendarInstance.render) {
@@ -36103,6 +36156,8 @@
             if (clinicSelect) {
                 clinicSelect.value = '';
             }
+
+            updateFilterUI();
             
             // Re-render calendar dynamically
             if (window.calendarInstance && window.calendarInstance.render) {
@@ -36115,16 +36170,145 @@
             }
         }
         
+        function getSelectedClinicMetadata() {
+            const selectedClinicRaw = String(clinicFilter || '').trim();
+            if (!selectedClinicRaw) {
+                return { selectedClinicName: '', selectedClinicKey: '', selectedClinicId: null };
+            }
+
+            const allClinics = Array.isArray(window.masterData?.clinics) ? window.masterData.clinics : [];
+            const selectedClinicNumeric = toNumericId(selectedClinicRaw) || toNumericId(selectedClinicRaw.replace(/^clinic-/i, ''));
+            const selectedClinic = allClinics.find(c => {
+                const clinicName = String(c?.name || c?.officeName || c?.clinicName || '').trim();
+                const clinicKey = clinicName.toLowerCase();
+                const clinicId = toNumericId(c?.dbId || c?.clinicID || c?.officeID || c?.id);
+                if (clinicName && clinicKey === selectedClinicRaw.toLowerCase()) return true;
+                if (selectedClinicNumeric && clinicId && clinicId === selectedClinicNumeric) return true;
+                return false;
+            }) || window.masterData?.getClinicByName?.(selectedClinicRaw);
+
+            const selectedClinicName = String(
+                selectedClinic?.name ||
+                selectedClinic?.officeName ||
+                selectedClinic?.clinicName ||
+                selectedClinicRaw
+            ).trim();
+
+            const selectedClinicId = toNumericId(
+                selectedClinic?.dbId ||
+                selectedClinic?.clinicID ||
+                selectedClinic?.officeID ||
+                selectedClinic?.id ||
+                selectedClinicNumeric
+            );
+
+            return {
+                selectedClinicName,
+                selectedClinicKey: selectedClinicName.toLowerCase(),
+                selectedClinicId
+            };
+        }
+
+        function isResourceInSelectedClinic(resource, viewMode) {
+            const { selectedClinicName, selectedClinicKey, selectedClinicId } = getSelectedClinicMetadata();
+            if (!selectedClinicName) return true;
+
+            const matchesClinicRef = (clinicRef) => {
+                const raw = String(clinicRef || '').trim();
+                if (!raw) return false;
+                if (raw.toLowerCase() === selectedClinicKey) return true;
+                const numeric = toNumericId(raw) || toNumericId(raw.replace(/^clinic-/i, ''));
+                return !!(selectedClinicId && numeric && numeric === selectedClinicId);
+            };
+
+            const resourceMatchesShift = () => {
+                const shifts = Array.isArray(window.myScheduleShifts) ? window.myScheduleShifts : [];
+                if (!shifts.length) return false;
+
+                const resourceId = String(resource?.id || '').trim().toLowerCase();
+                const resourceTitle = String(resource?.title || '').trim().toLowerCase();
+                if (!resourceId && !resourceTitle) return false;
+
+                return shifts.some(shift => {
+                    const shiftClinicName = String(shift?.clinic || '').trim().toLowerCase();
+                    const shiftClinicId = toNumericId(shift?.clinicId || shift?.dbClinicId);
+                    const clinicMatch =
+                        (shiftClinicName && shiftClinicName === selectedClinicKey) ||
+                        (selectedClinicId && shiftClinicId && shiftClinicId === selectedClinicId);
+                    if (!clinicMatch) return false;
+
+                    const shiftProvider = String(shift?.name || shift?.provider || shift?.employee || '').trim().toLowerCase();
+                    const shiftAssistantRaw = String(shift?.assistant || '').trim().toLowerCase();
+                    const shiftAssistants = shiftAssistantRaw
+                        ? shiftAssistantRaw.split(',').map(name => name.trim()).filter(Boolean)
+                        : [];
+
+                    if (resourceTitle && shiftProvider === resourceTitle) return true;
+                    if (resourceTitle && shiftAssistants.includes(resourceTitle)) return true;
+                    if (resourceId && shiftProvider && shiftProvider.replace(/\s+/g, '-') === resourceId) return true;
+                    if (resourceId && shiftAssistants.some(name => name.replace(/\s+/g, '-') === resourceId)) return true;
+
+                    return false;
+                });
+            };
+
+            if (viewMode === 'room') {
+                if (resource?.id === 'room-unassigned') return false;
+
+                const roomClinicId = toNumericId(resource?.extendedProps?.clinicId);
+                if (selectedClinicId && roomClinicId && roomClinicId === selectedClinicId) {
+                    return true;
+                }
+
+                if (matchesClinicRef(resource?.extendedProps?.clinic || resource?.extendedProps?.clinicName)) {
+                    return true;
+                }
+
+                const roomName = String(resource?.title || '').trim();
+                if (roomName && Array.isArray(window.masterData?.rooms)) {
+                    const roomData = window.masterData.rooms.find(r => {
+                        const sameName = String(r?.name || r?.roomName || r?.roomType || '').trim().toLowerCase() === roomName.toLowerCase();
+                        if (!sameName) return false;
+                        const clinicId = toNumericId(r?.clinicId || r?.officeID || r?.ClinicId);
+                        if (selectedClinicId && clinicId) return clinicId === selectedClinicId;
+                        const clinic = window.masterData?.getClinicById?.(clinicId);
+                        const clinicName = String(clinic?.name || '').trim().toLowerCase();
+                        return !!clinicName && clinicName === selectedClinicKey;
+                    });
+                    if (roomData) return true;
+                }
+
+                return false;
+            }
+
+            if (viewMode === 'employee' || viewMode === 'provider') {
+                const clinics = resource?.extendedProps?.clinics || resource?.clinics || [];
+                const hasDirectClinicMatch = clinics.some(matchesClinicRef);
+                if (hasDirectClinicMatch) return true;
+
+                return resourceMatchesShift();
+            }
+
+            return true;
+        }
+
+        function getClinicScopedResources(baseResources, viewMode) {
+            if (!Array.isArray(baseResources) || !baseResources.length) return baseResources;
+            if (!clinicFilter || viewMode === 'event') return baseResources;
+            return baseResources.filter(resource => isResourceInSelectedClinic(resource, viewMode));
+        }
+
         // Helper function to filter resources based on selected filter for current view
         function getFilteredResources(baseResources, viewMode) {
+            const clinicScopedResources = getClinicScopedResources(baseResources, viewMode);
             const filter = filterStatePerView[viewMode];
             
-            if (!filter || !baseResources) {
-                return baseResources;
+            if (!filter || !clinicScopedResources) {
+                return clinicScopedResources;
             }
 
             if (viewMode === 'room' && filter === 'room-unassigned') {
-                return baseResources.filter(r => r.id === 'room-unassigned');
+                return clinicScopedResources.filter(r => r.id === 'room-unassigned');
             }
             
             // For room view, need to convert room ID back to title
@@ -36134,13 +36318,13 @@
                     .split('-')
                     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
                     .join(' ');
-                const matches = baseResources.filter(r => r.title === roomName);
-                const unassigned = baseResources.find(r => r.id === 'room-unassigned');
+                const matches = clinicScopedResources.filter(r => r.title === roomName);
+                const unassigned = clinicScopedResources.find(r => r.id === 'room-unassigned');
                 return unassigned ? [unassigned, ...matches] : matches;
             }
             
             // For employee, provider, and event views, match by ID
-            return baseResources.filter(r => r.id === filter);
+            return clinicScopedResources.filter(r => r.id === filter);
         }
 
         // Local date key helper (avoids UTC off-by-one from toISOString)
@@ -36254,10 +36438,10 @@
             let title = '';
 
             if (viewMode === 'employee') {
-                resources = employeeResources;
+                resources = getClinicScopedResources(employeeResources, 'employee');
                 title = '<i class="fas fa-users"></i> Employees';
             } else if (viewMode === 'room') {
-                resources = roomResources;
+                resources = getClinicScopedResources(roomResources, 'room');
                 title = '<i class="fas fa-door-open"></i> Rooms';
             }
 
