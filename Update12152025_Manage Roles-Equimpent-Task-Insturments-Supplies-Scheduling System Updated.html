@@ -36489,6 +36489,58 @@
                 const usersRaw = (typeof loadUsers === 'function') ? loadUsers() : {};
                 const users = (usersRaw && typeof usersRaw === 'object') ? usersRaw : {};
 
+                const normalizeUserClinicRefs = (user) => {
+                    const refs = [];
+                    const pushRef = (value) => {
+                        const raw = String(value || '').trim();
+                        if (!raw) return;
+                        refs.push(raw);
+                        const numeric = toNumericId(raw) || toNumericId(raw.replace(/^clinic-/i, ''));
+                        if (numeric) {
+                            refs.push(String(numeric));
+                            refs.push(`clinic-${numeric}`);
+                        }
+                    };
+
+                    const fromArray = [];
+                    if (Array.isArray(user?.clinics)) fromArray.push(...user.clinics);
+                    if (Array.isArray(user?.Clinics)) fromArray.push(...user.Clinics);
+                    if (Array.isArray(user?.clinicIds)) fromArray.push(...user.clinicIds);
+                    if (Array.isArray(user?.ClinicIds)) fromArray.push(...user.ClinicIds);
+
+                    fromArray.forEach(pushRef);
+                    pushRef(user?.clinicId);
+                    pushRef(user?.ClinicId);
+                    pushRef(user?.officeID);
+                    pushRef(user?.OfficeID);
+
+                    const officeLocation = String(
+                        user?.officeLocation ||
+                        user?.OfficeLocation ||
+                        user?.clinic ||
+                        user?.Clinic ||
+                        user?.office ||
+                        user?.Office ||
+                        ''
+                    ).trim();
+                    if (officeLocation) {
+                        pushRef(officeLocation);
+
+                        const clinics = Array.isArray(window.masterData?.clinics) ? window.masterData.clinics : [];
+                        const officeKey = officeLocation.toLowerCase();
+                        const matchedClinic = clinics.find(c => {
+                            const clinicName = String(c?.name || c?.officeName || c?.clinicName || '').trim().toLowerCase();
+                            return clinicName && clinicName === officeKey;
+                        });
+                        if (matchedClinic) {
+                            pushRef(matchedClinic?.dbId || matchedClinic?.clinicID || matchedClinic?.officeID || matchedClinic?.id);
+                            pushRef(matchedClinic?.name || matchedClinic?.officeName || matchedClinic?.clinicName);
+                        }
+                    }
+
+                    return Array.from(new Set(refs.map(r => String(r).trim()).filter(Boolean)));
+                };
+
                 employeeResources = [];
 
                 Object.keys(users).forEach(username => {
@@ -36533,6 +36585,7 @@
                     }
 
                     const title = (user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || username || '').trim();
+                    const clinicRefs = normalizeUserClinicRefs(user);
 
                     employeeResources.push({
                         id: (username || title || 'user').toString().toLowerCase().replace(/\s+/g, '-'),
@@ -36542,7 +36595,7 @@
                             type: type,
                             staffType: user.staffType || user.StaffType || 'non-clinical',
                             color: user.color || '#06b6d4',
-                            clinics: [],
+                            clinics: clinicRefs,
                             assignedProvider: null,
                             username: user.username || username || null,
                             email: user.email || user.workEmail || user.personalEmail || null,
