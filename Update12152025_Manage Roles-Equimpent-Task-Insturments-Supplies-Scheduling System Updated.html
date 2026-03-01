@@ -26561,6 +26561,277 @@
         }
 
         // ============ ROOMS MANAGEMENT ============
+
+        const MANAGEMENT_FORM_DRAFTS_SETTINGS_KEY = 'rdManagementFormDrafts';
+        let managementDraftAutoSaveInstalled = false;
+        let roomDraftSaveTimer = null;
+        let roleDraftSaveTimer = null;
+
+        function forceReleaseGlobalModalOverlays() {
+            const closeOverlay = document.getElementById('rdTabCloseOverlay');
+            if (closeOverlay) {
+                closeOverlay.classList.remove('active');
+                closeOverlay.style.display = 'none';
+            }
+            if (document && document.body && document.body.style) {
+                document.body.style.overflow = 'auto';
+            }
+        }
+
+        function getManagementDraftOwnerKey() {
+            if (typeof getCreateUserDraftOwnerKey === 'function') {
+                const owner = getCreateUserDraftOwnerKey();
+                if (owner) return owner;
+            }
+            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
+            const dbUserId = Number(currentUser?.dbId ?? currentUser?.id ?? currentUser?.Id ?? window.currentDbUserId);
+            if (Number.isInteger(dbUserId) && dbUserId > 0) return `db:${dbUserId}`;
+            const username = String(currentUser?.username || currentUser?.userName || localStorage.getItem('loggedInUser') || '').trim().toLowerCase();
+            return username ? `user:${username}` : '';
+        }
+
+        function getManagementDraftLocalKey() {
+            const owner = getManagementDraftOwnerKey();
+            return owner ? `rdManagementFormDrafts:${owner}` : 'rdManagementFormDrafts:anonymous';
+        }
+
+        function loadManagementDraftsLocal() {
+            return safeParseLocalStorageJSON(getManagementDraftLocalKey(), {}, { expect: 'object' });
+        }
+
+        function saveManagementDraftsLocal(drafts) {
+            localStorage.setItem(getManagementDraftLocalKey(), JSON.stringify(drafts || {}));
+        }
+
+        async function saveManagementDraftCloud(formKey, snapshot, remove = false) {
+            const owner = getManagementDraftOwnerKey();
+            if (!owner) return;
+
+            const localDrafts = loadManagementDraftsLocal();
+            if (remove) {
+                delete localDrafts[formKey];
+            } else {
+                localDrafts[formKey] = snapshot;
+            }
+            saveManagementDraftsLocal(localDrafts);
+
+            if (typeof API_BASE_URL === 'undefined' || !API_BASE_URL) return;
+
+            try {
+                let settings = {};
+                const readRes = await fetch(`${API_BASE_URL}/settings`, { cache: 'no-store' });
+                if (readRes.ok) {
+                    const payload = await readRes.json();
+                    if (payload && typeof payload === 'object') settings = payload;
+                }
+
+                const ownerMap = (settings[MANAGEMENT_FORM_DRAFTS_SETTINGS_KEY] && typeof settings[MANAGEMENT_FORM_DRAFTS_SETTINGS_KEY] === 'object')
+                    ? settings[MANAGEMENT_FORM_DRAFTS_SETTINGS_KEY]
+                    : {};
+                const ownedDrafts = (ownerMap[owner] && typeof ownerMap[owner] === 'object')
+                    ? ownerMap[owner]
+                    : {};
+
+                if (remove) {
+                    delete ownedDrafts[formKey];
+                } else {
+                    ownedDrafts[formKey] = snapshot;
+                }
+                ownerMap[owner] = ownedDrafts;
+                settings[MANAGEMENT_FORM_DRAFTS_SETTINGS_KEY] = ownerMap;
+
+                await fetch(`${API_BASE_URL}/settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+            } catch (error) {
+                console.log('Management draft cloud sync unavailable, using local cache only');
+            }
+        }
+
+        async function loadManagementDraftCloud(formKey) {
+            const owner = getManagementDraftOwnerKey();
+            if (!owner) return null;
+
+            if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/settings`, { cache: 'no-store' });
+                    if (response.ok) {
+                        const settings = await response.json();
+                        const ownerMap = settings && typeof settings === 'object'
+                            ? settings[MANAGEMENT_FORM_DRAFTS_SETTINGS_KEY]
+                            : null;
+                        const ownedDrafts = ownerMap && typeof ownerMap === 'object' ? ownerMap[owner] : null;
+                        const cloudDraft = ownedDrafts && typeof ownedDrafts === 'object' ? ownedDrafts[formKey] : null;
+                        if (cloudDraft && typeof cloudDraft === 'object') {
+                            const localDrafts = loadManagementDraftsLocal();
+                            localDrafts[formKey] = cloudDraft;
+                            saveManagementDraftsLocal(localDrafts);
+                            return cloudDraft;
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            const localDrafts = loadManagementDraftsLocal();
+            return localDrafts[formKey] || null;
+        }
+
+        function buildRoomDraftSnapshot() {
+            const form = document.getElementById('createRoomForm');
+            const formSection = document.getElementById('roomFormSection');
+            if (!form || !formSection || formSection.style.display === 'none') return null;
+            const fields = {};
+            form.querySelectorAll('input, select, textarea').forEach((el) => {
+                if (!el || !el.id) return;
+                const type = String(el.type || '').toLowerCase();
+                if (type === 'file') return;
+                fields[el.id] = type === 'checkbox' ? !!el.checked : el.value;
+            });
+            return {
+                version: 1,
+                updatedAt: new Date().toISOString(),
+                fields
+            };
+        }
+
+        function buildRoleDraftSnapshot() {
+            const form = document.getElementById('createRoleForm');
+            const formSection = document.getElementById('roleFormSection');
+            if (!form || !formSection || formSection.style.display === 'none') return null;
+            const fields = {};
+            form.querySelectorAll('input, select, textarea').forEach((el) => {
+                if (!el || !el.id) return;
+                const type = String(el.type || '').toLowerCase();
+                if (type === 'file') return;
+                fields[el.id] = type === 'checkbox' ? !!el.checked : el.value;
+            });
+            const roleFileName = document.getElementById('roleFileName');
+            if (roleFileName) fields.roleFileNameText = roleFileName.textContent || 'No file selected';
+            return {
+                version: 1,
+                updatedAt: new Date().toISOString(),
+                fields
+            };
+        }
+
+        function hasMeaningfulFormDraft(snapshot) {
+            if (!snapshot || typeof snapshot !== 'object') return false;
+            const fields = snapshot.fields && typeof snapshot.fields === 'object' ? snapshot.fields : {};
+            return Object.keys(fields).some((key) => {
+                const value = fields[key];
+                if (typeof value === 'boolean') return value;
+                const normalized = String(value ?? '').trim();
+                return normalized !== '' && normalized !== '--Select--';
+            });
+        }
+
+        async function scheduleRoomDraftSave() {
+            if (roomDraftSaveTimer) clearTimeout(roomDraftSaveTimer);
+            roomDraftSaveTimer = setTimeout(async () => {
+                const snapshot = buildRoomDraftSnapshot();
+                if (!hasMeaningfulFormDraft(snapshot)) return;
+                await saveManagementDraftCloud('rooms', snapshot, false);
+            }, 1000);
+        }
+
+        async function scheduleRoleDraftSave() {
+            if (roleDraftSaveTimer) clearTimeout(roleDraftSaveTimer);
+            roleDraftSaveTimer = setTimeout(async () => {
+                const snapshot = buildRoleDraftSnapshot();
+                if (!hasMeaningfulFormDraft(snapshot)) return;
+                await saveManagementDraftCloud('roles', snapshot, false);
+            }, 1000);
+        }
+
+        function installManagementDraftAutoSave() {
+            if (managementDraftAutoSaveInstalled) return;
+            managementDraftAutoSaveInstalled = true;
+
+            document.addEventListener('input', (event) => {
+                const target = event.target;
+                if (!target || !target.closest) return;
+                if (target.closest('#createRoomForm')) {
+                    scheduleRoomDraftSave();
+                    return;
+                }
+                if (target.closest('#createRoleForm')) {
+                    scheduleRoleDraftSave();
+                }
+            }, true);
+
+            document.addEventListener('change', (event) => {
+                const target = event.target;
+                if (!target || !target.closest) return;
+                if (target.closest('#createRoomForm')) {
+                    scheduleRoomDraftSave();
+                    return;
+                }
+                if (target.closest('#createRoleForm')) {
+                    scheduleRoleDraftSave();
+                }
+            }, true);
+        }
+
+        function applyRoomDraft(snapshot) {
+            if (!snapshot || typeof snapshot !== 'object') return;
+            if (typeof openAddRoomForm === 'function') openAddRoomForm();
+            const fields = snapshot.fields && typeof snapshot.fields === 'object' ? snapshot.fields : {};
+            Object.keys(fields).forEach((id) => {
+                if (id === 'roleFileNameText') return;
+                const el = document.getElementById(id);
+                if (!el) return;
+                const type = String(el.type || '').toLowerCase();
+                if (type === 'checkbox') {
+                    el.checked = !!fields[id];
+                } else {
+                    el.value = fields[id] == null ? '' : fields[id];
+                }
+            });
+            if (typeof toggleCustomRoomType === 'function') toggleCustomRoomType();
+        }
+
+        function applyRoleDraft(snapshot) {
+            if (!snapshot || typeof snapshot !== 'object') return;
+            if (typeof openAddRoleForm === 'function') openAddRoleForm();
+            const fields = snapshot.fields && typeof snapshot.fields === 'object' ? snapshot.fields : {};
+            Object.keys(fields).forEach((id) => {
+                if (id === 'roleFileNameText') return;
+                const el = document.getElementById(id);
+                if (!el) return;
+                const type = String(el.type || '').toLowerCase();
+                if (type === 'checkbox') {
+                    el.checked = !!fields[id];
+                } else {
+                    el.value = fields[id] == null ? '' : fields[id];
+                }
+            });
+            const roleFileName = document.getElementById('roleFileName');
+            if (roleFileName && fields.roleFileNameText) {
+                roleFileName.textContent = fields.roleFileNameText;
+            }
+        }
+
+        async function maybeRestoreRoomsDraft() {
+            const draft = await loadManagementDraftCloud('rooms');
+            if (!hasMeaningfulFormDraft(draft)) return;
+            if (!window.confirm('You have an unsaved Rooms draft. Restore it now?')) return;
+            applyRoomDraft(draft);
+            if (typeof window.showToast === 'function') {
+                window.showToast('Rooms draft restored.', 'success');
+            }
+        }
+
+        async function maybeRestoreRolesDraft() {
+            const draft = await loadManagementDraftCloud('roles');
+            if (!hasMeaningfulFormDraft(draft)) return;
+            if (!window.confirm('You have an unsaved Roles draft. Restore it now?')) return;
+            applyRoleDraft(draft);
+            if (typeof window.showToast === 'function') {
+                window.showToast('Roles draft restored.', 'success');
+            }
+        }
         
         // Load rooms from localStorage
         function loadRooms() {
@@ -27050,6 +27321,7 @@
         async function openRoomsManagement() {
             const modal = document.getElementById('roomsManagementModal');
             if (modal) {
+                installManagementDraftAutoSave();
                 ensureUnifiedRightRailExpandedForModal();
                 modal.style.display = 'flex';
 
@@ -27065,12 +27337,17 @@
                 
                 populateRoomOfficeDropdown();
                 displayRoomsList();
+                setTimeout(() => {
+                    maybeRestoreRoomsDraft();
+                }, 120);
             }
         }
 
         // Close rooms management modal
         function closeRoomsManagement() {
             const modal = document.getElementById('roomsManagementModal');
+            const closeChoice = String(window.__rdLastCloseChoice || '').toLowerCase();
+            const roomDraftSnapshot = buildRoomDraftSnapshot();
             if (modal) {
                 modal.style.display = 'none';
                 modal.style.zIndex = '10001'; // Reset z-index
@@ -27088,6 +27365,14 @@
             if (typeof populateEquipmentOfficeDropdown === 'function') populateEquipmentOfficeDropdown();
             if (typeof populateInstrumentOfficeDropdown === 'function') populateInstrumentOfficeDropdown();
             if (typeof populateSupplyOfficeDropdown === 'function') populateSupplyOfficeDropdown();
+
+            if (closeChoice === 'discard') {
+                saveManagementDraftCloud('rooms', null, true);
+            } else if (hasMeaningfulFormDraft(roomDraftSnapshot)) {
+                saveManagementDraftCloud('rooms', roomDraftSnapshot, false);
+            }
+            window.__rdLastCloseChoice = '';
+            forceReleaseGlobalModalOverlays();
         }
 
         // Create new room
@@ -27222,6 +27507,7 @@
             document.getElementById('createRoomForm').reset();
             document.getElementById('editRoomId').value = '';
             document.getElementById('roomFormSection').style.display = 'none';
+            saveManagementDraftCloud('rooms', null, true);
 
             const roomsListSection = document.getElementById('roomsListSection');
             if (roomsListSection) roomsListSection.style.display = 'block';
@@ -50905,6 +51191,7 @@ window.addEventListener('load', function() {
         async function openRolesManagement(fromUserCreation = false) {
             const modal = document.getElementById('rolesManagementModal');
             if (modal) {
+                installManagementDraftAutoSave();
                 if (fromUserCreation) {
                     modal.setAttribute('data-from-user-creation', 'true');
                     modal.style.zIndex = '10200'; // Higher than user creation modal
@@ -50935,17 +51222,31 @@ window.addEventListener('load', function() {
 
                 await syncRolesFromAPI();
                 displayRolesList();
+                if (!fromUserCreation) {
+                    setTimeout(() => {
+                        maybeRestoreRolesDraft();
+                    }, 120);
+                }
             }
         }
         
         function closeRolesManagement() {
             const modal = document.getElementById('rolesManagementModal');
+            const closeChoice = String(window.__rdLastCloseChoice || '').toLowerCase();
+            const roleDraftSnapshot = buildRoleDraftSnapshot();
             if (modal) {
                 modal.style.display = 'none';
                 modal.style.zIndex = '10001'; // Reset to default z-index
             }
             editingRoleId = null;
             closeRoleForm();
+            if (closeChoice === 'discard') {
+                saveManagementDraftCloud('roles', null, true);
+            } else if (hasMeaningfulFormDraft(roleDraftSnapshot)) {
+                saveManagementDraftCloud('roles', roleDraftSnapshot, false);
+            }
+            window.__rdLastCloseChoice = '';
+            forceReleaseGlobalModalOverlays();
         }
         
         function closeRolesManagementFromUserCreation() {
@@ -50964,6 +51265,7 @@ window.addEventListener('load', function() {
                     populateRoleTypeDropdown();
                 }
             });
+            forceReleaseGlobalModalOverlays();
         }
         
         function openAddRoleForm() {
@@ -51047,6 +51349,7 @@ window.addEventListener('load', function() {
                 
                 if (response.ok) {
                     showNotification(editId ? 'Role updated successfully!' : 'Role created successfully!', 'success');
+                    saveManagementDraftCloud('roles', null, true);
                     await syncRolesFromAPI();
                     displayRolesList();
                     closeRoleForm();
@@ -51077,6 +51380,7 @@ window.addEventListener('load', function() {
                 
                 saveRoles(roles);
                 showNotification(editId ? 'Role updated locally!' : 'Role created locally!', 'success');
+                saveManagementDraftCloud('roles', null, true);
                 displayRolesList();
                 closeRoleForm();
                 populateRoleDropdowns();
@@ -69650,22 +69954,17 @@ console.log('✅ Global functions exported to window object');
                     }
 
                     setTimeout(() => {
-                        const overlay = document.getElementById('rdTabCloseOverlay');
-                        if (overlay) {
-                            overlay.classList.remove('active');
-                            overlay.style.display = 'none';
-                        }
-
-                        const addUserModal = document.getElementById('addUserModal');
-                        if (addUserModal && addUserModal.style.display !== 'none') {
-                            const isParked = addUserModal.getAttribute('data-parked-for-tab-switch') === 'true';
-                            if (!isParked) {
-                                addUserModal.style.display = 'none';
+                        if (typeof forceReleaseGlobalModalOverlays === 'function') {
+                            forceReleaseGlobalModalOverlays();
+                        } else {
+                            const overlay = document.getElementById('rdTabCloseOverlay');
+                            if (overlay) {
+                                overlay.classList.remove('active');
+                                overlay.style.display = 'none';
                             }
-                        }
-
-                        if (document && document.body && document.body.style) {
-                            document.body.style.overflow = 'auto';
+                            if (document && document.body && document.body.style) {
+                                document.body.style.overflow = 'auto';
+                            }
                         }
 
                         if (closeFunctionName !== 'closeAddUserModal') {
