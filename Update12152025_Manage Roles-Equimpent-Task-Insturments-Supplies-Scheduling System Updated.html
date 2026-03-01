@@ -27724,6 +27724,8 @@
         }
 
         // ============ CLINICS MANAGEMENT ============
+        let currentOfficeViewId = null;
+        let currentOfficeViewTab = 'hours';
         
         // Load clinics from API/masterData
         function loadOffices() {
@@ -27809,6 +27811,8 @@
                 if (officesListSection) officesListSection.style.display = 'block';
                 const officeFormSection = document.getElementById('officeFormSection');
                 if (officeFormSection) officeFormSection.style.display = 'none';
+                const officeViewSection = document.getElementById('officeViewSection');
+                if (officeViewSection) officeViewSection.style.display = 'none';
 
                 displayOfficesList();
             }
@@ -27828,6 +27832,10 @@
             if (officesListSection) officesListSection.style.display = 'block';
             const officeFormSection = document.getElementById('officeFormSection');
             if (officeFormSection) officeFormSection.style.display = 'none';
+            const officeViewSection = document.getElementById('officeViewSection');
+            if (officeViewSection) officeViewSection.style.display = 'none';
+            currentOfficeViewId = null;
+            currentOfficeViewTab = 'hours';
 
             // Reset logo
             uploadedOfficeLogo = null;
@@ -28076,6 +28084,9 @@
                     </td>
                     <td style="padding: 1rem; text-align: center;">
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                            <button onclick="viewOffice('${office.officeID}')" style="padding: 0.5rem 1rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.filter='brightness(0.9)'" onmouseout="this.style.filter='none'" title="View Clinic">
+                                <i class="fas fa-eye"></i>
+                            </button>
                             <button onclick="editOffice('${office.officeID}')" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit Clinic">
                                 <i class="fas fa-edit"></i>
                             </button>
@@ -28098,6 +28109,7 @@
 
         // Open Add Clinic Form
         function openAddOfficeForm() {
+            closeOfficeView(false);
             const officesListSection = document.getElementById('officesListSection');
             if (officesListSection) officesListSection.style.display = 'none';
             document.getElementById('officeFormSection').style.display = 'block';
@@ -28123,10 +28135,14 @@
 
             const officesListSection = document.getElementById('officesListSection');
             if (officesListSection) officesListSection.style.display = 'block';
+
+            const officeViewSection = document.getElementById('officeViewSection');
+            if (officeViewSection) officeViewSection.style.display = 'none';
         }
 
         // Edit Clinic
         function editOffice(officeID) {
+            closeOfficeView(false);
             const offices = loadOffices();
             const office = offices.find(o => o.officeID == officeID || o.officeID === officeID);
             
@@ -28228,6 +28244,329 @@
                     showNotification(`Failed to delete clinic: ${error?.message || 'Unknown error'}`, 'error');
                 }
             }
+        }
+
+        function normalizeOfficeRefValue(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return { raw: '', key: '', numeric: null };
+            const key = raw.toLowerCase();
+            const numeric = (typeof toNumericId === 'function')
+                ? (toNumericId(raw) || toNumericId(raw.replace(/^clinic-/i, '')))
+                : (Number.parseInt(raw.replace(/^clinic-/i, ''), 10) || null);
+            return { raw, key, numeric };
+        }
+
+        function getOfficeReferenceSet(office) {
+            const refs = new Set();
+            const addRef = (value) => {
+                const parsed = normalizeOfficeRefValue(value);
+                if (!parsed.raw) return;
+                refs.add(parsed.key);
+                if (parsed.numeric) {
+                    refs.add(String(parsed.numeric));
+                    refs.add(`clinic-${parsed.numeric}`);
+                }
+            };
+
+            addRef(office?.officeID);
+            addRef(office?.officeName);
+            addRef(office?.name);
+
+            return refs;
+        }
+
+        function doesOfficeReferenceMatch(office, candidateValue) {
+            const candidate = normalizeOfficeRefValue(candidateValue);
+            if (!candidate.raw) return false;
+            const officeRefs = getOfficeReferenceSet(office);
+            if (officeRefs.has(candidate.key)) return true;
+            if (candidate.numeric && (officeRefs.has(String(candidate.numeric)) || officeRefs.has(`clinic-${candidate.numeric}`))) {
+                return true;
+            }
+            return false;
+        }
+
+        function getOfficeRelatedRooms(office) {
+            const allRooms = (typeof loadRooms === 'function') ? loadRooms() : [];
+            if (!Array.isArray(allRooms) || !allRooms.length) return [];
+
+            return allRooms.filter(room => (
+                doesOfficeReferenceMatch(office, room?.officeID) ||
+                doesOfficeReferenceMatch(office, room?.clinicId) ||
+                doesOfficeReferenceMatch(office, room?.ClinicId) ||
+                doesOfficeReferenceMatch(office, room?.clinic) ||
+                doesOfficeReferenceMatch(office, room?.office)
+            ));
+        }
+
+        function getOfficeRelatedEmployees(office) {
+            if ((!window.employeeResources || window.employeeResources.length === 0) && typeof loadEmployeeResourcesFromUsers === 'function') {
+                try { loadEmployeeResourcesFromUsers(); } catch (_) {}
+            }
+
+            const employeeList = Array.isArray(window.masterData?.getAllEmployees?.())
+                ? window.masterData.getAllEmployees()
+                : (Array.isArray(window.employeeResources) ? window.employeeResources : []);
+
+            const matchedFromResources = employeeList.filter(employee => {
+                const refs = [];
+                const pushRef = (value) => {
+                    if (Array.isArray(value)) {
+                        value.forEach(pushRef);
+                        return;
+                    }
+                    refs.push(value);
+                };
+
+                pushRef(employee?.extendedProps?.clinics);
+                pushRef(employee?.clinics);
+                pushRef(employee?.extendedProps?.clinicId);
+                pushRef(employee?.extendedProps?.officeID);
+
+                return refs.some(ref => doesOfficeReferenceMatch(office, ref));
+            });
+
+            const normalized = matchedFromResources.map(employee => ({
+                key: String(employee?.extendedProps?.username || employee?.id || employee?.title || '').trim().toLowerCase(),
+                title: String(employee?.title || '').trim() || 'Employee',
+                role: String(employee?.extendedProps?.role || '').trim() || 'Staff'
+            }));
+
+            const fallbackUsers = (typeof loadUsers === 'function') ? loadUsers() : {};
+            if (fallbackUsers && typeof fallbackUsers === 'object') {
+                Object.keys(fallbackUsers).forEach(username => {
+                    const user = fallbackUsers[username] || {};
+                    if (username === 'admin') return;
+
+                    const refs = [];
+                    const pushRef = (value) => {
+                        if (Array.isArray(value)) {
+                            value.forEach(pushRef);
+                            return;
+                        }
+                        refs.push(value);
+                    };
+
+                    pushRef(user?.clinics);
+                    pushRef(user?.Clinics);
+                    pushRef(user?.clinicIds);
+                    pushRef(user?.ClinicIds);
+                    pushRef(user?.clinicId);
+                    pushRef(user?.ClinicId);
+                    pushRef(user?.officeID);
+                    pushRef(user?.OfficeID);
+                    pushRef(user?.officeLocation || user?.OfficeLocation || user?.clinic || user?.Clinic || user?.office || user?.Office);
+
+                    if (!refs.some(ref => doesOfficeReferenceMatch(office, ref))) return;
+
+                    normalized.push({
+                        key: String(user?.username || username || user?.email || '').trim().toLowerCase(),
+                        title: String(user?.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || username || 'Employee').trim(),
+                        role: String(user?.jobTitle || user?.JobTitle || user?.role || 'Staff').trim()
+                    });
+                });
+            }
+
+            const seen = new Set();
+            return normalized.filter(employee => {
+                const key = employee.key || employee.title.toLowerCase();
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        }
+
+        function getOfficeHoursRows(office) {
+            const days = [
+                { key: 'monday', label: 'Monday' },
+                { key: 'tuesday', label: 'Tuesday' },
+                { key: 'wednesday', label: 'Wednesday' },
+                { key: 'thursday', label: 'Thursday' },
+                { key: 'friday', label: 'Friday' },
+                { key: 'saturday', label: 'Saturday' },
+                { key: 'sunday', label: 'Sunday' }
+            ];
+
+            const operatingHours = office?.operatingHours || {};
+            return days.map(day => {
+                const item = operatingHours?.[day.key] || {};
+                const isOpen = item?.isOpen === true;
+                return {
+                    day: day.label,
+                    value: isOpen
+                        ? `${item?.open || '--:--'} - ${item?.close || '--:--'}`
+                        : 'Closed'
+                };
+            });
+        }
+
+        function updateOfficeViewTabStyles() {
+            const tabButtons = document.querySelectorAll('#officeViewTabs button[data-tab]');
+            tabButtons.forEach(button => {
+                const isActive = button.dataset.tab === currentOfficeViewTab;
+                button.style.background = isActive ? 'var(--accent-primary)' : 'var(--card-bg)';
+                button.style.color = isActive ? 'white' : 'var(--text-secondary)';
+                button.style.borderColor = isActive ? 'var(--accent-primary)' : 'var(--border-color)';
+            });
+        }
+
+        function renderOfficeViewContent() {
+            const content = document.getElementById('officeViewTabContent');
+            if (!content) return;
+
+            const offices = loadOffices();
+            const office = offices.find(o => String(o?.officeID) === String(currentOfficeViewId));
+            if (!office) {
+                content.innerHTML = '<div style="padding: 1rem; color: var(--text-tertiary);">Clinic details are no longer available.</div>';
+                return;
+            }
+
+            if (currentOfficeViewTab === 'hours') {
+                const rows = getOfficeHoursRows(office);
+                content.innerHTML = `
+                    <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: var(--bg-secondary);">
+                                    <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Day</th>
+                                    <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Working Hours</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows.map(row => `
+                                    <tr style="border-bottom: 1px solid var(--border-color);">
+                                        <td style="padding: 0.75rem 1rem; color: var(--text-primary); font-weight: 600;">${row.day}</td>
+                                        <td style="padding: 0.75rem 1rem; color: var(--text-secondary);">${row.value}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                return;
+            }
+
+            if (currentOfficeViewTab === 'rooms') {
+                const relatedRooms = getOfficeRelatedRooms(office);
+                if (!relatedRooms.length) {
+                    content.innerHTML = '<div style="padding: 1rem; color: var(--text-tertiary); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">No rooms are linked to this clinic.</div>';
+                    return;
+                }
+
+                content.innerHTML = `
+                    <div style="display: grid; gap: 0.75rem;">
+                        ${relatedRooms.map(room => `
+                            <div style="padding: 0.9rem 1rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+                                <div>
+                                    <div style="color: var(--text-primary); font-weight: 600;">${room?.roomName || room?.name || room?.roomType || 'Room'}</div>
+                                    <div style="color: var(--text-tertiary); font-size: 0.85rem;">${room?.roomType || room?.roomCategory || 'General'}</div>
+                                </div>
+                                <span style="padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; background: ${room?.isActive !== false ? '#10b98120' : '#ef444420'}; color: ${room?.isActive !== false ? '#10b981' : '#ef4444'};">
+                                    ${room?.status || (room?.isActive !== false ? 'Active' : 'Inactive')}
+                                </span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                return;
+            }
+
+            const relatedEmployees = getOfficeRelatedEmployees(office);
+            if (!relatedEmployees.length) {
+                content.innerHTML = '<div style="padding: 1rem; color: var(--text-tertiary); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">No employees are linked to this clinic.</div>';
+                return;
+            }
+
+            content.innerHTML = `
+                <div style="display: grid; gap: 0.75rem;">
+                    ${relatedEmployees.map(employee => `
+                        <div style="padding: 0.9rem 1rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+                            <div style="color: var(--text-primary); font-weight: 600;">${employee.title}</div>
+                            <div style="color: var(--text-tertiary); font-size: 0.85rem;">${employee.role}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function switchOfficeViewTab(tabName) {
+            currentOfficeViewTab = tabName;
+            updateOfficeViewTabStyles();
+            renderOfficeViewContent();
+        }
+
+        function viewOffice(officeID) {
+            const offices = loadOffices();
+            const office = offices.find(o => o.officeID == officeID || o.officeID === officeID);
+            if (!office) return;
+
+            currentOfficeViewId = office.officeID;
+            currentOfficeViewTab = 'hours';
+
+            const officeNameEl = document.getElementById('officeViewClinicName');
+            if (officeNameEl) officeNameEl.textContent = office.officeName || 'Clinic Details';
+
+            const officePhoneEl = document.getElementById('officeViewClinicPhone');
+            if (officePhoneEl) officePhoneEl.textContent = office.phone || '-';
+
+            const officeAddressEl = document.getElementById('officeViewClinicAddress');
+            if (officeAddressEl) {
+                const address = [office.address, office.city, office.state, office.zipCode].filter(Boolean).join(', ');
+                officeAddressEl.textContent = address || '-';
+            }
+
+            const officeStatusEl = document.getElementById('officeViewClinicStatus');
+            if (officeStatusEl) {
+                const isActive = office.isActive !== false;
+                officeStatusEl.textContent = office.status || (isActive ? 'Active' : 'Inactive');
+                officeStatusEl.style.background = isActive ? '#10b98120' : '#ef444420';
+                officeStatusEl.style.color = isActive ? '#10b981' : '#ef4444';
+            }
+
+            const listSection = document.getElementById('officesListSection');
+            if (listSection) listSection.style.display = 'none';
+
+            const formSection = document.getElementById('officeFormSection');
+            if (formSection) formSection.style.display = 'none';
+
+            const viewSection = document.getElementById('officeViewSection');
+            if (viewSection) viewSection.style.display = 'block';
+
+            updateOfficeViewTabStyles();
+            renderOfficeViewContent();
+
+            if (viewSection) {
+                viewSection.scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+
+        function closeOfficeView(showList = true) {
+            const viewSection = document.getElementById('officeViewSection');
+            if (viewSection) viewSection.style.display = 'none';
+
+            const content = document.getElementById('officeViewTabContent');
+            if (content) content.innerHTML = '';
+
+            const officePhoneEl = document.getElementById('officeViewClinicPhone');
+            if (officePhoneEl) officePhoneEl.textContent = '-';
+
+            const officeAddressEl = document.getElementById('officeViewClinicAddress');
+            if (officeAddressEl) officeAddressEl.textContent = '-';
+
+            const officeStatusEl = document.getElementById('officeViewClinicStatus');
+            if (officeStatusEl) {
+                officeStatusEl.textContent = '-';
+                officeStatusEl.style.background = 'var(--bg-secondary)';
+                officeStatusEl.style.color = 'var(--text-secondary)';
+            }
+
+            if (showList) {
+                const listSection = document.getElementById('officesListSection');
+                if (listSection) listSection.style.display = 'block';
+            }
+
+            currentOfficeViewId = null;
+            currentOfficeViewTab = 'hours';
         }
 
         // ============ VENDORS MANAGEMENT ============
@@ -63057,6 +63396,49 @@ document.addEventListener('keydown', function(e) {
                         </tbody>
                     </table>
                 </div>
+            </div>
+
+            <!-- View Clinic Details (Hidden by default) -->
+            <div id="officeViewSection" style="display: none; background: var(--bg-secondary); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 1rem; flex-wrap: wrap;">
+                    <h4 style="margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fas fa-hospital" style="color: var(--accent-primary);"></i>
+                        <span id="officeViewClinicName">Clinic Details</span>
+                    </h4>
+                    <button type="button" onclick="closeOfficeView(true)" style="padding: 0.6rem 1rem; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 0.4rem;">
+                        <i class="fas fa-arrow-left"></i>
+                        Back to Clinics
+                    </button>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 2fr auto; gap: 0.75rem; margin-bottom: 1rem;">
+                    <div style="padding: 0.75rem 0.9rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.2rem;">Phone</div>
+                        <div id="officeViewClinicPhone" style="font-weight: 600; color: var(--text-primary);">-</div>
+                    </div>
+                    <div style="padding: 0.75rem 0.9rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.2rem;">Address</div>
+                        <div id="officeViewClinicAddress" style="font-weight: 600; color: var(--text-primary);">-</div>
+                    </div>
+                    <div style="padding: 0.75rem 0.9rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; text-align: center; min-width: 120px;">
+                        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.2rem;">Status</div>
+                        <span id="officeViewClinicStatus" style="display: inline-block; padding: 0.2rem 0.7rem; border-radius: 999px; font-size: 0.75rem; background: var(--bg-secondary); color: var(--text-secondary);">-</span>
+                    </div>
+                </div>
+
+                <div id="officeViewTabs" style="display: flex; gap: 0.6rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <button type="button" data-tab="hours" onclick="switchOfficeViewTab('hours')" style="padding: 0.5rem 0.9rem; border: 1px solid var(--border-color); border-radius: 999px; background: var(--card-bg); color: var(--text-secondary); cursor: pointer; font-weight: 600;">
+                        Working Hours
+                    </button>
+                    <button type="button" data-tab="rooms" onclick="switchOfficeViewTab('rooms')" style="padding: 0.5rem 0.9rem; border: 1px solid var(--border-color); border-radius: 999px; background: var(--card-bg); color: var(--text-secondary); cursor: pointer; font-weight: 600;">
+                        Rooms Related
+                    </button>
+                    <button type="button" data-tab="employees" onclick="switchOfficeViewTab('employees')" style="padding: 0.5rem 0.9rem; border: 1px solid var(--border-color); border-radius: 999px; background: var(--card-bg); color: var(--text-secondary); cursor: pointer; font-weight: 600;">
+                        All Employees
+                    </button>
+                </div>
+
+                <div id="officeViewTabContent"></div>
             </div>
 
             <!-- Add/Edit Clinic Form (Hidden by default) -->
