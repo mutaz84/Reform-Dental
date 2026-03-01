@@ -28427,6 +28427,35 @@
             return offices.find(o => String(o?.officeID) === String(currentOfficeViewId)) || null;
         }
 
+        function applyOfficeWorkingHoursToLocalCache(officeID, operatingHours) {
+            const targetId = String(officeID ?? '');
+
+            if (window.masterData && Array.isArray(window.masterData.clinics)) {
+                window.masterData.clinics = window.masterData.clinics.map(clinic => {
+                    const clinicId = String(clinic?.dbId ?? clinic?.id ?? clinic?.Id ?? '');
+                    if (clinicId !== targetId) return clinic;
+                    return {
+                        ...clinic,
+                        operatingHours,
+                        OperatingHours: operatingHours
+                    };
+                });
+            }
+
+            const cachedClinics = safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
+            if (Array.isArray(cachedClinics) && cachedClinics.length) {
+                const updated = cachedClinics.map(clinic => {
+                    const clinicId = String(clinic?.dbId ?? clinic?.id ?? clinic?.Id ?? '').replace('clinic-', '');
+                    if (clinicId !== targetId) return clinic;
+                    return {
+                        ...clinic,
+                        operatingHours
+                    };
+                });
+                localStorage.setItem('clinics', JSON.stringify(updated));
+            }
+        }
+
         function startOfficeViewWorkingHoursEdit() {
             isOfficeViewHoursEditing = true;
             renderOfficeViewContent();
@@ -28599,6 +28628,9 @@
                 if (typeof syncClinicsFromAPI === 'function') {
                     await syncClinicsFromAPI();
                 }
+
+                applyOfficeWorkingHoursToLocalCache(office.officeID, operatingHours);
+
                 showNotification('Working hours updated successfully.', 'success');
                 isOfficeViewHoursEditing = false;
                 renderOfficeViewContent();
