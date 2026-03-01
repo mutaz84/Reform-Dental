@@ -24727,6 +24727,9 @@
             window.__complianceBadgePollStarted = true;
 
             const tick = () => {
+                if (typeof window.__rdIsApiCooldownActive === 'function' && window.__rdIsApiCooldownActive()) {
+                    return;
+                }
                 if (typeof refreshComplianceNavBadges === 'function') {
                     refreshComplianceNavBadges({ forceAllFetch: true, forceUserFetch: true });
                 }
@@ -42782,6 +42785,11 @@ window.initializeCalendar = initializeCalendar;
             window.__requestsBadgePollStarted = true;
 
             const tick = async () => {
+                if (typeof window.__rdIsApiCooldownActive === 'function' && window.__rdIsApiCooldownActive()) {
+                    updateRequestsNavBadge();
+                    return;
+                }
+
                 const loggedInUser = localStorage.getItem('loggedInUser');
                 if (!loggedInUser) {
                     updateRequestsNavBadge([]);
@@ -44380,6 +44388,9 @@ window.initializeCalendar = initializeCalendar;
             window.__requestsNotificationsPollStarted = true;
 
             const tick = async () => {
+                if (typeof window.__rdIsApiCooldownActive === 'function' && window.__rdIsApiCooldownActive()) {
+                    return;
+                }
                 const loggedInUser = localStorage.getItem('loggedInUser');
                 if (!loggedInUser) return;
                 await refreshRequestsNotificationsBadge();
@@ -66745,6 +66756,142 @@ document.addEventListener('DOMContentLoaded', function() {
 // API INTEGRATION - Connect to Azure SQL Database
 // ========================================
 const API_BASE_URL = '/api';
+
+function safeReleaseUiLocks(reason) {
+    try {
+        if (typeof forceReleaseGlobalModalOverlays === 'function') {
+            forceReleaseGlobalModalOverlays();
+        }
+
+        const closeOverlay = document.getElementById('rdTabCloseOverlay');
+        if (closeOverlay) {
+            closeOverlay.classList.remove('active');
+            closeOverlay.style.display = 'none';
+        }
+
+        if (document && document.body && document.body.style) {
+            document.body.style.overflow = 'auto';
+        }
+
+        if (reason) {
+            console.warn('⚠️ UI lock release fail-safe triggered:', reason);
+        }
+    } catch (error) {
+        console.warn('Could not execute UI lock release fail-safe:', error);
+    }
+}
+
+function installApiStabilityGuard() {
+    if (window.__rdApiStabilityGuardInstalled) return;
+    if (typeof window.fetch !== 'function') return;
+    window.__rdApiStabilityGuardInstalled = true;
+
+    const originalFetch = window.fetch.bind(window);
+    const API_FAILURE_WINDOW_MS = 12000;
+    const API_FAILURE_THRESHOLD = 6;
+    const API_COOLDOWN_MS = 15000;
+    const API_TIMEOUT_MS = 12000;
+    const failureTimestamps = [];
+    let cooldownUntil = 0;
+    let lastAlertAt = 0;
+
+    const isApiUrl = (url) => {
+        if (!url) return false;
+        return /^\/api\//i.test(url) || /\/api\//i.test(url);
+    };
+
+    const getRequestMethod = (resource, init) => {
+        const initMethod = init && init.method ? String(init.method) : '';
+        if (initMethod) return initMethod.toUpperCase();
+        if (resource && typeof resource === 'object' && resource.method) return String(resource.method).toUpperCase();
+        return 'GET';
+    };
+
+    const recordFailure = (context) => {
+        const now = Date.now();
+        failureTimestamps.push(now);
+        while (failureTimestamps.length && (now - failureTimestamps[0]) > API_FAILURE_WINDOW_MS) {
+            failureTimestamps.shift();
+        }
+
+        safeReleaseUiLocks(context);
+
+        if (failureTimestamps.length >= API_FAILURE_THRESHOLD) {
+            cooldownUntil = now + API_COOLDOWN_MS;
+            if ((now - lastAlertAt) > API_COOLDOWN_MS) {
+                lastAlertAt = now;
+                if (typeof showNotification === 'function') {
+                    showNotification('Server is temporarily unavailable. Running in local/offline mode.', 'warning');
+                }
+                console.warn('⚠️ API circuit breaker enabled for', API_COOLDOWN_MS, 'ms due to repeated failures');
+            }
+        }
+    };
+
+    window.__rdIsApiCooldownActive = () => Date.now() < cooldownUntil;
+    window.__rdApiCooldownRemainingMs = () => Math.max(0, cooldownUntil - Date.now());
+
+    window.fetch = async function(resource, init) {
+        const requestUrl = typeof resource === 'string' ? resource : (resource && resource.url ? resource.url : '');
+        const method = getRequestMethod(resource, init);
+        const isApiRequest = isApiUrl(requestUrl);
+
+        if (isApiRequest && method === 'GET' && Date.now() < cooldownUntil) {
+            return new Response(JSON.stringify({
+                error: 'API temporarily unavailable',
+                offline: true,
+                retryAfterMs: Math.max(0, cooldownUntil - Date.now())
+            }), {
+                status: 503,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+
+        let localInit = init;
+        let timeoutId = null;
+        if (isApiRequest && (!init || !init.signal)) {
+            const controller = new AbortController();
+            localInit = { ...(init || {}), signal: controller.signal };
+            timeoutId = setTimeout(() => {
+                try { controller.abort(); } catch (_) {}
+            }, API_TIMEOUT_MS);
+        }
+
+        try {
+            const response = await originalFetch(resource, localInit);
+            if (isApiRequest && response && response.status >= 500) {
+                recordFailure(`HTTP ${response.status} ${method} ${requestUrl}`);
+            }
+            return response;
+        } catch (error) {
+            if (isApiRequest) {
+                const errMsg = (error && error.name === 'AbortError')
+                    ? `timeout ${method} ${requestUrl}`
+                    : `network ${method} ${requestUrl}`;
+                recordFailure(errMsg);
+            }
+            throw error;
+        } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+        }
+    };
+
+    window.addEventListener('unhandledrejection', (event) => {
+        const message = String((event && event.reason && event.reason.message) || event?.reason || 'unknown');
+        if (/\/api\//i.test(message) || /Failed to fetch|NetworkError|AbortError|timeout/i.test(message)) {
+            safeReleaseUiLocks('unhandledrejection api/network');
+        }
+    });
+
+    window.addEventListener('error', (event) => {
+        const message = String((event && event.message) || '');
+        if (/Failed to fetch|NetworkError|AbortError|timeout/i.test(message)) {
+            safeReleaseUiLocks('window.error api/network');
+        }
+    });
+}
+
+installApiStabilityGuard();
 
 // Fetch users from API and sync with localStorage
 async function fetchUsersFromAPI() {
