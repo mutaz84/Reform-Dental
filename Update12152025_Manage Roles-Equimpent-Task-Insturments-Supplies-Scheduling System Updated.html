@@ -21454,6 +21454,7 @@
         let addUserModalMode = 'create';
         let addUserEditRecordId = null;
         let addUserOriginalUsername = '';
+        let __rdHardRefreshScheduled = false;
         const CREATE_USER_DRAFTS_SETTINGS_KEY = 'rdCreateUserDrafts';
         let createUserDraftSaveTimer = null;
         let createUserDraftAutoSaveInstalled = false;
@@ -21473,6 +21474,20 @@
                 ''
             ).trim().toLowerCase();
             return username ? `user:${username}` : '';
+        }
+
+        function scheduleAppHardRefresh(delayMs = 220) {
+            if (__rdHardRefreshScheduled) return;
+            __rdHardRefreshScheduled = true;
+            setTimeout(() => {
+                try {
+                    if (typeof window !== 'undefined' && window.location && typeof window.location.reload === 'function') {
+                        window.location.reload();
+                        return;
+                    }
+                } catch (_) {}
+                __rdHardRefreshScheduled = false;
+            }, Math.max(0, Number(delayMs) || 0));
         }
 
         function getCreateUserDraftLocalKey() {
@@ -21945,6 +21960,9 @@
             if (closeChoice === 'discard') {
                 clearCreateUserDraft();
             }
+            if (closeChoice === 'save' || closeChoice === 'discard') {
+                scheduleAppHardRefresh(180);
+            }
             window.__rdLastCloseChoice = '';
             forceReleaseCreateUserCloseOverlays();
         }
@@ -22175,6 +22193,7 @@
                     errorDiv.style.color = '#c33';
                     clearCreateUserDraft();
                     closeAddUserModal();
+                    scheduleAppHardRefresh(160);
                 }, 1600);
                 return;
             }
@@ -22262,6 +22281,7 @@
                 clearCreateUserDraft();
                 // Close the modal
                 closeAddUserModal();
+                scheduleAppHardRefresh(160);
             }, 3000);
         }
 
@@ -27371,6 +27391,9 @@
             } else if (hasMeaningfulFormDraft(roomDraftSnapshot)) {
                 saveManagementDraftCloud('rooms', roomDraftSnapshot, false);
             }
+            if (closeChoice === 'save' || closeChoice === 'discard') {
+                scheduleAppHardRefresh(180);
+            }
             window.__rdLastCloseChoice = '';
             forceReleaseGlobalModalOverlays();
         }
@@ -27514,6 +27537,7 @@
             
             // Refresh rooms list
             displayRoomsList();
+            scheduleAppHardRefresh(260);
             
             // Hide success message after 3 seconds
             setTimeout(() => {
@@ -51245,6 +51269,9 @@ window.addEventListener('load', function() {
             } else if (hasMeaningfulFormDraft(roleDraftSnapshot)) {
                 saveManagementDraftCloud('roles', roleDraftSnapshot, false);
             }
+            if (closeChoice === 'save' || closeChoice === 'discard') {
+                scheduleAppHardRefresh(180);
+            }
             window.__rdLastCloseChoice = '';
             forceReleaseGlobalModalOverlays();
         }
@@ -51354,6 +51381,7 @@ window.addEventListener('load', function() {
                     displayRolesList();
                     closeRoleForm();
                     populateRoleDropdowns();
+                    scheduleAppHardRefresh(260);
                     
                     // If opened from user creation, redirect back
                     if (document.getElementById('rolesManagementModal').getAttribute('data-from-user-creation') === 'true') {
@@ -51384,6 +51412,7 @@ window.addEventListener('load', function() {
                 displayRolesList();
                 closeRoleForm();
                 populateRoleDropdowns();
+                scheduleAppHardRefresh(260);
                 
                 // If opened from user creation, redirect back
                 if (document.getElementById('rolesManagementModal').getAttribute('data-from-user-creation') === 'true') {
@@ -69964,6 +69993,14 @@ console.log('✅ Global functions exported to window object');
                             }
                             if (document && document.body && document.body.style) {
                                 document.body.style.overflow = 'auto';
+                            }
+                        }
+
+                        if (choice === 'save' || choice === 'discard') {
+                            if (typeof scheduleAppHardRefresh === 'function') {
+                                scheduleAppHardRefresh(220);
+                            } else if (typeof window !== 'undefined' && window.location && typeof window.location.reload === 'function') {
+                                window.location.reload();
                             }
                         }
 
