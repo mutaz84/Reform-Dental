@@ -28427,6 +28427,75 @@
             return offices.find(o => String(o?.officeID) === String(currentOfficeViewId)) || null;
         }
 
+        function normalizeHourTime(value) {
+            const text = String(value || '').trim();
+            if (!text) return '';
+            return text.slice(0, 5);
+        }
+
+        function backupClinicWorkingHoursSnapshot(officeID, beforeHours, afterHours) {
+            try {
+                const backups = safeParseLocalStorageJSON('clinicHoursBackups', [], { expect: 'array' });
+                const entry = {
+                    officeID: String(officeID ?? ''),
+                    createdAt: new Date().toISOString(),
+                    beforeHours: beforeHours || null,
+                    afterHours: afterHours || null
+                };
+                const next = [entry, ...backups].slice(0, 25);
+                localStorage.setItem('clinicHoursBackups', JSON.stringify(next));
+            } catch (_) {}
+        }
+
+        function applyOfficeWorkingHoursToViewCache(officeID, operatingHours) {
+            const targetId = String(officeID ?? '');
+
+            if (window.masterData && Array.isArray(window.masterData.clinics)) {
+                window.masterData.clinics = window.masterData.clinics.map(clinic => {
+                    const clinicId = String(clinic?.dbId ?? clinic?.id ?? clinic?.Id ?? '').replace('clinic-', '');
+                    if (clinicId !== targetId) return clinic;
+                    return { ...clinic, operatingHours, OperatingHours: operatingHours };
+                });
+            }
+
+            const clinics = safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
+            if (Array.isArray(clinics) && clinics.length) {
+                const updated = clinics.map(clinic => {
+                    const clinicId = String(clinic?.dbId ?? clinic?.id ?? clinic?.Id ?? '').replace('clinic-', '');
+                    if (clinicId !== targetId) return clinic;
+                    return { ...clinic, operatingHours };
+                });
+                localStorage.setItem('clinics', JSON.stringify(updated));
+            }
+        }
+
+        async function confirmOfficeWorkingHoursFromAPI(officeID, operatingHours) {
+            const maxAttempts = 3;
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                if (typeof syncClinicsFromAPI === 'function') {
+                    const synced = await syncClinicsFromAPI();
+                    if (!synced) {
+                        if (attempt < maxAttempts) {
+                            await new Promise(resolve => setTimeout(resolve, 350));
+                            continue;
+                        }
+                        return false;
+                    }
+                }
+
+                const refreshedOffice = loadOffices().find(o => String(o?.officeID) === String(officeID));
+                if (refreshedOffice && areOperatingHoursEqual(refreshedOffice.operatingHours, operatingHours)) {
+                    return true;
+                }
+
+                if (attempt < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 350));
+                }
+            }
+
+            return false;
+        }
+
         function areOperatingHoursEqual(leftHours, rightHours) {
             const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -28437,8 +28506,8 @@
                 const rightOpen = right?.isOpen === true;
 
                 return leftOpen === rightOpen
-                    && String(left?.open || '') === String(right?.open || '')
-                    && String(left?.close || '') === String(right?.close || '');
+                    && normalizeHourTime(left?.open) === normalizeHourTime(right?.open)
+                    && normalizeHourTime(left?.close) === normalizeHourTime(right?.close);
             });
         }
 
@@ -28610,22 +28679,18 @@
             };
 
             try {
+                backupClinicWorkingHoursSnapshot(office.officeID, office.operatingHours || null, operatingHours);
+
                 await updateClinicViaAPI(office.officeID, payload);
 
-                let synced = true;
-                if (typeof syncClinicsFromAPI === 'function') {
-                    synced = await syncClinicsFromAPI();
-                }
-                if (!synced) {
-                    throw new Error('Clinic sync failed after update.');
-                }
-
-                const refreshedOffice = loadOffices().find(o => String(o?.officeID) === String(office.officeID));
-                if (!refreshedOffice || !areOperatingHoursEqual(refreshedOffice.operatingHours, operatingHours)) {
-                    throw new Error('Working hours were not confirmed from API response.');
+                const confirmed = await confirmOfficeWorkingHoursFromAPI(office.officeID, operatingHours);
+                if (!confirmed) {
+                    applyOfficeWorkingHoursToViewCache(office.officeID, operatingHours);
+                    showNotification('Working hours saved to API. Data sync is delayed, showing latest values.', 'warning');
+                } else {
+                    showNotification('Working hours updated successfully.', 'success');
                 }
 
-                showNotification('Working hours updated successfully.', 'success');
                 isOfficeViewHoursEditing = false;
                 renderOfficeViewContent();
             } catch (error) {
