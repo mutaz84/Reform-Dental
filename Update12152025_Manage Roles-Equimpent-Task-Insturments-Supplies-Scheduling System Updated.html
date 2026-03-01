@@ -28409,36 +28409,84 @@
             const users = (typeof loadUsers === 'function') ? loadUsers() : {};
             if (!users || typeof users !== 'object') return [];
 
-            return Object.keys(users)
-                .filter(username => username !== 'admin')
-                .map(username => ({ username, user: users[username] || {} }))
-                .filter(({ user }) => {
-                    const refs = [];
-                    const pushRef = (value) => {
-                        if (Array.isArray(value)) {
-                            value.forEach(pushRef);
-                            return;
-                        }
-                        refs.push(value);
-                    };
+            const allUsernames = Object.keys(users).filter(username => username !== 'admin');
+            const findUsername = (value) => {
+                const normalized = String(value || '').trim().toLowerCase();
+                if (!normalized) return '';
+                return allUsernames.find(name => String(name || '').trim().toLowerCase() === normalized) || '';
+            };
 
-                    pushRef(user?.clinics);
-                    pushRef(user?.Clinics);
-                    pushRef(user?.clinicIds);
-                    pushRef(user?.ClinicIds);
-                    pushRef(user?.clinicId);
-                    pushRef(user?.ClinicId);
-                    pushRef(user?.officeID);
-                    pushRef(user?.OfficeID);
-                    pushRef(user?.officeLocation || user?.OfficeLocation || user?.clinic || user?.Clinic || user?.office || user?.Office);
+            const normalizeUserName = (username, user) => String(
+                user?.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || username || 'Employee'
+            ).trim();
 
-                    return refs.some(ref => doesOfficeReferenceMatch(office, ref));
-                })
-                .map(({ username, user }) => ({
+            const isUserLinkedToOffice = (user) => {
+                const refs = [];
+                const pushRef = (value) => {
+                    if (Array.isArray(value)) {
+                        value.forEach(pushRef);
+                        return;
+                    }
+                    refs.push(value);
+                };
+
+                pushRef(user?.clinics);
+                pushRef(user?.Clinics);
+                pushRef(user?.clinicIds);
+                pushRef(user?.ClinicIds);
+                pushRef(user?.clinicId);
+                pushRef(user?.ClinicId);
+                pushRef(user?.officeID);
+                pushRef(user?.OfficeID);
+                pushRef(user?.officeLocation || user?.OfficeLocation || user?.clinic || user?.Clinic || user?.office || user?.Office);
+
+                return refs.some(ref => doesOfficeReferenceMatch(office, ref));
+            };
+
+            const merged = [];
+
+            allUsernames.forEach(username => {
+                const user = users[username] || {};
+                if (!isUserLinkedToOffice(user)) return;
+
+                merged.push({
                     username,
-                    name: String(user?.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || username || 'Employee').trim(),
-                    role: String(user?.jobTitle || user?.JobTitle || user?.role || 'Staff').trim()
-                }));
+                    name: normalizeUserName(username, user),
+                    role: String(user?.jobTitle || user?.JobTitle || user?.role || 'Staff').trim(),
+                    canManage: true
+                });
+            });
+
+            const relatedFromResources = getOfficeRelatedEmployees(office);
+            relatedFromResources.forEach(employee => {
+                const resourceUsername = findUsername(employee?.key);
+                const displayName = String(employee?.title || '').trim() || 'Employee';
+                let username = resourceUsername;
+
+                if (!username) {
+                    username = allUsernames.find(candidate => {
+                        const user = users[candidate] || {};
+                        return normalizeUserName(candidate, user).toLowerCase() === displayName.toLowerCase();
+                    }) || '';
+                }
+
+                merged.push({
+                    username,
+                    name: displayName,
+                    role: String(employee?.role || '').trim() || 'Staff',
+                    canManage: !!username
+                });
+            });
+
+            const seen = new Set();
+            return merged.filter(employee => {
+                const key = employee.username
+                    ? `u:${employee.username.toLowerCase()}`
+                    : `n:${employee.name.toLowerCase()}|${employee.role.toLowerCase()}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
         }
 
         async function saveOfficeViewWorkingHours() {
@@ -28668,10 +28716,10 @@
                                 <div style="color: var(--text-tertiary); font-size: 0.85rem;">${employee.role}</div>
                             </div>
                             <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                <button type="button" onclick='openOfficeViewEditEmployee(${JSON.stringify(employee.username)})' style="padding: 0.45rem 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-primary); cursor: pointer;" title="Edit Employee">
+                                <button type="button" ${employee.canManage ? `onclick='openOfficeViewEditEmployee(${JSON.stringify(employee.username)})'` : 'disabled'} style="padding: 0.45rem 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-primary); cursor: ${employee.canManage ? 'pointer' : 'not-allowed'}; opacity: ${employee.canManage ? '1' : '0.5'};" title="${employee.canManage ? 'Edit Employee' : 'Edit unavailable for this record'}">
                                     <i class="fas fa-edit"></i>
                                 </button>
-                                <button type="button" onclick='deleteOfficeViewEmployee(${JSON.stringify(employee.username)})' style="padding: 0.45rem 0.6rem; border: 1px solid #ef444455; border-radius: 6px; background: #ef444420; color: #ef4444; cursor: pointer;" title="Delete Employee">
+                                <button type="button" ${employee.canManage ? `onclick='deleteOfficeViewEmployee(${JSON.stringify(employee.username)})'` : 'disabled'} style="padding: 0.45rem 0.6rem; border: 1px solid #ef444455; border-radius: 6px; background: #ef444420; color: #ef4444; cursor: ${employee.canManage ? 'pointer' : 'not-allowed'}; opacity: ${employee.canManage ? '1' : '0.5'};" title="${employee.canManage ? 'Delete Employee' : 'Delete unavailable for this record'}">
                                     <i class="fas fa-trash"></i>
                                 </button>
                             </div>
