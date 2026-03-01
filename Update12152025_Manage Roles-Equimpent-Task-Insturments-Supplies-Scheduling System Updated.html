@@ -28665,8 +28665,8 @@
                 const rows = getOfficeHoursRows(office);
                 content.innerHTML = `
                     <div style="display: flex; justify-content: flex-end; margin-bottom: 0.75rem;">
-                        <button type="button" onclick="saveOfficeViewWorkingHours()" style="padding: 0.6rem 1rem; border: none; border-radius: 8px; background: #10b981; color: white; cursor: pointer; font-weight: 600;">
-                            <i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save Working Hours
+                        <button type="button" onclick="editOffice(currentOfficeViewId)" style="padding: 0.6rem 1rem; border: none; border-radius: 8px; background: #3b82f6; color: white; cursor: pointer; font-weight: 600;">
+                            <i class="fas fa-edit" style="margin-right: 0.5rem;"></i>Edit Working Hours
                         </button>
                     </div>
                     <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
@@ -28674,35 +28674,30 @@
                             <thead>
                                 <tr style="background: var(--bg-secondary);">
                                     <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Day</th>
-                                    <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Open</th>
-                                    <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Start</th>
-                                    <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">End</th>
+                                    <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Hours</th>
+                                    <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Status</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 ${rows.map(row => {
-                                    const key = String(row.day || '').toLowerCase();
-                                    const dayHours = office?.operatingHours?.[key] || {};
-                                    const isOpen = dayHours?.isOpen === true;
-                                    const start = dayHours?.open || '09:00';
-                                    const end = dayHours?.close || '17:00';
+                                    const isClosed = row.value === 'Closed';
                                     return `
                                     <tr style="border-bottom: 1px solid var(--border-color);">
                                         <td style="padding: 0.75rem 1rem; color: var(--text-primary); font-weight: 600;">${row.day}</td>
-                                        <td style="padding: 0.75rem 1rem; color: var(--text-secondary);">
-                                            <input type="checkbox" id="ovh-${key}-open" ${isOpen ? 'checked' : ''}>
-                                        </td>
-                                        <td style="padding: 0.75rem 1rem; color: var(--text-secondary);">
-                                            <input type="time" id="ovh-${key}-start" value="${start}" style="padding: 0.45rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-primary);">
-                                        </td>
-                                        <td style="padding: 0.75rem 1rem; color: var(--text-secondary);">
-                                            <input type="time" id="ovh-${key}-end" value="${end}" style="padding: 0.45rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-primary);">
+                                        <td style="padding: 0.75rem 1rem; color: var(--text-secondary);">${row.value}</td>
+                                        <td style="padding: 0.75rem 1rem;">
+                                            <span style="padding: 0.2rem 0.55rem; border-radius: 999px; font-size: 0.75rem; background: ${isClosed ? '#ef444420' : '#10b98120'}; color: ${isClosed ? '#ef4444' : '#10b981'};">
+                                                ${isClosed ? 'Closed' : 'Open'}
+                                            </span>
                                         </td>
                                     </tr>
                                 `;
                                 }).join('')}
                             </tbody>
                         </table>
+                    </div>
+                    <div style="margin-top: 0.6rem; color: var(--text-tertiary); font-size: 0.8rem;">
+                        Working hours are edited in the clinic form to ensure changes save correctly.
                     </div>
                 `;
                 return;
@@ -28810,11 +28805,38 @@
                 if (element) element.textContent = String(value || '').trim() || '-';
             };
 
+            const setLinkedField = (fieldId, value, buildHref) => {
+                const element = document.getElementById(fieldId);
+                if (!element) return;
+
+                const text = String(value || '').trim();
+                if (!text) {
+                    element.textContent = '-';
+                    return;
+                }
+
+                const href = buildHref(text);
+                if (!href) {
+                    element.textContent = text;
+                    return;
+                }
+
+                element.innerHTML = '';
+                const link = document.createElement('a');
+                link.href = href;
+                link.textContent = text;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.style.color = '#2563eb';
+                link.style.textDecoration = 'underline';
+                element.appendChild(link);
+            };
+
             const officePhoneEl = document.getElementById('officeViewClinicPhone');
             if (officePhoneEl) officePhoneEl.textContent = office.phone || '-';
 
-            setOfficeField('officeViewClinicEmail', office.email || '');
-            setOfficeField('officeViewClinicWebsite', office.website || '');
+            setLinkedField('officeViewClinicEmail', office.email || '', (text) => text.includes('@') ? `mailto:${text}` : '');
+            setLinkedField('officeViewClinicWebsite', office.website || '', (text) => /^https?:\/\//i.test(text) ? text : `https://${text}`);
             setOfficeField('officeViewClinicDefaultDentist', office.defaultDentist || '');
             setOfficeField('officeViewClinicTaxonomy', office.taxonomyNumber || '');
             setOfficeField('officeViewClinicNPI', office.clinicNPI || '');
@@ -63778,49 +63800,49 @@ document.addEventListener('keydown', function(e) {
                             <div style="padding: 0.7rem 1.2rem 1.1rem 1.2rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.85rem 1.3rem;">
                                 <div>
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); text-transform: none; margin-bottom: 0.15rem;">Clinic phone:</div>
-                                    <div id="officeViewClinicPhone" style="font-size: 1.65rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
+                                    <div id="officeViewClinicPhone" style="font-size: 1.2rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
                                 <div>
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Clinic email:</div>
-                                    <div id="officeViewClinicEmail" style="font-size: 1.2rem; line-height: 1.25; color: var(--text-primary); font-weight: 500; word-break: break-word;">-</div>
+                                    <div id="officeViewClinicEmail" style="font-size: 1rem; line-height: 1.25; color: var(--text-primary); font-weight: 500; word-break: break-word;">-</div>
                                 </div>
                                 <div>
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Address:</div>
-                                    <div id="officeViewClinicAddress" style="font-size: 1.2rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
+                                    <div id="officeViewClinicAddress" style="font-size: 1rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
 
                                 <div>
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Clinic website:</div>
-                                    <div id="officeViewClinicWebsite" style="font-size: 1.2rem; line-height: 1.25; color: var(--text-primary); font-weight: 500; word-break: break-word;">-</div>
+                                    <div id="officeViewClinicWebsite" style="font-size: 1rem; line-height: 1.25; color: var(--text-primary); font-weight: 500; word-break: break-word;">-</div>
                                 </div>
                                 <div>
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Default dentist:</div>
-                                    <div id="officeViewClinicDefaultDentist" style="font-size: 1.65rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
+                                    <div id="officeViewClinicDefaultDentist" style="font-size: 1.15rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
                                 <div>
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Taxonomy number:</div>
-                                    <div id="officeViewClinicTaxonomy" style="font-size: 1.65rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
+                                    <div id="officeViewClinicTaxonomy" style="font-size: 1.15rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
 
                                 <div>
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Clinic NPI:</div>
-                                    <div id="officeViewClinicNPI" style="font-size: 1.65rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
+                                    <div id="officeViewClinicNPI" style="font-size: 1.15rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
                                 <div>
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Clinic TIN:</div>
-                                    <div id="officeViewClinicTIN" style="font-size: 1.65rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
+                                    <div id="officeViewClinicTIN" style="font-size: 1.15rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
                                 <div>
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Legal name:</div>
-                                    <div id="officeViewClinicLegalName" style="font-size: 1.2rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
+                                    <div id="officeViewClinicLegalName" style="font-size: 1rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
                                 <div style="grid-column: 1 / -1;">
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Legal address:</div>
-                                    <div id="officeViewClinicLegalAddress" style="font-size: 1.2rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
+                                    <div id="officeViewClinicLegalAddress" style="font-size: 1rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
                                 <div style="grid-column: 1 / -1;">
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Description:</div>
-                                    <div id="officeViewClinicDescription" style="font-size: 1.2rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
+                                    <div id="officeViewClinicDescription" style="font-size: 1rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
                             </div>
                         </div>
