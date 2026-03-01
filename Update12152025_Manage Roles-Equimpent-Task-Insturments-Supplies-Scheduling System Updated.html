@@ -25773,7 +25773,27 @@
 
         // Close Compliance Types Manager Modal
         function closeComplianceTypesModal() {
-            document.getElementById('complianceTypesModal').style.display = 'none';
+            const modal = document.getElementById('complianceTypesModal');
+            if (modal) modal.style.display = 'none';
+
+            const addUserModal = document.getElementById('addUserModal');
+            const isUserCreationOpen = addUserModal && addUserModal.style.display !== 'none';
+
+            if (isUserCreationOpen) {
+                if (typeof loadCompliancesFromAPI === 'function') {
+                    Promise.resolve(loadCompliancesFromAPI())
+                        .catch((error) => {
+                            console.warn('Unable to reload compliances after closing compliance manager:', error);
+                        })
+                        .finally(() => {
+                            if (typeof renderCompliancesCheckboxes === 'function') {
+                                renderCompliancesCheckboxes();
+                            }
+                        });
+                } else if (typeof renderCompliancesCheckboxes === 'function') {
+                    renderCompliancesCheckboxes();
+                }
+            }
         }
 
         // Load compliance types for the manager
@@ -49899,6 +49919,58 @@ window.addEventListener('load', function() {
             document.querySelectorAll('input[name="selectedCompliances"]').forEach(cb => cb.checked = false);
             document.querySelectorAll('input[name="selectedComplianceTypes"]').forEach(cb => cb.checked = false);
         }
+
+        function openDutiesPageDirect(event) {
+            if (event && typeof event.preventDefault === 'function') event.preventDefault();
+            if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+
+            if (typeof openDutiesManagement === 'function') {
+                const addUserModal = document.getElementById('addUserModal');
+                if (addUserModal) addUserModal.style.display = 'none';
+                openDutiesManagement(true, 'user-creation');
+                return;
+            }
+
+            if (typeof openDutyTypeManager === 'function') {
+                openDutyTypeManager();
+                return;
+            }
+
+            showNotification('Duties manager is unavailable right now.', 'error');
+        }
+
+        function openCompliancesPageDirect(event) {
+            if (event && typeof event.preventDefault === 'function') event.preventDefault();
+            if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+
+            if (typeof openComplianceTypesManager === 'function') {
+                openComplianceTypesManager();
+                return;
+            }
+
+            if (typeof switchContentView === 'function') {
+                switchContentView('compliances', event);
+                return;
+            }
+
+            showNotification('Compliances manager is unavailable right now.', 'error');
+        }
+
+        function openRolesPageDirect(event) {
+            if (event && typeof event.preventDefault === 'function') event.preventDefault();
+            if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+
+            if (typeof openRolesManagement === 'function') {
+                openRolesManagement(true);
+                return;
+            }
+
+            showNotification('Roles manager is unavailable right now.', 'error');
+        }
+
+        window.openDutiesPageDirect = openDutiesPageDirect;
+        window.openCompliancesPageDirect = openCompliancesPageDirect;
+        window.openRolesPageDirect = openRolesPageDirect;
         
         // Get selected duty IDs
         function getSelectedDutyIds() {
@@ -60816,7 +60888,7 @@ document.addEventListener('keydown', function(e) {
                                     <select id="newJobRole" style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                                         <option value="">--Select Role--</option>
                                     </select>
-                                    <button type="button" onclick="openRolesManagement(true); return false;" class="category-gear-btn" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Job Roles">
+                                    <button type="button" onclick="openRolesPageDirect(event); return false;" class="category-gear-btn" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Job Roles">
                                         <i class="fas fa-cog"></i>
                                     </button>
                                 </div>
@@ -60932,7 +61004,7 @@ document.addEventListener('keydown', function(e) {
                     <div style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
                         <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
                             <i class="fas fa-clipboard-check" style="margin-right: 0.5rem;"></i>Assigned Duties
-                            <button type="button" onclick="openDutiesManagement(true, 'user-creation'); return false;" class="category-gear-btn" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0; margin-left: 0.5rem;" title="Manage Duties">
+                            <button type="button" onclick="openDutiesPageDirect(event); return false;" class="category-gear-btn" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0; margin-left: 0.5rem;" title="Manage Duties">
                                 <i class="fas fa-cog"></i>
                             </button>
                         </h5>
@@ -60956,7 +61028,7 @@ document.addEventListener('keydown', function(e) {
                     <div style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
                         <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
                             <i class="fas fa-file-contract" style="margin-right: 0.5rem;"></i>Assigned Compliances
-                            <button type="button" onclick="openComplianceTypesManager(); return false;" class="category-gear-btn" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0; margin-left: 0.5rem;" title="Manage Compliance Types">
+                            <button type="button" onclick="openCompliancesPageDirect(event); return false;" class="category-gear-btn" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0; margin-left: 0.5rem;" title="Open Compliances Page">
                                 <i class="fas fa-cog"></i>
                             </button>
                         </h5>
