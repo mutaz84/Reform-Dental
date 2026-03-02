@@ -43360,7 +43360,38 @@ window.initializeCalendar = initializeCalendar;
                 event.preventDefault();
             }
 
+            if (window.__switchContentViewBusy) {
+                window.__switchContentViewPending = {
+                    viewName,
+                    options: options || null
+                };
+                return;
+            }
+
+            window.__switchContentViewBusy = true;
+
             try {
+                if (typeof safeReleaseUiLocks === 'function') {
+                    safeReleaseUiLocks(`switchContentView:${viewName}`);
+                }
+                if (typeof closeMobileSidebar === 'function') {
+                    closeMobileSidebar();
+                }
+
+                const normalizedTarget = String(viewName || '').trim();
+                const activeViewId = document.querySelector('.content-view.active')?.id || '';
+                const activeViewName = activeViewId.startsWith('view-') ? activeViewId.slice(5) : '';
+                const forceSwitch = options && options.force === true;
+
+                if (!forceSwitch && normalizedTarget && normalizedTarget === activeViewName) {
+                    const activeView = document.getElementById(activeViewId);
+                    if (activeView) {
+                        activeView.classList.add('active');
+                        activeView.style.display = 'block';
+                    }
+                    return;
+                }
+
                 if (document.body) {
                     document.body.classList.toggle('manage-users-active', viewName === 'manage-users');
                 }
@@ -43398,7 +43429,7 @@ window.initializeCalendar = initializeCalendar;
                     try {
                         if (mainContent) mainContent.scrollTop = 0;
                         // Also scroll the selected view into view for smaller screens
-                        selectedView.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        selectedView.scrollIntoView({ behavior: 'auto', block: 'start' });
                     } catch (e) {
                         // ignore scroll errors on older browsers
                     }
@@ -43588,6 +43619,18 @@ window.initializeCalendar = initializeCalendar;
 
             } catch (error) {
                 console.error('Error switching content view:', error);
+            } finally {
+                window.__switchContentViewBusy = false;
+
+                if (window.__switchContentViewPending) {
+                    const pending = window.__switchContentViewPending;
+                    window.__switchContentViewPending = null;
+                    setTimeout(() => {
+                        try {
+                            switchContentView(pending.viewName, null, pending.options || null);
+                        } catch (_) {}
+                    }, 0);
+                }
             }
         }
         // Expose switchContentView globally so Copilot and other modules can call it
