@@ -13609,7 +13609,7 @@
     body.right-rail-enabled:has(#view-manage-users.active) .unified-right-rail .urr-body,
     body.right-rail-enabled.manage-users-active .unified-right-rail .urr-bar,
     body.right-rail-enabled.manage-users-active .unified-right-rail .urr-body {
-        pointer-events: none !important;
+        pointer-events: auto !important;
     }
 
     body.right-rail-enabled:has(#view-manage-users.active) .unified-right-rail .rail-divider-toggle,
@@ -21379,23 +21379,35 @@
             }
         });
 
+        let userManagementOpenSequence = 0;
+
         // Open user management modal
-        async function openUserManagement() {
+        function openUserManagement() {
             const modal = document.getElementById('userManagementModal');
             if (modal) {
+                userManagementOpenSequence += 1;
+                const openSequence = userManagementOpenSequence;
                 ensureUnifiedRightRailExpandedForModal();
                 document.body.classList.add('user-management-open');
                 document.body.classList.add('manage-users-active');
                 modal.style.display = 'flex';
-                // First sync from API, then display
-                if (typeof syncUsersFromAPI === 'function' && !window.__syncUsersInProgress) {
-                    try {
-                        await syncUsersFromAPI();
-                    } catch (error) {
-                        console.warn('syncUsersFromAPI failed while opening User Management:', error);
-                    }
-                }
                 displayUsersList();
+
+                // Refresh users in background so opening/docking is never blocked by API latency.
+                if (typeof syncUsersFromAPI === 'function' && !window.__syncUsersInProgress) {
+                    Promise.resolve()
+                        .then(() => syncUsersFromAPI())
+                        .then(() => {
+                            const stillCurrent = openSequence === userManagementOpenSequence;
+                            const stillVisible = modal.style.display !== 'none';
+                            if (stillCurrent && stillVisible) {
+                                displayUsersList();
+                            }
+                        })
+                        .catch((error) => {
+                            console.warn('syncUsersFromAPI failed while opening User Management:', error);
+                        });
+                }
             }
         }
 
@@ -21445,6 +21457,11 @@
             } else if (document && document.body && document.body.style) {
                 document.body.style.overflow = 'auto';
             }
+
+            if (document && document.body && document.body.classList) {
+                document.body.classList.remove('user-management-open');
+                document.body.classList.remove('manage-users-active');
+            }
         }
 
         // Close user management modal
@@ -21453,6 +21470,7 @@
             if (modal) {
                 modal.style.display = 'none';
             }
+            userManagementOpenSequence += 1;
             document.body.classList.remove('user-management-open');
             document.body.classList.remove('manage-users-active');
         }
