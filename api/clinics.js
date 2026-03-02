@@ -16,7 +16,7 @@ app.http('getClinics', {
         try {
             const result = await execute(`
                 SELECT Id, Name, Address, City, State, ZipCode, Phone, Email, Color, Icon, Description, CreatedDate
-                FROM Clinics WHERE IsActive = 1
+                FROM Clinics WHERE (IsActive = 1 OR IsActive IS NULL)
                 ORDER BY Name
             `);
             return successResponse(result.recordset);
@@ -40,7 +40,7 @@ app.http('getClinicById', {
         try {
             const result = await execute(`
                 SELECT Id, Name, Address, City, State, ZipCode, Phone, Email, Color, Icon, Description, CreatedDate
-                FROM Clinics WHERE Id = @id AND IsActive = 1
+                FROM Clinics WHERE Id = @id AND (IsActive = 1 OR IsActive IS NULL)
             `, { id });
             
             if (result.recordset.length === 0) {

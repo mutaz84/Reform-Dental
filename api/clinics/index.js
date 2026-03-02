@@ -216,7 +216,7 @@ module.exports = async function (context, req) {
             if (id) {
                 const where = ['Id = @id'];
                 if (hasIsActive) {
-                    where.push('IsActive = 1');
+                    where.push('(IsActive = 1 OR IsActive IS NULL)');
                 }
                 const result = await pool.request()
                     .input('id', sql.Int, id)
@@ -238,7 +238,7 @@ module.exports = async function (context, req) {
                 }
                 context.res = { status: 200, headers, body: clinic };
             } else {
-                const whereClause = hasIsActive ? 'WHERE IsActive = 1' : '';
+                const whereClause = hasIsActive ? 'WHERE (IsActive = 1 OR IsActive IS NULL)' : '';
                 const result = await pool.request()
                     .query(`SELECT * FROM Clinics ${whereClause} ${orderBy}`);
 
