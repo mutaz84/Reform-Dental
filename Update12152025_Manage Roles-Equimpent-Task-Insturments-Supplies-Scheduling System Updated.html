@@ -27793,20 +27793,16 @@
             console.warn('saveOffices is deprecated. Clinics are persisted via API only.');
         }
 
+        let officesManagementOpenSequence = 0;
+
         // Open offices management modal
-        async function openOfficesManagement() {
+        function openOfficesManagement() {
             const modal = document.getElementById('officesManagementModal');
             if (modal) {
+                officesManagementOpenSequence += 1;
+                const openSequence = officesManagementOpenSequence;
                 ensureUnifiedRightRailExpandedForModal();
                 modal.style.display = 'flex';
-
-                try {
-                    if (typeof syncClinicsFromAPI === 'function') {
-                        await syncClinicsFromAPI();
-                    }
-                } catch (e) {
-                    console.warn('Could not refresh clinics from API before opening management:', e);
-                }
 
                 const officesListSection = document.getElementById('officesListSection');
                 if (officesListSection) officesListSection.style.display = 'block';
@@ -27816,6 +27812,22 @@
                 if (officeViewSection) officeViewSection.style.display = 'none';
 
                 displayOfficesList();
+
+                // Refresh clinics in the background so UI open/dock is never blocked by network latency.
+                if (typeof syncClinicsFromAPI === 'function') {
+                    Promise.resolve()
+                        .then(() => syncClinicsFromAPI())
+                        .then(() => {
+                            const stillCurrent = openSequence === officesManagementOpenSequence;
+                            const stillVisible = modal.style.display !== 'none';
+                            if (stillCurrent && stillVisible) {
+                                displayOfficesList();
+                            }
+                        })
+                        .catch((e) => {
+                            console.warn('Could not refresh clinics from API while management is open:', e);
+                        });
+                }
             }
         }
 
@@ -27825,6 +27837,7 @@
             if (modal) {
                 modal.style.display = 'none';
             }
+            officesManagementOpenSequence += 1;
             // Clear form
             document.getElementById('createOfficeForm').reset();
             document.getElementById('createOfficeError').style.display = 'none';
@@ -71882,11 +71895,24 @@ console.log('✅ Global functions exported to window object');
         const original = window[mapping.open];
         if (typeof original !== 'function' || original.__rdSettingsWrappedOpen) return;
 
-        const wrapped = async function(...args) {
-            const result = await original.apply(this, args);
+        const wrapped = function(...args) {
+            const result = original.apply(this, args);
+
+            const tryDock = (attempt = 0) => {
+                let docked = false;
+                try {
+                    docked = dockModalToView(mapping) === true;
+                } catch (_) {}
+
+                if (!docked && attempt < 8) {
+                    setTimeout(() => tryDock(attempt + 1), 50);
+                }
+            };
+
             setTimeout(() => {
-                try { dockModalToView(mapping); } catch (_) {}
+                tryDock(0);
             }, 0);
+
             return result;
         };
         wrapped.__rdSettingsWrappedOpen = true;
