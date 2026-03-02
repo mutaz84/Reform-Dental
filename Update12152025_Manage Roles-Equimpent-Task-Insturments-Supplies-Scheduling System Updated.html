@@ -67902,28 +67902,51 @@ async function fetchUsersFromAPI() {
 
 // Fetch clinics from API
 async function fetchClinicsFromAPI() {
-    try {
-        const response = await fetch(`${API_BASE_URL}/clinics`);
-        if (!response.ok) {
-            if (response.status === 503) {
-                console.warn('⚠️ Clinics API temporarily unavailable (503). Keeping current cached data until API recovers.');
-            } else {
-                console.error('❌ Failed to fetch clinics:', response.status);
+    const configuredBase = (typeof window !== 'undefined' && typeof window.API_BASE_URL === 'string' && window.API_BASE_URL.trim())
+        ? window.API_BASE_URL.trim()
+        : (typeof API_BASE_URL === 'string' && API_BASE_URL.trim() ? API_BASE_URL.trim() : '/api');
+
+    const apiBases = [configuredBase.replace(/\/+$/, ''), '/api'].filter(Boolean)
+        .filter((base, index, arr) => arr.indexOf(base) === index);
+
+    let lastError = null;
+
+    for (const base of apiBases) {
+        const url = `${base}/clinics`;
+        try {
+            const response = await fetch(url, { cache: 'no-store' });
+            if (!response.ok) {
+                const errorBody = await response.text().catch(() => '');
+                lastError = new Error(`HTTP ${response.status} ${response.statusText || ''} ${errorBody ? `| ${errorBody.slice(0, 300)}` : ''}`.trim());
+
+                if (response.status === 503) {
+                    console.warn('⚠️ Clinics API temporarily unavailable (503). Keeping current cached data until API recovers.');
+                } else {
+                    console.error(`❌ Failed to fetch clinics from ${url}:`, response.status, response.statusText || '', errorBody || '');
+                }
+                continue;
             }
-            return null;
+
+            const payload = await response.json();
+            const clinics = extractApiArrayPayload(payload);
+            if (!clinics) {
+                lastError = new Error('Unexpected clinics payload shape');
+                console.error(`❌ Unexpected clinics API response shape from ${url}:`, payload);
+                continue;
+            }
+
+            console.log('✅ Fetched', clinics.length, 'clinics from API');
+            return clinics;
+        } catch (error) {
+            lastError = error;
+            console.error(`❌ Error fetching clinics from ${url}:`, error);
         }
-        const payload = await response.json();
-        const clinics = extractApiArrayPayload(payload);
-        if (!clinics) {
-            console.error('❌ Unexpected clinics API response shape:', payload);
-            return null;
-        }
-        console.log('✅ Fetched', clinics.length, 'clinics from API');
-        return clinics;
-    } catch (error) {
-        console.error('❌ Error fetching clinics from API:', error);
-        return null;
     }
+
+    if (lastError) {
+        console.error('❌ All clinics API attempts failed:', lastError);
+    }
+    return null;
 }
 
 // Sync API users to localStorage format
