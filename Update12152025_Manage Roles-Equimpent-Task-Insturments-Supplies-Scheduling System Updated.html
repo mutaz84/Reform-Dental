@@ -21479,7 +21479,6 @@
         let addUserEditRecordId = null;
         let addUserOriginalUsername = '';
         let __rdHardRefreshScheduled = false;
-        let __rdAutoRefreshToggleTimer = null;
         const CREATE_USER_DRAFTS_SETTINGS_KEY = 'rdCreateUserDrafts';
         let createUserDraftSaveTimer = null;
         let createUserDraftAutoSaveInstalled = false;
@@ -21513,39 +21512,6 @@
                 } catch (_) {}
                 __rdHardRefreshScheduled = false;
             }, Math.max(0, Number(delayMs) || 0));
-        }
-
-        if (typeof window !== 'undefined' && typeof window.__rdAutoRefreshOnPageToggle === 'undefined') {
-            window.__rdAutoRefreshOnPageToggle = true;
-        }
-
-        function scheduleAutoRefreshAfterPageToggle(reason, delayMs = 220) {
-            try {
-                if (typeof window !== 'undefined' && window.__rdAutoRefreshOnPageToggle === false) {
-                    return;
-                }
-
-                if (__rdAutoRefreshToggleTimer) {
-                    clearTimeout(__rdAutoRefreshToggleTimer);
-                }
-
-                __rdAutoRefreshToggleTimer = setTimeout(() => {
-                    __rdAutoRefreshToggleTimer = null;
-
-                    if (typeof safeReleaseUiLocks === 'function') {
-                        safeReleaseUiLocks(`auto-refresh:${reason || 'page-toggle'}`);
-                    }
-
-                    if (typeof scheduleAppHardRefresh === 'function') {
-                        scheduleAppHardRefresh(120);
-                        return;
-                    }
-
-                    if (typeof window !== 'undefined' && window.location && typeof window.location.reload === 'function') {
-                        window.location.reload();
-                    }
-                }, Math.max(0, Number(delayMs) || 0));
-            } catch (_) {}
         }
 
         function getCreateUserDraftLocalKey() {
@@ -43685,13 +43651,6 @@ window.initializeCalendar = initializeCalendar;
             } catch (error) {
                 console.error('Error switching content view:', error);
             } finally {
-                try {
-                    const isUserInitiatedSwitch = !!event || !!(options && options.userInitiated);
-                    if (isUserInitiatedSwitch && typeof scheduleAutoRefreshAfterPageToggle === 'function') {
-                        scheduleAutoRefreshAfterPageToggle(`switch:${viewName}`, 200);
-                    }
-                } catch (_) {}
-
                 window.__switchContentViewBusy = false;
 
                 if (window.__switchContentViewPending) {
@@ -71972,10 +71931,6 @@ console.log('✅ Global functions exported to window object');
                 tryDock(0);
             }, 0);
 
-            if (typeof scheduleAutoRefreshAfterPageToggle === 'function') {
-                scheduleAutoRefreshAfterPageToggle(`open:${mapping.viewName}`, 220);
-            }
-
             return result;
         };
         wrapped.__rdSettingsWrappedOpen = true;
@@ -71988,11 +71943,7 @@ console.log('✅ Global functions exported to window object');
 
         const wrapped = function(...args) {
             try { undockModal(mapping); } catch (_) {}
-            const result = original.apply(this, args);
-            if (typeof scheduleAutoRefreshAfterPageToggle === 'function') {
-                scheduleAutoRefreshAfterPageToggle(`close:${mapping.viewName}`, 180);
-            }
-            return result;
+            return original.apply(this, args);
         };
         wrapped.__rdSettingsWrappedClose = true;
         window[mapping.close] = wrapped;
