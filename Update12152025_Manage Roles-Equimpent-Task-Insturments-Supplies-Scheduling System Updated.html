@@ -21462,6 +21462,10 @@
                 document.body.classList.remove('user-management-open');
                 document.body.classList.remove('manage-users-active');
             }
+
+            if (typeof releaseUiBlockersAfterModalClose === 'function') {
+                releaseUiBlockersAfterModalClose('closeAllManagementModals');
+            }
         }
 
         // Close user management modal
@@ -21473,6 +21477,38 @@
             userManagementOpenSequence += 1;
             document.body.classList.remove('user-management-open');
             document.body.classList.remove('manage-users-active');
+            if (typeof releaseUiBlockersAfterModalClose === 'function') {
+                releaseUiBlockersAfterModalClose('closeUserManagement');
+            }
+        }
+
+        function releaseUiBlockersAfterModalClose(reason, delayMs = 240) {
+            try {
+                if (typeof safeReleaseUiLocks === 'function') {
+                    safeReleaseUiLocks(`${reason || 'modal-close'}:immediate`);
+                }
+
+                if (document && document.body) {
+                    document.body.classList.remove('user-management-open');
+                    document.body.classList.remove('manage-users-active');
+                }
+
+                if (document && document.body && document.body.style) {
+                    document.body.style.overflow = 'auto';
+                    document.body.style.pointerEvents = 'auto';
+                }
+
+                setTimeout(() => {
+                    try {
+                        if (typeof safeReleaseUiLocks === 'function') {
+                            safeReleaseUiLocks(`${reason || 'modal-close'}:delayed`);
+                        }
+                        if (typeof logUiInteractionBlocker === 'function') {
+                            logUiInteractionBlocker(`${reason || 'modal-close'}:post-check`);
+                        }
+                    } catch (_) {}
+                }, Math.max(120, Number(delayMs) || 240));
+            } catch (_) {}
         }
 
         let addUserModalMode = 'create';
@@ -27875,6 +27911,10 @@
             const logoPreview = document.getElementById('officeLogoPreview');
             if (logoPreview) {
                 logoPreview.innerHTML = '<i class="fas fa-hospital" style="font-size: 3rem; color: var(--text-tertiary);"></i>';
+            }
+
+            if (typeof releaseUiBlockersAfterModalClose === 'function') {
+                releaseUiBlockersAfterModalClose('closeOfficesManagement');
             }
         }
 
@@ -67995,6 +68035,90 @@ function safeReleaseUiLocks(reason) {
     }
 }
 
+function getUiInteractionBlockerSnapshot() {
+    const snapshot = {
+        blocked: false,
+        bodyPointerEvents: '',
+        appPointerEvents: '',
+        mainPointerEvents: '',
+        blockerId: '',
+        blockerClass: '',
+        blockerTag: '',
+        blockerPointerEvents: '',
+        blockerDisplay: '',
+        blockerVisibility: ''
+    };
+
+    try {
+        const body = document.body;
+        const appRoot = document.querySelector('.app-container');
+        const mainContent = document.querySelector('.main-content');
+
+        snapshot.bodyPointerEvents = body ? getComputedStyle(body).pointerEvents : '';
+        snapshot.appPointerEvents = appRoot ? getComputedStyle(appRoot).pointerEvents : '';
+        snapshot.mainPointerEvents = mainContent ? getComputedStyle(mainContent).pointerEvents : '';
+
+        const blockingSelector = [
+            '.modal-overlay.active',
+            '.request-modal-overlay.active',
+            '.procedure-modal-overlay.active',
+            '.rd-tab-close-overlay.active',
+            '#rdTabCloseOverlay.active',
+            '#mobileOverlay.active',
+            '.modal-overlay',
+            '.request-modal-overlay',
+            '.procedure-modal-overlay',
+            '.rd-tab-close-overlay'
+        ].join(',');
+
+        const blocker = Array.from(document.querySelectorAll(blockingSelector)).find((el) => {
+            try {
+                const style = getComputedStyle(el);
+                return style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none';
+            } catch (_) {
+                return false;
+            }
+        });
+
+        if (blocker) {
+            const style = getComputedStyle(blocker);
+            snapshot.blockerId = blocker.id || '';
+            snapshot.blockerClass = blocker.className || '';
+            snapshot.blockerTag = blocker.tagName || '';
+            snapshot.blockerPointerEvents = style.pointerEvents || '';
+            snapshot.blockerDisplay = style.display || '';
+            snapshot.blockerVisibility = style.visibility || '';
+        }
+
+        snapshot.blocked =
+            snapshot.bodyPointerEvents === 'none' ||
+            snapshot.appPointerEvents === 'none' ||
+            snapshot.mainPointerEvents === 'none' ||
+            !!blocker;
+    } catch (_) {}
+
+    return snapshot;
+}
+
+function logUiInteractionBlocker(context) {
+    try {
+        const snapshot = getUiInteractionBlockerSnapshot();
+        if (!snapshot || !snapshot.blocked) return;
+        console.warn('⚠️ UI blocker detected:', {
+            context: context || 'unknown',
+            bodyPointerEvents: snapshot.bodyPointerEvents,
+            appPointerEvents: snapshot.appPointerEvents,
+            mainPointerEvents: snapshot.mainPointerEvents,
+            blockerTag: snapshot.blockerTag,
+            blockerId: snapshot.blockerId,
+            blockerClass: snapshot.blockerClass,
+            blockerPointerEvents: snapshot.blockerPointerEvents,
+            blockerDisplay: snapshot.blockerDisplay,
+            blockerVisibility: snapshot.blockerVisibility
+        });
+    } catch (_) {}
+}
+
 function installApiStabilityGuard() {
     if (window.__rdApiStabilityGuardInstalled) return;
     if (typeof window.fetch !== 'function') return;
@@ -71943,7 +72067,11 @@ console.log('✅ Global functions exported to window object');
 
         const wrapped = function(...args) {
             try { undockModal(mapping); } catch (_) {}
-            return original.apply(this, args);
+            const result = original.apply(this, args);
+            if (typeof releaseUiBlockersAfterModalClose === 'function') {
+                releaseUiBlockersAfterModalClose(`settingsAdapter:${mapping.viewName}`);
+            }
+            return result;
         };
         wrapped.__rdSettingsWrappedClose = true;
         window[mapping.close] = wrapped;
