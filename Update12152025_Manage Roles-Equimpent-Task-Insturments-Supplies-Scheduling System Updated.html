@@ -28696,6 +28696,18 @@
             } catch (error) {
                 console.error('Failed saving clinic working hours:', error);
                 const message = String(error?.message || '').trim();
+
+                if (typeof isTransientClinicApiError === 'function' && isTransientClinicApiError(error)) {
+                    enqueuePendingClinicHoursUpdate(office.officeID, operatingHours);
+                    applyOfficeWorkingHoursToViewCache(office.officeID, operatingHours);
+
+                    isOfficeViewHoursEditing = false;
+                    renderOfficeViewContent();
+
+                    showNotification('Server is currently offline. Working hours were saved locally and will auto-sync when connection is restored.', 'warning');
+                    return;
+                }
+
                 showNotification(message ? `Failed to save working hours to API: ${message}` : 'Failed to save working hours to API.', 'error');
             }
         }
@@ -67718,6 +67730,104 @@ document.addEventListener('DOMContentLoaded', function() {
 // API INTEGRATION - Connect to Azure SQL Database
 // ========================================
 const API_BASE_URL = '/api';
+const PENDING_CLINIC_HOURS_KEY = 'pendingClinicHoursUpdates';
+
+function loadPendingClinicHoursUpdates() {
+    return safeParseLocalStorageJSON(PENDING_CLINIC_HOURS_KEY, [], { expect: 'array' });
+}
+
+function savePendingClinicHoursUpdates(items) {
+    const list = Array.isArray(items) ? items : [];
+    localStorage.setItem(PENDING_CLINIC_HOURS_KEY, JSON.stringify(list));
+}
+
+function enqueuePendingClinicHoursUpdate(officeID, operatingHours) {
+    const id = String(officeID ?? '').replace(/^clinic-/i, '').trim();
+    if (!id || !operatingHours || typeof operatingHours !== 'object') return;
+
+    const pending = loadPendingClinicHoursUpdates().filter(item => String(item?.officeID || '') !== id);
+    pending.unshift({
+        officeID: id,
+        operatingHours,
+        updatedAt: new Date().toISOString()
+    });
+    savePendingClinicHoursUpdates(pending.slice(0, 50));
+}
+
+function isTransientClinicApiError(error) {
+    const message = String(error?.message || '').toLowerCase();
+    if (!message) return false;
+
+    return message.includes('failed to connect')
+        || message.includes('timeout')
+        || message.includes('network')
+        || message.includes('http 500')
+        || message.includes('http 502')
+        || message.includes('http 503')
+        || message.includes('http 504')
+        || message.includes('temporarily unavailable');
+}
+
+async function syncPendingClinicHoursToAPI(options = {}) {
+    const pending = loadPendingClinicHoursUpdates();
+    if (!pending.length) return { synced: 0, remaining: 0 };
+
+    let synced = 0;
+    const remaining = [];
+
+    for (const item of pending) {
+        const officeID = String(item?.officeID || '').replace(/^clinic-/i, '').trim();
+        const operatingHours = item?.operatingHours;
+        if (!officeID || !operatingHours) continue;
+
+        try {
+            const office = (typeof loadOffices === 'function')
+                ? loadOffices().find(o => String(o?.officeID).replace(/^clinic-/i, '') === officeID)
+                : null;
+
+            const payload = {
+                name: office?.officeName || office?.name || '',
+                address: office?.address || '',
+                city: office?.city || '',
+                state: office?.state || '',
+                zipCode: office?.zipCode || '',
+                phone: office?.phone || '',
+                email: office?.email || '',
+                color: office?.color || '#06b6d4',
+                description: office?.description || '',
+                icon: office?.icon || 'fa-hospital',
+                website: office?.website || '',
+                defaultDentist: office?.defaultDentist || '',
+                taxonomyNumber: office?.taxonomyNumber || '',
+                clinicNPI: office?.clinicNPI || '',
+                clinicTIN: office?.clinicTIN || '',
+                legalName: office?.legalName || '',
+                legalAddress: office?.legalAddress || '',
+                status: office?.status || (office?.isActive !== false ? 'Active' : 'Inactive'),
+                isActive: office?.isActive !== false,
+                operatingHours,
+                logo: office?.logo || null
+            };
+
+            await updateClinicViaAPI(officeID, payload);
+            synced++;
+        } catch (error) {
+            remaining.push(item);
+            if (isTransientClinicApiError(error)) {
+                continue;
+            }
+            console.warn('Pending clinic hours sync failed with non-transient error:', error);
+        }
+    }
+
+    savePendingClinicHoursUpdates(remaining);
+
+    if (!options.silent && synced > 0 && typeof showNotification === 'function') {
+        showNotification(`Synced ${synced} pending clinic working-hours update(s).`, 'success');
+    }
+
+    return { synced, remaining: remaining.length };
+}
 
 function safeReleaseUiLocks(reason) {
     try {
@@ -68171,6 +68281,13 @@ async function syncClinicsFromAPI() {
     }
     
     console.log('✅ Synced', localClinics.length, 'clinics from API');
+
+    try {
+        await syncPendingClinicHoursToAPI({ silent: true });
+    } catch (error) {
+        console.warn('Pending clinic hours sync skipped:', error?.message || error);
+    }
+
     return true;
 }
 
