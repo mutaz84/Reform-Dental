@@ -28695,7 +28695,8 @@
                 renderOfficeViewContent();
             } catch (error) {
                 console.error('Failed saving clinic working hours:', error);
-                showNotification('Failed to save working hours to API.', 'error');
+                const message = String(error?.message || '').trim();
+                showNotification(message ? `Failed to save working hours to API: ${message}` : 'Failed to save working hours to API.', 'error');
             }
         }
 
@@ -67901,13 +67902,17 @@ async function fetchUsersFromAPI() {
 }
 
 // Fetch clinics from API
-async function fetchClinicsFromAPI() {
+function getClinicApiBases() {
     const configuredBase = (typeof window !== 'undefined' && typeof window.API_BASE_URL === 'string' && window.API_BASE_URL.trim())
         ? window.API_BASE_URL.trim()
         : (typeof API_BASE_URL === 'string' && API_BASE_URL.trim() ? API_BASE_URL.trim() : '/api');
 
-    const apiBases = [configuredBase.replace(/\/+$/, ''), '/api'].filter(Boolean)
+    return [configuredBase.replace(/\/+$/, ''), '/api'].filter(Boolean)
         .filter((base, index, arr) => arr.indexOf(base) === index);
+}
+
+async function fetchClinicsFromAPI() {
+    const apiBases = getClinicApiBases();
 
     let lastError = null;
 
@@ -68226,38 +68231,57 @@ async function loginViaAPI(username, password) {
 
 // Create clinic via API
 async function createClinicViaAPI(clinicData) {
+    const requestBody = {
+        name: clinicData.name,
+        address: clinicData.address,
+        city: clinicData.city,
+        state: clinicData.state,
+        zipCode: clinicData.zipCode,
+        phone: clinicData.phone,
+        email: clinicData.email,
+        color: clinicData.color,
+        description: clinicData.description,
+        icon: clinicData.icon,
+        website: clinicData.website,
+        defaultDentist: clinicData.defaultDentist,
+        taxonomyNumber: clinicData.taxonomyNumber,
+        clinicNPI: clinicData.clinicNPI,
+        clinicTIN: clinicData.clinicTIN,
+        legalName: clinicData.legalName,
+        legalAddress: clinicData.legalAddress,
+        status: clinicData.status,
+        isActive: clinicData.isActive,
+        operatingHours: clinicData.operatingHours,
+        OperatingHours: clinicData.operatingHours,
+        logo: clinicData.logo
+    };
+
     try {
-        const response = await fetch(`${API_BASE_URL}/clinics`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: clinicData.name,
-                address: clinicData.address,
-                city: clinicData.city,
-                state: clinicData.state,
-                zipCode: clinicData.zipCode,
-                phone: clinicData.phone,
-                email: clinicData.email,
-                color: clinicData.color,
-                description: clinicData.description,
-                icon: clinicData.icon,
-                website: clinicData.website,
-                defaultDentist: clinicData.defaultDentist,
-                taxonomyNumber: clinicData.taxonomyNumber,
-                clinicNPI: clinicData.clinicNPI,
-                clinicTIN: clinicData.clinicTIN,
-                legalName: clinicData.legalName,
-                legalAddress: clinicData.legalAddress,
-                status: clinicData.status,
-                isActive: clinicData.isActive,
-                operatingHours: clinicData.operatingHours,
-                OperatingHours: clinicData.operatingHours,
-                logo: clinicData.logo
-            })
-        });
-        
-        if (!response.ok) throw new Error('Failed to create clinic');
-        const result = await response.json();
+        let lastError = null;
+        let result = null;
+
+        for (const base of getClinicApiBases()) {
+            try {
+                const response = await fetch(`${base}/clinics`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) {
+                    const errorBody = await response.text().catch(() => '');
+                    lastError = new Error(`Failed to create clinic (HTTP ${response.status})${errorBody ? `: ${errorBody.slice(0, 300)}` : ''}`);
+                    continue;
+                }
+
+                result = await response.json().catch(() => ({}));
+                break;
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        if (!result) throw (lastError || new Error('Failed to create clinic'));
         console.log('✅ Clinic created via API:', result);
         
         // Sync clinics after creation
@@ -68274,38 +68298,56 @@ async function updateClinicViaAPI(id, clinicData) {
     try {
         const normalizedClinicId = String(id ?? '').replace(/^clinic-/i, '');
         const normalizedOperatingHours = clinicData.operatingHours ?? clinicData.OperatingHours ?? null;
+        const requestBody = {
+            name: clinicData.name,
+            address: clinicData.address,
+            city: clinicData.city,
+            state: clinicData.state,
+            zipCode: clinicData.zipCode,
+            phone: clinicData.phone,
+            email: clinicData.email,
+            color: clinicData.color,
+            description: clinicData.description,
+            icon: clinicData.icon,
+            website: clinicData.website,
+            defaultDentist: clinicData.defaultDentist,
+            taxonomyNumber: clinicData.taxonomyNumber,
+            clinicNPI: clinicData.clinicNPI,
+            clinicTIN: clinicData.clinicTIN,
+            legalName: clinicData.legalName,
+            legalAddress: clinicData.legalAddress,
+            status: clinicData.status,
+            isActive: clinicData.isActive,
+            operatingHours: normalizedOperatingHours,
+            OperatingHours: normalizedOperatingHours,
+            logo: clinicData.logo
+        };
 
-        const response = await fetch(`${API_BASE_URL}/clinics/${normalizedClinicId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: clinicData.name,
-                address: clinicData.address,
-                city: clinicData.city,
-                state: clinicData.state,
-                zipCode: clinicData.zipCode,
-                phone: clinicData.phone,
-                email: clinicData.email,
-                color: clinicData.color,
-                description: clinicData.description,
-                icon: clinicData.icon,
-                website: clinicData.website,
-                defaultDentist: clinicData.defaultDentist,
-                taxonomyNumber: clinicData.taxonomyNumber,
-                clinicNPI: clinicData.clinicNPI,
-                clinicTIN: clinicData.clinicTIN,
-                legalName: clinicData.legalName,
-                legalAddress: clinicData.legalAddress,
-                status: clinicData.status,
-                isActive: clinicData.isActive,
-                operatingHours: normalizedOperatingHours,
-                OperatingHours: normalizedOperatingHours,
-                logo: clinicData.logo
-            })
-        });
-        
-        if (!response.ok) throw new Error('Failed to update clinic');
-        const result = await response.json();
+        let lastError = null;
+        let result = null;
+
+        for (const base of getClinicApiBases()) {
+            try {
+                const response = await fetch(`${base}/clinics/${normalizedClinicId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) {
+                    const errorBody = await response.text().catch(() => '');
+                    lastError = new Error(`Failed to update clinic (HTTP ${response.status})${errorBody ? `: ${errorBody.slice(0, 300)}` : ''}`);
+                    continue;
+                }
+
+                result = await response.json().catch(() => ({}));
+                break;
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        if (!result) throw (lastError || new Error('Failed to update clinic'));
         console.log('✅ Clinic updated via API:', result);
         return result;
     } catch (error) {
