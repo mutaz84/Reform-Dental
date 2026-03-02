@@ -67910,9 +67910,51 @@ function safeReleaseUiLocks(reason) {
             closeOverlay.style.display = 'none';
         }
 
+        const blockingOverlaySelectors = [
+            '.modal-overlay.active',
+            '.request-modal-overlay.active',
+            '.procedure-modal-overlay.active',
+            '.mobile-overlay.active',
+            '.rd-tab-close-overlay.active'
+        ];
+
+        blockingOverlaySelectors.forEach((selector) => {
+            document.querySelectorAll(selector).forEach((el) => {
+                try {
+                    el.classList.remove('active');
+                    if (el.id === 'mobileOverlay') {
+                        el.style.display = '';
+                        return;
+                    }
+                    const isDialogOverlay =
+                        el.classList.contains('modal-overlay') ||
+                        el.classList.contains('request-modal-overlay') ||
+                        el.classList.contains('procedure-modal-overlay') ||
+                        el.classList.contains('rd-tab-close-overlay');
+                    if (isDialogOverlay) {
+                        el.style.display = 'none';
+                    }
+                } catch (_) {}
+            });
+        });
+
+        document.querySelectorAll('[id$="Modal"], [id$="modal"]').forEach((el) => {
+            const style = (el.getAttribute('style') || '').toLowerCase();
+            if (!style.includes('display: flex') && !style.includes('display:flex')) return;
+            try {
+                el.style.display = 'none';
+            } catch (_) {}
+        });
+
         if (document && document.body && document.body.style) {
             document.body.style.overflow = 'auto';
+            document.body.style.pointerEvents = 'auto';
         }
+
+        const appRoot = document.querySelector('.app-container');
+        if (appRoot && appRoot.style) appRoot.style.pointerEvents = 'auto';
+        const mainContent = document.querySelector('.main-content');
+        if (mainContent && mainContent.style) mainContent.style.pointerEvents = 'auto';
 
         if (reason) {
             console.warn('⚠️ UI lock release fail-safe triggered:', reason);
