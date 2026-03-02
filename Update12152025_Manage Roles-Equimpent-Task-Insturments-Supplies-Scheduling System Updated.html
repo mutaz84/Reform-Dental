@@ -24219,8 +24219,44 @@
         }
 
         function getComplianceEmployeeDisplay(compliance) {
-            if (compliance?.employeeName) return compliance.employeeName;
-            if (compliance?.userId) return `User #${compliance.userId}`;
+            const explicitEmployeeName = String(compliance?.employeeName || '').trim();
+            if (explicitEmployeeName) return explicitEmployeeName;
+
+            const userId = Number(compliance?.userId || compliance?.UserId || 0);
+            if (Number.isInteger(userId) && userId > 0) {
+                const summaryByUserId = window.__complianceSummaryByUserId || {};
+                const summaryName = String(summaryByUserId?.[userId]?.employeeName || '').trim();
+                if (summaryName) {
+                    return summaryName;
+                }
+
+                const users = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
+                const usernames = Object.keys(users);
+                for (let index = 0; index < usernames.length; index += 1) {
+                    const username = usernames[index];
+                    const user = users[username] || {};
+                    const candidateId = Number(user.id || user.Id || user.dbId || user.DBId || 0);
+                    if (!Number.isInteger(candidateId) || candidateId !== userId) {
+                        continue;
+                    }
+
+                    const firstName = String(user.firstName || user.FirstName || '').trim();
+                    const lastName = String(user.lastName || user.LastName || '').trim();
+                    const fullName = `${firstName} ${lastName}`.trim();
+                    const displayName = String(user.name || user.Name || fullName || username).trim();
+                    if (displayName) {
+                        return displayName;
+                    }
+                }
+
+                const resolvedUsername = resolveUsernameByUserId(userId);
+                if (resolvedUsername) {
+                    return resolvedUsername;
+                }
+
+                return `User #${userId}`;
+            }
+
             return 'N/A';
         }
 
@@ -26199,7 +26235,7 @@
                         </div>
                         <div class="compliance-detail">
                             <span class="detail-label">Employee:</span>
-                            <span class="detail-value">${compliance.employeeName || compliance.userId || 'N/A'}</span>
+                            <span class="detail-value">${getComplianceEmployeeDisplay(compliance)}</span>
                         </div>
                         <div class="compliance-detail">
                             <span class="detail-label">Issue Date:</span>
