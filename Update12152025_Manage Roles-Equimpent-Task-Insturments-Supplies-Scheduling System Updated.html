@@ -20069,7 +20069,7 @@
                         <button onclick="initializeRequirementsView(true)" class="btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">
                             <i class="fas fa-sync" style="margin-right: 0.5rem;"></i>Refresh
                         </button>
-                        <button onclick="if(window.switchContentView){window.switchContentView('compliances', event);}" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">
+                        <button onclick="return openComplianceManagerFromRequirements(event);" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">
                             <i class="fas fa-external-link-alt" style="margin-right: 0.5rem;"></i>Open Compliance Manager
                         </button>
                     </div>
@@ -24483,11 +24483,32 @@
         function openComplianceFromRequirement(complianceId) {
             if (!complianceId) return;
             if (typeof switchContentView === 'function') {
-                switchContentView('compliances');
+                switchContentView('requirements');
             }
             if (typeof editCompliance === 'function') {
                 setTimeout(() => editCompliance(complianceId), 150);
             }
+        }
+
+        function openComplianceManagerFromRequirements(event) {
+            if (event) {
+                event.preventDefault();
+            }
+
+            if (!canCurrentUserApproveCompliances()) {
+                if (typeof showNotification === 'function') {
+                    showNotification('Compliance Manager is available to manager/admin roles only.', 'warning');
+                }
+                if (typeof switchContentView === 'function') {
+                    switchContentView('requirements', event, { force: true });
+                }
+                return false;
+            }
+
+            if (typeof switchContentView === 'function') {
+                switchContentView('compliances', event);
+            }
+            return false;
         }
 
         async function markRequirementCompleted(complianceId) {
@@ -25548,8 +25569,17 @@
 
         function initializeComplianceNotApplicableControls() {
             const pairs = [
-                ['complianceEmployeeNotApplicable', 'complianceEmployeeSelector'],
-                ['complianceTypeNotApplicable', 'complianceType']
+                ['complianceTypeNotApplicable', 'complianceType'],
+                ['complianceIssueDateNotApplicable', 'complianceIssueDate'],
+                ['complianceExpiryDateNotApplicable', 'complianceExpiryDate'],
+                ['complianceReminderDateNotApplicable', 'complianceReminderDate'],
+                ['complianceStatusNotApplicable', 'complianceStatus'],
+                ['complianceDocumentTypeNotApplicable', 'complianceDocumentType'],
+                ['complianceReferenceNumberNotApplicable', 'complianceReferenceNumber'],
+                ['complianceIssuingAuthorityNotApplicable', 'complianceIssuingAuthority'],
+                ['complianceCostNotApplicable', 'complianceCost'],
+                ['complianceAttachmentNotApplicable', 'complianceAttachment'],
+                ['complianceNotesNotApplicable', 'complianceNotes']
             ];
 
             pairs.forEach(([checkboxId, fieldId]) => {
@@ -25561,6 +25591,16 @@
                 checkbox.addEventListener('change', () => {
                     if (checkbox.checked) {
                         field.value = '';
+                        if (field.type === 'file') {
+                            const attachmentData = document.getElementById('complianceAttachmentData');
+                            const attachmentName = document.getElementById('complianceAttachmentName');
+                            const attachmentType = document.getElementById('complianceAttachmentType');
+                            const attachmentPreview = document.getElementById('attachmentPreview');
+                            if (attachmentData) attachmentData.value = '';
+                            if (attachmentName) attachmentName.value = '';
+                            if (attachmentType) attachmentType.value = '';
+                            if (attachmentPreview) attachmentPreview.innerHTML = '';
+                        }
                     }
                     applyComplianceModalAccess();
                 });
@@ -25573,7 +25613,6 @@
 
             const employeeGroup = document.getElementById('complianceEmployeeAssignGroup');
             const employeeSelector = document.getElementById('complianceEmployeeSelector');
-            const employeeNa = document.getElementById('complianceEmployeeNotApplicable');
 
             if (employeeGroup) {
                 employeeGroup.style.opacity = isRegularUser ? '0.7' : '1';
@@ -25581,13 +25620,8 @@
 
             if (employeeSelector) {
                 const baseRequired = employeeSelector.dataset.baseRequired === '1';
-                const notApplicable = !!employeeNa?.checked;
-                employeeSelector.required = baseRequired && !notApplicable && !isRegularUser && !isReadOnly;
-                employeeSelector.disabled = isReadOnly || isRegularUser || notApplicable;
-            }
-
-            if (employeeNa) {
-                employeeNa.disabled = isReadOnly || isRegularUser;
+                employeeSelector.required = baseRequired && !isRegularUser && !isReadOnly;
+                employeeSelector.disabled = isReadOnly || isRegularUser;
             }
 
             const complianceType = document.getElementById('complianceType');
@@ -25607,16 +25641,79 @@
             const manageTypesBtn = document.getElementById('complianceManageTypesBtn');
             const manageTypesHint = document.getElementById('complianceManageTypesHint');
             if (manageTypesBtn) {
-                const canManageTypes = !isRegularUser && !isReadOnly;
+                const canManageTypes = !isReadOnly;
                 manageTypesBtn.disabled = !canManageTypes;
                 manageTypesBtn.style.opacity = canManageTypes ? '1' : '0.5';
                 manageTypesBtn.style.cursor = canManageTypes ? 'pointer' : 'not-allowed';
             }
             if (manageTypesHint) {
-                manageTypesHint.textContent = isRegularUser
-                    ? 'Manage Types is available to manager/admin roles.'
-                    : 'Use "Manage Types" to add missing options.';
+                manageTypesHint.textContent = 'Use "Manage Types" to add missing options.';
             }
+
+            const titleInput = document.getElementById('complianceTitle');
+            if (titleInput) {
+                titleInput.disabled = isReadOnly || isRegularUser;
+                titleInput.style.opacity = (isReadOnly || isRegularUser) ? '0.65' : '1';
+            }
+
+            const descriptionInput = document.getElementById('complianceDescription');
+            if (descriptionInput) {
+                descriptionInput.disabled = isReadOnly || isRegularUser;
+                descriptionInput.style.opacity = (isReadOnly || isRegularUser) ? '0.65' : '1';
+            }
+
+            const notApplicablePairs = [
+                ['complianceIssueDateNotApplicable', 'complianceIssueDate'],
+                ['complianceExpiryDateNotApplicable', 'complianceExpiryDate'],
+                ['complianceReminderDateNotApplicable', 'complianceReminderDate'],
+                ['complianceStatusNotApplicable', 'complianceStatus'],
+                ['complianceDocumentTypeNotApplicable', 'complianceDocumentType'],
+                ['complianceReferenceNumberNotApplicable', 'complianceReferenceNumber'],
+                ['complianceIssuingAuthorityNotApplicable', 'complianceIssuingAuthority'],
+                ['complianceCostNotApplicable', 'complianceCost'],
+                ['complianceAttachmentNotApplicable', 'complianceAttachment'],
+                ['complianceNotesNotApplicable', 'complianceNotes']
+            ];
+
+            notApplicablePairs.forEach(([checkboxId, fieldId]) => {
+                const checkbox = document.getElementById(checkboxId);
+                const field = document.getElementById(fieldId);
+                if (!checkbox || !field) return;
+
+                const notApplicable = !!checkbox.checked;
+                const baseRequired = field.dataset.baseRequired === '1';
+                field.required = baseRequired && !notApplicable && !isReadOnly;
+                field.disabled = isReadOnly || notApplicable;
+                field.style.opacity = notApplicable ? '0.65' : '1';
+                checkbox.disabled = isReadOnly;
+            });
+        }
+
+        function getComplianceNotApplicableIds() {
+            return [
+                'complianceTypeNotApplicable',
+                'complianceIssueDateNotApplicable',
+                'complianceExpiryDateNotApplicable',
+                'complianceReminderDateNotApplicable',
+                'complianceStatusNotApplicable',
+                'complianceDocumentTypeNotApplicable',
+                'complianceReferenceNumberNotApplicable',
+                'complianceIssuingAuthorityNotApplicable',
+                'complianceCostNotApplicable',
+                'complianceAttachmentNotApplicable',
+                'complianceNotesNotApplicable'
+            ];
+        }
+
+        function resetComplianceNotApplicableControls() {
+            getComplianceNotApplicableIds().forEach((id) => {
+                const checkbox = document.getElementById(id);
+                if (checkbox) checkbox.checked = false;
+            });
+        }
+
+        function isComplianceNotApplicable(id) {
+            return !!document.getElementById(id)?.checked;
         }
 
         function applyComplianceModalMode(mode = 'standard') {
@@ -25735,11 +25832,7 @@
             const complianceType = document.getElementById('complianceType');
             if (complianceType) complianceType.value = '';
 
-            const complianceEmployeeNotApplicable = document.getElementById('complianceEmployeeNotApplicable');
-            if (complianceEmployeeNotApplicable) complianceEmployeeNotApplicable.checked = false;
-
-            const complianceTypeNotApplicable = document.getElementById('complianceTypeNotApplicable');
-            if (complianceTypeNotApplicable) complianceTypeNotApplicable.checked = false;
+            resetComplianceNotApplicableControls();
 
             // Reset file input
             const complianceAttachment = document.getElementById('complianceAttachment');
@@ -25786,14 +25879,8 @@
             const isTemplateMode = modalMode === 'template';
             const complianceId = document.getElementById('complianceId')?.value;
             const employeeSelector = document.getElementById('complianceEmployeeSelector');
-            const employeeNotApplicable = !!document.getElementById('complianceEmployeeNotApplicable')?.checked;
             const selectedEmployeeRaw = String(employeeSelector?.value || document.getElementById('complianceEmployeeId')?.value || '').trim();
             let resolvedUserId = resolveComplianceUserId(selectedEmployeeRaw);
-
-            if (!resolvedUserId && employeeNotApplicable) {
-                const hiddenId = document.getElementById('complianceEmployeeId')?.value;
-                resolvedUserId = resolveComplianceUserId(hiddenId) || getCurrentComplianceUserId();
-            }
 
             if (!resolvedUserId) {
                 if (typeof showNotification === 'function') {
@@ -25834,7 +25921,16 @@
                 ? 'Not Applicable'
                 : (complianceTypeField?.selectedOptions?.[0]?.textContent || 'Compliance');
             const titleInput = document.getElementById('complianceTitle')?.value || '';
-            const statusValue = document.getElementById('complianceStatus')?.value || 'active';
+            const issueDateNotApplicable = isComplianceNotApplicable('complianceIssueDateNotApplicable');
+            const expiryDateNotApplicable = isComplianceNotApplicable('complianceExpiryDateNotApplicable');
+            const reminderDateNotApplicable = isComplianceNotApplicable('complianceReminderDateNotApplicable');
+            const statusNotApplicable = isComplianceNotApplicable('complianceStatusNotApplicable');
+            const documentTypeNotApplicable = isComplianceNotApplicable('complianceDocumentTypeNotApplicable');
+            const referenceNumberNotApplicable = isComplianceNotApplicable('complianceReferenceNumberNotApplicable');
+            const issuingAuthorityNotApplicable = isComplianceNotApplicable('complianceIssuingAuthorityNotApplicable');
+            const costNotApplicable = isComplianceNotApplicable('complianceCostNotApplicable');
+            const notesNotApplicable = isComplianceNotApplicable('complianceNotesNotApplicable');
+            const statusValue = statusNotApplicable ? 'active' : (document.getElementById('complianceStatus')?.value || 'active');
 
             const compliance = {
                 title: titleInput || (isTemplateMode ? `${complianceTypeLabel} Template` : ''),
@@ -25842,18 +25938,18 @@
                 description: document.getElementById('complianceDescription')?.value || '',
                 userId: resolvedUserId,
                 clinicId: null,
-                issueDate: document.getElementById('complianceIssueDate')?.value || '',
-                expiryDate: document.getElementById('complianceExpiryDate')?.value || '',
-                reminderDate: document.getElementById('complianceReminderDate')?.value || '',
+                issueDate: issueDateNotApplicable ? '' : (document.getElementById('complianceIssueDate')?.value || ''),
+                expiryDate: expiryDateNotApplicable ? '' : (document.getElementById('complianceExpiryDate')?.value || ''),
+                reminderDate: reminderDateNotApplicable ? '' : (document.getElementById('complianceReminderDate')?.value || ''),
                 status: isTemplateMode ? 'pending' : statusValue,
                 attachmentData: attachmentData,
                 attachmentName: attachmentName,
                 attachmentType: attachmentType,
-                documentType: document.getElementById('complianceDocumentType')?.value || '',
-                referenceNumber: document.getElementById('complianceReferenceNumber')?.value || '',
-                issuingAuthority: document.getElementById('complianceIssuingAuthority')?.value || '',
-                cost: parseFloat(document.getElementById('complianceCost')?.value) || 0,
-                notes: document.getElementById('complianceNotes')?.value || '',
+                documentType: documentTypeNotApplicable ? '' : (document.getElementById('complianceDocumentType')?.value || ''),
+                referenceNumber: referenceNumberNotApplicable ? '' : (document.getElementById('complianceReferenceNumber')?.value || ''),
+                issuingAuthority: issuingAuthorityNotApplicable ? '' : (document.getElementById('complianceIssuingAuthority')?.value || ''),
+                cost: costNotApplicable ? 0 : (parseFloat(document.getElementById('complianceCost')?.value) || 0),
+                notes: notesNotApplicable ? '' : (document.getElementById('complianceNotes')?.value || ''),
                 createdById: getCurrentUserId(),
                 modifiedById: getCurrentUserId()
             };
@@ -26092,10 +26188,7 @@
                     document.getElementById('complianceEmployeeId').value = fullCompliance.userId || resolvedUserId || '';
                     document.getElementById('complianceId').value = fullCompliance.id || fullCompliance.Id || apiComplianceId;
 
-                    const complianceEmployeeNotApplicable = document.getElementById('complianceEmployeeNotApplicable');
-                    if (complianceEmployeeNotApplicable) {
-                        complianceEmployeeNotApplicable.checked = false;
-                    }
+                    resetComplianceNotApplicableControls();
 
                     const selectedEmployeeId = document.getElementById('complianceEmployeeId').value;
                     populateComplianceEmployeeSelector(selectedEmployeeId);
@@ -26433,11 +26526,6 @@
 
         // Open Compliance Types Manager Modal
         function openComplianceTypesManager(fromUserCreation = false) {
-            if (!canCurrentUserApproveCompliances()) {
-                showNotification('Only manager/admin roles can manage compliance types.', 'warning');
-                return;
-            }
-
             const modal = document.getElementById('complianceTypesModal');
             if (!modal) {
                 showNotification('Compliance Types manager is unavailable right now.', 'error');
@@ -43595,6 +43683,10 @@ window.initializeCalendar = initializeCalendar;
         function switchContentView(viewName, event, options) {
             if (event) {
                 event.preventDefault();
+            }
+
+            if (String(viewName || '').trim() === 'compliances' && !canCurrentUserApproveCompliances()) {
+                viewName = 'requirements';
             }
 
             if (window.__switchContentViewBusy) {
@@ -63815,10 +63907,6 @@ document.addEventListener('keydown', function(e) {
                         <select id="complianceEmployeeSelector" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                             <option value="">Select Employee</option>
                         </select>
-                        <label for="complianceEmployeeNotApplicable" style="display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
-                            <input type="checkbox" id="complianceEmployeeNotApplicable" style="width: 14px; height: 14px; cursor: pointer;">
-                            Not Applicable
-                        </label>
                     </div>
                 </div>
 
@@ -63898,6 +63986,10 @@ document.addEventListener('keydown', function(e) {
                                 <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Date when this compliance was issued or training was completed"></i>
                             </label>
                             <input type="date" id="complianceIssueDate" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            <label for="complianceIssueDateNotApplicable" style="display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                                <input type="checkbox" id="complianceIssueDateNotApplicable" style="width: 14px; height: 14px; cursor: pointer;">
+                                Not Applicable
+                            </label>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="complianceExpiryDate">
@@ -63905,6 +63997,10 @@ document.addEventListener('keydown', function(e) {
                                 <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Date when this compliance expires (leave blank if no expiry)"></i>
                             </label>
                             <input type="date" id="complianceExpiryDate" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            <label for="complianceExpiryDateNotApplicable" style="display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                                <input type="checkbox" id="complianceExpiryDateNotApplicable" style="width: 14px; height: 14px; cursor: pointer;">
+                                Not Applicable
+                            </label>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="complianceReminderDate">
@@ -63912,6 +64008,10 @@ document.addEventListener('keydown', function(e) {
                                 <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Optional reminder date before expiry"></i>
                             </label>
                             <input type="date" id="complianceReminderDate" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            <label for="complianceReminderDateNotApplicable" style="display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                                <input type="checkbox" id="complianceReminderDateNotApplicable" style="width: 14px; height: 14px; cursor: pointer;">
+                                Not Applicable
+                            </label>
                         </div>
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr; gap: 1rem;">
@@ -63926,6 +64026,10 @@ document.addEventListener('keydown', function(e) {
                                 <option value="pending">Pending</option>
                                 <option value="suspended">Suspended</option>
                             </select>
+                            <label for="complianceStatusNotApplicable" style="display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                                <input type="checkbox" id="complianceStatusNotApplicable" style="width: 14px; height: 14px; cursor: pointer;">
+                                Not Applicable
+                            </label>
                         </div>
                     </div>
                 </div>
@@ -63942,6 +64046,10 @@ document.addEventListener('keydown', function(e) {
                                 <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Type/category of compliance document"></i>
                             </label>
                             <input type="text" id="complianceDocumentType" placeholder="e.g., Certificate, License, Policy" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            <label for="complianceDocumentTypeNotApplicable" style="display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                                <input type="checkbox" id="complianceDocumentTypeNotApplicable" style="width: 14px; height: 14px; cursor: pointer;">
+                                Not Applicable
+                            </label>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="complianceReferenceNumber">
@@ -63949,6 +64057,10 @@ document.addEventListener('keydown', function(e) {
                                 <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="License number, certificate number, or other reference"></i>
                             </label>
                             <input type="text" id="complianceReferenceNumber" placeholder="License or certificate number" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            <label for="complianceReferenceNumberNotApplicable" style="display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                                <input type="checkbox" id="complianceReferenceNumberNotApplicable" style="width: 14px; height: 14px; cursor: pointer;">
+                                Not Applicable
+                            </label>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="complianceIssuingAuthority">
@@ -63956,6 +64068,10 @@ document.addEventListener('keydown', function(e) {
                                 <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Organization or authority that issued this compliance"></i>
                             </label>
                             <input type="text" id="complianceIssuingAuthority" placeholder="e.g., American Red Cross, State Board" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            <label for="complianceIssuingAuthorityNotApplicable" style="display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                                <input type="checkbox" id="complianceIssuingAuthorityNotApplicable" style="width: 14px; height: 14px; cursor: pointer;">
+                                Not Applicable
+                            </label>
                         </div>
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
@@ -63968,6 +64084,10 @@ document.addEventListener('keydown', function(e) {
                                 <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-secondary);">$</span>
                                 <input type="number" id="complianceCost" placeholder="0.00" step="0.01" min="0" style="padding-left: 28px; width: 100%; padding-right: 0.75rem; padding-top: 0.75rem; padding-bottom: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                             </div>
+                            <label for="complianceCostNotApplicable" style="display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                                <input type="checkbox" id="complianceCostNotApplicable" style="width: 14px; height: 14px; cursor: pointer;">
+                                Not Applicable
+                            </label>
                         </div>
                     </div>
                     <div class="form-group" style="margin-bottom: 1rem;">
@@ -63977,6 +64097,10 @@ document.addEventListener('keydown', function(e) {
                         </label>
                         <input type="file" id="complianceAttachment" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                         <div id="attachmentPreview" style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);"></div>
+                        <label for="complianceAttachmentNotApplicable" style="display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                            <input type="checkbox" id="complianceAttachmentNotApplicable" style="width: 14px; height: 14px; cursor: pointer;">
+                            Not Applicable
+                        </label>
                     </div>
                     <div class="form-group" style="margin-bottom: 0;">
                         <label for="complianceNotes">
@@ -63984,6 +64108,10 @@ document.addEventListener('keydown', function(e) {
                             <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Additional notes or comments about this compliance"></i>
                         </label>
                         <textarea id="complianceNotes" rows="2" placeholder="Any additional notes..." style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); resize: vertical; font-family: inherit;"></textarea>
+                        <label for="complianceNotesNotApplicable" style="display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                            <input type="checkbox" id="complianceNotesNotApplicable" style="width: 14px; height: 14px; cursor: pointer;">
+                            Not Applicable
+                        </label>
                     </div>
                 </div>
 
