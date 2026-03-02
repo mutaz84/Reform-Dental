@@ -67731,6 +67731,32 @@ document.addEventListener('DOMContentLoaded', function() {
 // ========================================
 const API_BASE_URL = '/api';
 const PENDING_CLINIC_HOURS_KEY = 'pendingClinicHoursUpdates';
+const API_OFFLINE_ALERT_KEY = 'rdApiOfflineAlertAt';
+
+function startPendingClinicHoursAutoSync() {
+    if (window.__pendingClinicHoursSyncStarted) return;
+    window.__pendingClinicHoursSyncStarted = true;
+
+    const runSync = async () => {
+        try {
+            const pending = loadPendingClinicHoursUpdates();
+            if (!pending.length) return;
+            if (typeof window.__rdIsApiCooldownActive === 'function' && window.__rdIsApiCooldownActive()) return;
+            await syncPendingClinicHoursToAPI({ silent: true });
+        } catch (error) {
+            console.warn('Background clinic-hours sync attempt failed:', error?.message || error);
+        }
+    };
+
+    setTimeout(runSync, 2500);
+    setInterval(runSync, 15000);
+    window.addEventListener('online', () => setTimeout(runSync, 800));
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            runSync();
+        }
+    });
+}
 
 function loadPendingClinicHoursUpdates() {
     return safeParseLocalStorageJSON(PENDING_CLINIC_HOURS_KEY, [], { expect: 'array' });
@@ -67863,9 +67889,12 @@ function installApiStabilityGuard() {
     const API_FAILURE_THRESHOLD = 6;
     const API_COOLDOWN_MS = 15000;
     const API_TIMEOUT_MS = 12000;
+    const API_COOLDOWN_PROBE_MS = 3000;
+    const API_ALERT_DEBOUNCE_MS = 120000;
     const failureTimestamps = [];
     let cooldownUntil = 0;
-    let lastAlertAt = 0;
+    let lastAlertAt = Number.parseInt(sessionStorage.getItem(API_OFFLINE_ALERT_KEY) || '0', 10) || 0;
+    let lastProbeAt = 0;
 
     const isApiUrl = (url) => {
         if (!url) return false;
@@ -67890,8 +67919,9 @@ function installApiStabilityGuard() {
 
         if (failureTimestamps.length >= API_FAILURE_THRESHOLD) {
             cooldownUntil = now + API_COOLDOWN_MS;
-            if ((now - lastAlertAt) > API_COOLDOWN_MS) {
+            if ((now - lastAlertAt) > API_ALERT_DEBOUNCE_MS) {
                 lastAlertAt = now;
+                try { sessionStorage.setItem(API_OFFLINE_ALERT_KEY, String(lastAlertAt)); } catch (_) {}
                 if (typeof showNotification === 'function') {
                     showNotification('Server is temporarily unavailable. Running in local/offline mode.', 'warning');
                 }
@@ -67909,14 +67939,18 @@ function installApiStabilityGuard() {
         const isApiRequest = isApiUrl(requestUrl);
 
         if (isApiRequest && method === 'GET' && Date.now() < cooldownUntil) {
-            return new Response(JSON.stringify({
-                error: 'API temporarily unavailable',
-                offline: true,
-                retryAfterMs: Math.max(0, cooldownUntil - Date.now())
-            }), {
-                status: 503,
-                headers: { 'Content-Type': 'application/json' }
-            });
+            const now = Date.now();
+            if ((now - lastProbeAt) < API_COOLDOWN_PROBE_MS) {
+                return new Response(JSON.stringify({
+                    error: 'API temporarily unavailable',
+                    offline: true,
+                    retryAfterMs: Math.max(0, cooldownUntil - now)
+                }), {
+                    status: 503,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+            lastProbeAt = now;
         }
 
         let localInit = init;
@@ -67933,6 +67967,9 @@ function installApiStabilityGuard() {
             const response = await originalFetch(resource, localInit);
             if (isApiRequest && response && response.status >= 500) {
                 recordFailure(`HTTP ${response.status} ${method} ${requestUrl}`);
+            } else if (isApiRequest && response && response.status < 500) {
+                if (failureTimestamps.length) failureTimestamps.length = 0;
+                if (cooldownUntil) cooldownUntil = 0;
             }
             return response;
         } catch (error) {
@@ -67964,6 +68001,7 @@ function installApiStabilityGuard() {
 }
 
 installApiStabilityGuard();
+startPendingClinicHoursAutoSync();
 
 function extractApiArrayPayload(payload) {
     if (Array.isArray(payload)) return payload;
