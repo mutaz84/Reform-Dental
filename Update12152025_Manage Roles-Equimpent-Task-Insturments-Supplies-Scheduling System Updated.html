@@ -25532,6 +25532,8 @@
             const form = document.getElementById('complianceForm');
             if (!form) return;
 
+            window.__complianceModalReadOnly = !!readOnly;
+
             form.querySelectorAll('input, select, textarea').forEach((field) => {
                 if (!field || field.type === 'hidden') return;
                 if (field.id === 'complianceEmployeeSelector') return;
@@ -25541,6 +25543,79 @@
             const employeeSelector = document.getElementById('complianceEmployeeSelector');
             if (employeeSelector) {
                 employeeSelector.disabled = !!readOnly;
+            }
+        }
+
+        function initializeComplianceNotApplicableControls() {
+            const pairs = [
+                ['complianceEmployeeNotApplicable', 'complianceEmployeeSelector'],
+                ['complianceTypeNotApplicable', 'complianceType']
+            ];
+
+            pairs.forEach(([checkboxId, fieldId]) => {
+                const checkbox = document.getElementById(checkboxId);
+                const field = document.getElementById(fieldId);
+                if (!checkbox || !field || checkbox.__rdBound) return;
+
+                checkbox.__rdBound = true;
+                checkbox.addEventListener('change', () => {
+                    if (checkbox.checked) {
+                        field.value = '';
+                    }
+                    applyComplianceModalAccess();
+                });
+            });
+        }
+
+        function applyComplianceModalAccess() {
+            const isRegularUser = !canCurrentUserApproveCompliances();
+            const isReadOnly = !!window.__complianceModalReadOnly;
+
+            const employeeGroup = document.getElementById('complianceEmployeeAssignGroup');
+            const employeeSelector = document.getElementById('complianceEmployeeSelector');
+            const employeeNa = document.getElementById('complianceEmployeeNotApplicable');
+
+            if (employeeGroup) {
+                employeeGroup.style.opacity = isRegularUser ? '0.7' : '1';
+            }
+
+            if (employeeSelector) {
+                const baseRequired = employeeSelector.dataset.baseRequired === '1';
+                const notApplicable = !!employeeNa?.checked;
+                employeeSelector.required = baseRequired && !notApplicable && !isRegularUser && !isReadOnly;
+                employeeSelector.disabled = isReadOnly || isRegularUser || notApplicable;
+            }
+
+            if (employeeNa) {
+                employeeNa.disabled = isReadOnly || isRegularUser;
+            }
+
+            const complianceType = document.getElementById('complianceType');
+            const typeNa = document.getElementById('complianceTypeNotApplicable');
+            if (complianceType) {
+                const baseRequired = complianceType.dataset.baseRequired === '1';
+                const notApplicable = !!typeNa?.checked;
+                complianceType.required = baseRequired && !notApplicable && !isReadOnly;
+                complianceType.disabled = isReadOnly || notApplicable;
+                complianceType.style.opacity = notApplicable ? '0.65' : '1';
+            }
+
+            if (typeNa) {
+                typeNa.disabled = isReadOnly;
+            }
+
+            const manageTypesBtn = document.getElementById('complianceManageTypesBtn');
+            const manageTypesHint = document.getElementById('complianceManageTypesHint');
+            if (manageTypesBtn) {
+                const canManageTypes = !isRegularUser && !isReadOnly;
+                manageTypesBtn.disabled = !canManageTypes;
+                manageTypesBtn.style.opacity = canManageTypes ? '1' : '0.5';
+                manageTypesBtn.style.cursor = canManageTypes ? 'pointer' : 'not-allowed';
+            }
+            if (manageTypesHint) {
+                manageTypesHint.textContent = isRegularUser
+                    ? 'Manage Types is available to manager/admin roles.'
+                    : 'Use "Manage Types" to add missing options.';
             }
         }
 
@@ -25555,9 +25630,11 @@
             const titleInput = document.getElementById('complianceTitle');
             const issueDateInput = document.getElementById('complianceIssueDate');
             const complianceStatus = document.getElementById('complianceStatus');
+            const complianceType = document.getElementById('complianceType');
 
             if (titleInput) titleInput.required = mode !== 'template';
             if (issueDateInput) issueDateInput.required = false;
+            if (complianceType) complianceType.dataset.baseRequired = '1';
 
             if (mode === 'template') {
                 if (formTitle) formTitle.textContent = 'Create Compliance Template';
@@ -25567,9 +25644,13 @@
                 }
                 if (approveBtn) approveBtn.style.display = 'none';
                 if (employeeGroup) employeeGroup.style.display = '';
-                if (employeeSelector) employeeSelector.required = true;
+                if (employeeSelector) {
+                    employeeSelector.required = true;
+                    employeeSelector.dataset.baseRequired = '1';
+                }
                 if (complianceStatus) complianceStatus.value = 'pending';
                 setComplianceModalReadOnly(false);
+                applyComplianceModalAccess();
                 return;
             }
 
@@ -25582,8 +25663,12 @@
                     approveBtn.innerHTML = '<i class="fas fa-check" style="margin-right: 0.5rem;"></i>Approve Compliance';
                 }
                 if (employeeGroup) employeeGroup.style.display = '';
-                if (employeeSelector) employeeSelector.required = false;
+                if (employeeSelector) {
+                    employeeSelector.required = false;
+                    employeeSelector.dataset.baseRequired = '0';
+                }
                 setComplianceModalReadOnly(true);
+                applyComplianceModalAccess();
                 return;
             }
 
@@ -25595,8 +25680,12 @@
             }
             if (approveBtn) approveBtn.style.display = 'none';
             if (employeeGroup) employeeGroup.style.display = '';
-            if (employeeSelector) employeeSelector.required = !document.getElementById('complianceId')?.value;
+            if (employeeSelector) {
+                employeeSelector.required = !document.getElementById('complianceId')?.value;
+                employeeSelector.dataset.baseRequired = employeeSelector.required ? '1' : '0';
+            }
             setComplianceModalReadOnly(false);
+            applyComplianceModalAccess();
         }
 
         // Open Add Compliance Modal
@@ -25646,6 +25735,12 @@
             const complianceType = document.getElementById('complianceType');
             if (complianceType) complianceType.value = '';
 
+            const complianceEmployeeNotApplicable = document.getElementById('complianceEmployeeNotApplicable');
+            if (complianceEmployeeNotApplicable) complianceEmployeeNotApplicable.checked = false;
+
+            const complianceTypeNotApplicable = document.getElementById('complianceTypeNotApplicable');
+            if (complianceTypeNotApplicable) complianceTypeNotApplicable.checked = false;
+
             // Reset file input
             const complianceAttachment = document.getElementById('complianceAttachment');
             if (complianceAttachment) complianceAttachment.value = '';
@@ -25665,6 +25760,7 @@
             // Load compliance types
             await loadComplianceTypes();
             populateComplianceEmployeeSelector(presetUserId);
+            initializeComplianceNotApplicableControls();
             applyComplianceModalMode(mode);
 
             // Show modal
@@ -25677,12 +25773,27 @@
         async function saveCompliance(event) {
             event.preventDefault();
 
+            const form = document.getElementById('complianceForm');
+            if (form && !form.checkValidity()) {
+                form.reportValidity();
+                if (typeof showNotification === 'function') {
+                    showNotification('Please complete all required fields before saving.', 'error');
+                }
+                return;
+            }
+
             const modalMode = String(window.__complianceModalMode || 'standard');
             const isTemplateMode = modalMode === 'template';
             const complianceId = document.getElementById('complianceId')?.value;
             const employeeSelector = document.getElementById('complianceEmployeeSelector');
+            const employeeNotApplicable = !!document.getElementById('complianceEmployeeNotApplicable')?.checked;
             const selectedEmployeeRaw = String(employeeSelector?.value || document.getElementById('complianceEmployeeId')?.value || '').trim();
-            const resolvedUserId = resolveComplianceUserId(selectedEmployeeRaw);
+            let resolvedUserId = resolveComplianceUserId(selectedEmployeeRaw);
+
+            if (!resolvedUserId && employeeNotApplicable) {
+                const hiddenId = document.getElementById('complianceEmployeeId')?.value;
+                resolvedUserId = resolveComplianceUserId(hiddenId) || getCurrentComplianceUserId();
+            }
 
             if (!resolvedUserId) {
                 if (typeof showNotification === 'function') {
@@ -25717,14 +25828,17 @@
             if (!attachmentType) attachmentType = '';
 
             const complianceTypeField = document.getElementById('complianceType');
+            const complianceTypeNotApplicable = !!document.getElementById('complianceTypeNotApplicable')?.checked;
             const complianceTypeRaw = complianceTypeField?.value || '';
-            const complianceTypeLabel = complianceTypeField?.selectedOptions?.[0]?.textContent || 'Compliance';
+            const complianceTypeLabel = complianceTypeNotApplicable
+                ? 'Not Applicable'
+                : (complianceTypeField?.selectedOptions?.[0]?.textContent || 'Compliance');
             const titleInput = document.getElementById('complianceTitle')?.value || '';
             const statusValue = document.getElementById('complianceStatus')?.value || 'active';
 
             const compliance = {
                 title: titleInput || (isTemplateMode ? `${complianceTypeLabel} Template` : ''),
-                complianceTypeId: parseInt(complianceTypeRaw) || complianceTypeRaw || '',
+                complianceTypeId: complianceTypeNotApplicable ? 'not_applicable' : (parseInt(complianceTypeRaw) || complianceTypeRaw || ''),
                 description: document.getElementById('complianceDescription')?.value || '',
                 userId: resolvedUserId,
                 clinicId: null,
@@ -25961,6 +26075,11 @@
                     document.getElementById('complianceTitle').value = fullCompliance.title || '';
                     document.getElementById('complianceDescription').value = fullCompliance.description || '';
                     document.getElementById('complianceType').value = fullCompliance.complianceTypeId || '';
+                    const complianceTypeNotApplicable = document.getElementById('complianceTypeNotApplicable');
+                    if (complianceTypeNotApplicable) {
+                        const typeValue = String(fullCompliance.complianceTypeId || '').toLowerCase();
+                        complianceTypeNotApplicable.checked = typeValue === 'not_applicable' || typeValue === 'n/a';
+                    }
                     document.getElementById('complianceIssueDate').value = toDateInputValue(fullCompliance.issueDate);
                     document.getElementById('complianceExpiryDate').value = toDateInputValue(fullCompliance.expiryDate);
                     document.getElementById('complianceReminderDate').value = toDateInputValue(fullCompliance.reminderDate);
@@ -25972,6 +26091,11 @@
                     document.getElementById('complianceNotes').value = fullCompliance.notes || '';
                     document.getElementById('complianceEmployeeId').value = fullCompliance.userId || resolvedUserId || '';
                     document.getElementById('complianceId').value = fullCompliance.id || fullCompliance.Id || apiComplianceId;
+
+                    const complianceEmployeeNotApplicable = document.getElementById('complianceEmployeeNotApplicable');
+                    if (complianceEmployeeNotApplicable) {
+                        complianceEmployeeNotApplicable.checked = false;
+                    }
 
                     const selectedEmployeeId = document.getElementById('complianceEmployeeId').value;
                     populateComplianceEmployeeSelector(selectedEmployeeId);
@@ -25995,6 +26119,7 @@
                     const currentViewId = document.querySelector('.content-view.active')?.id || '';
                     const statusValue = String(fullCompliance.status || '').toLowerCase();
                     const canReviewAndApprove = canCurrentUserApproveCompliances() && statusValue === 'pending_approval' && currentViewId === 'view-compliances';
+                    initializeComplianceNotApplicableControls();
                     applyComplianceModalMode(canReviewAndApprove ? 'review' : 'standard');
 
                     document.getElementById('complianceModal').style.display = 'flex';
@@ -26308,6 +26433,11 @@
 
         // Open Compliance Types Manager Modal
         function openComplianceTypesManager(fromUserCreation = false) {
+            if (!canCurrentUserApproveCompliances()) {
+                showNotification('Only manager/admin roles can manage compliance types.', 'warning');
+                return;
+            }
+
             const modal = document.getElementById('complianceTypesModal');
             if (!modal) {
                 showNotification('Compliance Types manager is unavailable right now.', 'error');
@@ -63664,9 +63794,6 @@ document.addEventListener('keydown', function(e) {
                 Add Compliance
             </h3>
             <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <button onclick="openComplianceTypesManager()" style="color: white; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); width: 36px; height: 36px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'" title="Manage Compliance Types">
-                    <i class="fas fa-cog"></i>
-                </button>
                 <button class="close-btn" onclick="closeComplianceModal()" style="color: white; font-size: 1.5rem; background: none; border: none; cursor: pointer; line-height: 1;">&times;</button>
             </div>
         </div>
@@ -63688,6 +63815,10 @@ document.addEventListener('keydown', function(e) {
                         <select id="complianceEmployeeSelector" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                             <option value="">Select Employee</option>
                         </select>
+                        <label for="complianceEmployeeNotApplicable" style="display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                            <input type="checkbox" id="complianceEmployeeNotApplicable" style="width: 14px; height: 14px; cursor: pointer;">
+                            Not Applicable
+                        </label>
                     </div>
                 </div>
 
@@ -63697,10 +63828,16 @@ document.addEventListener('keydown', function(e) {
                         <i class="fas fa-tags" style="margin-right: 0.5rem;"></i>Compliance Type
                     </h5>
                     <div class="form-group" style="margin-bottom: 0;">
-                        <label for="complianceType">
-                            Type *
-                            <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Select the type of compliance certification or requirement"></i>
-                        </label>
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.4rem; flex-wrap: wrap;">
+                            <label for="complianceType" style="margin-bottom: 0;">
+                                Type *
+                                <i class="fas fa-info-circle" style="color: var(--text-tertiary); cursor: help; margin-left: 0.25rem;" title="Select the type of compliance certification or requirement"></i>
+                            </label>
+                            <button type="button" id="complianceManageTypesBtn" onclick="openComplianceTypesManager()" style="display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.35rem 0.6rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-secondary); font-size: 0.82rem; cursor: pointer;" title="Manage Compliance Types">
+                                <i class="fas fa-cog"></i>
+                                Manage Types
+                            </button>
+                        </div>
                         <select id="complianceType" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
                             <option value="">--Select Compliance Type--</option>
                             <option value="CPR Certification">CPR Certification</option>
@@ -63718,6 +63855,13 @@ document.addEventListener('keydown', function(e) {
                             <option value="Water Quality Test">Water Quality Test</option>
                             <option value="HVAC Maintenance">HVAC Maintenance</option>
                         </select>
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 0.55rem; flex-wrap: wrap;">
+                            <label for="complianceTypeNotApplicable" style="display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                                <input type="checkbox" id="complianceTypeNotApplicable" style="width: 14px; height: 14px; cursor: pointer;">
+                                Not Applicable
+                            </label>
+                            <span id="complianceManageTypesHint" style="font-size: 0.8rem; color: var(--text-tertiary);">Use “Manage Types” to add missing options.</span>
+                        </div>
                     </div>
                 </div>
 
