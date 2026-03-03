@@ -75355,7 +75355,18 @@ console.log('✅ Global functions exported to window object');
 
         function getSelectedAttendanceClinicFilter() {
             const selectValue = document.getElementById('clinicFilterSelect')?.value || '';
-            return String(clinicFilter || selectValue || '').trim();
+            const raw = String(clinicFilter || selectValue || '').trim();
+            if (!raw || /^all(\s+clinics?)?$/i.test(raw)) return '';
+
+            if (typeof getSelectedClinicMetadata === 'function') {
+                try {
+                    const meta = getSelectedClinicMetadata();
+                    const clinicName = String(meta?.selectedClinicName || '').trim();
+                    if (clinicName) return clinicName;
+                } catch (_) {}
+            }
+
+            return raw;
         }
 
         function clinicMatchesFilter(clinicValue, selectedClinicKey) {
@@ -76543,7 +76554,8 @@ console.log('✅ Global functions exported to window object');
                 populateManagerEmployeeSelectors();
                 renderCurrentPolicy();
 
-                const selectedClinicKey = normalizeClinicForCompare(getSelectedAttendanceClinicFilter());
+                const selectedClinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
+                const selectedClinicKey = normalizeClinicForCompare(selectedClinicMeta?.selectedClinicName || getSelectedAttendanceClinicFilter());
                 const filteredScheduleEntries = Object.entries(scheduleMap).filter(([username, schedule]) => {
                     const employeeClinic = resolveClinicForEmployee(username, schedule);
                     return clinicMatchesFilter(employeeClinic, selectedClinicKey);
