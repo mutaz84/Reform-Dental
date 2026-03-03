@@ -24511,6 +24511,16 @@
                 if (complianceNames.some((name) => normalizedTargetNames.includes(name))) {
                     return true;
                 }
+
+                const normalizeLoose = (value) => String(value || '')
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]/g, '');
+                const targetLoose = normalizedTargetNames.map(normalizeLoose).filter(Boolean);
+                const complianceLoose = complianceNames.map(normalizeLoose).filter(Boolean);
+
+                if (complianceLoose.some((name) => targetLoose.some((target) => target && (name.includes(target) || target.includes(name))))) {
+                    return true;
+                }
             }
 
             return false;
@@ -24531,23 +24541,49 @@
             try {
                 if (forceRefresh || !window.__requirementsCache || !Array.isArray(window.__requirementsCache[requirementsCacheKey])) {
                     let records = [];
+                    const userIdsToTry = (Array.isArray(userContext.userIds) ? userContext.userIds : [])
+                        .map((value) => Number(value))
+                        .filter((value) => Number.isInteger(value) && value > 0);
+                    const usernamesToTry = (Array.isArray(userContext.usernames) ? userContext.usernames : [])
+                        .map((value) => String(value || '').trim())
+                        .filter(Boolean);
 
-                    if (currentUserId) {
-                        const response = await fetchComplianceApi('compliances', `?userId=${encodeURIComponent(currentUserId)}`);
+                    for (const userId of userIdsToTry) {
+                        const response = await fetchComplianceApi('compliances', `?userId=${encodeURIComponent(userId)}`);
                         if (!response.ok) {
-                            throw new Error(`HTTP ${response.status}`);
+                            continue;
                         }
 
-                        records = (await response.json())
+                        const byIdRecords = (await response.json())
                             .map(normalizeComplianceRecord)
                             .filter(Boolean);
-                    } else if (userContext.primaryUsername) {
-                        const response = await fetchComplianceApi('compliances', `?username=${encodeURIComponent(userContext.primaryUsername)}`);
+                        records.push(...byIdRecords);
+                    }
+
+                    for (const username of usernamesToTry) {
+                        const response = await fetchComplianceApi('compliances', `?username=${encodeURIComponent(username)}`);
                         if (response.ok) {
-                            records = (await response.json())
+                            const byUsernameRecords = (await response.json())
                                 .map(normalizeComplianceRecord)
                                 .filter(Boolean);
+                            records.push(...byUsernameRecords);
                         }
+                    }
+
+                    if (records.length) {
+                        const seen = new Set();
+                        records = records.filter((item) => {
+                            const key = String(item?.id || item?.Id || '') || [
+                                item?.title,
+                                item?.employeeName,
+                                item?.issueDate,
+                                item?.expiryDate,
+                                item?.status
+                            ].map((value) => String(value || '').trim()).join('|');
+                            if (!key || seen.has(key)) return false;
+                            seen.add(key);
+                            return true;
+                        });
                     }
 
                     if (!records.length) {
@@ -24987,14 +25023,41 @@
 
                 if ((options.forceUserFetch || !myCompliances.length) && canTryApi && (currentUserId || userContext.primaryUsername)) {
                     try {
-                        const query = currentUserId
-                            ? `?userId=${encodeURIComponent(currentUserId)}`
-                            : `?username=${encodeURIComponent(userContext.primaryUsername)}`;
-                        const userResponse = await fetchComplianceApi('compliances', query);
-                        if (userResponse.ok) {
-                            myCompliances = (await userResponse.json())
-                                .map(normalizeComplianceRecord)
-                                .filter(Boolean);
+                        const userIdsToTry = (Array.isArray(userContext.userIds) ? userContext.userIds : [])
+                            .map((value) => Number(value))
+                            .filter((value) => Number.isInteger(value) && value > 0);
+                        const usernamesToTry = (Array.isArray(userContext.usernames) ? userContext.usernames : [])
+                            .map((value) => String(value || '').trim())
+                            .filter(Boolean);
+                        const combined = [];
+
+                        for (const userId of userIdsToTry) {
+                            const response = await fetchComplianceApi('compliances', `?userId=${encodeURIComponent(userId)}`);
+                            if (!response.ok) continue;
+                            combined.push(...(await response.json()).map(normalizeComplianceRecord).filter(Boolean));
+                        }
+
+                        for (const username of usernamesToTry) {
+                            const response = await fetchComplianceApi('compliances', `?username=${encodeURIComponent(username)}`);
+                            if (!response.ok) continue;
+                            combined.push(...(await response.json()).map(normalizeComplianceRecord).filter(Boolean));
+                        }
+
+                        if (combined.length) {
+                            const seen = new Set();
+                            myCompliances = combined.filter((item) => {
+                                const key = String(item?.id || item?.Id || '') || [
+                                    item?.title,
+                                    item?.employeeName,
+                                    item?.issueDate,
+                                    item?.expiryDate,
+                                    item?.status
+                                ].map((value) => String(value || '').trim()).join('|');
+                                if (!key || seen.has(key)) return false;
+                                seen.add(key);
+                                return true;
+                            });
+
                             window.__requirementsCache = window.__requirementsCache || {};
                             window.__requirementsCache[requirementsCacheKey] = myCompliances;
                         }
