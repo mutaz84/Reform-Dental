@@ -1,5 +1,7 @@
 const sql = require('mssql');
 
+let sharedPoolPromise = null;
+
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
     if (connStr) {
@@ -16,6 +18,53 @@ function getConfig() {
         };
     }
     return {};
+}
+
+async function getPool() {
+    if (sharedPoolPromise) {
+        try {
+            const existing = await sharedPoolPromise;
+            if (existing && (existing.connected || existing.connecting)) {
+                return existing;
+            }
+            sharedPoolPromise = null;
+        } catch (_) {
+            sharedPoolPromise = null;
+        }
+    }
+
+    sharedPoolPromise = sql.connect(getConfig()).catch((error) => {
+        sharedPoolPromise = null;
+        throw error;
+    });
+    return sharedPoolPromise;
+}
+
+async function resetPool() {
+    if (!sharedPoolPromise) return;
+    const existing = sharedPoolPromise;
+    sharedPoolPromise = null;
+    try {
+        const pool = await existing;
+        if (pool && typeof pool.close === 'function') {
+            await pool.close();
+        }
+    } catch (_) {}
+}
+
+function isConnectionError(error) {
+    const message = String(error?.message || '').toLowerCase();
+    const code = String(error?.code || '').toLowerCase();
+    return [
+        code.includes('econn'),
+        code.includes('socket'),
+        code.includes('timeout'),
+        code.includes('enotopen'),
+        message.includes('connection'),
+        message.includes('socket'),
+        message.includes('timeout'),
+        message.includes('closed')
+    ].some(Boolean);
 }
 
 function toIntOrNull(value) {
@@ -60,92 +109,101 @@ module.exports = async function (context, req) {
         return;
     }
 
-    let pool;
     try {
-        pool = await sql.connect(getConfig());
         const method = req.method;
         const id = toIntOrNull(req.params?.id);
 
-        if (method === 'GET') {
-            if (id) {
-                const one = await pool.request().input('id', sql.Int, id).query('SELECT * FROM AttendanceAbsences WHERE Id = @id');
-                context.res = { status: 200, headers, body: one.recordset[0] ? mapRow(one.recordset[0]) : null };
+        const handle = async () => {
+            const pool = await getPool();
+
+            if (method === 'GET') {
+                if (id) {
+                    const one = await pool.request().input('id', sql.Int, id).query('SELECT * FROM AttendanceAbsences WHERE Id = @id');
+                    context.res = { status: 200, headers, body: one.recordset[0] ? mapRow(one.recordset[0]) : null };
+                    return;
+                }
+
+                const username = String(req.query?.username || '').trim();
+                const date = toDateOnly(req.query?.date);
+                const request = pool.request();
+                const where = [];
+
+                if (username) {
+                    request.input('username', sql.NVarChar(150), username);
+                    where.push('Username = @username');
+                }
+                if (date) {
+                    request.input('date', sql.Date, date);
+                    where.push('WorkDate = @date');
+                }
+
+                const result = await request.query(`SELECT * FROM AttendanceAbsences ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY WorkDate DESC, Id DESC`);
+                context.res = { status: 200, headers, body: (result.recordset || []).map(mapRow) };
                 return;
             }
 
-            const username = String(req.query?.username || '').trim();
-            const date = toDateOnly(req.query?.date);
-            const request = pool.request();
-            const where = [];
+            if (method === 'POST') {
+                const body = req.body || {};
+                const username = String(body.username || '').trim();
+                const workDate = toDateOnly(body.date || body.workDate);
+                if (!username || !workDate) {
+                    context.res = { status: 400, headers, body: { error: 'username and date are required.' } };
+                    return;
+                }
 
-            if (username) {
-                request.input('username', sql.NVarChar(150), username);
-                where.push('Username = @username');
-            }
-            if (date) {
-                request.input('date', sql.Date, date);
-                where.push('WorkDate = @date');
-            }
+                const exists = await pool.request()
+                    .input('username', sql.NVarChar(150), username)
+                    .input('workDate', sql.Date, workDate)
+                    .query('SELECT TOP 1 Id FROM AttendanceAbsences WHERE Username = @username AND WorkDate = @workDate');
 
-            const result = await request.query(`SELECT * FROM AttendanceAbsences ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY WorkDate DESC, Id DESC`);
-            context.res = { status: 200, headers, body: (result.recordset || []).map(mapRow) };
-            return;
-        }
+                if (exists.recordset[0]?.Id) {
+                    await pool.request()
+                        .input('id', sql.Int, exists.recordset[0].Id)
+                        .input('displayName', sql.NVarChar(255), body.displayName || null)
+                        .input('reason', sql.NVarChar(500), body.reason || null)
+                        .query(`UPDATE AttendanceAbsences
+                                SET DisplayName = COALESCE(@displayName, DisplayName),
+                                    Reason = COALESCE(@reason, Reason)
+                                WHERE Id = @id`);
 
-        if (method === 'POST') {
-            const body = req.body || {};
-            const username = String(body.username || '').trim();
-            const workDate = toDateOnly(body.date || body.workDate);
-            if (!username || !workDate) {
-                context.res = { status: 400, headers, body: { error: 'username and date are required.' } };
-                return;
-            }
+                    context.res = { status: 200, headers, body: { id: String(exists.recordset[0].Id), upserted: true } };
+                    return;
+                }
 
-            const exists = await pool.request()
-                .input('username', sql.NVarChar(150), username)
-                .input('workDate', sql.Date, workDate)
-                .query('SELECT TOP 1 Id FROM AttendanceAbsences WHERE Username = @username AND WorkDate = @workDate');
-
-            if (exists.recordset[0]?.Id) {
-                await pool.request()
-                    .input('id', sql.Int, exists.recordset[0].Id)
+                const insert = await pool.request()
+                    .input('username', sql.NVarChar(150), username)
                     .input('displayName', sql.NVarChar(255), body.displayName || null)
+                    .input('workDate', sql.Date, workDate)
                     .input('reason', sql.NVarChar(500), body.reason || null)
-                    .query(`UPDATE AttendanceAbsences
-                            SET DisplayName = COALESCE(@displayName, DisplayName),
-                                Reason = COALESCE(@reason, Reason)
-                            WHERE Id = @id`);
+                    .query(`INSERT INTO AttendanceAbsences (Username, DisplayName, WorkDate, Reason)
+                            OUTPUT INSERTED.Id
+                            VALUES (@username, @displayName, @workDate, @reason)`);
 
-                context.res = { status: 200, headers, body: { id: String(exists.recordset[0].Id), upserted: true } };
+                context.res = { status: 201, headers, body: { id: String(insert.recordset[0].Id), upserted: false } };
                 return;
             }
 
-            const insert = await pool.request()
-                .input('username', sql.NVarChar(150), username)
-                .input('displayName', sql.NVarChar(255), body.displayName || null)
-                .input('workDate', sql.Date, workDate)
-                .input('reason', sql.NVarChar(500), body.reason || null)
-                .query(`INSERT INTO AttendanceAbsences (Username, DisplayName, WorkDate, Reason)
-                        OUTPUT INSERTED.Id
-                        VALUES (@username, @displayName, @workDate, @reason)`);
+            if (method === 'DELETE' && id) {
+                await pool.request().input('id', sql.Int, id).query('DELETE FROM AttendanceAbsences WHERE Id = @id');
+                context.res = { status: 200, headers, body: { message: 'Absence deleted' } };
+                return;
+            }
 
-            context.res = { status: 201, headers, body: { id: String(insert.recordset[0].Id), upserted: false } };
-            return;
+            context.res = { status: 405, headers, body: { error: 'Method not allowed' } };
+        };
+
+        try {
+            await handle();
+        } catch (err) {
+            if (isConnectionError(err)) {
+                await resetPool();
+                await handle();
+            } else {
+                throw err;
+            }
         }
-
-        if (method === 'DELETE' && id) {
-            await pool.request().input('id', sql.Int, id).query('DELETE FROM AttendanceAbsences WHERE Id = @id');
-            context.res = { status: 200, headers, body: { message: 'Absence deleted' } };
-            return;
-        }
-
-        context.res = { status: 405, headers, body: { error: 'Method not allowed' } };
     } catch (err) {
         context.log.error('Attendance Absences API error:', err);
         context.res = { status: 500, headers, body: { error: err.message || 'Server error' } };
-    } finally {
-        if (pool) {
-            try { await pool.close(); } catch (_) {}
-        }
     }
 };
