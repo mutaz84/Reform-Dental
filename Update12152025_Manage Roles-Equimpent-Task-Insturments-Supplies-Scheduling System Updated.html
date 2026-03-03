@@ -74880,12 +74880,12 @@ console.log('✅ Global functions exported to window object');
 
         async function attendanceApiRequest(url, options = {}) {
             const now = Date.now();
-            if (attendanceApiState.cooldownUntil > now) {
+            const method = String(options.method || 'GET').toUpperCase();
+            if (attendanceApiState.cooldownUntil > now && method === 'GET') {
                 throw new Error('Attendance API temporarily unavailable; retrying shortly.');
             }
 
             try {
-                const method = String(options.method || 'GET').toUpperCase();
                 const hasBody = options.body !== undefined && options.body !== null;
                 const headers = {
                     ...(options.headers || {})
@@ -76065,7 +76065,14 @@ console.log('✅ Global functions exported to window object');
             setActiveClockRecordForContext(context, record.id);
             addNotification('__managers__', `${displayName} clocked in at ${formatDateTime(now)}.`, 'info');
             if (typeof showNotification === 'function') {
-                showNotification(synced ? 'Clock in recorded and saved to server.' : 'Clock in saved locally; server sync failed and will retry.', synced ? 'success' : 'warning');
+                const detail = String(attendanceApiState.lastError || '').trim();
+                const suffix = detail ? ` (${detail.slice(0, 140)})` : '';
+                showNotification(
+                    synced
+                        ? 'Clock in recorded and saved to server.'
+                        : `Clock in saved locally; server sync failed and will retry.${suffix}`,
+                    synced ? 'success' : 'warning'
+                );
             }
             refreshAttendanceView();
         }
@@ -76157,7 +76164,9 @@ console.log('✅ Global functions exported to window object');
             addNotification('__managers__', `${displayName} clocked out at ${formatDateTime(now)} (${formatHours(workedMinutes)}) - ${getClockOutReasonLabel(reasonKey)}.`, 'info');
             if (typeof showNotification === 'function') {
                 if (!primarySynced || staleSyncFailed > 0) {
-                    showNotification(`Clock out saved locally; server sync pending retry (${1 + staleSyncFailed} record(s)).`, 'warning');
+                    const detail = String(attendanceApiState.lastError || '').trim();
+                    const suffix = detail ? ` (${detail.slice(0, 140)})` : '';
+                    showNotification(`Clock out saved locally; server sync pending retry (${1 + staleSyncFailed} record(s)).${suffix}`, 'warning');
                 } else if (autoClosedCount > 0) {
                     showNotification(`Clock out recorded. Auto-closed ${autoClosedCount} duplicate open record(s).`, 'warning');
                 } else {
