@@ -52153,6 +52153,33 @@ window.addEventListener('load', function() {
             if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
 
             if (typeof openRolesManagement === 'function') {
+                const rolesModal = document.getElementById('rolesManagementModal');
+                const addUserModal = document.getElementById('addUserModal');
+                const isAddUserContext = !!(addUserModal && addUserModal.style.display !== 'none');
+                if (rolesModal) {
+                    rolesModal.removeAttribute('data-return-to-edit-user');
+                    rolesModal.removeAttribute('data-return-to-add-user');
+                }
+
+                if (isAddUserContext) {
+                    const isEditMode = String(typeof addUserModalMode !== 'undefined' ? addUserModalMode : '').toLowerCase() === 'edit';
+                    const currentUsername = String(document.getElementById('newUsername')?.value || '').trim();
+
+                    if (rolesModal) {
+                        if (isEditMode && currentUsername) {
+                            rolesModal.setAttribute('data-return-to-edit-user', currentUsername);
+                        } else {
+                            rolesModal.setAttribute('data-return-to-add-user', 'true');
+                        }
+                    }
+
+                    addUserModal.style.display = 'none';
+                    addUserModal.setAttribute('data-parked-for-role-management', 'true');
+                    if (typeof setTopTabsCreateUserVisibility === 'function') {
+                        setTopTabsCreateUserVisibility(false);
+                    }
+                }
+
                 openRolesManagement(true);
                 return;
             }
@@ -52806,9 +52833,15 @@ window.addEventListener('load', function() {
         function closeRolesManagementFromUserCreation() {
             const modal = document.getElementById('rolesManagementModal');
             forceReleaseGlobalModalOverlays();
+
+            const returnToEditUsername = modal ? String(modal.getAttribute('data-return-to-edit-user') || '').trim() : '';
+            const returnToAddUser = !!(modal && modal.getAttribute('data-return-to-add-user') === 'true');
+
             if (modal) {
                 modal.style.display = 'none';
                 modal.style.zIndex = '10001'; // Reset to default z-index
+                modal.removeAttribute('data-return-to-edit-user');
+                modal.removeAttribute('data-return-to-add-user');
             }
             normalizeRolesManagementCloseBehavior(false);
             if (typeof window.urrSetActiveTab === 'function') {
@@ -52821,6 +52854,26 @@ window.addEventListener('load', function() {
                 }
                 if (typeof populateRoleTypeDropdown === 'function') {
                     populateRoleTypeDropdown();
+                }
+
+                if (returnToEditUsername && typeof openEditUserModal === 'function') {
+                    setTimeout(() => {
+                        openEditUserModal(returnToEditUsername);
+                    }, 80);
+                    return;
+                }
+
+                if (returnToAddUser) {
+                    const addUserModal = document.getElementById('addUserModal');
+                    if (addUserModal) {
+                        ensureUnifiedRightRailExpandedForModal();
+                        addUserModal.removeAttribute('data-parked-for-role-management');
+                        addUserModal.setAttribute('data-keep-open-across-tabs', 'true');
+                        addUserModal.style.display = 'flex';
+                        if (typeof setTopTabsCreateUserVisibility === 'function') {
+                            setTopTabsCreateUserVisibility(true);
+                        }
+                    }
                 }
             });
             forceReleaseGlobalModalOverlays();
@@ -72187,7 +72240,11 @@ console.log('✅ Global functions exported to window object');
                             }
                         }
 
-                        if (choice === 'save' || choice === 'discard') {
+                        const shouldTriggerHardRefresh =
+                            (choice === 'save' || choice === 'discard')
+                            && closeFunctionName !== 'closeRolesManagementFromUserCreation';
+
+                        if (shouldTriggerHardRefresh) {
                             if (typeof scheduleAppHardRefresh === 'function') {
                                 scheduleAppHardRefresh(220);
                             } else if (typeof window !== 'undefined' && window.location && typeof window.location.reload === 'function') {
