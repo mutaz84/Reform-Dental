@@ -17296,8 +17296,6 @@
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="hours" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','hours');}">Hours Calculator</button>
                             </div>
 
-                            <div class="attendance-stat-grid" id="attendanceManagerStats" data-attendance-manager-panel="overview" style="margin-bottom:0.7rem;"></div>
-
                             <div class="attendance-grid" style="margin-top:0;">
                                 <div class="attendance-card" data-attendance-manager-panel="overview" style="padding:0.7rem;">
                                     <h3 style="font-size:0.88rem;"><i class="fas fa-users"></i> Today Scheduled vs Clocked</h3>
@@ -76656,52 +76654,7 @@ console.log('✅ Global functions exported to window object');
                     return clinicMatchesFilter(recordClinic, selectedClinicKey);
                 });
 
-                const managerStats = document.getElementById('attendanceManagerStats');
                 const getRecordEventTime = (record) => new Date(record?.clockOut || record?.clockIn || 0).getTime() || 0;
-                const latestByIdentity = new Map();
-                recordsTodayFiltered
-                    .filter((record) => !!record?.clockIn || !!record?.clockOut)
-                    .forEach((record) => {
-                        const identity = resolveCanonicalUsername(record.username)
-                            || resolveCanonicalUsername(record.displayName)
-                            || toIdentityKey(record.username)
-                            || toIdentityKey(record.displayName)
-                            || String(record.id || '');
-                        const existing = latestByIdentity.get(identity);
-                        if (!existing || getRecordEventTime(record) >= getRecordEventTime(existing)) {
-                            latestByIdentity.set(identity, record);
-                        }
-                    });
-
-                const latestRows = Array.from(latestByIdentity.values());
-                const activeNowRows = latestRows.filter((record) => !!record?.clockIn && !record?.clockOut);
-                const clockedOutRows = latestRows.filter((record) => !!record?.clockOut);
-                const clockedInNow = activeNowRows.length;
-                const clockedInUsers = activeNowRows
-                    .map((record) => getCanonicalEmployeeDisplayName(record))
-                    .filter(Boolean);
-                const clockedOutUsers = clockedOutRows
-                    .map((record) => getCanonicalEmployeeDisplayName(record))
-                    .filter(Boolean);
-                const completedToday = clockedOutRows.length;
-                const scheduledCount = filteredScheduleEntries.length;
-                const absencesToday = getAbsences().filter((entry) => {
-                    if (entry.date !== todayISO) return false;
-                    const clinic = resolveClinicForEmployee(entry.username, scheduleMap[entry.username] || null);
-                    return clinicMatchesFilter(clinic, selectedClinicKey);
-                }).length;
-
-                if (managerStats) {
-                    managerStats.innerHTML = `
-                        <div class="attendance-stat"><div class="attendance-stat-label">Scheduled Today</div><div class="attendance-stat-value">${scheduledCount}</div></div>
-                        <div class="attendance-stat"><div class="attendance-stat-label">Clocked In Now</div><div class="attendance-stat-value">${clockedInNow}</div></div>
-                        <div class="attendance-stat"><div class="attendance-stat-label">Clocked Out</div><div class="attendance-stat-value">${completedToday}</div></div>
-                        <div class="attendance-stat"><div class="attendance-stat-label">Absences Recorded</div><div class="attendance-stat-value">${absencesToday}</div></div>
-                        <div class="attendance-stat attendance-stat-wide"><div class="attendance-stat-label">Who Is Clocked In</div><div class="attendance-stat-value">${clockedInUsers.length ? clockedInUsers.map((name) => `<span class="attendance-tag">${name}</span>`).join('') : '<span class="attendance-note">None</span>'}</div></div>
-                        <div class="attendance-stat attendance-stat-wide"><div class="attendance-stat-label">Who Clocked Out</div><div class="attendance-stat-value">${clockedOutUsers.length ? clockedOutUsers.map((name) => `<span class="attendance-tag">${name}</span>`).join('') : '<span class="attendance-note">None</span>'}</div></div>
-                    `;
-                }
-
                 const todayBody = document.getElementById('attendanceManagerTodayBody');
                 if (todayBody) {
                     todayBody.innerHTML = filteredScheduleEntries.map(([username, schedule]) => {
