@@ -17142,8 +17142,11 @@
                                     <button class="btn-primary" type="button" onclick="if(window.attendanceClockIn){window.attendanceClockIn();}">
                                         <i class="fas fa-sign-in-alt"></i> Clock In
                                     </button>
-                                    <button class="btn-secondary" type="button" onclick="if(window.attendanceClockOut){window.attendanceClockOut();}">
-                                        <i class="fas fa-sign-out-alt"></i> Clock Out
+                                    <button class="btn-secondary" type="button" onclick="if(window.attendanceClockOut){window.attendanceClockOut('break');}">
+                                        <i class="fas fa-coffee"></i> Clock Out for Break
+                                    </button>
+                                    <button class="btn-secondary" type="button" onclick="if(window.attendanceClockOut){window.attendanceClockOut('leave');}">
+                                        <i class="fas fa-sign-out-alt"></i> Clock Out &amp; Leave
                                     </button>
                                 </div>
                                 <div id="attendanceCurrentFlags" style="margin-top:0.6rem;"></div>
@@ -17256,8 +17259,10 @@
                                             <thead>
                                                 <tr>
                                                     <th>Employee</th>
+                                                    <th>Employee Clinic</th>
                                                     <th>Schedule</th>
                                                     <th>Clock</th>
+                                                    <th>Clock-out Reason</th>
                                                     <th>Status</th>
                                                 </tr>
                                             </thead>
@@ -17331,9 +17336,11 @@
                                             <thead>
                                                 <tr>
                                                     <th>Employee</th>
+                                                    <th>Employee Clinic</th>
                                                     <th>Date</th>
                                                     <th>Clock In</th>
                                                     <th>Clock Out</th>
+                                                    <th>Clock-out Reason</th>
                                                     <th>Hours Worked</th>
                                                     <th>Status</th>
                                                 </tr>
@@ -74868,6 +74875,8 @@ console.log('✅ Global functions exported to window object');
                 scheduledEnd: item?.scheduledEnd || item?.ScheduledEnd || null,
                 clockIn: item?.clockIn || item?.ClockIn || null,
                 clockOut: item?.clockOut || item?.ClockOut || null,
+                clockOutReason: item?.clockOutReason || item?.ClockOutReason || null,
+                employeeClinic: item?.employeeClinic || item?.EmployeeClinic || null,
                 minutesWorked: Number(item?.minutesWorked || item?.MinutesWorked || 0) || 0,
                 flags: Array.isArray(item?.flags) ? item.flags : []
             };
@@ -75037,6 +75046,8 @@ console.log('✅ Global functions exported to window object');
                     scheduledEnd: record.scheduledEnd,
                     clockIn: record.clockIn,
                     clockOut: record.clockOut,
+                    clockOutReason: record.clockOutReason,
+                    employeeClinic: record.employeeClinic,
                     minutesWorked: record.minutesWorked,
                     flags: Array.isArray(record.flags) ? record.flags : []
                 }
@@ -75317,14 +75328,67 @@ console.log('✅ Global functions exported to window object');
             return String(user?.name || fullName || record?.displayName || canonical || record?.username || '-').trim();
         }
 
+        function normalizeClinicForCompare(value) {
+            return String(value || '').trim().toLowerCase();
+        }
+
+        function getUserClinicByUsername(username) {
+            const users = getUsersMap();
+            const canonical = resolveCanonicalUsername(username) || String(username || '').trim();
+            const user = users[canonical] || users[username] || {};
+            return String(user.officeLocation || user.OfficeLocation || user.clinic || user.Clinic || user.office || user.Office || '').trim();
+        }
+
+        function resolveClinicForEmployee(username, schedule = null) {
+            const scheduleClinic = String(schedule?.clinic || '').trim();
+            if (scheduleClinic) return scheduleClinic;
+            return getUserClinicByUsername(username);
+        }
+
+        function resolveClinicForRecord(record, scheduleMap = {}) {
+            const directClinic = String(record?.employeeClinic || '').trim();
+            if (directClinic) return directClinic;
+            const canonical = resolveCanonicalUsername(record?.username) || resolveCanonicalUsername(record?.displayName) || String(record?.username || '').trim();
+            const schedule = scheduleMap[canonical] || scheduleMap[record?.username] || null;
+            return resolveClinicForEmployee(canonical || record?.username, schedule);
+        }
+
+        function getSelectedAttendanceClinicFilter() {
+            const selectValue = document.getElementById('clinicFilterSelect')?.value || '';
+            return String(clinicFilter || selectValue || '').trim();
+        }
+
+        function clinicMatchesFilter(clinicValue, selectedClinicKey) {
+            if (!selectedClinicKey) return true;
+            return normalizeClinicForCompare(clinicValue) === selectedClinicKey;
+        }
+
+        function normalizeClockOutReason(value) {
+            const raw = String(value || '').trim().toLowerCase();
+            if (raw === 'break' || raw === 'clock out for break') return 'break';
+            if (raw === 'leave' || raw === 'clock out and leave' || raw === 'clock out & leave') return 'leave';
+            return '';
+        }
+
+        function getClockOutReasonLabel(value) {
+            const key = normalizeClockOutReason(value);
+            if (key === 'break') return 'Break';
+            if (key === 'leave') return 'Leave';
+            return '-';
+        }
+
         function buildDailyAttendanceReportRows(records, todayISO, options = {}) {
             const includeEmployee = options.includeEmployee === true;
             const identityCandidates = options.identityCandidates instanceof Set ? options.identityCandidates : null;
+            const scheduleMap = options.scheduleMap || {};
+            const selectedClinicKey = normalizeClinicForCompare(options.selectedClinicKey || '');
             return records
                 .filter((record) => {
                     if (!record || !isRecordOnIsoDay(record, todayISO)) return false;
                     const hasClockActivity = !!record.clockIn || !!record.clockOut;
                     if (!hasClockActivity) return false;
+                    const clinicLabel = resolveClinicForRecord(record, scheduleMap);
+                    if (!clinicMatchesFilter(clinicLabel, selectedClinicKey)) return false;
                     if (!identityCandidates) return true;
                     return recordMatchesIdentityCandidates(record, identityCandidates);
                 })
@@ -75334,16 +75398,18 @@ console.log('✅ Global functions exported to window object');
                     const eventTimestamp = row.clockOut || row.clockIn || row.date || todayISO;
                     const displayDate = toISODate(new Date(eventTimestamp));
                     const normalizedMinutesWorked = getWorkedMinutesForRecord(row);
+                    const clockOutReason = getClockOutReasonLabel(row.clockOutReason);
+                    const employeeClinic = resolveClinicForRecord(row, scheduleMap);
 
                     let status = 'Not Clocked';
                     if (outMs > 0 && outMs >= inMs) {
-                        status = 'Clocked Out';
+                        status = normalizeClockOutReason(row.clockOutReason) === 'break' ? 'On Break' : 'Clocked Out';
                     } else if (inMs > 0) {
                         status = 'Clocked In';
                     }
 
                     return {
-                        ...(includeEmployee ? { employee: getCanonicalEmployeeDisplayName(row) } : {}),
+                        ...(includeEmployee ? { employee: getCanonicalEmployeeDisplayName(row), employeeClinic: employeeClinic || '-', clockOutReason } : {}),
                         date: displayDate,
                         clockIn: row.clockIn,
                         clockOut: row.clockOut,
@@ -75391,13 +75457,13 @@ console.log('✅ Global functions exported to window object');
 
             const isManager = exportContext.scope === 'manager';
             const headers = isManager
-                ? ['Employee', 'Date', 'Clock In', 'Clock Out', 'Hours Worked', 'Status']
+                ? ['Employee', 'Employee Clinic', 'Date', 'Clock In', 'Clock Out', 'Clock-out Reason', 'Hours Worked', 'Status']
                 : ['Date', 'Clock In', 'Clock Out', 'Hours Worked', 'Status'];
 
             const csvRows = [headers.join(',')];
             exportContext.rows.forEach((row) => {
                 const values = isManager
-                    ? [row.employee, formatDate(row.date), row.clockIn ? formatDateTime(row.clockIn) : '-', row.clockOut ? formatDateTime(row.clockOut) : '-', formatHours(row.minutesWorked || 0), row.status]
+                    ? [row.employee, row.employeeClinic || '-', formatDate(row.date), row.clockIn ? formatDateTime(row.clockIn) : '-', row.clockOut ? formatDateTime(row.clockOut) : '-', row.clockOutReason || '-', formatHours(row.minutesWorked || 0), row.status]
                     : [formatDate(row.date), row.clockIn ? formatDateTime(row.clockIn) : '-', row.clockOut ? formatDateTime(row.clockOut) : '-', formatHours(row.minutesWorked || 0), row.status];
                 csvRows.push(values.map(csvEscape).join(','));
             });
@@ -75432,12 +75498,12 @@ console.log('✅ Global functions exported to window object');
             const title = isManager ? 'Daily Team Timesheet Report' : 'Daily My Timesheet Report';
             const filename = `Attendance_Daily_${isManager ? 'Team' : 'My'}_Report_${exportContext.today}.pdf`;
             const tableHead = isManager
-                ? '<tr><th style="text-align:left; border:1px solid #ddd; padding:6px;">Employee</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Date</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Clock In</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Clock Out</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Hours Worked</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Status</th></tr>'
+                ? '<tr><th style="text-align:left; border:1px solid #ddd; padding:6px;">Employee</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Employee Clinic</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Date</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Clock In</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Clock Out</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Clock-out Reason</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Hours Worked</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Status</th></tr>'
                 : '<tr><th style="text-align:left; border:1px solid #ddd; padding:6px;">Date</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Clock In</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Clock Out</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Hours Worked</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Status</th></tr>';
 
             const tableBody = exportContext.rows.map((row) => {
                 if (isManager) {
-                    return `<tr><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.employee || '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(formatDate(row.date))}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.clockIn ? formatDateTime(row.clockIn) : '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.clockOut ? formatDateTime(row.clockOut) : '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(formatHours(row.minutesWorked || 0))}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.status || '-')}</td></tr>`;
+                    return `<tr><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.employee || '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.employeeClinic || '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(formatDate(row.date))}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.clockIn ? formatDateTime(row.clockIn) : '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.clockOut ? formatDateTime(row.clockOut) : '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.clockOutReason || '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(formatHours(row.minutesWorked || 0))}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.status || '-')}</td></tr>`;
                 }
                 return `<tr><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(formatDate(row.date))}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.clockIn ? formatDateTime(row.clockIn) : '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.clockOut ? formatDateTime(row.clockOut) : '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(formatHours(row.minutesWorked || 0))}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.status || '-')}</td></tr>`;
             }).join('');
@@ -75862,6 +75928,8 @@ console.log('✅ Global functions exported to window object');
             record.scheduledEnd = schedule?.endTime || null;
             record.clockIn = now.toISOString();
             record.clockOut = null;
+            record.clockOutReason = null;
+            record.employeeClinic = resolveClinicForEmployee(username, schedule) || null;
             record.minutesWorked = 0;
             record.flags = flags;
 
@@ -75875,7 +75943,7 @@ console.log('✅ Global functions exported to window object');
             refreshAttendanceView();
         }
 
-        async function attendanceClockOut() {
+        async function attendanceClockOut(reasonType = 'leave') {
             const context = getCurrentUserContext();
             const { username, displayName } = context;
             if (!username) return;
@@ -75926,7 +75994,10 @@ console.log('✅ Global functions exported to window object');
             }
 
             const workedMinutes = Math.max(0, Math.round((new Date(now).getTime() - new Date(existing.clockIn).getTime()) / 60000));
+            const reasonKey = normalizeClockOutReason(reasonType) || 'leave';
             existing.clockOut = now.toISOString();
+            existing.clockOutReason = reasonKey;
+            existing.employeeClinic = existing.employeeClinic || resolveClinicForEmployee(username) || null;
             existing.minutesWorked = workedMinutes;
             existing.displayName = displayName;
             existing.flags = Array.from(new Set(flags));
@@ -75943,6 +76014,8 @@ console.log('✅ Global functions exported to window object');
                     staleFlags.push('auto_closed_duplicate_open');
                     const staleMinutes = Math.max(0, Math.round((new Date(now).getTime() - new Date(record.clockIn || now).getTime()) / 60000));
                     record.clockOut = now.toISOString();
+                    record.clockOutReason = record.clockOutReason || 'leave';
+                    record.employeeClinic = record.employeeClinic || resolveClinicForEmployee(record.username) || null;
                     record.minutesWorked = staleMinutes;
                     record.displayName = record.displayName || displayName;
                     record.flags = Array.from(new Set(staleFlags));
@@ -75954,14 +76027,14 @@ console.log('✅ Global functions exported to window object');
                 }
             }
 
-            addNotification('__managers__', `${displayName} clocked out at ${formatDateTime(now)} (${formatHours(workedMinutes)}).`, 'info');
+            addNotification('__managers__', `${displayName} clocked out at ${formatDateTime(now)} (${formatHours(workedMinutes)}) - ${getClockOutReasonLabel(reasonKey)}.`, 'info');
             if (typeof showNotification === 'function') {
                 if (!primarySynced || staleSyncFailed > 0) {
                     showNotification(`Clock out saved locally; server sync pending retry (${1 + staleSyncFailed} record(s)).`, 'warning');
                 } else if (autoClosedCount > 0) {
                     showNotification(`Clock out recorded. Auto-closed ${autoClosedCount} duplicate open record(s).`, 'warning');
                 } else {
-                    showNotification('Clock out recorded and saved to server.', 'success');
+                    showNotification(`Clock out (${getClockOutReasonLabel(reasonKey)}) recorded and saved to server.`, 'success');
                 }
             }
             refreshAttendanceView();
@@ -76470,10 +76543,20 @@ console.log('✅ Global functions exported to window object');
                 populateManagerEmployeeSelectors();
                 renderCurrentPolicy();
 
+                const selectedClinicKey = normalizeClinicForCompare(getSelectedAttendanceClinicFilter());
+                const filteredScheduleEntries = Object.entries(scheduleMap).filter(([username, schedule]) => {
+                    const employeeClinic = resolveClinicForEmployee(username, schedule);
+                    return clinicMatchesFilter(employeeClinic, selectedClinicKey);
+                });
+                const recordsTodayFiltered = recordsToday.filter((record) => {
+                    const recordClinic = resolveClinicForRecord(record, scheduleMap);
+                    return clinicMatchesFilter(recordClinic, selectedClinicKey);
+                });
+
                 const managerStats = document.getElementById('attendanceManagerStats');
                 const getRecordEventTime = (record) => new Date(record?.clockOut || record?.clockIn || 0).getTime() || 0;
                 const latestByIdentity = new Map();
-                recordsToday
+                recordsTodayFiltered
                     .filter((record) => !!record?.clockIn || !!record?.clockOut)
                     .forEach((record) => {
                         const identity = resolveCanonicalUsername(record.username)
@@ -76498,8 +76581,12 @@ console.log('✅ Global functions exported to window object');
                     .map((record) => getCanonicalEmployeeDisplayName(record))
                     .filter(Boolean);
                 const completedToday = clockedOutRows.length;
-                const scheduledCount = Object.keys(scheduleMap).length;
-                const absencesToday = getAbsences().filter((entry) => entry.date === todayISO).length;
+                const scheduledCount = filteredScheduleEntries.length;
+                const absencesToday = getAbsences().filter((entry) => {
+                    if (entry.date !== todayISO) return false;
+                    const clinic = resolveClinicForEmployee(entry.username, scheduleMap[entry.username] || null);
+                    return clinicMatchesFilter(clinic, selectedClinicKey);
+                }).length;
 
                 if (managerStats) {
                     managerStats.innerHTML = `
@@ -76514,19 +76601,20 @@ console.log('✅ Global functions exported to window object');
 
                 const todayBody = document.getElementById('attendanceManagerTodayBody');
                 if (todayBody) {
-                    todayBody.innerHTML = Object.keys(scheduleMap).map((username) => {
-                        const schedule = scheduleMap[username];
+                    todayBody.innerHTML = filteredScheduleEntries.map(([username, schedule]) => {
                         const userCandidates = getAttendanceIdentityCandidates(username);
-                        const latestRecord = recordsToday
+                        const latestRecord = recordsTodayFiltered
                             .filter((entry) => recordMatchesIdentityCandidates(entry, userCandidates) && (!!entry?.clockIn || !!entry?.clockOut))
                             .sort((a, b) => getRecordEventTime(b) - getRecordEventTime(a))[0] || null;
                         const ptoApproved = getPtoRequests().some((request) => request.username === username && isDateInPto(request, todayISO));
+                        const employeeClinic = resolveClinicForEmployee(username, schedule) || '-';
+                        const clockOutReason = latestRecord?.clockOut ? getClockOutReasonLabel(latestRecord.clockOutReason) : '-';
 
                         let clockLabel = '-';
                         let status = 'Scheduled';
                         if (latestRecord?.clockOut) {
                             clockLabel = `OUT ${formatDateTime(latestRecord.clockOut)}`;
-                            status = 'Clocked Out';
+                            status = normalizeClockOutReason(latestRecord.clockOutReason) === 'break' ? 'On Break' : 'Clocked Out';
                         } else if (latestRecord?.clockIn && !latestRecord?.clockOut) {
                             clockLabel = `IN ${formatDateTime(latestRecord.clockIn)}`;
                             status = 'Clocked In';
@@ -76539,31 +76627,35 @@ console.log('✅ Global functions exported to window object');
                         return `
                             <tr>
                                 <td>${schedule.displayName || username}</td>
+                                <td>${employeeClinic}</td>
                                 <td>${schedule.startTime || '--:--'} - ${schedule.endTime || '--:--'}</td>
                                 <td>${clockLabel}</td>
+                                <td>${clockOutReason}</td>
                                 <td>${status}</td>
                             </tr>
                         `;
-                    }).join('') || '<tr><td colspan="4" class="attendance-note">No employees scheduled today.</td></tr>';
+                    }).join('') || '<tr><td colspan="6" class="attendance-note">No employees scheduled today.</td></tr>';
                 }
 
                 const managerDailyReportBody = document.getElementById('attendanceManagerDailyReportBody');
                 if (managerDailyReportBody) {
-                    const reportRows = buildDailyAttendanceReportRows(recordsToday, todayISO, { includeEmployee: true });
+                    const reportRows = buildDailyAttendanceReportRows(recordsTodayFiltered, todayISO, { includeEmployee: true, scheduleMap, selectedClinicKey });
                     window.__attendanceManagerDailyReportRows = reportRows;
 
                     managerDailyReportBody.innerHTML = reportRows.map((row) => {
                         return `
                             <tr>
                                 <td>${row.employee || '-'}</td>
+                                <td>${row.employeeClinic || '-'}</td>
                                 <td>${formatDate(row.date || todayISO)}</td>
                                 <td>${row.clockIn ? formatDateTime(row.clockIn) : '-'}</td>
                                 <td>${row.clockOut ? formatDateTime(row.clockOut) : '-'}</td>
+                                <td>${row.clockOutReason || '-'}</td>
                                 <td>${formatHours(row.minutesWorked || 0)}</td>
                                 <td>${row.status}</td>
                             </tr>
                         `;
-                    }).join('') || '<tr><td colspan="6" class="attendance-note">No team clock activity found for today.</td></tr>';
+                    }).join('') || '<tr><td colspan="8" class="attendance-note">No team clock activity found for today.</td></tr>';
                 }
 
                 const queueBody = document.getElementById('attendancePtoQueueBody');
@@ -76638,6 +76730,9 @@ console.log('✅ Global functions exported to window object');
             }
             if (targetId === 'attendanceHoursEmployee' || targetId === 'attendanceHoursDate') {
                 calculateAttendanceHours();
+            }
+            if (targetId === 'clinicFilterSelect') {
+                refreshAttendanceView();
             }
         });
 

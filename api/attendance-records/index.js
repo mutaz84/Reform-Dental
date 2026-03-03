@@ -54,18 +54,55 @@ function toDateTimeOrNull(value) {
     return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function parseFlags(value) {
-    if (Array.isArray(value)) return value;
-    if (!value) return [];
+function parseRecordMeta(value) {
+    if (Array.isArray(value)) {
+        return {
+            flags: value,
+            clockOutReason: null,
+            employeeClinic: null
+        };
+    }
+    if (!value) {
+        return {
+            flags: [],
+            clockOutReason: null,
+            employeeClinic: null
+        };
+    }
     try {
         const parsed = JSON.parse(String(value));
-        return Array.isArray(parsed) ? parsed : [];
+        if (Array.isArray(parsed)) {
+            return {
+                flags: parsed,
+                clockOutReason: null,
+                employeeClinic: null
+            };
+        }
+        return {
+            flags: Array.isArray(parsed?.flags) ? parsed.flags : [],
+            clockOutReason: parsed?.clockOutReason ? String(parsed.clockOutReason).trim() : null,
+            employeeClinic: parsed?.employeeClinic ? String(parsed.employeeClinic).trim() : null
+        };
     } catch (_) {
-        return [];
+        return {
+            flags: [],
+            clockOutReason: null,
+            employeeClinic: null
+        };
     }
 }
 
+function serializeRecordMeta(flags, clockOutReason, employeeClinic) {
+    const normalizedFlags = Array.isArray(flags) ? flags : [];
+    return JSON.stringify({
+        flags: normalizedFlags,
+        clockOutReason: clockOutReason ? String(clockOutReason).trim() : null,
+        employeeClinic: employeeClinic ? String(employeeClinic).trim() : null
+    });
+}
+
 function mapRecord(row) {
+    const meta = parseRecordMeta(row.FlagsJson);
     return {
         id: row.Id,
         localId: row.LocalRecordId,
@@ -77,8 +114,10 @@ function mapRecord(row) {
         scheduledEnd: row.ScheduledEnd,
         clockIn: row.ClockIn,
         clockOut: row.ClockOut,
+        clockOutReason: meta.clockOutReason,
+        employeeClinic: meta.employeeClinic,
         minutesWorked: row.MinutesWorked || 0,
-        flags: parseFlags(row.FlagsJson),
+        flags: meta.flags,
         createdAt: row.CreatedDate,
         modifiedAt: row.ModifiedDate
     };
@@ -174,8 +213,10 @@ module.exports = async function (context, req) {
                 scheduledEnd: toTimeOrNull(body.scheduledEnd),
                 clockIn: toDateTimeOrNull(body.clockIn),
                 clockOut: toDateTimeOrNull(body.clockOut),
+                clockOutReason: body.clockOutReason ? String(body.clockOutReason).trim() : null,
+                employeeClinic: body.employeeClinic ? String(body.employeeClinic).trim() : null,
                 minutesWorked: Math.max(0, Number.parseInt(String(body.minutesWorked || 0), 10) || 0),
-                flagsJson: JSON.stringify(parseFlags(body.flags))
+                flagsJson: serializeRecordMeta(body.flags, body.clockOutReason, body.employeeClinic)
             };
 
             if (exists.recordset[0]?.Id) {
@@ -244,7 +285,7 @@ module.exports = async function (context, req) {
                 .input('clockIn', sql.DateTime2, toDateTimeOrNull(body.clockIn))
                 .input('clockOut', sql.DateTime2, toDateTimeOrNull(body.clockOut))
                 .input('minutesWorked', sql.Int, Math.max(0, Number.parseInt(String(body.minutesWorked || 0), 10) || 0))
-                .input('flagsJson', sql.NVarChar(sql.MAX), JSON.stringify(parseFlags(body.flags)))
+                .input('flagsJson', sql.NVarChar(sql.MAX), serializeRecordMeta(body.flags, body.clockOutReason, body.employeeClinic))
                 .query(`UPDATE AttendanceRecords
                         SET LocalRecordId = COALESCE(@localId, LocalRecordId),
                             UserId = COALESCE(@userId, UserId),
