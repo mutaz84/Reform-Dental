@@ -24389,17 +24389,22 @@
             return null;
         }
 
-        function isComplianceAssignedToCurrentUser(compliance, targetUserId, targetUsername = '') {
+        function isComplianceAssignedToCurrentUser(compliance, targetUserId, targetUsername = '', targetNames = []) {
             if (!compliance || typeof compliance !== 'object') return false;
 
             const normalizedTargetId = Number(targetUserId);
             const normalizedTargetUsername = String(targetUsername || '').trim().toLowerCase();
+            const normalizedTargetNames = (Array.isArray(targetNames) ? targetNames : [])
+                .map((value) => String(value || '').trim().toLowerCase())
+                .filter(Boolean);
 
             const directAssignedId = Number(
                 compliance.userId
                 ?? compliance.UserId
                 ?? compliance.assignedToUserId
                 ?? compliance.AssignedToUserId
+                ?? compliance.employeeId
+                ?? compliance.EmployeeId
                 ?? 0
             );
             if (Number.isInteger(normalizedTargetId) && normalizedTargetId > 0 && directAssignedId === normalizedTargetId) {
@@ -24425,7 +24430,19 @@
             }
 
             const normalizedAssignedIds = assignedCandidates
-                .map((value) => Number(value))
+                .map((value) => {
+                    if (value && typeof value === 'object') {
+                        return Number(
+                            value.id
+                            ?? value.userId
+                            ?? value.UserId
+                            ?? value.employeeId
+                            ?? value.EmployeeId
+                            ?? 0
+                        );
+                    }
+                    return Number(value);
+                })
                 .filter((value) => Number.isInteger(value) && value > 0);
 
             if (Number.isInteger(normalizedTargetId) && normalizedTargetId > 0 && normalizedAssignedIds.includes(normalizedTargetId)) {
@@ -24442,6 +24459,21 @@
                 ].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean);
 
                 if (usernameCandidates.includes(normalizedTargetUsername)) {
+                    return true;
+                }
+            }
+
+            if (normalizedTargetNames.length) {
+                const complianceNames = [
+                    compliance.employeeName,
+                    compliance.EmployeeName,
+                    compliance.assignedToName,
+                    compliance.AssignedToName,
+                    compliance.userDisplayName,
+                    compliance.UserDisplayName
+                ].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean);
+
+                if (complianceNames.some((name) => normalizedTargetNames.includes(name))) {
                     return true;
                 }
             }
@@ -24479,7 +24511,12 @@
                                 .map(normalizeComplianceRecord)
                                 .filter(Boolean);
                             const loggedInUser = String(localStorage.getItem('loggedInUser') || '').trim();
-                            records = allRecords.filter((item) => isComplianceAssignedToCurrentUser(item, currentUserId, loggedInUser));
+                            const users = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
+                            const currentUser = users[loggedInUser] || safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' }) || {};
+                            const fullName = `${String(currentUser?.firstName || currentUser?.FirstName || '').trim()} ${String(currentUser?.lastName || currentUser?.LastName || '').trim()}`.trim();
+                            const displayName = String(currentUser?.name || currentUser?.Name || fullName).trim();
+                            const nameCandidates = [displayName, fullName].filter(Boolean);
+                            records = allRecords.filter((item) => isComplianceAssignedToCurrentUser(item, currentUserId, loggedInUser, nameCandidates));
                         }
                     }
 
@@ -24912,7 +24949,12 @@
 
                 if ((!Array.isArray(myCompliances) || myCompliances.length === 0) && Array.isArray(allCompliances) && allCompliances.length > 0) {
                     const loggedInUser = String(localStorage.getItem('loggedInUser') || '').trim();
-                    myCompliances = allCompliances.filter((item) => isComplianceAssignedToCurrentUser(item, currentUserId, loggedInUser));
+                    const users = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
+                    const currentUser = users[loggedInUser] || safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' }) || {};
+                    const fullName = `${String(currentUser?.firstName || currentUser?.FirstName || '').trim()} ${String(currentUser?.lastName || currentUser?.LastName || '').trim()}`.trim();
+                    const displayName = String(currentUser?.name || currentUser?.Name || fullName).trim();
+                    const nameCandidates = [displayName, fullName].filter(Boolean);
+                    myCompliances = allCompliances.filter((item) => isComplianceAssignedToCurrentUser(item, currentUserId, loggedInUser, nameCandidates));
                 }
 
                 assignedForUserCount = (Array.isArray(myCompliances) ? myCompliances : []).filter((item) => {
