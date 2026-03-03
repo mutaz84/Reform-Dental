@@ -17153,6 +17153,7 @@
                                 </button>
                             </div>
                         </div>
+                        <div id="attendanceSyncStatus" class="attendance-note" style="margin-bottom:0.5rem;"></div>
 
                         <div id="attendanceEmployeeSection">
 
@@ -75983,11 +75984,13 @@ console.log('✅ Global functions exported to window object');
             try {
                 await syncRecordToApi(record);
                 attendanceApiState.available = true;
+                attendanceApiState.lastError = '';
                 const queue = getPendingRecordSyncQueue().filter((entry) => String(entry?.id || '') !== String(record?.id || ''));
                 savePendingRecordSyncQueue(queue);
                 return true;
-            } catch (_) {
+            } catch (err) {
                 attendanceApiState.available = false;
+                attendanceApiState.lastError = String(err?.message || err || 'Attendance API sync failed');
                 queueRecordForSync(record);
                 scheduleAttendanceQueueFlush(2500);
                 return false;
@@ -76609,6 +76612,26 @@ console.log('✅ Global functions exported to window object');
             const titleEl = document.getElementById('attendanceViewTitle');
             if (titleEl) {
                 titleEl.textContent = managerMode ? 'Manage Attendance' : 'My Attendance & PTO';
+            }
+
+            const syncStatusEl = document.getElementById('attendanceSyncStatus');
+            if (syncStatusEl) {
+                const pendingCount = getPendingRecordSyncQueue().length;
+                const detail = String(attendanceApiState.lastError || '').trim();
+                const hasCooldown = attendanceApiState.cooldownUntil > Date.now();
+                if (pendingCount > 0) {
+                    syncStatusEl.textContent = `Sync pending: ${pendingCount} record(s) queued.${detail ? ` Last error: ${detail}` : ''}`;
+                    syncStatusEl.style.color = 'var(--warning-color, #d97706)';
+                } else if (attendanceApiState.available === false) {
+                    syncStatusEl.textContent = `Server sync offline.${detail ? ` Last error: ${detail}` : ''}${hasCooldown ? ' Retrying shortly.' : ''}`;
+                    syncStatusEl.style.color = 'var(--danger-color, #dc2626)';
+                } else if (attendanceApiState.available === true) {
+                    syncStatusEl.textContent = 'Server sync connected.';
+                    syncStatusEl.style.color = 'var(--success-color, #16a34a)';
+                } else {
+                    syncStatusEl.textContent = 'Server sync status: checking...';
+                    syncStatusEl.style.color = 'var(--text-secondary)';
+                }
             }
 
             const employeeSection = document.getElementById('attendanceEmployeeSection');
