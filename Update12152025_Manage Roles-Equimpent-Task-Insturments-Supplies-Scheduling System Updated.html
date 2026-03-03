@@ -25610,18 +25610,21 @@
         function applyComplianceModalAccess() {
             const isRegularUser = !canCurrentUserApproveCompliances();
             const isReadOnly = !!window.__complianceModalReadOnly;
+            const modalMode = String(window.__complianceModalMode || 'standard');
+            const isManagerTemplateMode = modalMode === 'template' && !isRegularUser;
 
             const employeeGroup = document.getElementById('complianceEmployeeAssignGroup');
             const employeeSelector = document.getElementById('complianceEmployeeSelector');
 
             if (employeeGroup) {
+                employeeGroup.style.display = isRegularUser ? '' : 'none';
                 employeeGroup.style.opacity = isRegularUser ? '0.7' : '1';
             }
 
             if (employeeSelector) {
                 const baseRequired = employeeSelector.dataset.baseRequired === '1';
-                employeeSelector.required = baseRequired && !isRegularUser && !isReadOnly;
-                employeeSelector.disabled = isReadOnly || isRegularUser;
+                employeeSelector.required = baseRequired && isRegularUser && !isReadOnly;
+                employeeSelector.disabled = isReadOnly || !isRegularUser;
             }
 
             const complianceType = document.getElementById('complianceType');
@@ -25635,7 +25638,14 @@
             }
 
             if (typeNa) {
-                typeNa.disabled = isReadOnly;
+                if (!isRegularUser) {
+                    typeNa.checked = false;
+                }
+                typeNa.disabled = isReadOnly || !isRegularUser;
+                const typeNaLabel = typeNa.closest('label');
+                if (typeNaLabel) {
+                    typeNaLabel.style.display = isRegularUser ? 'inline-flex' : 'none';
+                }
             }
 
             const manageTypesBtn = document.getElementById('complianceManageTypesBtn');
@@ -25680,12 +25690,21 @@
                 const field = document.getElementById(fieldId);
                 if (!checkbox || !field) return;
 
+                if (!isRegularUser) {
+                    checkbox.checked = false;
+                }
+
                 const notApplicable = !!checkbox.checked;
                 const baseRequired = field.dataset.baseRequired === '1';
                 field.required = baseRequired && !notApplicable && !isReadOnly;
                 field.disabled = isReadOnly || notApplicable;
                 field.style.opacity = notApplicable ? '0.65' : '1';
-                checkbox.disabled = isReadOnly;
+                checkbox.disabled = isReadOnly || !isRegularUser;
+
+                const checkboxLabel = checkbox.closest('label');
+                if (checkboxLabel) {
+                    checkboxLabel.style.display = isRegularUser ? 'inline-flex' : 'none';
+                }
             });
 
             const reminderDateField = document.getElementById('complianceReminderDate');
@@ -25702,6 +25721,34 @@
                     }
                 }
             }
+
+            const managerTemplateOnlyHiddenFields = [
+                'complianceIssueDate',
+                'complianceExpiryDate',
+                'complianceReminderDate',
+                'complianceStatus',
+                'complianceDocumentType',
+                'complianceReferenceNumber',
+                'complianceIssuingAuthority',
+                'complianceCost',
+                'complianceAttachment',
+                'complianceNotes'
+            ];
+
+            managerTemplateOnlyHiddenFields.forEach((fieldId) => {
+                const field = document.getElementById(fieldId);
+                if (!field) return;
+
+                const group = field.closest('.form-group');
+                if (group) {
+                    group.style.display = isManagerTemplateMode ? 'none' : '';
+                }
+
+                if (isManagerTemplateMode) {
+                    field.required = false;
+                    field.disabled = true;
+                }
+            });
         }
 
         function getComplianceNotApplicableIds() {
@@ -25740,11 +25787,14 @@
             const employeeGroup = document.getElementById('complianceEmployeeAssignGroup');
             const employeeSelector = document.getElementById('complianceEmployeeSelector');
             const titleInput = document.getElementById('complianceTitle');
+            const descriptionInput = document.getElementById('complianceDescription');
             const issueDateInput = document.getElementById('complianceIssueDate');
             const complianceStatus = document.getElementById('complianceStatus');
             const complianceType = document.getElementById('complianceType');
+            const isRegularUser = !canCurrentUserApproveCompliances();
 
-            if (titleInput) titleInput.required = mode !== 'template';
+            if (titleInput) titleInput.required = mode === 'template';
+            if (descriptionInput) descriptionInput.required = mode === 'template';
             if (issueDateInput) issueDateInput.required = false;
             if (complianceType) complianceType.dataset.baseRequired = '1';
 
@@ -25777,7 +25827,7 @@
                     approveBtn.disabled = false;
                     approveBtn.innerHTML = '<i class="fas fa-check" style="margin-right: 0.5rem;"></i>Approve Compliance';
                 }
-                if (employeeGroup) employeeGroup.style.display = '';
+                if (employeeGroup) employeeGroup.style.display = isRegularUser ? '' : 'none';
                 if (employeeSelector) {
                     employeeSelector.required = false;
                     employeeSelector.dataset.baseRequired = '0';
@@ -25794,9 +25844,9 @@
                 saveBtn.innerHTML = '<i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save Compliance';
             }
             if (approveBtn) approveBtn.style.display = 'none';
-            if (employeeGroup) employeeGroup.style.display = '';
+            if (employeeGroup) employeeGroup.style.display = isRegularUser ? '' : 'none';
             if (employeeSelector) {
-                employeeSelector.required = !document.getElementById('complianceId')?.value;
+                employeeSelector.required = isRegularUser && !document.getElementById('complianceId')?.value;
                 employeeSelector.dataset.baseRequired = employeeSelector.required ? '1' : '0';
             }
             setComplianceModalReadOnly(false);
@@ -26025,7 +26075,7 @@
                     }
                     closeComplianceModal();
                     if (typeof showNotification === 'function') {
-                        showNotification(isTemplateMode ? 'Compliance template created and assigned.' : 'Compliance saved successfully!', 'success');
+                        showNotification(isTemplateMode ? 'Compliance template created successfully.' : 'Compliance saved successfully!', 'success');
                     }
                     if (typeof refreshComplianceNavBadges === 'function') {
                         refreshComplianceNavBadges({ forceAllFetch: true, forceUserFetch: true });
