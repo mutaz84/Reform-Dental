@@ -17291,14 +17291,22 @@
                             <div class="attendance-tabs" id="attendanceManagerTabs" style="margin-top:0.4rem;">
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="overview" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','overview');}">Overview</button>
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="policy" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','policy');}">Flex &amp; PTO</button>
-                                <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="daily" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','daily');}">Daily Team</button>
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="queue" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','queue');}">PTO Queue</button>
-                                <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="hours" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','hours');}">Hours Calculator</button>
                             </div>
 
                             <div class="attendance-grid" style="margin-top:0;">
                                 <div class="attendance-card" data-attendance-manager-panel="overview" style="padding:0.7rem;">
-                                    <h3 style="font-size:0.88rem;"><i class="fas fa-users"></i> Today Scheduled vs Clocked</h3>
+                                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.4rem; flex-wrap:wrap; margin-bottom:0.45rem;">
+                                        <h3 style="font-size:0.88rem; margin:0;"><i class="fas fa-users"></i> Today Scheduled vs Clocked</h3>
+                                        <div class="attendance-btn-row" style="margin-top:0;">
+                                            <button class="btn-secondary" type="button" onclick="if(window.exportAttendanceDailyReportExcel){window.exportAttendanceDailyReportExcel('manager');}">
+                                                <i class="fas fa-file-excel"></i> Export Excel
+                                            </button>
+                                            <button class="btn-secondary" type="button" onclick="if(window.exportAttendanceDailyReportPDF){window.exportAttendanceDailyReportPDF('manager');}">
+                                                <i class="fas fa-print"></i> Print
+                                            </button>
+                                        </div>
+                                    </div>
                                     <div class="attendance-table-wrap" style="max-height:240px;">
                                         <table class="attendance-table">
                                             <thead>
@@ -17365,39 +17373,6 @@
                             </div>
 
                             <div class="attendance-grid" style="margin-top:0.9rem;">
-                                <div class="attendance-card" data-attendance-manager-panel="daily" style="padding:0.7rem;">
-                                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.4rem; flex-wrap:wrap; margin-bottom:0.45rem;">
-                                        <h3 style="font-size:0.88rem; margin:0;"><i class="fas fa-file-alt"></i> Daily Team Timesheet Report</h3>
-                                        <div class="attendance-btn-row" style="margin-top:0;">
-                                            <button class="btn-secondary" type="button" onclick="if(window.exportAttendanceDailyReportExcel){window.exportAttendanceDailyReportExcel('manager');}">
-                                                <i class="fas fa-file-excel"></i> Export Excel
-                                            </button>
-                                            <button class="btn-secondary" type="button" onclick="if(window.exportAttendanceDailyReportPDF){window.exportAttendanceDailyReportPDF('manager');}">
-                                                <i class="fas fa-file-pdf"></i> Export PDF
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div class="attendance-table-wrap" style="max-height:240px;">
-                                        <table class="attendance-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>Employee</th>
-                                                    <th>Employee Clinic</th>
-                                                    <th>Date</th>
-                                                    <th>Clock In</th>
-                                                    <th>Clock Out</th>
-                                                    <th>Clock-out Reason</th>
-                                                    <th>Hours Worked</th>
-                                                    <th>Status</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="attendanceManagerDailyReportBody"></tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="attendance-grid" style="margin-top:0.9rem;">
                                 <div class="attendance-card" data-attendance-manager-panel="queue" style="padding:0.7rem;">
                                     <h3 style="font-size:0.88rem;"><i class="fas fa-hourglass-half"></i> PTO Approval Queue</h3>
                                     <div class="attendance-table-wrap" style="max-height:220px;">
@@ -17414,23 +17389,6 @@
                                             <tbody id="attendancePtoQueueBody"></tbody>
                                         </table>
                                     </div>
-                                </div>
-                                <div class="attendance-card" data-attendance-manager-panel="hours" style="padding:0.7rem;">
-                                    <h3 style="font-size:0.88rem;"><i class="fas fa-calculator"></i> Hours Calculator</h3>
-                                    <div class="attendance-input-row">
-                                        <div>
-                                            <label>Employee</label>
-                                            <select id="attendanceHoursEmployee"></select>
-                                        </div>
-                                        <div>
-                                            <label>Day</label>
-                                            <input type="date" id="attendanceHoursDate">
-                                        </div>
-                                    </div>
-                                    <div class="attendance-btn-row">
-                                        <button class="btn-secondary" type="button" onclick="if(window.calculateAttendanceHours){window.calculateAttendanceHours();}">Calculate</button>
-                                    </div>
-                                    <div class="attendance-stat-grid" id="attendanceHoursStats" style="margin-top:0.7rem;"></div>
                                 </div>
                             </div>
                         </div>
@@ -76480,7 +76438,8 @@ console.log('✅ Global functions exported to window object');
             if (!value) return;
 
             if (normalizedMode === 'manager') {
-                window.__attendanceManagerTab = value;
+                const allowedManagerTabs = new Set(['overview', 'policy', 'queue']);
+                window.__attendanceManagerTab = allowedManagerTabs.has(value) ? value : 'overview';
             } else {
                 window.__attendanceEmployeeTab = value;
             }
@@ -76541,7 +76500,9 @@ console.log('✅ Global functions exported to window object');
             if (managerSection) managerSection.style.display = managerMode ? '' : 'none';
 
             if (!window.__attendanceEmployeeTab) window.__attendanceEmployeeTab = 'clockpto';
-            if (!window.__attendanceManagerTab) window.__attendanceManagerTab = 'overview';
+            if (!window.__attendanceManagerTab || !['overview', 'policy', 'queue'].includes(window.__attendanceManagerTab)) {
+                window.__attendanceManagerTab = 'overview';
+            }
             renderAttendanceSubTabs();
 
             const scheduleEl = document.getElementById('attendanceTodaySchedule');
@@ -76696,26 +76657,8 @@ console.log('✅ Global functions exported to window object');
                     }).join('') || '<tr><td colspan="7" class="attendance-note">No employees scheduled today.</td></tr>';
                 }
 
-                const managerDailyReportBody = document.getElementById('attendanceManagerDailyReportBody');
-                if (managerDailyReportBody) {
-                    const reportRows = buildDailyAttendanceReportRows(recordsTodayFiltered, todayISO, { includeEmployee: true, scheduleMap, selectedClinicKey });
-                    window.__attendanceManagerDailyReportRows = reportRows;
-
-                    managerDailyReportBody.innerHTML = reportRows.map((row) => {
-                        return `
-                            <tr>
-                                <td>${row.employee || '-'}</td>
-                                <td>${row.employeeClinic || '-'}</td>
-                                <td>${formatDate(row.date || todayISO)}</td>
-                                <td>${row.clockIn ? formatDateTime(row.clockIn) : '-'}</td>
-                                <td>${row.clockOut ? formatDateTime(row.clockOut) : '-'}</td>
-                                <td>${row.clockOutReason || '-'}</td>
-                                <td>${formatHours(row.minutesWorked || 0)}</td>
-                                <td>${row.status}</td>
-                            </tr>
-                        `;
-                    }).join('') || '<tr><td colspan="8" class="attendance-note">No team clock activity found for today.</td></tr>';
-                }
+                const reportRows = buildDailyAttendanceReportRows(recordsTodayFiltered, todayISO, { includeEmployee: true, scheduleMap, selectedClinicKey });
+                window.__attendanceManagerDailyReportRows = reportRows;
 
                 const queueBody = document.getElementById('attendancePtoQueueBody');
                 if (queueBody) {
