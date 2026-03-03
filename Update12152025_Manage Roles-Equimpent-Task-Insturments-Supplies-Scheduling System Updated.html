@@ -74829,19 +74829,29 @@ console.log('✅ Global functions exported to window object');
             pendingRecordSync: 'attendancePendingRecordSyncV1'
         };
 
+        const attendanceApiBase = (() => {
+            const configured = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL.trim())
+                ? window.API_BASE_URL.trim()
+                : '/api';
+            return String(configured).replace(/\/+$/, '');
+        })();
+
         const ATTENDANCE_API = {
-            records: '/api/attendance-records',
-            policies: '/api/attendance-policies',
-            ptoCredits: '/api/pto-credits',
-            ptoRequests: '/api/pto-requests',
-            notifications: '/api/attendance-notifications',
-            absences: '/api/attendance-absences'
+            records: `${attendanceApiBase}/attendance-records`,
+            policies: `${attendanceApiBase}/attendance-policies`,
+            ptoCredits: `${attendanceApiBase}/pto-credits`,
+            ptoRequests: `${attendanceApiBase}/pto-requests`,
+            notifications: `${attendanceApiBase}/attendance-notifications`,
+            absences: `${attendanceApiBase}/attendance-absences`
         };
 
         const attendanceApiState = {
             initialized: false,
             available: null,
-            loading: false
+            loading: false,
+            failureCount: 0,
+            cooldownUntil: 0,
+            lastError: ''
         };
 
         function normalizeUsernameKey(username) {
@@ -74849,21 +74859,40 @@ console.log('✅ Global functions exported to window object');
         }
 
         async function attendanceApiRequest(url, options = {}) {
-            const response = await fetch(url, {
-                method: options.method || 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(options.headers || {})
-                },
-                body: options.body ? JSON.stringify(options.body) : undefined
-            });
-            if (!response.ok) {
-                throw new Error(`Attendance API ${response.status}: ${url}`);
+            const now = Date.now();
+            if (attendanceApiState.cooldownUntil > now) {
+                throw new Error('Attendance API temporarily unavailable; retrying shortly.');
             }
-            if (response.status === 204) return null;
-            const text = await response.text();
-            if (!text) return null;
-            return JSON.parse(text);
+
+            try {
+                const response = await fetch(url, {
+                    method: options.method || 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(options.headers || {})
+                    },
+                    body: options.body ? JSON.stringify(options.body) : undefined
+                });
+                if (!response.ok) {
+                    const details = await response.text().catch(() => '');
+                    throw new Error(`Attendance API ${response.status}: ${details || url}`);
+                }
+                if (response.status === 204) return null;
+                const text = await response.text();
+
+                attendanceApiState.failureCount = 0;
+                attendanceApiState.cooldownUntil = 0;
+                attendanceApiState.lastError = '';
+
+                if (!text) return null;
+                return JSON.parse(text);
+            } catch (error) {
+                attendanceApiState.failureCount = Math.min(attendanceApiState.failureCount + 1, 6);
+                const delayMs = Math.min(60000, 3000 * Math.pow(2, Math.max(0, attendanceApiState.failureCount - 1)));
+                attendanceApiState.cooldownUntil = Date.now() + delayMs;
+                attendanceApiState.lastError = String(error?.message || error || 'Attendance API error');
+                throw error;
+            }
         }
 
         function fireAndForget(promise) {
