@@ -24389,6 +24389,66 @@
             return null;
         }
 
+        function isComplianceAssignedToCurrentUser(compliance, targetUserId, targetUsername = '') {
+            if (!compliance || typeof compliance !== 'object') return false;
+
+            const normalizedTargetId = Number(targetUserId);
+            const normalizedTargetUsername = String(targetUsername || '').trim().toLowerCase();
+
+            const directAssignedId = Number(
+                compliance.userId
+                ?? compliance.UserId
+                ?? compliance.assignedToUserId
+                ?? compliance.AssignedToUserId
+                ?? 0
+            );
+            if (Number.isInteger(normalizedTargetId) && normalizedTargetId > 0 && directAssignedId === normalizedTargetId) {
+                return true;
+            }
+
+            const assignedCandidates = [];
+            const rawAssigned = compliance.assignedUserIds
+                ?? compliance.AssignedUserIds
+                ?? compliance.userIds
+                ?? compliance.UserIds
+                ?? null;
+
+            if (Array.isArray(rawAssigned)) {
+                assignedCandidates.push(...rawAssigned);
+            } else if (typeof rawAssigned === 'string' && rawAssigned.trim()) {
+                const parsedJson = safeParseJson(rawAssigned, null);
+                if (Array.isArray(parsedJson)) {
+                    assignedCandidates.push(...parsedJson);
+                } else {
+                    assignedCandidates.push(...rawAssigned.split(',').map((value) => value.trim()));
+                }
+            }
+
+            const normalizedAssignedIds = assignedCandidates
+                .map((value) => Number(value))
+                .filter((value) => Number.isInteger(value) && value > 0);
+
+            if (Number.isInteger(normalizedTargetId) && normalizedTargetId > 0 && normalizedAssignedIds.includes(normalizedTargetId)) {
+                return true;
+            }
+
+            if (normalizedTargetUsername) {
+                const usernameCandidates = [
+                    compliance.username,
+                    compliance.userName,
+                    compliance.UserName,
+                    compliance.employeeUsername,
+                    compliance.EmployeeUsername
+                ].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean);
+
+                if (usernameCandidates.includes(normalizedTargetUsername)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         async function initializeRequirementsView(forceRefresh = false) {
             const listEl = document.getElementById('requirementsList');
             if (!listEl) return;
@@ -24408,9 +24468,20 @@
                         throw new Error(`HTTP ${response.status}`);
                     }
 
-                    const records = (await response.json())
+                    let records = (await response.json())
                         .map(normalizeComplianceRecord)
                         .filter(Boolean);
+
+                    if (!records.length) {
+                        const allResponse = await fetchComplianceApi('compliances');
+                        if (allResponse.ok) {
+                            const allRecords = (await allResponse.json())
+                                .map(normalizeComplianceRecord)
+                                .filter(Boolean);
+                            const loggedInUser = String(localStorage.getItem('loggedInUser') || '').trim();
+                            records = allRecords.filter((item) => isComplianceAssignedToCurrentUser(item, currentUserId, loggedInUser));
+                        }
+                    }
 
                     window.__requirementsCache = window.__requirementsCache || {};
                     window.__requirementsCache[currentUserId] = records;
@@ -24837,6 +24908,11 @@
                             window.__requirementsCache[currentUserId] = myCompliances;
                         }
                     } catch (_) {}
+                }
+
+                if ((!Array.isArray(myCompliances) || myCompliances.length === 0) && Array.isArray(allCompliances) && allCompliances.length > 0) {
+                    const loggedInUser = String(localStorage.getItem('loggedInUser') || '').trim();
+                    myCompliances = allCompliances.filter((item) => isComplianceAssignedToCurrentUser(item, currentUserId, loggedInUser));
                 }
 
                 assignedForUserCount = (Array.isArray(myCompliances) ? myCompliances : []).filter((item) => {
