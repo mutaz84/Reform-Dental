@@ -2,6 +2,35 @@ const sql = require('mssql');
 
 let sharedPoolPromise = null;
 
+function resetSharedPool() {
+    if (!sharedPoolPromise) return;
+    sharedPoolPromise
+        .then(async (pool) => {
+            try {
+                if (pool && typeof pool.close === 'function') {
+                    await pool.close();
+                }
+            } catch (_) {}
+        })
+        .catch(() => {});
+    sharedPoolPromise = null;
+}
+
+function isConnectionError(error) {
+    const message = String(error?.message || '').toLowerCase();
+    const code = String(error?.code || '').toLowerCase();
+    return [
+        code.includes('econn'),
+        code.includes('socket'),
+        code.includes('timeout'),
+        code.includes('enotopen'),
+        message.includes('connection'),
+        message.includes('socket'),
+        message.includes('timeout'),
+        message.includes('closed')
+    ].some(Boolean);
+}
+
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
     if (connStr) {
@@ -61,12 +90,22 @@ function getConfig() {
 }
 
 async function getPool() {
-    if (!sharedPoolPromise) {
-        sharedPoolPromise = sql.connect(getConfig()).catch((error) => {
-            sharedPoolPromise = null;
-            throw error;
-        });
+    if (sharedPoolPromise) {
+        try {
+            const existing = await sharedPoolPromise;
+            if (existing && (existing.connected || existing.connecting)) {
+                return existing;
+            }
+            resetSharedPool();
+        } catch (_) {
+            resetSharedPool();
+        }
     }
+
+    sharedPoolPromise = sql.connect(getConfig()).catch((error) => {
+        sharedPoolPromise = null;
+        throw error;
+    });
     return sharedPoolPromise;
 }
 
@@ -363,6 +402,9 @@ module.exports = async function (context, req) {
 
         context.res = { status: 405, headers, body: { error: 'Method not allowed' } };
     } catch (err) {
+        if (isConnectionError(err)) {
+            resetSharedPool();
+        }
         context.log.error('Attendance Records API error:', err);
         context.res = { status: 500, headers, body: { error: err.message || 'Server error' } };
     }
