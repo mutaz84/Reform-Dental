@@ -24541,6 +24541,13 @@
                         records = (await response.json())
                             .map(normalizeComplianceRecord)
                             .filter(Boolean);
+                    } else if (userContext.primaryUsername) {
+                        const response = await fetchComplianceApi('compliances', `?username=${encodeURIComponent(userContext.primaryUsername)}`);
+                        if (response.ok) {
+                            records = (await response.json())
+                                .map(normalizeComplianceRecord)
+                                .filter(Boolean);
+                        }
                     }
 
                     if (!records.length) {
@@ -24701,8 +24708,9 @@
                 }
 
                 const currentUserId = getCurrentComplianceUserId();
-                if (currentUserId && window.__requirementsCache) {
-                    delete window.__requirementsCache[currentUserId];
+                const cacheKey = currentUserId ? `id:${currentUserId}` : `user:${getCurrentComplianceUserContext().primaryUsername || 'unknown'}`;
+                if (window.__requirementsCache && cacheKey) {
+                    delete window.__requirementsCache[cacheKey];
                 }
 
                 if (typeof showNotification === 'function') {
@@ -24771,8 +24779,9 @@
                 task.linkedComplianceStatus = 'completed';
 
                 const currentUserId = getCurrentComplianceUserId();
-                if (currentUserId && window.__requirementsCache) {
-                    delete window.__requirementsCache[currentUserId];
+                const cacheKey = currentUserId ? `id:${currentUserId}` : `user:${getCurrentComplianceUserContext().primaryUsername || 'unknown'}`;
+                if (window.__requirementsCache && cacheKey) {
+                    delete window.__requirementsCache[cacheKey];
                 }
 
                 loadComplianceSummaryByUser(true).then(() => {
@@ -24976,9 +24985,12 @@
                     ? window.__requirementsCache[requirementsCacheKey]
                     : [];
 
-                if ((options.forceUserFetch || !myCompliances.length) && canTryApi && currentUserId) {
+                if ((options.forceUserFetch || !myCompliances.length) && canTryApi && (currentUserId || userContext.primaryUsername)) {
                     try {
-                        const userResponse = await fetchComplianceApi('compliances', `?userId=${encodeURIComponent(currentUserId)}`);
+                        const query = currentUserId
+                            ? `?userId=${encodeURIComponent(currentUserId)}`
+                            : `?username=${encodeURIComponent(userContext.primaryUsername)}`;
+                        const userResponse = await fetchComplianceApi('compliances', query);
                         if (userResponse.ok) {
                             myCompliances = (await userResponse.json())
                                 .map(normalizeComplianceRecord)
