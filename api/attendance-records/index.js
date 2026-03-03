@@ -1,22 +1,73 @@
 const sql = require('mssql');
 
+let sharedPoolPromise = null;
+
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
     if (connStr) {
         const serverMatch = connStr.match(/Server=(?:tcp:)?([^,;]+)/i);
+        const portMatch = connStr.match(/Server=(?:tcp:)?[^,;]+,(\d+)/i);
         const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
         const userMatch = connStr.match(/User ID=([^;]+)/i);
         const passMatch = connStr.match(/Password=([^;]+)/i);
+        const encryptMatch = connStr.match(/Encrypt=([^;]+)/i);
+        const trustMatch = connStr.match(/TrustServerCertificate=([^;]+)/i);
+
+        const parseBool = (value, fallback) => {
+            if (value == null) return fallback;
+            return /^(true|yes|1)$/i.test(String(value).trim());
+        };
 
         return {
             server: serverMatch ? serverMatch[1] : '',
+            port: portMatch ? Number(portMatch[1]) : undefined,
             database: dbMatch ? dbMatch[1] : '',
             user: userMatch ? userMatch[1] : '',
             password: passMatch ? passMatch[1] : '',
-            options: { encrypt: true, trustServerCertificate: false }
+            options: {
+                encrypt: parseBool(encryptMatch?.[1], true),
+                trustServerCertificate: parseBool(trustMatch?.[1], false),
+                enableArithAbort: true
+            },
+            pool: {
+                max: 10,
+                min: 0,
+                idleTimeoutMillis: 30000
+            },
+            requestTimeout: 30000,
+            connectionTimeout: 30000
         };
     }
-    return {};
+
+    return {
+        server: process.env.SQL_SERVER || '',
+        port: process.env.SQL_PORT ? Number(process.env.SQL_PORT) : undefined,
+        database: process.env.SQL_DATABASE || '',
+        user: process.env.SQL_USER || '',
+        password: process.env.SQL_PASSWORD || '',
+        options: {
+            encrypt: true,
+            trustServerCertificate: false,
+            enableArithAbort: true
+        },
+        pool: {
+            max: 10,
+            min: 0,
+            idleTimeoutMillis: 30000
+        },
+        requestTimeout: 30000,
+        connectionTimeout: 30000
+    };
+}
+
+async function getPool() {
+    if (!sharedPoolPromise) {
+        sharedPoolPromise = sql.connect(getConfig()).catch((error) => {
+            sharedPoolPromise = null;
+            throw error;
+        });
+    }
+    return sharedPoolPromise;
 }
 
 function toIntOrNull(value) {
@@ -136,9 +187,8 @@ module.exports = async function (context, req) {
         return;
     }
 
-    let pool;
     try {
-        pool = await sql.connect(getConfig());
+        const pool = await getPool();
         const id = toIntOrNull(req.params?.id);
         const method = req.method;
 
@@ -315,9 +365,5 @@ module.exports = async function (context, req) {
     } catch (err) {
         context.log.error('Attendance Records API error:', err);
         context.res = { status: 500, headers, body: { error: err.message || 'Server error' } };
-    } finally {
-        if (pool) {
-            try { await pool.close(); } catch (_) {}
-        }
     }
 };
