@@ -130,12 +130,29 @@ function toDateOnly(value) {
 function toTimeOrNull(value) {
     if (!value) return null;
     const str = String(value).trim();
-    const m = str.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-    if (!m) return null;
-    const hh = String(Number(m[1])).padStart(2, '0');
-    const mm = m[2];
-    const ss = m[3] || '00';
-    return `${hh}:${mm}:${ss}`;
+    const match = str.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?$/i);
+    if (!match) return null;
+
+    let hours = Number.parseInt(match[1], 10);
+    const minutes = Number.parseInt(match[2], 10);
+    const seconds = Number.parseInt(match[3] || '0', 10);
+    const meridiem = (match[4] || '').toLowerCase();
+
+    if (!Number.isInteger(hours) || !Number.isInteger(minutes) || !Number.isInteger(seconds)) {
+        return null;
+    }
+
+    if (meridiem) {
+        if (hours < 1 || hours > 12) return null;
+        if (meridiem === 'pm' && hours < 12) hours += 12;
+        if (meridiem === 'am' && hours === 12) hours = 0;
+    }
+
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59) {
+        return null;
+    }
+
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 function toDateTimeOrNull(value) {
