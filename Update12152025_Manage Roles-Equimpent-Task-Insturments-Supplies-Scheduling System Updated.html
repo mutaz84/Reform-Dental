@@ -75137,6 +75137,35 @@ console.log('✅ Global functions exported to window object');
         }
 
         function syncRecordToApi(record) {
+            const normalizeTimeForApi = (value) => {
+                if (value === null || value === undefined) return null;
+                const raw = String(value).trim();
+                if (!raw) return null;
+                const match = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?$/i);
+                if (!match) return null;
+
+                let hours = Number.parseInt(match[1], 10);
+                const minutes = Number.parseInt(match[2], 10);
+                const seconds = Number.parseInt(match[3] || '0', 10);
+                const meridiem = (match[4] || '').toLowerCase();
+
+                if (!Number.isInteger(hours) || !Number.isInteger(minutes) || !Number.isInteger(seconds)) {
+                    return null;
+                }
+
+                if (meridiem) {
+                    if (hours < 1 || hours > 12) return null;
+                    if (meridiem === 'pm' && hours < 12) hours += 12;
+                    if (meridiem === 'am' && hours === 12) hours = 0;
+                }
+
+                if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59) {
+                    return null;
+                }
+
+                return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            };
+
             return attendanceApiRequest(ATTENDANCE_API.records, {
                 method: 'POST',
                 body: {
@@ -75145,8 +75174,8 @@ console.log('✅ Global functions exported to window object');
                     username: record.username,
                     displayName: record.displayName,
                     date: record.date,
-                    scheduledStart: record.scheduledStart,
-                    scheduledEnd: record.scheduledEnd,
+                    scheduledStart: normalizeTimeForApi(record.scheduledStart),
+                    scheduledEnd: normalizeTimeForApi(record.scheduledEnd),
                     clockIn: record.clockIn,
                     clockOut: record.clockOut,
                     clockOutReason: record.clockOutReason,
