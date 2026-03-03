@@ -76618,13 +76618,64 @@ console.log('✅ Global functions exported to window object');
                 const getRecordEventTime = (record) => new Date(record?.clockOut || record?.clockIn || 0).getTime() || 0;
                 const todayBody = document.getElementById('attendanceManagerTodayBody');
                 if (todayBody) {
-                    todayBody.innerHTML = filteredScheduleEntries.map(([username, schedule]) => {
+                    const identityToUsername = {};
+                    filteredScheduleEntries.forEach(([username]) => {
+                        const candidates = getAttendanceIdentityCandidates(username);
+                        candidates.forEach((candidate) => {
+                            if (candidate) identityToUsername[candidate] = username;
+                        });
+                    });
+
+                    const rosterMap = new Map(filteredScheduleEntries.map(([username, schedule]) => [username, {
+                        username,
+                        schedule: schedule || null,
+                        latestRecord: null
+                    }]));
+
+                    recordsTodayFiltered.forEach((record) => {
+                        const recordUser = toIdentityKey(record?.username);
+                        const recordDisplay = toIdentityKey(record?.displayName);
+                        const matchedUsername = identityToUsername[recordUser] || identityToUsername[recordDisplay] || null;
+
+                        let rosterKey = matchedUsername;
+                        if (!rosterKey) {
+                            const canonical = resolveCanonicalUsername(record?.username || record?.displayName || '');
+                            rosterKey = canonical || String(record?.username || record?.displayName || '').trim();
+                        }
+                        if (!rosterKey) return;
+
+                        if (!rosterMap.has(rosterKey)) {
+                            rosterMap.set(rosterKey, {
+                                username: rosterKey,
+                                schedule: scheduleMap[rosterKey] || null,
+                                latestRecord: null
+                            });
+                        }
+
+                        const entry = rosterMap.get(rosterKey);
+                        const existingLatestTime = getRecordEventTime(entry.latestRecord);
+                        const recordTime = getRecordEventTime(record);
+                        if (!entry.latestRecord || recordTime >= existingLatestTime) {
+                            entry.latestRecord = record;
+                        }
+                    });
+
+                    const rosterRows = Array.from(rosterMap.values())
+                        .sort((a, b) => {
+                            const aName = String(a?.schedule?.displayName || a?.latestRecord?.displayName || a?.username || '').toLowerCase();
+                            const bName = String(b?.schedule?.displayName || b?.latestRecord?.displayName || b?.username || '').toLowerCase();
+                            return aName.localeCompare(bName);
+                        });
+
+                    todayBody.innerHTML = rosterRows.map((entry) => {
+                        const username = entry.username;
+                        const schedule = entry.schedule || {};
                         const userCandidates = getAttendanceIdentityCandidates(username);
-                        const latestRecord = recordsTodayFiltered
-                            .filter((entry) => recordMatchesIdentityCandidates(entry, userCandidates) && (!!entry?.clockIn || !!entry?.clockOut))
+                        const latestRecord = entry.latestRecord || recordsTodayFiltered
+                            .filter((record) => recordMatchesIdentityCandidates(record, userCandidates) && (!!record?.clockIn || !!record?.clockOut))
                             .sort((a, b) => getRecordEventTime(b) - getRecordEventTime(a))[0] || null;
                         const ptoApproved = getPtoRequests().some((request) => request.username === username && isDateInPto(request, todayISO));
-                        const employeeClinic = resolveClinicForEmployee(username, schedule) || '-';
+                        const employeeClinic = resolveClinicForEmployee(username, schedule) || resolveClinicForRecord(latestRecord, scheduleMap) || '-';
                         const clockOutReason = latestRecord?.clockOut ? getClockOutReasonLabel(latestRecord.clockOutReason) : '-';
 
                         let clockInLabel = '-';
@@ -76640,21 +76691,21 @@ console.log('✅ Global functions exported to window object');
                         } else if (ptoApproved) {
                             status = 'PTO Approved';
                         } else {
-                            status = 'Not Clocked';
+                            status = schedule.startTime ? 'Not Clocked' : 'Not Scheduled';
                         }
 
                         return `
                             <tr>
-                                <td>${schedule.displayName || username}</td>
+                                <td>${schedule.displayName || latestRecord?.displayName || username}</td>
                                 <td>${employeeClinic}</td>
-                                <td>${schedule.startTime || '--:--'} - ${schedule.endTime || '--:--'}</td>
+                                <td>${schedule.startTime ? `${schedule.startTime || '--:--'} - ${schedule.endTime || '--:--'}` : 'Not Scheduled'}</td>
                                 <td>${clockInLabel}</td>
                                 <td>${clockOutLabel}</td>
                                 <td>${clockOutReason}</td>
                                 <td>${status}</td>
                             </tr>
                         `;
-                    }).join('') || '<tr><td colspan="7" class="attendance-note">No employees scheduled today.</td></tr>';
+                    }).join('') || '<tr><td colspan="7" class="attendance-note">No attendance activity or schedules found for today.</td></tr>';
                 }
 
                 const reportRows = buildDailyAttendanceReportRows(recordsTodayFiltered, todayISO, { includeEmployee: true, scheduleMap, selectedClinicKey });
@@ -76684,7 +76735,9 @@ console.log('✅ Global functions exported to window object');
         }
 
         async function refreshAttendanceView() {
+            await loadAttendanceDataFromApi();
             await refreshPtoCreditsFromApi();
+            await flushPendingRecordSyncQueue();
             renderAttendanceView();
         }
 
