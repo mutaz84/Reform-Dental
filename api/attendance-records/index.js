@@ -161,6 +161,12 @@ function toDateTimeOrNull(value) {
     return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function toTimeTextOrNull(value) {
+    if (!value) return null;
+    const str = String(value).trim();
+    return str ? str.slice(0, 20) : null;
+}
+
 function safeString(value, maxLen = null) {
     if (value === null || value === undefined) return null;
     const str = String(value).trim();
@@ -360,8 +366,8 @@ module.exports = async function (context, req) {
                         .input('localId', sql.NVarChar(120), payload.localId)
                         .input('userId', sql.Int, payload.userId)
                         .input('displayName', sql.NVarChar(255), payload.displayName)
-                        .input('scheduledStart', sql.Time, payload.scheduledStart)
-                        .input('scheduledEnd', sql.Time, payload.scheduledEnd)
+                        .input('scheduledStart', sql.NVarChar(20), toTimeTextOrNull(payload.scheduledStart))
+                        .input('scheduledEnd', sql.NVarChar(20), toTimeTextOrNull(payload.scheduledEnd))
                         .input('clockIn', sql.DateTime2, payload.clockIn)
                         .input('clockOut', sql.DateTime2, payload.clockOut)
                         .input('minutesWorked', sql.Int, payload.minutesWorked)
@@ -370,8 +376,8 @@ module.exports = async function (context, req) {
                                 SET LocalRecordId = @localId,
                                     UserId = COALESCE(@userId, UserId),
                                     DisplayName = @displayName,
-                                    ScheduledStart = @scheduledStart,
-                                    ScheduledEnd = @scheduledEnd,
+                                    ScheduledStart = TRY_CONVERT(time, @scheduledStart),
+                                    ScheduledEnd = TRY_CONVERT(time, @scheduledEnd),
                                     ClockIn = @clockIn,
                                     ClockOut = @clockOut,
                                     MinutesWorked = @minutesWorked,
@@ -398,8 +404,8 @@ module.exports = async function (context, req) {
                     .input('username', sql.NVarChar(150), payload.username)
                     .input('displayName', sql.NVarChar(255), payload.displayName)
                     .input('workDate', sql.Date, payload.workDate)
-                    .input('scheduledStart', sql.Time, payload.scheduledStart)
-                    .input('scheduledEnd', sql.Time, payload.scheduledEnd)
+                    .input('scheduledStart', sql.NVarChar(20), toTimeTextOrNull(payload.scheduledStart))
+                    .input('scheduledEnd', sql.NVarChar(20), toTimeTextOrNull(payload.scheduledEnd))
                     .input('clockIn', sql.DateTime2, payload.clockIn)
                     .input('clockOut', sql.DateTime2, payload.clockOut)
                     .input('minutesWorked', sql.Int, payload.minutesWorked)
@@ -408,7 +414,7 @@ module.exports = async function (context, req) {
                             (LocalRecordId, UserId, Username, DisplayName, WorkDate, ScheduledStart, ScheduledEnd, ClockIn, ClockOut, MinutesWorked, FlagsJson)
                             OUTPUT INSERTED.Id
                             VALUES
-                            (@localId, @userId, @username, @displayName, @workDate, @scheduledStart, @scheduledEnd, @clockIn, @clockOut, @minutesWorked, @flagsJson)`);
+                            (@localId, @userId, @username, @displayName, @workDate, TRY_CONVERT(time, @scheduledStart), TRY_CONVERT(time, @scheduledEnd), @clockIn, @clockOut, @minutesWorked, @flagsJson)`);
             };
 
             let insert;
@@ -434,8 +440,8 @@ module.exports = async function (context, req) {
                 .input('username', sql.NVarChar(150), body.username || null)
                 .input('displayName', sql.NVarChar(255), body.displayName || null)
                 .input('workDate', sql.Date, toDateOnly(body.date || body.workDate))
-                .input('scheduledStart', sql.Time, toTimeOrNull(body.scheduledStart))
-                .input('scheduledEnd', sql.Time, toTimeOrNull(body.scheduledEnd))
+                .input('scheduledStart', sql.NVarChar(20), toTimeTextOrNull(toTimeOrNull(body.scheduledStart) || body.scheduledStart))
+                .input('scheduledEnd', sql.NVarChar(20), toTimeTextOrNull(toTimeOrNull(body.scheduledEnd) || body.scheduledEnd))
                 .input('clockIn', sql.DateTime2, toDateTimeOrNull(body.clockIn))
                 .input('clockOut', sql.DateTime2, toDateTimeOrNull(body.clockOut))
                 .input('minutesWorked', sql.Int, Math.max(0, Number.parseInt(String(body.minutesWorked || 0), 10) || 0))
@@ -446,8 +452,8 @@ module.exports = async function (context, req) {
                             Username = COALESCE(@username, Username),
                             DisplayName = COALESCE(@displayName, DisplayName),
                             WorkDate = COALESCE(@workDate, WorkDate),
-                            ScheduledStart = @scheduledStart,
-                            ScheduledEnd = @scheduledEnd,
+                            ScheduledStart = TRY_CONVERT(time, @scheduledStart),
+                            ScheduledEnd = TRY_CONVERT(time, @scheduledEnd),
                             ClockIn = @clockIn,
                             ClockOut = @clockOut,
                             MinutesWorked = @minutesWorked,

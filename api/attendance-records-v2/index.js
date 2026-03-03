@@ -161,6 +161,12 @@ function toDateTimeOrNull(value) {
     return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function toTimeTextOrNull(value) {
+    if (!value) return null;
+    const str = String(value).trim();
+    return str ? str.slice(0, 20) : null;
+}
+
 function safeString(value, maxLen = null) {
     if (value === null || value === undefined) return null;
     const str = String(value).trim();
@@ -256,8 +262,8 @@ async function updateRecord(pool, targetId, payload, flagsJson) {
         .input('localId', sql.NVarChar(120), payload.localId)
         .input('userId', sql.Int, payload.userId)
         .input('displayName', sql.NVarChar(255), payload.displayName)
-        .input('scheduledStart', sql.Time, payload.scheduledStart)
-        .input('scheduledEnd', sql.Time, payload.scheduledEnd)
+        .input('scheduledStart', sql.NVarChar(20), toTimeTextOrNull(payload.scheduledStart))
+        .input('scheduledEnd', sql.NVarChar(20), toTimeTextOrNull(payload.scheduledEnd))
         .input('clockIn', sql.DateTime2, payload.clockIn)
         .input('clockOut', sql.DateTime2, payload.clockOut)
         .input('minutesWorked', sql.Int, payload.minutesWorked)
@@ -266,8 +272,8 @@ async function updateRecord(pool, targetId, payload, flagsJson) {
                 SET LocalRecordId = COALESCE(@localId, LocalRecordId),
                     UserId = COALESCE(@userId, UserId),
                     DisplayName = COALESCE(@displayName, DisplayName),
-                    ScheduledStart = @scheduledStart,
-                    ScheduledEnd = @scheduledEnd,
+                    ScheduledStart = TRY_CONVERT(time, @scheduledStart),
+                    ScheduledEnd = TRY_CONVERT(time, @scheduledEnd),
                     ClockIn = @clockIn,
                     ClockOut = @clockOut,
                     MinutesWorked = @minutesWorked,
@@ -283,8 +289,8 @@ async function insertRecord(pool, payload, flagsJson) {
         .input('username', sql.NVarChar(150), payload.username)
         .input('displayName', sql.NVarChar(255), payload.displayName)
         .input('workDate', sql.Date, payload.workDate)
-        .input('scheduledStart', sql.Time, payload.scheduledStart)
-        .input('scheduledEnd', sql.Time, payload.scheduledEnd)
+        .input('scheduledStart', sql.NVarChar(20), toTimeTextOrNull(payload.scheduledStart))
+        .input('scheduledEnd', sql.NVarChar(20), toTimeTextOrNull(payload.scheduledEnd))
         .input('clockIn', sql.DateTime2, payload.clockIn)
         .input('clockOut', sql.DateTime2, payload.clockOut)
         .input('minutesWorked', sql.Int, payload.minutesWorked)
@@ -293,7 +299,7 @@ async function insertRecord(pool, payload, flagsJson) {
                 (LocalRecordId, UserId, Username, DisplayName, WorkDate, ScheduledStart, ScheduledEnd, ClockIn, ClockOut, MinutesWorked, FlagsJson)
                 OUTPUT INSERTED.Id
                 VALUES
-                (@localId, @userId, @username, @displayName, @workDate, @scheduledStart, @scheduledEnd, @clockIn, @clockOut, @minutesWorked, @flagsJson)`);
+                (@localId, @userId, @username, @displayName, @workDate, TRY_CONVERT(time, @scheduledStart), TRY_CONVERT(time, @scheduledEnd), @clockIn, @clockOut, @minutesWorked, @flagsJson)`);
 
     return insert.recordset[0]?.Id || null;
 }
@@ -416,8 +422,8 @@ module.exports = async function (context, req) {
                 username: safeString(body.username, 150),
                 displayName: safeString(body.displayName, 255),
                 workDate: toDateOnly(body.date || body.workDate),
-                scheduledStart: toTimeOrNull(body.scheduledStart),
-                scheduledEnd: toTimeOrNull(body.scheduledEnd),
+                scheduledStart: toTimeTextOrNull(toTimeOrNull(body.scheduledStart) || body.scheduledStart),
+                scheduledEnd: toTimeTextOrNull(toTimeOrNull(body.scheduledEnd) || body.scheduledEnd),
                 clockIn: toDateTimeOrNull(body.clockIn),
                 clockOut: toDateTimeOrNull(body.clockOut),
                 minutesWorked: Math.max(0, Number.parseInt(String(body.minutesWorked || 0), 10) || 0),
