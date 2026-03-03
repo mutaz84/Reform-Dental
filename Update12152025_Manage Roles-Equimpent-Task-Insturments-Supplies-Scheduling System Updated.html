@@ -74853,7 +74853,9 @@ console.log('✅ Global functions exported to window object');
             loading: false,
             failureCount: 0,
             cooldownUntil: 0,
-            lastError: ''
+            lastError: '',
+            flushingQueue: false,
+            flushTimerId: null
         };
 
         function normalizeUsernameKey(username) {
@@ -75249,20 +75251,44 @@ console.log('✅ Global functions exported to window object');
             if (index >= 0) queue[index] = { ...record };
             else queue.push({ ...record });
             savePendingRecordSyncQueue(queue);
+            scheduleAttendanceQueueFlush(1200);
+        }
+
+        function scheduleAttendanceQueueFlush(delayMs = 0) {
+            const waitMs = Math.max(0, Number(delayMs || 0));
+            if (attendanceApiState.flushTimerId) {
+                clearTimeout(attendanceApiState.flushTimerId);
+                attendanceApiState.flushTimerId = null;
+            }
+            attendanceApiState.flushTimerId = setTimeout(() => {
+                attendanceApiState.flushTimerId = null;
+                fireAndForget(flushPendingRecordSyncQueue());
+            }, waitMs);
         }
 
         async function flushPendingRecordSyncQueue() {
+            if (attendanceApiState.flushingQueue) return;
             const queue = getPendingRecordSyncQueue();
             if (!queue.length) return;
+            attendanceApiState.flushingQueue = true;
             const stillPending = [];
-            for (const item of queue) {
-                try {
-                    await syncRecordToApi(item);
-                } catch (_) {
-                    stillPending.push(item);
+            try {
+                for (const item of queue) {
+                    try {
+                        await syncRecordToApi(item);
+                        attendanceApiState.available = true;
+                    } catch (_) {
+                        attendanceApiState.available = false;
+                        stillPending.push(item);
+                    }
                 }
+                savePendingRecordSyncQueue(stillPending);
+                if (stillPending.length) {
+                    scheduleAttendanceQueueFlush(5000);
+                }
+            } finally {
+                attendanceApiState.flushingQueue = false;
             }
-            savePendingRecordSyncQueue(stillPending);
         }
 
         function getActiveClockMap() {
@@ -75963,6 +75989,7 @@ console.log('✅ Global functions exported to window object');
             } catch (_) {
                 attendanceApiState.available = false;
                 queueRecordForSync(record);
+                scheduleAttendanceQueueFlush(2500);
                 return false;
             }
         }
@@ -75972,6 +75999,7 @@ console.log('✅ Global functions exported to window object');
             fireAndForget(
                 syncRecordToApi(record).catch(() => {
                     queueRecordForSync(record);
+                    scheduleAttendanceQueueFlush(2500);
                     throw new Error('record-sync-failed');
                 })
             );
@@ -76908,13 +76936,24 @@ console.log('✅ Global functions exported to window object');
         async function onReady() {
             installAttendanceSwitchHook();
             await loadAttendanceDataFromApi();
+            scheduleAttendanceQueueFlush(800);
             setTimeout(() => refreshAttendanceView(), 400);
             setInterval(() => {
+                scheduleAttendanceQueueFlush(0);
                 const attendanceView = document.getElementById('view-attendance');
                 if (attendanceView && attendanceView.classList.contains('active')) {
                     refreshAttendanceView();
                 }
             }, 60000);
+            window.addEventListener('online', () => {
+                attendanceApiState.cooldownUntil = 0;
+                scheduleAttendanceQueueFlush(600);
+            });
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    scheduleAttendanceQueueFlush(300);
+                }
+            });
         }
 
         if (document.readyState === 'loading') {
