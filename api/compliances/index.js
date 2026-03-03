@@ -51,6 +51,29 @@ function toNullableDecimal(value) {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+function toDateOnlyOrNull(value) {
+    if (value === null || value === undefined) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return null;
+
+    const year = parsed.getUTCFullYear();
+    const month = String(parsed.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function getTodayDateOnly() {
+    const now = new Date();
+    const year = now.getUTCFullYear();
+    const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(now.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 function parsePositiveIntList(rawValue, fallback = []) {
     const source = Array.isArray(rawValue) ? rawValue.join(',') : String(rawValue || '');
     const values = source
@@ -509,6 +532,7 @@ ${orderBy}`);
         if (req.method === 'POST') {
             const body = req.body || {};
             const attachmentUrl = body.attachmentUrl || body.AttachmentUrl || body.attachmentData || body.AttachmentData || null;
+            const issueDateValue = toDateOnlyOrNull(body.issueDate) || getTodayDateOnly();
             if (!hasColumn(complianceColumns, 'Title')) {
                 context.res = { status: 500, headers, body: { error: 'Compliances schema mismatch: Title column is missing.' } };
                 return;
@@ -529,9 +553,9 @@ ${orderBy}`);
                 { column: 'Description', param: 'description', type: sql.NVarChar(sql.MAX), value: body.description || null },
                 { column: 'UserId', param: 'userId', type: sql.Int, value: compatibilityUserId },
                 { column: 'ClinicId', param: 'clinicId', type: sql.Int, value: toNullableInt(body.clinicId) },
-                { column: 'IssueDate', param: 'issueDate', type: sql.Date, value: body.issueDate || null },
-                { column: 'ExpiryDate', param: 'expiryDate', type: sql.Date, value: body.expiryDate || null },
-                { column: 'ReminderDate', param: 'reminderDate', type: sql.Date, value: body.reminderDate || null },
+                { column: 'IssueDate', param: 'issueDate', type: sql.Date, value: issueDateValue },
+                { column: 'ExpiryDate', param: 'expiryDate', type: sql.Date, value: toDateOnlyOrNull(body.expiryDate) },
+                { column: 'ReminderDate', param: 'reminderDate', type: sql.Date, value: toDateOnlyOrNull(body.reminderDate) },
                 { column: 'Status', param: 'status', type: sql.NVarChar(50), value: body.status || 'pending' },
                 { column: 'AttachmentUrl', param: 'attachmentUrl', type: sql.NVarChar(sql.MAX), value: attachmentUrl },
                 { column: 'AttachmentName', param: 'attachmentName', type: sql.NVarChar(255), value: body.attachmentName || null },
@@ -575,6 +599,7 @@ VALUES (${insertValues})`);
         if (req.method === 'PUT' && id) {
             const body = req.body || {};
             const attachmentUrl = body.attachmentUrl || body.AttachmentUrl || body.attachmentData || body.AttachmentData || null;
+            const issueDateValue = toDateOnlyOrNull(body.issueDate) || getTodayDateOnly();
 
             const hasExplicitAssignedUserIds = Array.isArray(body.assignedUserIds);
             const assignedUserIds = Array.from(new Set(
@@ -595,9 +620,9 @@ VALUES (${insertValues})`);
                     ? [{ column: 'UserId', param: 'userId', type: sql.Int, value: compatibilityUserId }]
                     : []),
                 { column: 'ClinicId', param: 'clinicId', type: sql.Int, value: toNullableInt(body.clinicId) },
-                { column: 'IssueDate', param: 'issueDate', type: sql.Date, value: body.issueDate || null },
-                { column: 'ExpiryDate', param: 'expiryDate', type: sql.Date, value: body.expiryDate || null },
-                { column: 'ReminderDate', param: 'reminderDate', type: sql.Date, value: body.reminderDate || null },
+                { column: 'IssueDate', param: 'issueDate', type: sql.Date, value: issueDateValue },
+                { column: 'ExpiryDate', param: 'expiryDate', type: sql.Date, value: toDateOnlyOrNull(body.expiryDate) },
+                { column: 'ReminderDate', param: 'reminderDate', type: sql.Date, value: toDateOnlyOrNull(body.reminderDate) },
                 { column: 'Status', param: 'status', type: sql.NVarChar(50), value: body.status || 'pending' },
                 { column: 'AttachmentUrl', param: 'attachmentUrl', type: sql.NVarChar(sql.MAX), value: attachmentUrl },
                 { column: 'AttachmentName', param: 'attachmentName', type: sql.NVarChar(255), value: body.attachmentName || null },

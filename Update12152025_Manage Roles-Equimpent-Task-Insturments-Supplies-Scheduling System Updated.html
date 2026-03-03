@@ -22203,6 +22203,9 @@
             const selectedComplianceTypeIds = (typeof getSelectedComplianceTypeIds === 'function')
                 ? getSelectedComplianceTypeIds()
                 : [];
+            const selectedComplianceTypeSelections = (typeof getSelectedComplianceTypeSelections === 'function')
+                ? getSelectedComplianceTypeSelections()
+                : selectedComplianceTypeIds;
 
             if (isEditMode) {
                 if (!Number.isInteger(Number(addUserEditRecordId)) || Number(addUserEditRecordId) <= 0) {
@@ -22226,7 +22229,7 @@
                     await saveViewUserDutyAssignments(Number(addUserEditRecordId), selectedDutyIds);
                 }
                 if (typeof saveViewUserComplianceAssignments === 'function') {
-                    const createdComplianceIds = await createUserCompliancesFromTypes(Number(addUserEditRecordId), selectedComplianceTypeIds);
+                    const createdComplianceIds = await createUserCompliancesFromTypes(Number(addUserEditRecordId), selectedComplianceTypeSelections, hireDate);
                     const complianceIdsForAssignment = Array.from(new Set([
                         ...selectedComplianceIds,
                         ...createdComplianceIds
@@ -22281,7 +22284,7 @@
 
                 // Assign selected compliances to the new user
                 if (Number.isInteger(persistedUserId) && persistedUserId > 0) {
-                    const createdComplianceIds = await createUserCompliancesFromTypes(persistedUserId, selectedComplianceTypeIds);
+                    const createdComplianceIds = await createUserCompliancesFromTypes(persistedUserId, selectedComplianceTypeSelections, hireDate);
                     const complianceIdsForAssignment = Array.from(new Set([
                         ...selectedComplianceIds,
                         ...createdComplianceIds
@@ -23285,6 +23288,9 @@
             const selectedComplianceTypeIds = (typeof getSelectedComplianceTypeIds === 'function')
                 ? getSelectedComplianceTypeIds()
                 : [];
+            const selectedComplianceTypeSelections = (typeof getSelectedComplianceTypeSelections === 'function')
+                ? getSelectedComplianceTypeSelections()
+                : selectedComplianceTypeIds;
             let userRecordId = Number(document.getElementById('viewUserRecordId')?.value || getUserRecordId(user) || 0);
             if (!Number.isFinite(userRecordId) || userRecordId <= 0) {
                 const sqlRecord = await fetchSingleUserRecordFromSQL(originalUsername, null);
@@ -23308,7 +23314,7 @@
             if (persistedUserId) {
                 await saveViewUserDutyAssignments(persistedUserId, selectedDutyIds);
                 if (typeof saveViewUserComplianceAssignments === 'function') {
-                    const createdComplianceIds = await createUserCompliancesFromTypes(persistedUserId, selectedComplianceTypeIds);
+                    const createdComplianceIds = await createUserCompliancesFromTypes(persistedUserId, selectedComplianceTypeSelections, user.hireDate || document.getElementById('viewUserHireDate')?.value || '');
                     const complianceIdsForAssignment = Array.from(new Set([
                         ...selectedComplianceIds,
                         ...createdComplianceIds
@@ -25612,12 +25618,13 @@
             const isReadOnly = !!window.__complianceModalReadOnly;
             const modalMode = String(window.__complianceModalMode || 'standard');
             const isManagerTemplateMode = modalMode === 'template' && !isRegularUser;
+            const isTemplateMode = modalMode === 'template';
 
             const employeeGroup = document.getElementById('complianceEmployeeAssignGroup');
             const employeeSelector = document.getElementById('complianceEmployeeSelector');
 
             if (employeeGroup) {
-                employeeGroup.style.display = isRegularUser ? '' : 'none';
+                employeeGroup.style.display = (isTemplateMode || !isRegularUser) ? 'none' : '';
                 employeeGroup.style.opacity = isRegularUser ? '0.7' : '1';
             }
 
@@ -25707,11 +25714,39 @@
                 }
             });
 
+            const templateHiddenFieldIds = [
+                'complianceIssueDate',
+                'complianceExpiryDate',
+                'complianceReminderDate',
+                'complianceStatus',
+                'complianceDocumentType',
+                'complianceReferenceNumber',
+                'complianceIssuingAuthority',
+                'complianceCost',
+                'complianceAttachment',
+                'complianceNotes'
+            ];
+
+            templateHiddenFieldIds.forEach((fieldId) => {
+                const field = document.getElementById(fieldId);
+                if (!field) return;
+                const fieldGroup = field.closest('.form-group');
+                if (fieldGroup) {
+                    fieldGroup.style.display = isTemplateMode ? 'none' : '';
+                }
+                if (isTemplateMode) {
+                    field.required = false;
+                    if (field.type === 'file') {
+                        field.value = '';
+                    }
+                }
+            });
+
             const reminderDateField = document.getElementById('complianceReminderDate');
             if (reminderDateField) {
                 const reminderGroup = reminderDateField.closest('.form-group');
                 if (reminderGroup) {
-                    reminderGroup.style.display = isRegularUser ? 'none' : '';
+                    reminderGroup.style.display = (isTemplateMode || isRegularUser) ? 'none' : '';
                 }
                 if (isRegularUser) {
                     reminderDateField.value = '';
@@ -51919,6 +51954,18 @@ window.addEventListener('load', function() {
             const container = document.getElementById('compliancesCheckboxContainer');
             if (!container) return;
 
+            const reminderOffsetOptions = [
+                { value: '', label: 'No reminder date' },
+                { value: '0', label: 'On hire date' },
+                { value: '7', label: '7 days after hire date' },
+                { value: '14', label: '14 days after hire date' },
+                { value: '30', label: '30 days after hire date' },
+                { value: '60', label: '60 days after hire date' },
+                { value: '90', label: '90 days after hire date' },
+                { value: '180', label: '180 days after hire date' },
+                { value: '365', label: '365 days after hire date' }
+            ];
+
             const compliances = Array.isArray(window.compliancesData) ? window.compliancesData : [];
             const fallbackTypes = [
                 { id: 1, name: 'CPR Certification' },
@@ -51957,6 +52004,16 @@ window.addEventListener('load', function() {
                             <div style="flex: 1;">
                                 <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">${String(type.name || type.Name || 'Compliance Type')}</div>
                                 <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.25rem;">Will create a compliance record for this user</div>
+                                <div style="margin-top: 0.45rem;">
+                                    <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Reminder schedule from hire date</div>
+                                    <select data-compliance-type-offset="${Number(type.id || type.Id)}" style="width: 100%; max-width: 260px; padding: 0.45rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-primary); font-size: 0.8rem;" onclick="event.stopPropagation()" onchange="event.stopPropagation()">
+                                        ${reminderOffsetOptions.map((option) => {
+                                            const defaultOffset = parseReminderOffsetDays(type);
+                                            const defaultValue = Number.isInteger(defaultOffset) ? String(defaultOffset) : '';
+                                            return `<option value="${option.value}" ${String(option.value) === defaultValue ? 'selected' : ''}>${option.label}</option>`;
+                                        }).join('')}
+                                    </select>
+                                </div>
                             </div>
                         </label>
                     `).join('')}
@@ -51997,6 +52054,16 @@ window.addEventListener('load', function() {
                         <div style="flex: 1;">
                             <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">${String(type.name || type.Name || 'Compliance Type')}</div>
                             <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.25rem;">Create a new compliance record for this user</div>
+                            <div style="margin-top: 0.45rem;">
+                                <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">Reminder schedule from hire date</div>
+                                <select data-compliance-type-offset="${Number(type.id || type.Id)}" style="width: 100%; max-width: 260px; padding: 0.45rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-primary); font-size: 0.8rem;" onclick="event.stopPropagation()" onchange="event.stopPropagation()">
+                                    ${reminderOffsetOptions.map((option) => {
+                                        const defaultOffset = parseReminderOffsetDays(type);
+                                        const defaultValue = Number.isInteger(defaultOffset) ? String(defaultOffset) : '';
+                                        return `<option value="${option.value}" ${String(option.value) === defaultValue ? 'selected' : ''}>${option.label}</option>`;
+                                    }).join('')}
+                                </select>
+                            </div>
                         </div>
                     </label>
                 `).join('')}
@@ -52099,14 +52166,92 @@ window.addEventListener('load', function() {
             return selected.filter((id) => Number.isInteger(id) && id > 0);
         }
 
-        async function createUserCompliancesFromTypes(userId, selectedTypeIds) {
+        function getSelectedComplianceTypeSelections() {
+            const selections = [];
+            document.querySelectorAll('input[name="selectedComplianceTypes"]:checked').forEach((checkbox) => {
+                const typeId = Number.parseInt(String(checkbox.value || ''), 10);
+                if (!Number.isInteger(typeId) || typeId <= 0) return;
+                const offsetSelect = document.querySelector(`select[data-compliance-type-offset="${typeId}"]`);
+                const rawOffset = String(offsetSelect?.value || '').trim();
+                const parsedOffset = rawOffset === '' ? null : Number.parseInt(rawOffset, 10);
+                selections.push({
+                    typeId,
+                    reminderOffsetDays: Number.isInteger(parsedOffset) ? parsedOffset : null
+                });
+            });
+            return selections;
+        }
+
+        function parseReminderOffsetDays(typeRecord) {
+            const candidates = [
+                typeRecord?.reminderOffsetDays,
+                typeRecord?.ReminderOffsetDays,
+                typeRecord?.hireDateReminderOffsetDays,
+                typeRecord?.HireDateReminderOffsetDays,
+                typeRecord?.reminderLeadDays,
+                typeRecord?.ReminderLeadDays
+            ];
+
+            for (const candidate of candidates) {
+                const parsed = Number.parseInt(String(candidate ?? '').trim(), 10);
+                if (Number.isInteger(parsed)) return parsed;
+            }
+
+            return null;
+        }
+
+        function toDateOnlyValue(dateValue) {
+            if (!dateValue) return '';
+            const raw = String(dateValue).trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+            const parsed = new Date(raw);
+            if (Number.isNaN(parsed.getTime())) return '';
+            return parsed.toISOString().split('T')[0];
+        }
+
+        function addDaysToDateString(baseDate, days) {
+            const normalized = toDateOnlyValue(baseDate);
+            if (!normalized || !Number.isInteger(Number(days))) return '';
+            const [year, month, day] = normalized.split('-').map((value) => Number(value));
+            const dateObj = new Date(year, month - 1, day);
+            if (Number.isNaN(dateObj.getTime())) return '';
+            dateObj.setDate(dateObj.getDate() + Number(days));
+            const outYear = dateObj.getFullYear();
+            const outMonth = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const outDay = String(dateObj.getDate()).padStart(2, '0');
+            return `${outYear}-${outMonth}-${outDay}`;
+        }
+
+        async function createUserCompliancesFromTypes(userId, selectedTypeSelectionsOrIds, hireDateInput = '') {
             const userIdNumber = Number(userId);
             if (!Number.isInteger(userIdNumber) || userIdNumber <= 0) return [];
 
-            const typeIds = Array.from(new Set((Array.isArray(selectedTypeIds) ? selectedTypeIds : [])
-                .map((value) => Number(value))
-                .filter((value) => Number.isInteger(value) && value > 0)));
+            const selectedEntriesRaw = Array.isArray(selectedTypeSelectionsOrIds) ? selectedTypeSelectionsOrIds : [];
+            const selectedEntries = selectedEntriesRaw
+                .map((entry) => {
+                    if (entry && typeof entry === 'object') {
+                        const typeId = Number(entry.typeId ?? entry.id);
+                        const reminderOffsetDays = entry.reminderOffsetDays === null || entry.reminderOffsetDays === undefined || entry.reminderOffsetDays === ''
+                            ? null
+                            : Number(entry.reminderOffsetDays);
+                        return {
+                            typeId,
+                            reminderOffsetDays: Number.isInteger(reminderOffsetDays) ? reminderOffsetDays : null
+                        };
+                    }
+                    const typeId = Number(entry);
+                    return {
+                        typeId,
+                        reminderOffsetDays: null
+                    };
+                })
+                .filter((entry) => Number.isInteger(entry.typeId) && entry.typeId > 0);
+
+            const typeIds = Array.from(new Set(selectedEntries.map((entry) => entry.typeId)));
             if (!typeIds.length) return [];
+
+            const selectedByTypeId = new Map(selectedEntries.map((entry) => [entry.typeId, entry]));
+            const normalizedHireDate = toDateOnlyValue(hireDateInput) || toDateOnlyValue(new Date());
 
             try {
                 const existingResponse = await fetchComplianceApi('compliances', `?userId=${encodeURIComponent(userIdNumber)}`);
@@ -52139,13 +52284,19 @@ window.addEventListener('load', function() {
                     if (existingTypeIds.has(typeId)) continue;
                     const type = typeRecords.find((entry) => Number(entry?.id || entry?.Id) === typeId);
                     const typeName = String(type?.name || type?.Name || `Compliance Type #${typeId}`);
+                    const selectedEntry = selectedByTypeId.get(typeId);
+                    const reminderOffsetDays = selectedEntry?.reminderOffsetDays ?? parseReminderOffsetDays(type);
+                    const reminderDate = Number.isInteger(reminderOffsetDays)
+                        ? addDaysToDateString(normalizedHireDate, reminderOffsetDays)
+                        : '';
                     const payload = {
                         title: typeName,
                         complianceTypeId: typeId,
                         description: `${typeName} assigned during user setup`,
                         userId: userIdNumber,
                         status: 'pending',
-                        issueDate: new Date().toISOString().split('T')[0],
+                        issueDate: normalizedHireDate,
+                        reminderDate,
                         createdById: getCurrentUserId(),
                         modifiedById: getCurrentUserId()
                     };
