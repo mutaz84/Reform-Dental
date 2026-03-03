@@ -74830,9 +74830,11 @@ console.log('✅ Global functions exported to window object');
         };
 
         const attendanceApiBase = (() => {
-            const configured = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL.trim())
-                ? window.API_BASE_URL.trim()
-                : '/api';
+            const configured = (typeof API_BASE_URL !== 'undefined' && String(API_BASE_URL || '').trim())
+                ? String(API_BASE_URL || '').trim()
+                : ((typeof window.API_BASE_URL === 'string' && window.API_BASE_URL.trim())
+                    ? window.API_BASE_URL.trim()
+                    : '/api');
             return String(configured).replace(/\/+$/, '');
         })();
 
@@ -74865,13 +74867,19 @@ console.log('✅ Global functions exported to window object');
             }
 
             try {
+                const method = String(options.method || 'GET').toUpperCase();
+                const hasBody = options.body !== undefined && options.body !== null;
+                const headers = {
+                    ...(options.headers || {})
+                };
+                if (hasBody && !headers['Content-Type']) {
+                    headers['Content-Type'] = 'application/json';
+                }
+
                 const response = await fetch(url, {
-                    method: options.method || 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(options.headers || {})
-                    },
-                    body: options.body ? JSON.stringify(options.body) : undefined
+                    method,
+                    headers,
+                    body: hasBody ? JSON.stringify(options.body) : undefined
                 });
                 if (!response.ok) {
                     const details = await response.text().catch(() => '');
