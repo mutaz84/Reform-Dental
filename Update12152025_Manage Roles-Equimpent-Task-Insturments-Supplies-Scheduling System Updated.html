@@ -76671,23 +76671,32 @@ console.log('✅ Global functions exported to window object');
                         const username = entry.username;
                         const schedule = entry.schedule || {};
                         const userCandidates = getAttendanceIdentityCandidates(username);
-                        const latestRecord = entry.latestRecord || recordsTodayFiltered
+                        const userRecords = recordsTodayFiltered
                             .filter((record) => recordMatchesIdentityCandidates(record, userCandidates) && (!!record?.clockIn || !!record?.clockOut))
-                            .sort((a, b) => getRecordEventTime(b) - getRecordEventTime(a))[0] || null;
+                            .sort((a, b) => getRecordEventTime(a) - getRecordEventTime(b));
+                        const latestRecord = entry.latestRecord || userRecords[userRecords.length - 1] || null;
                         const ptoApproved = getPtoRequests().some((request) => request.username === username && isDateInPto(request, todayISO));
                         const employeeClinic = resolveClinicForEmployee(username, schedule) || resolveClinicForRecord(latestRecord, scheduleMap) || '-';
-                        const clockOutReason = latestRecord?.clockOut ? getClockOutReasonLabel(latestRecord.clockOutReason) : '-';
+                        const hasOpenClock = userRecords.some((record) => !!record?.clockIn && !record?.clockOut);
+                        const clockInEvents = userRecords
+                            .filter((record) => !!record?.clockIn)
+                            .map((record) => formatDateTime(record.clockIn));
+                        const clockOutEvents = userRecords
+                            .filter((record) => !!record?.clockOut)
+                            .map((record) => formatDateTime(record.clockOut));
+                        const clockOutReasons = userRecords
+                            .filter((record) => !!record?.clockOut)
+                            .map((record) => getClockOutReasonLabel(record.clockOutReason));
 
-                        let clockInLabel = '-';
-                        let clockOutLabel = '-';
+                        const clockInLabel = clockInEvents.length ? clockInEvents.join('<br>') : '-';
+                        const clockOutLabel = clockOutEvents.length ? clockOutEvents.join('<br>') : '-';
+                        const clockOutReason = clockOutReasons.length ? clockOutReasons.join('<br>') : '-';
+
                         let status = 'Scheduled';
-                        if (latestRecord?.clockOut) {
-                            clockInLabel = latestRecord?.clockIn ? formatDateTime(latestRecord.clockIn) : '-';
-                            clockOutLabel = formatDateTime(latestRecord.clockOut);
-                            status = normalizeClockOutReason(latestRecord.clockOutReason) === 'break' ? 'On Break' : 'Clocked Out';
-                        } else if (latestRecord?.clockIn && !latestRecord?.clockOut) {
-                            clockInLabel = formatDateTime(latestRecord.clockIn);
+                        if (hasOpenClock) {
                             status = 'Clocked In';
+                        } else if (latestRecord?.clockOut) {
+                            status = normalizeClockOutReason(latestRecord.clockOutReason) === 'break' ? 'On Break' : 'Clocked Out';
                         } else if (ptoApproved) {
                             status = 'PTO Approved';
                         } else {
