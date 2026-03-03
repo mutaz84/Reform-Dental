@@ -144,6 +144,25 @@ function toDateTimeOrNull(value) {
     return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function safeString(value, maxLen = null) {
+    if (value === null || value === undefined) return null;
+    const str = String(value).trim();
+    if (!str) return null;
+    if (Number.isInteger(maxLen) && maxLen > 0) {
+        return str.slice(0, maxLen);
+    }
+    return str;
+}
+
+function isSqlTruncationError(err) {
+    const num = Number(err?.number || 0);
+    const message = String(err?.message || '').toLowerCase();
+    return num === 8152
+        || num === 2628
+        || message.includes('string or binary data would be truncated')
+        || message.includes('truncat');
+}
+
 function parseRecordMeta(value) {
     if (Array.isArray(value)) {
         return {
@@ -185,9 +204,9 @@ function parseRecordMeta(value) {
 function serializeRecordMeta(flags, clockOutReason, employeeClinic) {
     const normalizedFlags = Array.isArray(flags) ? flags : [];
     return JSON.stringify({
-        flags: normalizedFlags,
-        clockOutReason: clockOutReason ? String(clockOutReason).trim() : null,
-        employeeClinic: employeeClinic ? String(employeeClinic).trim() : null
+        flags: normalizedFlags.map((item) => safeString(item, 80)).filter(Boolean).slice(0, 20),
+        clockOutReason: safeString(clockOutReason, 40),
+        employeeClinic: safeString(employeeClinic, 255)
     });
 }
 
@@ -304,65 +323,84 @@ module.exports = async function (context, req) {
                 localId: localId || null,
                 userId: toIntOrNull(body.userId),
                 username,
-                displayName: body.displayName || null,
+                displayName: safeString(body.displayName, 255),
                 workDate,
                 scheduledStart: toTimeOrNull(body.scheduledStart),
                 scheduledEnd: toTimeOrNull(body.scheduledEnd),
                 clockIn: toDateTimeOrNull(body.clockIn),
                 clockOut: toDateTimeOrNull(body.clockOut),
-                clockOutReason: body.clockOutReason ? String(body.clockOutReason).trim() : null,
-                employeeClinic: body.employeeClinic ? String(body.employeeClinic).trim() : null,
+                clockOutReason: safeString(body.clockOutReason, 40),
+                employeeClinic: safeString(body.employeeClinic, 255),
                 minutesWorked: Math.max(0, Number.parseInt(String(body.minutesWorked || 0), 10) || 0),
                 flagsJson: serializeRecordMeta(body.flags, body.clockOutReason, body.employeeClinic)
             };
 
             if (exists.recordset[0]?.Id) {
                 const targetId = exists.recordset[0].Id;
-                await pool.request()
-                    .input('id', sql.Int, targetId)
-                    .input('localId', sql.NVarChar(120), payload.localId)
-                    .input('userId', sql.Int, payload.userId)
-                    .input('displayName', sql.NVarChar(255), payload.displayName)
-                    .input('scheduledStart', sql.Time, payload.scheduledStart)
-                    .input('scheduledEnd', sql.Time, payload.scheduledEnd)
-                    .input('clockIn', sql.DateTime2, payload.clockIn)
-                    .input('clockOut', sql.DateTime2, payload.clockOut)
-                    .input('minutesWorked', sql.Int, payload.minutesWorked)
-                    .input('flagsJson', sql.NVarChar(sql.MAX), payload.flagsJson)
-                    .query(`UPDATE AttendanceRecords
-                            SET LocalRecordId = @localId,
-                                UserId = COALESCE(@userId, UserId),
-                                DisplayName = @displayName,
-                                ScheduledStart = @scheduledStart,
-                                ScheduledEnd = @scheduledEnd,
-                                ClockIn = @clockIn,
-                                ClockOut = @clockOut,
-                                MinutesWorked = @minutesWorked,
-                                FlagsJson = @flagsJson,
-                                ModifiedDate = SYSDATETIME()
-                            WHERE Id = @id`);
+                const runUpdate = async (flagsJson) => {
+                    await pool.request()
+                        .input('id', sql.Int, targetId)
+                        .input('localId', sql.NVarChar(120), payload.localId)
+                        .input('userId', sql.Int, payload.userId)
+                        .input('displayName', sql.NVarChar(255), payload.displayName)
+                        .input('scheduledStart', sql.Time, payload.scheduledStart)
+                        .input('scheduledEnd', sql.Time, payload.scheduledEnd)
+                        .input('clockIn', sql.DateTime2, payload.clockIn)
+                        .input('clockOut', sql.DateTime2, payload.clockOut)
+                        .input('minutesWorked', sql.Int, payload.minutesWorked)
+                        .input('flagsJson', sql.NVarChar(sql.MAX), flagsJson)
+                        .query(`UPDATE AttendanceRecords
+                                SET LocalRecordId = @localId,
+                                    UserId = COALESCE(@userId, UserId),
+                                    DisplayName = @displayName,
+                                    ScheduledStart = @scheduledStart,
+                                    ScheduledEnd = @scheduledEnd,
+                                    ClockIn = @clockIn,
+                                    ClockOut = @clockOut,
+                                    MinutesWorked = @minutesWorked,
+                                    FlagsJson = @flagsJson,
+                                    ModifiedDate = SYSDATETIME()
+                                WHERE Id = @id`);
+                };
+
+                try {
+                    await runUpdate(payload.flagsJson);
+                } catch (err) {
+                    if (!isSqlTruncationError(err)) throw err;
+                    await runUpdate(serializeRecordMeta([], null, null));
+                }
 
                 context.res = { status: 200, headers, body: { id: targetId, upserted: true } };
                 return;
             }
 
-            const insert = await pool.request()
-                .input('localId', sql.NVarChar(120), payload.localId)
-                .input('userId', sql.Int, payload.userId)
-                .input('username', sql.NVarChar(150), payload.username)
-                .input('displayName', sql.NVarChar(255), payload.displayName)
-                .input('workDate', sql.Date, payload.workDate)
-                .input('scheduledStart', sql.Time, payload.scheduledStart)
-                .input('scheduledEnd', sql.Time, payload.scheduledEnd)
-                .input('clockIn', sql.DateTime2, payload.clockIn)
-                .input('clockOut', sql.DateTime2, payload.clockOut)
-                .input('minutesWorked', sql.Int, payload.minutesWorked)
-                .input('flagsJson', sql.NVarChar(sql.MAX), payload.flagsJson)
-                .query(`INSERT INTO AttendanceRecords
-                        (LocalRecordId, UserId, Username, DisplayName, WorkDate, ScheduledStart, ScheduledEnd, ClockIn, ClockOut, MinutesWorked, FlagsJson)
-                        OUTPUT INSERTED.Id
-                        VALUES
-                        (@localId, @userId, @username, @displayName, @workDate, @scheduledStart, @scheduledEnd, @clockIn, @clockOut, @minutesWorked, @flagsJson)`);
+            const runInsert = async (flagsJson) => {
+                return pool.request()
+                    .input('localId', sql.NVarChar(120), payload.localId)
+                    .input('userId', sql.Int, payload.userId)
+                    .input('username', sql.NVarChar(150), payload.username)
+                    .input('displayName', sql.NVarChar(255), payload.displayName)
+                    .input('workDate', sql.Date, payload.workDate)
+                    .input('scheduledStart', sql.Time, payload.scheduledStart)
+                    .input('scheduledEnd', sql.Time, payload.scheduledEnd)
+                    .input('clockIn', sql.DateTime2, payload.clockIn)
+                    .input('clockOut', sql.DateTime2, payload.clockOut)
+                    .input('minutesWorked', sql.Int, payload.minutesWorked)
+                    .input('flagsJson', sql.NVarChar(sql.MAX), flagsJson)
+                    .query(`INSERT INTO AttendanceRecords
+                            (LocalRecordId, UserId, Username, DisplayName, WorkDate, ScheduledStart, ScheduledEnd, ClockIn, ClockOut, MinutesWorked, FlagsJson)
+                            OUTPUT INSERTED.Id
+                            VALUES
+                            (@localId, @userId, @username, @displayName, @workDate, @scheduledStart, @scheduledEnd, @clockIn, @clockOut, @minutesWorked, @flagsJson)`);
+            };
+
+            let insert;
+            try {
+                insert = await runInsert(payload.flagsJson);
+            } catch (err) {
+                if (!isSqlTruncationError(err)) throw err;
+                insert = await runInsert(serializeRecordMeta([], null, null));
+            }
 
             context.res = { status: 201, headers, body: { id: insert.recordset[0].Id, upserted: false } };
             return;
@@ -416,6 +454,14 @@ module.exports = async function (context, req) {
             resetSharedPool();
         }
         context.log.error('Attendance Records API error:', err);
-        context.res = { status: 500, headers, body: { error: err.message || 'Server error' } };
+        context.res = {
+            status: 500,
+            headers,
+            body: {
+                error: err.message || 'Server error',
+                code: err.code || null,
+                number: Number.isFinite(Number(err.number)) ? Number(err.number) : null
+            }
+        };
     }
 };
