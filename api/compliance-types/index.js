@@ -128,13 +128,29 @@ module.exports = async function (context, req) {
                 return;
             }
             const body = req.body || {};
-            const result = await pool.request()
+            const request = pool.request()
                 .input('name', sql.NVarChar(200), body.name || '')
-                .input('sortOrder', sql.Int, Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0)
-                .query(`
-INSERT INTO ComplianceTypes (Name${hasColumn(typeColumns, 'SortOrder') ? ', SortOrder' : ''})
+                .input('sortOrder', sql.Int, Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0);
+
+            if (hasColumn(typeColumns, 'Category')) {
+                request.input('category', sql.NVarChar(100), body.category || 'General');
+            }
+
+            const insertColumns = ['Name'];
+            const insertValues = ['@name'];
+            if (hasColumn(typeColumns, 'Category')) {
+                insertColumns.push('Category');
+                insertValues.push('@category');
+            }
+            if (hasColumn(typeColumns, 'SortOrder')) {
+                insertColumns.push('SortOrder');
+                insertValues.push('@sortOrder');
+            }
+
+            const result = await request.query(`
+INSERT INTO ComplianceTypes (${insertColumns.join(', ')})
 OUTPUT INSERTED.*
-VALUES (@name${hasColumn(typeColumns, 'SortOrder') ? ', @sortOrder' : ''})`);
+VALUES (${insertValues.join(', ')})`);
 
             context.res = { status: 201, headers, body: normalizeTypeRecord(result.recordset[0]) };
             return;
@@ -151,6 +167,10 @@ VALUES (@name${hasColumn(typeColumns, 'SortOrder') ? ', @sortOrder' : ''})`);
                 .input('name', sql.NVarChar(200), body.name || '');
 
             const updates = ['Name=@name'];
+            if (hasColumn(typeColumns, 'Category')) {
+                request.input('category', sql.NVarChar(100), body.category || 'General');
+                updates.push('Category=@category');
+            }
             if (hasColumn(typeColumns, 'SortOrder')) {
                 request.input('sortOrder', sql.Int, Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0);
                 updates.push('SortOrder=@sortOrder');
