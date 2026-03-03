@@ -75145,6 +75145,28 @@ console.log('✅ Global functions exported to window object');
             });
         }
 
+        function waitMs(ms) {
+            return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))));
+        }
+
+        async function syncRecordToApiWithRetry(record, maxAttempts = 3) {
+            const attempts = Math.max(1, Number(maxAttempts || 1));
+            let lastErr = null;
+            for (let attempt = 1; attempt <= attempts; attempt += 1) {
+                try {
+                    if (attempt > 1) {
+                        attendanceApiState.cooldownUntil = 0;
+                    }
+                    return await syncRecordToApi(record);
+                } catch (err) {
+                    lastErr = err;
+                    if (attempt >= attempts) break;
+                    await waitMs(500 * attempt);
+                }
+            }
+            throw lastErr || new Error('Attendance record sync failed');
+        }
+
         function syncNotificationToApi(notification) {
             return attendanceApiRequest(ATTENDANCE_API.notifications, {
                 method: 'POST',
@@ -75276,7 +75298,7 @@ console.log('✅ Global functions exported to window object');
             try {
                 for (const item of queue) {
                     try {
-                        await syncRecordToApi(item);
+                        await syncRecordToApiWithRetry(item, 3);
                         attendanceApiState.available = true;
                     } catch (_) {
                         attendanceApiState.available = false;
@@ -75982,7 +76004,7 @@ console.log('✅ Global functions exported to window object');
 
         async function syncRecordImmediately(record) {
             try {
-                await syncRecordToApi(record);
+                await syncRecordToApiWithRetry(record, 3);
                 attendanceApiState.available = true;
                 attendanceApiState.lastError = '';
                 const queue = getPendingRecordSyncQueue().filter((entry) => String(entry?.id || '') !== String(record?.id || ''));
