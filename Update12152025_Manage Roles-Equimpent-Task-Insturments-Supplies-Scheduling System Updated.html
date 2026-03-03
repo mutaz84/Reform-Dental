@@ -24368,25 +24368,60 @@
             </div>`;
         }
 
+        function getCurrentComplianceUserContext() {
+            const loggedInUserRaw = String(localStorage.getItem('loggedInUser') || '').trim();
+            const loggedInUser = loggedInUserRaw.toLowerCase();
+
+            const users = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
+            const usersKey = Object.keys(users).find((key) => String(key || '').trim().toLowerCase() === loggedInUser) || loggedInUserRaw;
+            const userFromMap = users[usersKey] || null;
+
+            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' }) || {};
+
+            const idCandidates = [
+                Number(userFromMap?.dbId ?? userFromMap?.id ?? userFromMap?.Id),
+                Number(currentUser?.dbId ?? currentUser?.id ?? currentUser?.Id),
+                Number(window.currentDbUserId)
+            ].filter((value) => Number.isInteger(value) && value > 0);
+
+            const uniqueIds = Array.from(new Set(idCandidates));
+
+            const fullNameFromMap = `${String(userFromMap?.firstName || userFromMap?.FirstName || '').trim()} ${String(userFromMap?.lastName || userFromMap?.LastName || '').trim()}`.trim();
+            const fullNameFromCurrent = `${String(currentUser?.firstName || currentUser?.FirstName || '').trim()} ${String(currentUser?.lastName || currentUser?.LastName || '').trim()}`.trim();
+            const displayName = String(
+                userFromMap?.name
+                || userFromMap?.Name
+                || currentUser?.name
+                || currentUser?.Name
+                || fullNameFromMap
+                || fullNameFromCurrent
+                || loggedInUserRaw
+            ).trim();
+
+            const nameCandidates = Array.from(new Set([
+                displayName,
+                fullNameFromMap,
+                fullNameFromCurrent
+            ].map((value) => String(value || '').trim()).filter(Boolean)));
+
+            const usernameCandidates = Array.from(new Set([
+                loggedInUserRaw,
+                String(currentUser?.username || currentUser?.userName || '').trim(),
+                String(userFromMap?.username || userFromMap?.userName || usersKey || '').trim()
+            ].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)));
+
+            return {
+                primaryUserId: uniqueIds.length ? uniqueIds[0] : null,
+                userIds: uniqueIds,
+                primaryUsername: usernameCandidates.length ? usernameCandidates[0] : '',
+                usernames: usernameCandidates,
+                displayName,
+                nameCandidates
+            };
+        }
+
         function getCurrentComplianceUserId() {
-            const fromWindow = Number(window.currentDbUserId);
-            if (Number.isInteger(fromWindow) && fromWindow > 0) {
-                return fromWindow;
-            }
-
-            const currentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
-            const fromCurrent = Number(currentUser?.dbId ?? currentUser?.id ?? currentUser?.Id);
-            if (Number.isInteger(fromCurrent) && fromCurrent > 0) {
-                return fromCurrent;
-            }
-
-            const loggedInUser = localStorage.getItem('loggedInUser');
-            if (loggedInUser) {
-                const users = loadUsers();
-                return resolveComplianceUserId(loggedInUser, users[loggedInUser]) || null;
-            }
-
-            return null;
+            return getCurrentComplianceUserContext().primaryUserId;
         }
 
         function isComplianceAssignedToCurrentUser(compliance, targetUserId, targetUsername = '', targetNames = []) {
@@ -24487,22 +24522,26 @@
 
             listEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">Loading requirements...</div>';
 
-            const currentUserId = getCurrentComplianceUserId();
-            if (!currentUserId) {
-                listEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No employee ID found for current session.</div>';
-                return;
-            }
+            const userContext = getCurrentComplianceUserContext();
+            const currentUserId = userContext.primaryUserId;
+            const requirementsCacheKey = currentUserId
+                ? `id:${currentUserId}`
+                : `user:${userContext.primaryUsername || 'unknown'}`;
 
             try {
-                if (forceRefresh || !window.__requirementsCache || !Array.isArray(window.__requirementsCache[currentUserId])) {
-                    const response = await fetchComplianceApi('compliances', `?userId=${encodeURIComponent(currentUserId)}`);
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
-                    }
+                if (forceRefresh || !window.__requirementsCache || !Array.isArray(window.__requirementsCache[requirementsCacheKey])) {
+                    let records = [];
 
-                    let records = (await response.json())
-                        .map(normalizeComplianceRecord)
-                        .filter(Boolean);
+                    if (currentUserId) {
+                        const response = await fetchComplianceApi('compliances', `?userId=${encodeURIComponent(currentUserId)}`);
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+
+                        records = (await response.json())
+                            .map(normalizeComplianceRecord)
+                            .filter(Boolean);
+                    }
 
                     if (!records.length) {
                         const allResponse = await fetchComplianceApi('compliances');
@@ -24510,21 +24549,20 @@
                             const allRecords = (await allResponse.json())
                                 .map(normalizeComplianceRecord)
                                 .filter(Boolean);
-                            const loggedInUser = String(localStorage.getItem('loggedInUser') || '').trim();
-                            const users = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
-                            const currentUser = users[loggedInUser] || safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' }) || {};
-                            const fullName = `${String(currentUser?.firstName || currentUser?.FirstName || '').trim()} ${String(currentUser?.lastName || currentUser?.LastName || '').trim()}`.trim();
-                            const displayName = String(currentUser?.name || currentUser?.Name || fullName).trim();
-                            const nameCandidates = [displayName, fullName].filter(Boolean);
-                            records = allRecords.filter((item) => isComplianceAssignedToCurrentUser(item, currentUserId, loggedInUser, nameCandidates));
+                            records = allRecords.filter((item) => isComplianceAssignedToCurrentUser(
+                                item,
+                                currentUserId,
+                                userContext.primaryUsername,
+                                userContext.nameCandidates
+                            ));
                         }
                     }
 
                     window.__requirementsCache = window.__requirementsCache || {};
-                    window.__requirementsCache[currentUserId] = records;
+                    window.__requirementsCache[requirementsCacheKey] = records;
                 }
 
-                const requirements = (window.__requirementsCache[currentUserId] || []).slice();
+                const requirements = (window.__requirementsCache[requirementsCacheKey] || []).slice();
                 renderRequirementsList(requirements);
                 renderRequirementsStats(requirements);
                 if (typeof refreshComplianceNavBadges === 'function') {
@@ -24928,13 +24966,17 @@
                 : 0;
 
             let assignedForUserCount = 0;
-            const currentUserId = getCurrentComplianceUserId();
-            if (currentUserId) {
-                let myCompliances = Array.isArray(window.__requirementsCache?.[currentUserId])
-                    ? window.__requirementsCache[currentUserId]
+            const userContext = getCurrentComplianceUserContext();
+            const currentUserId = userContext.primaryUserId;
+            const requirementsCacheKey = currentUserId
+                ? `id:${currentUserId}`
+                : `user:${userContext.primaryUsername || 'unknown'}`;
+            if (currentUserId || userContext.primaryUsername) {
+                let myCompliances = Array.isArray(window.__requirementsCache?.[requirementsCacheKey])
+                    ? window.__requirementsCache[requirementsCacheKey]
                     : [];
 
-                if ((options.forceUserFetch || !myCompliances.length) && canTryApi) {
+                if ((options.forceUserFetch || !myCompliances.length) && canTryApi && currentUserId) {
                     try {
                         const userResponse = await fetchComplianceApi('compliances', `?userId=${encodeURIComponent(currentUserId)}`);
                         if (userResponse.ok) {
@@ -24942,19 +24984,18 @@
                                 .map(normalizeComplianceRecord)
                                 .filter(Boolean);
                             window.__requirementsCache = window.__requirementsCache || {};
-                            window.__requirementsCache[currentUserId] = myCompliances;
+                            window.__requirementsCache[requirementsCacheKey] = myCompliances;
                         }
                     } catch (_) {}
                 }
 
                 if ((!Array.isArray(myCompliances) || myCompliances.length === 0) && Array.isArray(allCompliances) && allCompliances.length > 0) {
-                    const loggedInUser = String(localStorage.getItem('loggedInUser') || '').trim();
-                    const users = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
-                    const currentUser = users[loggedInUser] || safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' }) || {};
-                    const fullName = `${String(currentUser?.firstName || currentUser?.FirstName || '').trim()} ${String(currentUser?.lastName || currentUser?.LastName || '').trim()}`.trim();
-                    const displayName = String(currentUser?.name || currentUser?.Name || fullName).trim();
-                    const nameCandidates = [displayName, fullName].filter(Boolean);
-                    myCompliances = allCompliances.filter((item) => isComplianceAssignedToCurrentUser(item, currentUserId, loggedInUser, nameCandidates));
+                    myCompliances = allCompliances.filter((item) => isComplianceAssignedToCurrentUser(
+                        item,
+                        currentUserId,
+                        userContext.primaryUsername,
+                        userContext.nameCandidates
+                    ));
                 }
 
                 assignedForUserCount = (Array.isArray(myCompliances) ? myCompliances : []).filter((item) => {
