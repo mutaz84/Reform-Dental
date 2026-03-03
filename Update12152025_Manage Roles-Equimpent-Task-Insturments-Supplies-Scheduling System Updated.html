@@ -43801,9 +43801,12 @@ window.initializeCalendar = initializeCalendar;
             }
 
             if (window.__switchContentViewBusy) {
+                const hasUserEvent = !!(event && typeof event === 'object' && typeof event.type === 'string')
+                    || !!(typeof window !== 'undefined' && window.event && typeof window.event.type === 'string');
                 window.__switchContentViewPending = {
                     viewName,
-                    options: options || null
+                    options: options || null,
+                    userInitiated: hasUserEvent
                 };
                 return;
             }
@@ -44067,7 +44070,15 @@ window.initializeCalendar = initializeCalendar;
                     window.__switchContentViewPending = null;
                     setTimeout(() => {
                         try {
-                            switchContentView(pending.viewName, null, pending.options || null);
+                            const replayOptions = pending.options ? { ...pending.options } : {};
+                            if (pending.userInitiated) {
+                                replayOptions.force = true;
+                            }
+                            switchContentView(
+                                pending.viewName,
+                                null,
+                                Object.keys(replayOptions).length ? replayOptions : null
+                            );
                         } catch (_) {}
                     }, 0);
                 }
