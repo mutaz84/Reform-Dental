@@ -274,7 +274,8 @@ module.exports = async function (context, req) {
             const body = req.body || {};
             const username = String(body.username || '').trim();
             const workDate = toDateOnly(body.date || body.workDate);
-            const localId = String(body.localId || body.id || '').trim();
+            const localIdRaw = String(body.localId || body.id || '').trim();
+            const localId = localIdRaw ? localIdRaw.slice(0, 120) : '';
             if (!username || !workDate) {
                 context.res = { status: 400, headers, body: { error: 'username and date are required.' } };
                 return;
@@ -285,6 +286,13 @@ module.exports = async function (context, req) {
                 exists = await pool.request()
                     .input('localId', sql.NVarChar(120), localId)
                     .query('SELECT TOP 1 Id FROM AttendanceRecords WHERE LocalRecordId = @localId ORDER BY Id DESC');
+
+                if (!exists.recordset[0]?.Id) {
+                    exists = await pool.request()
+                        .input('username', sql.NVarChar(150), username)
+                        .input('workDate', sql.Date, workDate)
+                        .query('SELECT TOP 1 Id FROM AttendanceRecords WHERE Username = @username AND WorkDate = @workDate ORDER BY Id DESC');
+                }
             } else {
                 exists = await pool.request()
                     .input('username', sql.NVarChar(150), username)
@@ -362,9 +370,11 @@ module.exports = async function (context, req) {
 
         if (method === 'PUT' && id) {
             const body = req.body || {};
+            const localIdRaw = String(body.localId || body.id || '').trim();
+            const normalizedLocalId = localIdRaw ? localIdRaw.slice(0, 120) : null;
             await pool.request()
                 .input('id', sql.Int, id)
-                .input('localId', sql.NVarChar(120), body.localId || body.id || null)
+                .input('localId', sql.NVarChar(120), normalizedLocalId)
                 .input('userId', sql.Int, toIntOrNull(body.userId))
                 .input('username', sql.NVarChar(150), body.username || null)
                 .input('displayName', sql.NVarChar(255), body.displayName || null)
