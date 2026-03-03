@@ -25742,8 +25742,8 @@
                 if (approveBtn) approveBtn.style.display = 'none';
                 if (employeeGroup) employeeGroup.style.display = '';
                 if (employeeSelector) {
-                    employeeSelector.required = true;
-                    employeeSelector.dataset.baseRequired = '1';
+                    employeeSelector.required = false;
+                    employeeSelector.dataset.baseRequired = '0';
                 }
                 if (complianceStatus) complianceStatus.value = 'pending';
                 setComplianceModalReadOnly(false);
@@ -25882,15 +25882,19 @@
             const selectedEmployeeRaw = String(employeeSelector?.value || document.getElementById('complianceEmployeeId')?.value || '').trim();
             let resolvedUserId = resolveComplianceUserId(selectedEmployeeRaw);
 
-            if (!resolvedUserId) {
+            if (!isTemplateMode && !resolvedUserId) {
                 if (typeof showNotification === 'function') {
                     showNotification('Please select a valid employee for this compliance.', 'error');
                 }
                 return;
             }
 
+            if (isTemplateMode) {
+                resolvedUserId = null;
+            }
+
             const hiddenEmployeeId = document.getElementById('complianceEmployeeId');
-            if (hiddenEmployeeId) hiddenEmployeeId.value = String(resolvedUserId);
+            if (hiddenEmployeeId) hiddenEmployeeId.value = resolvedUserId ? String(resolvedUserId) : '';
 
             // Handle file attachment
             let attachmentData = document.getElementById('complianceAttachmentData')?.value || null;
@@ -25936,7 +25940,7 @@
                 title: titleInput || (isTemplateMode ? `${complianceTypeLabel} Template` : ''),
                 complianceTypeId: complianceTypeNotApplicable ? 'not_applicable' : (parseInt(complianceTypeRaw) || complianceTypeRaw || ''),
                 description: document.getElementById('complianceDescription')?.value || '',
-                userId: resolvedUserId,
+                userId: isTemplateMode ? null : resolvedUserId,
                 clinicId: null,
                 issueDate: issueDateNotApplicable ? '' : (document.getElementById('complianceIssueDate')?.value || ''),
                 expiryDate: expiryDateNotApplicable ? '' : (document.getElementById('complianceExpiryDate')?.value || ''),
