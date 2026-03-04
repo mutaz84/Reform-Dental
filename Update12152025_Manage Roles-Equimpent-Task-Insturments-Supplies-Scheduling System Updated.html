@@ -76460,11 +76460,33 @@ console.log('✅ Global functions exported to window object');
             const pendingQueue = getPendingRecordSyncQueue();
             const nowMs = Date.now();
             const recentWindowMs = 2 * 60 * 1000;
+            const longWindowMs = 7 * 24 * 60 * 60 * 1000;
+
+            const normalizeIsoSecond = (value) => {
+                if (!value) return '';
+                const ms = new Date(value).getTime();
+                if (!Number.isFinite(ms)) return String(value).trim();
+                return new Date(Math.floor(ms / 1000) * 1000).toISOString();
+            };
+
+            const recordFingerprint = (record) => {
+                if (!record) return '';
+                const usernameKey = toIdentityKey(record.username || record.displayName || '');
+                const businessDate = getRecordBusinessDateISO(record, toISODateInTimeZone(record.clockIn || record.clockOut || new Date()));
+                const clockIn = normalizeIsoSecond(record.clockIn);
+                const clockOut = normalizeIsoSecond(record.clockOut);
+                const reason = normalizeClockOutReason(record.clockOutReason);
+                return `${usernameKey}|${businessDate}|${clockIn}|${clockOut}|${reason}`;
+            };
+
+            const mergedFingerprints = new Set();
 
             fetched.forEach((record) => {
                 const id = String(record?.id || '').trim();
                 if (!id) return;
                 mergedById.set(id, record);
+                const fp = recordFingerprint(record);
+                if (fp) mergedFingerprints.add(fp);
             });
 
             // Keep queued local records visible even if API has not reflected them yet.
@@ -76472,6 +76494,8 @@ console.log('✅ Global functions exported to window object');
                 const id = String(record?.id || '').trim();
                 if (!id) return;
                 mergedById.set(id, { ...record });
+                const fp = recordFingerprint(record);
+                if (fp) mergedFingerprints.add(fp);
             });
 
             // Keep very recent local records for a short grace window to avoid UI flicker.
@@ -76482,6 +76506,25 @@ console.log('✅ Global functions exported to window object');
                 if (!Number.isFinite(ts)) return;
                 if ((nowMs - ts) > recentWindowMs) return;
                 mergedById.set(id, { ...record });
+                const fp = recordFingerprint(record);
+                if (fp) mergedFingerprints.add(fp);
+            });
+
+            // Stronger safety: keep local unmatched activity segments for recent history,
+            // so valid break/re-clock records do not disappear if server data is lagging/incomplete.
+            localRecords.forEach((record) => {
+                const id = String(record?.id || '').trim();
+                if (!id || mergedById.has(id)) return;
+                if (!record?.clockIn && !record?.clockOut) return;
+                const ts = new Date(record?.createdAt || record?.clockIn || record?.clockOut || 0).getTime();
+                if (!Number.isFinite(ts)) return;
+                if ((nowMs - ts) > longWindowMs) return;
+
+                const fp = recordFingerprint(record);
+                if (fp && mergedFingerprints.has(fp)) return;
+
+                mergedById.set(id, { ...record });
+                if (fp) mergedFingerprints.add(fp);
             });
 
             return Array.from(mergedById.values())
