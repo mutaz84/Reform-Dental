@@ -44549,6 +44549,13 @@ window.initializeCalendar = initializeCalendar;
                     display: none;
                 }
                 .crud-ellipsis-menu.open { display: block; }
+                .crud-ellipsis-menu.crud-portal {
+                    position: fixed !important;
+                    right: auto !important;
+                    top: 0;
+                    left: 0;
+                    z-index: 2147483000 !important;
+                }
                 body.crud-menu-open .crud-ellipsis-wrapper:not(.crud-active) > .crud-ellipsis-trigger {
                     visibility: hidden;
                 }
@@ -44660,11 +44667,71 @@ window.initializeCalendar = initializeCalendar;
         }
 
         function closeAllCrudMenus() {
-            document.querySelectorAll('.crud-ellipsis-menu.open').forEach((menu) => menu.classList.remove('open'));
+            document.querySelectorAll('.crud-ellipsis-menu.open').forEach((menu) => {
+                menu.classList.remove('open');
+                if (menu.__crudOriginalParent && menu.parentNode !== menu.__crudOriginalParent) {
+                    menu.__crudOriginalParent.appendChild(menu);
+                }
+                menu.classList.remove('crud-portal');
+                menu.style.left = '';
+                menu.style.top = '';
+                menu.__crudTrigger = null;
+            });
             document.querySelectorAll('.crud-ellipsis-wrapper.crud-active').forEach((wrapper) => wrapper.classList.remove('crud-active'));
             if (document.body) {
                 document.body.classList.remove('crud-menu-open');
             }
+        }
+
+        function positionCrudMenu(menu, trigger) {
+            if (!menu || !trigger) return;
+
+            const triggerRect = trigger.getBoundingClientRect();
+            menu.style.visibility = 'hidden';
+            menu.classList.add('open');
+
+            const menuRect = menu.getBoundingClientRect();
+            const margin = 8;
+
+            let left = triggerRect.right - menuRect.width;
+            let top = triggerRect.bottom + 6;
+
+            if (left < margin) left = margin;
+            if ((left + menuRect.width) > (window.innerWidth - margin)) {
+                left = Math.max(margin, window.innerWidth - menuRect.width - margin);
+            }
+
+            if ((top + menuRect.height) > (window.innerHeight - margin)) {
+                top = triggerRect.top - menuRect.height - 6;
+            }
+            if (top < margin) top = margin;
+
+            menu.style.left = `${Math.round(left)}px`;
+            menu.style.top = `${Math.round(top)}px`;
+            menu.style.visibility = 'visible';
+        }
+
+        function refreshOpenCrudMenuPositions() {
+            document.querySelectorAll('.crud-ellipsis-menu.open').forEach((menu) => {
+                if (menu.__crudTrigger) {
+                    positionCrudMenu(menu, menu.__crudTrigger);
+                }
+            });
+        }
+
+        function openCrudMenu(wrapper, menu, trigger) {
+            if (!wrapper || !menu || !trigger) return;
+            wrapper.classList.add('crud-active');
+            if (document.body) {
+                document.body.classList.add('crud-menu-open');
+                if (!menu.__crudOriginalParent) {
+                    menu.__crudOriginalParent = wrapper;
+                }
+                document.body.appendChild(menu);
+            }
+            menu.classList.add('crud-portal');
+            menu.__crudTrigger = trigger;
+            positionCrudMenu(menu, trigger);
         }
 
         function normalizeCrudMenuAction(action) {
@@ -44761,11 +44828,7 @@ window.initializeCalendar = initializeCalendar;
                 const willOpen = !menu.classList.contains('open');
                 closeAllCrudMenus();
                 if (willOpen) {
-                    wrapper.classList.add('crud-active');
-                    if (document.body) {
-                        document.body.classList.add('crud-menu-open');
-                    }
-                    menu.classList.add('open');
+                    openCrudMenu(wrapper, menu, trigger);
                 }
             });
 
@@ -44814,10 +44877,17 @@ window.initializeCalendar = initializeCalendar;
             scheduleCrudMenuEnhancement();
 
             document.addEventListener('click', (event) => {
-                if (!event.target.closest('.crud-ellipsis-wrapper')) {
+                if (!event.target.closest('.crud-ellipsis-wrapper') && !event.target.closest('.crud-ellipsis-menu')) {
                     closeAllCrudMenus();
                 }
             });
+
+            window.addEventListener('resize', () => {
+                refreshOpenCrudMenuPositions();
+            });
+            document.addEventListener('scroll', () => {
+                refreshOpenCrudMenuPositions();
+            }, true);
 
             if (!Array.isArray(window.__onSwitchContentViewHooks)) {
                 window.__onSwitchContentViewHooks = [];
