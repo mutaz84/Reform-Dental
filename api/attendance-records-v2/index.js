@@ -287,6 +287,17 @@ async function findRecordIdByLocalId(pool, localId) {
     return byLocalId.recordset[0]?.Id || null;
 }
 
+async function findRecordIdByIdentity(pool, username, workDate) {
+    const normalizedUsername = safeString(username, 150);
+    const normalizedDate = toDateOnly(workDate);
+    if (!normalizedUsername || !normalizedDate) return null;
+    const byIdentity = await pool.request()
+        .input('username', sql.NVarChar(150), normalizedUsername)
+        .input('workDate', sql.Date, normalizedDate)
+        .query('SELECT TOP 1 Id FROM AttendanceRecords WHERE Username = @username AND WorkDate = @workDate ORDER BY Id DESC');
+    return byIdentity.recordset[0]?.Id || null;
+}
+
 async function updateRecord(pool, targetId, payload, flagsJson) {
     await pool.request()
         .input('id', sql.Int, targetId)
@@ -381,6 +392,27 @@ async function upsertRecord(pool, payload) {
                 }
             }
 
+            const identityId = await findRecordIdByIdentity(pool, payload.username, payload.workDate);
+            if (identityId) {
+                try {
+                    await updateRecord(pool, identityId, payload, fullMeta);
+                    return {
+                        id: identityId,
+                        upserted: true,
+                        mode: 'duplicate-recovered-identity-full',
+                        warning: String(insertErr?.message || insertErr || '').slice(0, 160)
+                    };
+                } catch (identityErr) {
+                    await updateRecord(pool, identityId, payload, fallbackMeta);
+                    return {
+                        id: identityId,
+                        upserted: true,
+                        mode: 'duplicate-recovered-identity-minimal-meta',
+                        warning: String(identityErr?.message || identityErr || '').slice(0, 160)
+                    };
+                }
+            }
+
             throw buildUniqueConstraintError(insertErr?.message || insertErr);
         }
 
@@ -401,6 +433,17 @@ async function upsertRecord(pool, payload) {
                         id: existingId,
                         upserted: true,
                         mode: 'duplicate-recovered-fallback',
+                        warning: String(fallbackErr?.message || fallbackErr || '').slice(0, 160)
+                    };
+                }
+
+                const identityId = await findRecordIdByIdentity(pool, payload.username, payload.workDate);
+                if (identityId) {
+                    await updateRecord(pool, identityId, payload, fallbackMeta);
+                    return {
+                        id: identityId,
+                        upserted: true,
+                        mode: 'duplicate-recovered-identity-fallback',
                         warning: String(fallbackErr?.message || fallbackErr || '').slice(0, 160)
                     };
                 }

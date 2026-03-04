@@ -455,6 +455,26 @@ module.exports = async function (context, req) {
                         return;
                     }
 
+                    const byIdentity = await pool.request()
+                        .input('username', sql.NVarChar(150), payload.username)
+                        .input('workDate', sql.Date, payload.workDate)
+                        .query('SELECT TOP 1 Id FROM AttendanceRecords WHERE Username = @username AND WorkDate = @workDate ORDER BY Id DESC');
+                    const identityId = byIdentity.recordset[0]?.Id;
+                    if (identityId) {
+                        await runUpdateById(identityId, payload.flagsJson);
+                        context.res = {
+                            status: 200,
+                            headers,
+                            body: {
+                                id: identityId,
+                                upserted: true,
+                                mode: 'duplicate-recovered-identity-full',
+                                warning: String(err?.message || err || '').slice(0, 160)
+                            }
+                        };
+                        return;
+                    }
+
                     throw buildUniqueConstraintError(err?.message || err);
                 }
 
@@ -476,6 +496,26 @@ module.exports = async function (context, req) {
                                     id: existingId,
                                     upserted: true,
                                     mode: 'duplicate-recovered-minimal-meta',
+                                    warning: String(fallbackErr?.message || fallbackErr || '').slice(0, 160)
+                                }
+                            };
+                            return;
+                        }
+
+                        const byIdentity = await pool.request()
+                            .input('username', sql.NVarChar(150), payload.username)
+                            .input('workDate', sql.Date, payload.workDate)
+                            .query('SELECT TOP 1 Id FROM AttendanceRecords WHERE Username = @username AND WorkDate = @workDate ORDER BY Id DESC');
+                        const identityId = byIdentity.recordset[0]?.Id;
+                        if (identityId) {
+                            await runUpdateById(identityId, serializeRecordMeta([], null, null));
+                            context.res = {
+                                status: 200,
+                                headers,
+                                body: {
+                                    id: identityId,
+                                    upserted: true,
+                                    mode: 'duplicate-recovered-identity-minimal-meta',
                                     warning: String(fallbackErr?.message || fallbackErr || '').slice(0, 160)
                                 }
                             };
