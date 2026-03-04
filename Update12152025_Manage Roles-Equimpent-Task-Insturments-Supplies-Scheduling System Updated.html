@@ -44513,6 +44513,234 @@ window.initializeCalendar = initializeCalendar;
         // Expose switchContentView globally so Copilot and other modules can call it
         window.switchContentView = switchContentView;
 
+        function ensureCrudMenuStyles() {
+            if (document.getElementById('crudEllipsisMenuStyles')) return;
+            const style = document.createElement('style');
+            style.id = 'crudEllipsisMenuStyles';
+            style.textContent = `
+                .crud-ellipsis-wrapper { position: relative; display: inline-block; }
+                .crud-ellipsis-trigger {
+                    width: 32px;
+                    height: 32px;
+                    border: 1px solid var(--border-color);
+                    border-radius: 8px;
+                    background: var(--bg-secondary);
+                    color: var(--text-primary);
+                    cursor: pointer;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .crud-ellipsis-trigger:hover { background: var(--bg-tertiary); }
+                .crud-ellipsis-menu {
+                    position: absolute;
+                    right: 0;
+                    top: calc(100% + 6px);
+                    min-width: 170px;
+                    background: var(--card-bg);
+                    border: 1px solid var(--border-color);
+                    border-radius: 10px;
+                    box-shadow: 0 12px 30px rgba(0,0,0,0.18);
+                    z-index: 1500;
+                    padding: 0.35rem;
+                    display: none;
+                }
+                .crud-ellipsis-menu.open { display: block; }
+                .crud-ellipsis-item { margin: 0; }
+                .crud-ellipsis-item > button,
+                .crud-ellipsis-item > a {
+                    width: 100%;
+                    display: flex !important;
+                    justify-content: flex-start;
+                    align-items: center;
+                    gap: 0.45rem;
+                    margin: 0;
+                }
+                .crud-ellipsis-host {
+                    display: flex;
+                    justify-content: flex-end;
+                    align-items: center;
+                    gap: 0.45rem;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        function collectCrudActionElements(group) {
+            const selectors = [
+                ':scope > button',
+                ':scope > a[onclick]',
+                ':scope > .action-btn',
+                ':scope > div > button',
+                ':scope > div > a[onclick]',
+                ':scope > div > .action-btn'
+            ];
+            const found = [];
+            selectors.forEach((selector) => {
+                group.querySelectorAll(selector).forEach((el) => {
+                    if (!found.includes(el)) found.push(el);
+                });
+            });
+            return found;
+        }
+
+        function isCrudActionElement(actionEl) {
+            const text = String(actionEl.textContent || '').trim().toLowerCase();
+            const title = String(actionEl.getAttribute('title') || '').trim().toLowerCase();
+            const onclick = String(actionEl.getAttribute('onclick') || '').trim().toLowerCase();
+            const iconClass = String(actionEl.querySelector('i')?.className || '').toLowerCase();
+            const signal = `${text} ${title} ${onclick} ${iconClass}`;
+            return /(edit|delete|remove|view|open|approve|deny|archive|restore|clone|duplicate)/.test(signal);
+        }
+
+        function isCrudActionGroup(group) {
+            if (!group || group.dataset.crudMenuEnhanced === '1') return false;
+            if (group.closest('.crud-ellipsis-menu')) return false;
+
+            const classAndId = `${group.className || ''} ${group.id || ''}`.toLowerCase();
+            if (/(section-actions|filters-section|header|toolbar|pagination|tab-actions)/.test(classAndId)) {
+                return false;
+            }
+
+            const actions = collectCrudActionElements(group);
+            if (actions.length < 2) return false;
+
+            const crudActions = actions.filter(isCrudActionElement);
+            if (!crudActions.length) return false;
+
+            const topLevelChildren = Array.from(group.children || []);
+            const topActionChildren = topLevelChildren.filter((child) =>
+                child.matches('button, a, .action-btn') || !!child.querySelector('button, a, .action-btn')
+            );
+            if (topLevelChildren.length > 0 && topActionChildren.length < topLevelChildren.length && !/(actions|action)/.test(classAndId)) {
+                return false;
+            }
+
+            return true;
+        }
+
+        function closeAllCrudMenus() {
+            document.querySelectorAll('.crud-ellipsis-menu.open').forEach((menu) => menu.classList.remove('open'));
+        }
+
+        function enhanceSingleCrudGroup(group) {
+            if (!isCrudActionGroup(group)) return;
+
+            const actions = collectCrudActionElements(group).filter(isCrudActionElement);
+            if (actions.length < 2) return;
+
+            group.dataset.crudMenuEnhanced = '1';
+            group.classList.add('crud-ellipsis-host');
+
+            actions.forEach((action) => {
+                action.dataset.crudMoved = '1';
+            });
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'crud-ellipsis-wrapper';
+
+            const trigger = document.createElement('button');
+            trigger.type = 'button';
+            trigger.className = 'crud-ellipsis-trigger';
+            trigger.title = 'More actions';
+            trigger.setAttribute('aria-label', 'More actions');
+            trigger.innerHTML = '<i class="fas fa-ellipsis-v"></i>';
+
+            const menu = document.createElement('div');
+            menu.className = 'crud-ellipsis-menu';
+
+            actions.forEach((action) => {
+                const item = document.createElement('div');
+                item.className = 'crud-ellipsis-item';
+                item.appendChild(action);
+                menu.appendChild(item);
+
+                action.addEventListener('click', () => {
+                    menu.classList.remove('open');
+                }, { once: false });
+            });
+
+            trigger.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const willOpen = !menu.classList.contains('open');
+                closeAllCrudMenus();
+                if (willOpen) {
+                    menu.classList.add('open');
+                }
+            });
+
+            wrapper.appendChild(trigger);
+            wrapper.appendChild(menu);
+            group.appendChild(wrapper);
+        }
+
+        function enhanceCrudActionMenus(root = document) {
+            ensureCrudMenuStyles();
+            const selectors = [
+                '.compliance-actions',
+                '.action-buttons',
+                '.table-actions',
+                '.actions',
+                'td > div',
+                '.list-row-actions'
+            ];
+
+            const candidates = [];
+            selectors.forEach((selector) => {
+                root.querySelectorAll(selector).forEach((el) => {
+                    if (!candidates.includes(el)) candidates.push(el);
+                });
+            });
+
+            candidates.forEach((group) => {
+                try {
+                    enhanceSingleCrudGroup(group);
+                } catch (_) {}
+            });
+        }
+
+        function scheduleCrudMenuEnhancement() {
+            if (window.__crudMenuEnhanceTimer) return;
+            window.__crudMenuEnhanceTimer = setTimeout(() => {
+                window.__crudMenuEnhanceTimer = null;
+                enhanceCrudActionMenus(document);
+            }, 40);
+        }
+
+        function installCrudMenuEnhancer() {
+            if (window.__crudMenuEnhancerInstalled) return;
+            window.__crudMenuEnhancerInstalled = true;
+
+            scheduleCrudMenuEnhancement();
+
+            document.addEventListener('click', (event) => {
+                if (!event.target.closest('.crud-ellipsis-wrapper')) {
+                    closeAllCrudMenus();
+                }
+            });
+
+            if (!Array.isArray(window.__onSwitchContentViewHooks)) {
+                window.__onSwitchContentViewHooks = [];
+            }
+            window.__onSwitchContentViewHooks.push(() => {
+                scheduleCrudMenuEnhancement();
+            });
+
+            const observer = new MutationObserver(() => {
+                scheduleCrudMenuEnhancement();
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+            window.__crudMenuEnhancerObserver = observer;
+        }
+
+        window.installCrudMenuEnhancer = installCrudMenuEnhancer;
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', installCrudMenuEnhancer);
+        } else {
+            installCrudMenuEnhancer();
+        }
+
         // ===================== REQUESTS MODULE =====================
         const REQUEST_STORAGE_KEY = 'requestsDatabase';
         const REQUEST_NOTIFICATIONS_KEY = 'requestNotifications';
