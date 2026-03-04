@@ -76760,6 +76760,61 @@ console.log('✅ Global functions exported to window object');
             });
         }
 
+        function syncRecordToApiByDbId(record) {
+            const dbId = Number.parseInt(String(record?.dbId || ''), 10);
+            if (!Number.isInteger(dbId)) {
+                return Promise.reject(new Error('Missing dbId for attendance PUT fallback'));
+            }
+
+            const normalizeTimeForApi = (value) => {
+                if (value === null || value === undefined) return null;
+                const raw = String(value).trim();
+                if (!raw) return null;
+                const match = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?$/i);
+                if (!match) return null;
+
+                let hours = Number.parseInt(match[1], 10);
+                const minutes = Number.parseInt(match[2], 10);
+                const seconds = Number.parseInt(match[3] || '0', 10);
+                const meridiem = (match[4] || '').toLowerCase();
+
+                if (!Number.isInteger(hours) || !Number.isInteger(minutes) || !Number.isInteger(seconds)) {
+                    return null;
+                }
+
+                if (meridiem) {
+                    if (hours < 1 || hours > 12) return null;
+                    if (meridiem === 'pm' && hours < 12) hours += 12;
+                    if (meridiem === 'am' && hours === 12) hours = 0;
+                }
+
+                if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59) {
+                    return null;
+                }
+
+                return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            };
+
+            return attendanceApiRequest(`${ATTENDANCE_API.records}/${dbId}`, {
+                method: 'PUT',
+                body: {
+                    id: record.id,
+                    localId: record.id,
+                    username: record.username,
+                    displayName: record.displayName,
+                    date: record.date,
+                    scheduledStart: normalizeTimeForApi(record.scheduledStart),
+                    scheduledEnd: normalizeTimeForApi(record.scheduledEnd),
+                    clockIn: record.clockIn,
+                    clockOut: record.clockOut,
+                    clockOutReason: record.clockOutReason,
+                    employeeClinic: record.employeeClinic,
+                    minutesWorked: record.minutesWorked,
+                    flags: Array.isArray(record.flags) ? record.flags : []
+                }
+            });
+        }
+
         function waitMs(ms) {
             return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))));
         }
@@ -76774,7 +76829,18 @@ console.log('✅ Global functions exported to window object');
                     }
                     return await syncRecordToApi(record);
                 } catch (err) {
-                    lastErr = err;
+                    // If upsert POST fails but we already know the server dbId,
+                    // try direct row update to avoid local-only break/clock-out state.
+                    const hasDbId = Number.isInteger(Number.parseInt(String(record?.dbId || ''), 10));
+                    if (hasDbId) {
+                        try {
+                            return await syncRecordToApiByDbId(record);
+                        } catch (putErr) {
+                            lastErr = putErr;
+                        }
+                    } else {
+                        lastErr = err;
+                    }
                     if (attempt >= attempts) break;
                     await waitMs(500 * attempt);
                 }
@@ -77795,7 +77861,12 @@ console.log('✅ Global functions exported to window object');
 
         async function syncRecordImmediately(record) {
             try {
-                await syncRecordToApiWithRetry(record, 3);
+                const response = await syncRecordToApiWithRetry(record, 3);
+                const responseId = Number.parseInt(String(response?.id || ''), 10);
+                if (Number.isInteger(responseId) && Number(responseId) !== Number(record?.dbId || 0)) {
+                    record.dbId = responseId;
+                    updateRecord(record);
+                }
                 attendanceApiState.available = true;
                 attendanceApiState.lastError = '';
                 const queue = getPendingRecordSyncQueue().filter((entry) => String(entry?.id || '') !== String(record?.id || ''));
