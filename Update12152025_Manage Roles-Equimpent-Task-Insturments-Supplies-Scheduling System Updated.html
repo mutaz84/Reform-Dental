@@ -79659,6 +79659,49 @@ console.log('✅ Global functions exported to window object');
         return false;
     }
 
+    function isStationaryViewVisible() {
+        const view = document.getElementById('view-stationary') || document.getElementById('stationary-view');
+        if (!view) return false;
+        if (view.classList.contains('active')) return true;
+        const inlineDisplay = String(view.style?.display || '').toLowerCase();
+        return inlineDisplay !== 'none';
+    }
+
+    function openStationaryBuilderView(event) {
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+
+        let opened = false;
+        if (typeof window.switchContentView === 'function') {
+            try {
+                window.switchContentView('stationary', event || null);
+                opened = isStationaryViewVisible();
+            } catch (_) {}
+        }
+
+        if (!opened) {
+            const allViews = Array.from(document.querySelectorAll('.content-view'));
+            const view = document.getElementById('view-stationary') || document.getElementById('stationary-view');
+            if (view) {
+                allViews.forEach((node) => {
+                    node.classList.remove('active');
+                    node.style.display = 'none';
+                });
+                view.classList.add('active');
+                view.style.display = 'block';
+                opened = true;
+            }
+        }
+
+        if (opened && typeof initializeStationaryBuilder === 'function') {
+            try { initializeStationaryBuilder(); } catch (_) {}
+        }
+
+        return false;
+    }
+
     function ensureStationaryNavVisible() {
         try {
             const hasStationaryNav = !!document.querySelector("a.nav-item[onclick*='switchContentView(\'stationary\'']")
@@ -79679,6 +79722,9 @@ console.log('✅ Global functions exported to window object');
                     anchor.href = '#';
                     anchor.className = 'nav-item';
                     anchor.onclick = function(evt) {
+                        if (typeof window.openStationaryBuilderView === 'function') {
+                            return window.openStationaryBuilderView(evt);
+                        }
                         if (typeof window.switchContentView === 'function') {
                             return window.switchContentView('stationary', evt), false;
                         }
@@ -79698,6 +79744,14 @@ console.log('✅ Global functions exported to window object');
         document.addEventListener('click', (event) => {
             const target = event.target;
             if (!target || typeof target.closest !== 'function') return;
+
+            const navItem = target.closest('a.nav-item');
+            if (navItem) {
+                const navText = String(navItem.textContent || '').trim().toLowerCase();
+                if (navText === 'stationary' || navText.includes('stationary')) {
+                    return openStationaryBuilderView(event);
+                }
+            }
 
             if (target.closest('#stationaryAddTextBtn')) return handleStationaryAddText(event);
             if (target.closest('#stationaryAddSignatureBtn')) return handleStationaryAddSignature(event);
@@ -79732,6 +79786,7 @@ console.log('✅ Global functions exported to window object');
     window.handleStationaryToggleItalic = handleStationaryToggleItalic;
     window.handleStationaryToggleUnderline = handleStationaryToggleUnderline;
     window.ensureStationaryNavVisible = ensureStationaryNavVisible;
+    window.openStationaryBuilderView = openStationaryBuilderView;
 
     // ===== EXPOSE PUBLIC API =====
     window.ReformCopilot = {
