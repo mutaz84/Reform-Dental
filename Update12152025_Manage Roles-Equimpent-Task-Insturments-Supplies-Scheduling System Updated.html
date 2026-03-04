@@ -76808,7 +76808,10 @@ console.log('✅ Global functions exported to window object');
                     const inMs = row.clockIn ? new Date(row.clockIn).getTime() : 0;
                     const outMs = row.clockOut ? new Date(row.clockOut).getTime() : 0;
                     const eventTimestamp = row.clockOut || row.clockIn || row.date || todayISO;
-                    const displayDate = toISODate(new Date(eventTimestamp));
+                    const rawRecordDate = String(row?.date || '').trim();
+                    const displayDate = /^\d{4}-\d{2}-\d{2}$/.test(rawRecordDate)
+                        ? rawRecordDate
+                        : toISODate(new Date(eventTimestamp));
                     const normalizedMinutesWorked = getWorkedMinutesForRecord(row);
                     const clockOutReason = getClockOutReasonLabel(row.clockOutReason);
                     const employeeClinic = resolveClinicForRecord(row, scheduleMap);
@@ -76950,6 +76953,33 @@ console.log('✅ Global functions exported to window object');
             const [h, m] = hm.split(':').map((x) => Number(x));
             if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
             return (h * 60) + m;
+        }
+
+        function formatAttendanceShiftRange(startTime, endTime) {
+            const rawStart = String(startTime || '').trim();
+            const rawEnd = String(endTime || '').trim();
+            if (!rawStart && !rawEnd) return '--:-- - --:--';
+            if (!rawStart || !rawEnd) return `${rawStart || '--:--'} - ${rawEnd || '--:--'}`;
+
+            const startMinutes = parseHMToMinutes(rawStart);
+            const endMinutes = parseHMToMinutes(rawEnd);
+            let start = rawStart;
+            let end = rawEnd;
+            let overnight = false;
+
+            if (Number.isFinite(startMinutes) && Number.isFinite(endMinutes) && endMinutes < startMinutes) {
+                const overnightDuration = (endMinutes + 1440) - startMinutes;
+                if (overnightDuration <= 720) {
+                    overnight = true;
+                } else {
+                    start = rawEnd;
+                    end = rawStart;
+                }
+            }
+
+            const startLabel = (typeof convertTo12Hour === 'function') ? convertTo12Hour(start) : start;
+            const endLabel = (typeof convertTo12Hour === 'function') ? convertTo12Hour(end) : end;
+            return overnight ? `${startLabel} - ${endLabel} (overnight)` : `${startLabel} - ${endLabel}`;
         }
 
         function timestampMinutes(dateObj) {
@@ -77484,7 +77514,7 @@ console.log('✅ Global functions exported to window object');
                     username,
                     displayName: schedule.displayName || username,
                     clinic: schedule.clinic || '-',
-                    shift: `${schedule.startTime || '--:--'} - ${schedule.endTime || '--:--'}`,
+                    shift: formatAttendanceShiftRange(schedule.startTime, schedule.endTime),
                     date: dateISO,
                     status: existingAbsence ? 'Recorded' : 'New',
                     reason: existingAbsence?.reason || 'Scheduled but not clocked in'
