@@ -7192,6 +7192,38 @@
             font-size: 0.74rem;
             color: var(--text-secondary);
         }
+        .attendance-audit-report {
+            margin-bottom: 0.65rem;
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-secondary);
+        }
+        .attendance-audit-report-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.35rem;
+            flex-wrap: wrap;
+        }
+        .attendance-audit-report-title {
+            margin: 0;
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .attendance-audit-report-note {
+            font-size: 0.72rem;
+            color: var(--text-secondary);
+        }
+        .attendance-audit-report .attendance-table-wrap {
+            max-height: 220px;
+            background: var(--card-bg);
+        }
         .attendance-manager-overview .attendance-table-wrap {
             border-radius: 10px;
             max-height: 320px;
@@ -17574,6 +17606,29 @@
                                     </div>
 
                                     <div id="attendanceManagerReportSummary" class="attendance-manager-summary"></div>
+
+                                    <div class="attendance-audit-report" id="attendanceAuditReportPanel" style="display:none;">
+                                        <div class="attendance-audit-report-head">
+                                            <h4 class="attendance-audit-report-title"><i class="fas fa-clipboard-check"></i> Absence Audit Report</h4>
+                                            <div class="attendance-audit-report-note" id="attendanceAuditReportSummary"></div>
+                                        </div>
+                                        <div class="attendance-table-wrap">
+                                            <table class="attendance-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Employee</th>
+                                                        <th>Clinic</th>
+                                                        <th>Scheduled Shift</th>
+                                                        <th>Date</th>
+                                                        <th>Status</th>
+                                                        <th>Reason</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="attendanceAuditReportBody"></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
                                     <div class="attendance-table-wrap">
                                         <table class="attendance-table">
                                             <thead>
@@ -77415,8 +77470,64 @@ console.log('✅ Global functions exported to window object');
             return dateISO >= request.startDate && dateISO <= request.endDate;
         }
 
+        function buildAbsenceAuditRows(dateISO, scheduleMap, records, ptoRequests, absences) {
+            if (!dateISO || !scheduleMap) return [];
+            const users = Object.keys(scheduleMap || {});
+            const rows = users.map((username) => {
+                const schedule = scheduleMap[username] || {};
+                const hasClock = records.some((record) => record.username === username && record.date === dateISO && !!record.clockIn);
+                const hasPto = ptoRequests.some((request) => request.username === username && isDateInPto(request, dateISO));
+                if (hasClock || hasPto) return null;
+
+                const existingAbsence = absences.find((entry) => entry.username === username && entry.date === dateISO) || null;
+                return {
+                    username,
+                    displayName: schedule.displayName || username,
+                    clinic: schedule.clinic || '-',
+                    shift: `${schedule.startTime || '--:--'} - ${schedule.endTime || '--:--'}`,
+                    date: dateISO,
+                    status: existingAbsence ? 'Recorded' : 'New',
+                    reason: existingAbsence?.reason || 'Scheduled but not clocked in'
+                };
+            }).filter(Boolean);
+
+            rows.sort((a, b) => String(a.displayName || '').localeCompare(String(b.displayName || '')));
+            return rows;
+        }
+
+        function renderAttendanceAbsenceAuditReport() {
+            const panel = document.getElementById('attendanceAuditReportPanel');
+            const summaryEl = document.getElementById('attendanceAuditReportSummary');
+            const bodyEl = document.getElementById('attendanceAuditReportBody');
+            const report = window.__attendanceAbsenceAuditReport || null;
+
+            if (!panel || !summaryEl || !bodyEl) return;
+            if (!report || !Array.isArray(report.rows)) {
+                panel.style.display = 'none';
+                bodyEl.innerHTML = '';
+                summaryEl.textContent = '';
+                return;
+            }
+
+            panel.style.display = '';
+            const createdCount = Number(report.createdCount || 0);
+            const totalCount = Number(report.rows.length || 0);
+            summaryEl.textContent = `${totalCount} absent employee(s) • ${createdCount} newly recorded • ${formatDate(report.dateISO)}`;
+            bodyEl.innerHTML = report.rows.map((row) => `
+                <tr>
+                    <td>${row.displayName || row.username || '-'}</td>
+                    <td>${row.clinic || '-'}</td>
+                    <td>${row.shift || '-'}</td>
+                    <td>${formatDate(row.date)}</td>
+                    <td>${row.status || '-'}</td>
+                    <td>${row.reason || '-'}</td>
+                </tr>
+            `).join('') || '<tr><td colspan="6" class="attendance-note">No absences found for the audited date.</td></tr>';
+        }
+
         function auditAttendanceAbsences(targetDate = null) {
-            const dateISO = targetDate || toISODate(new Date());
+            const managerDayValue = String(document.getElementById('attendanceManagerDay')?.value || '').trim();
+            const dateISO = targetDate || managerDayValue || toISODate(new Date());
             const scheduleMap = getScheduleForDate(new Date(dateISO));
             const records = getRecords();
             const ptoRequests = getPtoRequests();
@@ -77443,12 +77554,23 @@ console.log('✅ Global functions exported to window object');
                 added += 1;
             });
 
+            const auditRows = buildAbsenceAuditRows(dateISO, scheduleMap, records, ptoRequests, absences);
+            window.__attendanceAbsenceAuditReport = {
+                dateISO,
+                createdCount: added,
+                rows: auditRows
+            };
+
             saveAbsences(absences);
             if (added > 0) {
                 addNotification('__managers__', `${added} absence record(s) created for ${formatDate(dateISO)}.`, 'warning');
             }
             if (typeof showNotification === 'function') {
-                showNotification(added > 0 ? `${added} absence record(s) created.` : 'No new absences to record.', added > 0 ? 'warning' : 'success');
+                const totalMissing = auditRows.length;
+                const message = totalMissing > 0
+                    ? `Absence audit report ready: ${totalMissing} absent employee(s), ${added} newly recorded.`
+                    : 'No absences found for the selected day.';
+                showNotification(message, totalMissing > 0 ? 'warning' : 'success');
             }
             refreshAttendanceView();
         }
@@ -78079,6 +78201,7 @@ console.log('✅ Global functions exported to window object');
                 populateManagerEmployeeSelectors();
                 populateAttendanceManagerReportEmployees();
                 renderCurrentPolicy();
+                renderAttendanceAbsenceAuditReport();
 
                 const managerDayInput = document.getElementById('attendanceManagerDay');
                 const managerRangeStartInput = document.getElementById('attendanceManagerRangeStart');
