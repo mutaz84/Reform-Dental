@@ -76661,11 +76661,56 @@ console.log('✅ Global functions exported to window object');
         }
 
         function toISODate(inputDate = new Date()) {
+            const raw = String(inputDate || '').trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
             const d = new Date(inputDate);
             const year = d.getFullYear();
             const month = String(d.getMonth() + 1).padStart(2, '0');
             const day = String(d.getDate()).padStart(2, '0');
             return `${year}-${month}-${day}`;
+        }
+
+        function getAttendanceTimeZone() {
+            const configured = String(window.__attendanceTimeZone || '').trim();
+            if (configured) return configured;
+            try {
+                return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+            } catch (_) {
+                return 'UTC';
+            }
+        }
+
+        function toISODateInTimeZone(inputDate = new Date(), timeZone = getAttendanceTimeZone()) {
+            const raw = String(inputDate || '').trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+            const d = new Date(inputDate);
+            if (Number.isNaN(d.getTime())) return '';
+            try {
+                const parts = new Intl.DateTimeFormat('en-US', {
+                    timeZone,
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit'
+                }).formatToParts(d);
+                const year = parts.find((p) => p.type === 'year')?.value;
+                const month = parts.find((p) => p.type === 'month')?.value;
+                const day = parts.find((p) => p.type === 'day')?.value;
+                if (year && month && day) return `${year}-${month}-${day}`;
+            } catch (_) {}
+            return toISODate(d);
+        }
+
+        function getRecordBusinessDateISO(record, fallbackISO = '') {
+            const rawDate = String(record?.date || '').trim();
+            const clockInISO = record?.clockIn ? toISODateInTimeZone(record.clockIn) : '';
+            const clockOutISO = record?.clockOut ? toISODateInTimeZone(record.clockOut) : '';
+
+            if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+                if (clockInISO && rawDate !== clockInISO) return clockInISO;
+                return rawDate;
+            }
+            return clockInISO || clockOutISO || fallbackISO;
         }
 
         function parseISODateLocal(inputValue, fallbackDate = new Date()) {
@@ -76708,8 +76753,8 @@ console.log('✅ Global functions exported to window object');
         function isRecordOnIsoDay(record, dayISO) {
             if (!record) return false;
             if (String(record.date || '') === String(dayISO || '')) return true;
-            const inIso = record.clockIn ? toISODate(new Date(record.clockIn)) : '';
-            const outIso = record.clockOut ? toISODate(new Date(record.clockOut)) : '';
+            const inIso = record.clockIn ? toISODateInTimeZone(record.clockIn) : '';
+            const outIso = record.clockOut ? toISODateInTimeZone(record.clockOut) : '';
             return inIso === dayISO || outIso === dayISO;
         }
 
@@ -76819,10 +76864,7 @@ console.log('✅ Global functions exported to window object');
                     const inMs = row.clockIn ? new Date(row.clockIn).getTime() : 0;
                     const outMs = row.clockOut ? new Date(row.clockOut).getTime() : 0;
                     const eventTimestamp = row.clockOut || row.clockIn || row.date || todayISO;
-                    const rawRecordDate = String(row?.date || '').trim();
-                    const displayDate = /^\d{4}-\d{2}-\d{2}$/.test(rawRecordDate)
-                        ? rawRecordDate
-                        : toISODate(new Date(eventTimestamp));
+                    const displayDate = getRecordBusinessDateISO(row, toISODateInTimeZone(eventTimestamp));
                     const normalizedMinutesWorked = getWorkedMinutesForRecord(row);
                     const clockOutReason = getClockOutReasonLabel(row.clockOutReason);
                     const employeeClinic = resolveClinicForRecord(row, scheduleMap);
@@ -77965,7 +78007,7 @@ console.log('✅ Global functions exported to window object');
         }
 
         function getAttendanceManagerReportFilters() {
-            const todayISO = toISODate(new Date());
+            const todayISO = toISODateInTimeZone(new Date());
             const dayInput = document.getElementById('attendanceManagerDay');
             const startInput = document.getElementById('attendanceManagerRangeStart');
             const endInput = document.getElementById('attendanceManagerRangeEnd');
@@ -78016,7 +78058,7 @@ console.log('✅ Global functions exported to window object');
             const endInput = document.getElementById('attendanceManagerRangeEnd');
             if (!dayInput) return;
 
-            const currentDay = String(dayInput.value || '').trim() || toISODate(new Date());
+            const currentDay = String(dayInput.value || '').trim() || toISODateInTimeZone(new Date());
             const nextDay = shiftISODate(currentDay, Number(offsetDays || 0));
             dayInput.value = nextDay;
 
@@ -78030,7 +78072,7 @@ console.log('✅ Global functions exported to window object');
             const dayInput = document.getElementById('attendanceManagerDay');
             const startInput = document.getElementById('attendanceManagerRangeStart');
             const endInput = document.getElementById('attendanceManagerRangeEnd');
-            const todayISO = toISODate(new Date());
+            const todayISO = toISODateInTimeZone(new Date());
             if (dayInput) dayInput.value = todayISO;
             if (startInput) startInput.value = todayISO;
             if (endInput) endInput.value = todayISO;
@@ -78086,7 +78128,7 @@ console.log('✅ Global functions exported to window object');
             const managerRole = isManagerRole(context.role);
             const managerMode = managerRole && viewMode === 'manager';
             root.dataset.tabTitle = managerMode ? 'Manage Attendance' : 'My Attendance';
-            const todayISO = toISODate(new Date());
+            const todayISO = toISODateInTimeZone(new Date());
             const allRecords = getRecords();
             const recordsToday = allRecords.filter((record) => isRecordOnIsoDay(record, todayISO));
             const scheduleMap = getScheduleForDate(new Date());
