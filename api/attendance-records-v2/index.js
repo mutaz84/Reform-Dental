@@ -177,6 +177,16 @@ function safeString(value, maxLen = null) {
     return str;
 }
 
+function isSqlDuplicateKeyError(err) {
+    const num = Number(err?.number || 0);
+    const message = String(err?.message || '').toLowerCase();
+    return num === 2601
+        || num === 2627
+        || message.includes('duplicate key')
+        || message.includes('unique index')
+        || message.includes('unique constraint');
+}
+
 function parseRecordMeta(value) {
     if (!value) {
         return { flags: [], clockOutReason: null, employeeClinic: null };
@@ -261,6 +271,15 @@ async function findExistingRecord(pool, localId, username, workDate) {
     return byIdentity.recordset[0]?.Id || null;
 }
 
+async function findRecordIdByLocalId(pool, localId) {
+    const normalized = safeString(localId, 120);
+    if (!normalized) return null;
+    const byLocalId = await pool.request()
+        .input('localId', sql.NVarChar(120), normalized)
+        .query('SELECT TOP 1 Id FROM AttendanceRecords WHERE LocalRecordId = @localId ORDER BY Id DESC');
+    return byLocalId.recordset[0]?.Id || null;
+}
+
 async function updateRecord(pool, targetId, payload, flagsJson) {
     await pool.request()
         .input('id', sql.Int, targetId)
@@ -318,18 +337,67 @@ async function upsertRecord(pool, payload) {
         try {
             await updateRecord(pool, targetId, payload, fullMeta);
             return { id: targetId, upserted: true, mode: 'full' };
-        } catch (_) {
+        } catch (err) {
             await updateRecord(pool, targetId, payload, fallbackMeta);
-            return { id: targetId, upserted: true, mode: 'minimal-meta' };
+            return {
+                id: targetId,
+                upserted: true,
+                mode: 'minimal-meta',
+                warning: String(err?.message || err || '').slice(0, 160)
+            };
         }
     }
 
     try {
         const insertedId = await insertRecord(pool, payload, fullMeta);
         return { id: insertedId, upserted: false, mode: 'full' };
-    } catch (_) {
-        const insertedId = await insertRecord(pool, payload, fallbackMeta);
-        return { id: insertedId, upserted: false, mode: 'minimal-meta' };
+    } catch (insertErr) {
+        if (isSqlDuplicateKeyError(insertErr) && payload.localId) {
+            const existingId = await findRecordIdByLocalId(pool, payload.localId);
+            if (existingId) {
+                try {
+                    await updateRecord(pool, existingId, payload, fullMeta);
+                    return {
+                        id: existingId,
+                        upserted: true,
+                        mode: 'duplicate-recovered-full',
+                        warning: String(insertErr?.message || insertErr || '').slice(0, 160)
+                    };
+                } catch (updateErr) {
+                    await updateRecord(pool, existingId, payload, fallbackMeta);
+                    return {
+                        id: existingId,
+                        upserted: true,
+                        mode: 'duplicate-recovered-minimal-meta',
+                        warning: String(updateErr?.message || updateErr || '').slice(0, 160)
+                    };
+                }
+            }
+        }
+
+        try {
+            const insertedId = await insertRecord(pool, payload, fallbackMeta);
+            return {
+                id: insertedId,
+                upserted: false,
+                mode: 'minimal-meta',
+                warning: String(insertErr?.message || insertErr || '').slice(0, 160)
+            };
+        } catch (fallbackErr) {
+            if (isSqlDuplicateKeyError(fallbackErr) && payload.localId) {
+                const existingId = await findRecordIdByLocalId(pool, payload.localId);
+                if (existingId) {
+                    await updateRecord(pool, existingId, payload, fallbackMeta);
+                    return {
+                        id: existingId,
+                        upserted: true,
+                        mode: 'duplicate-recovered-fallback',
+                        warning: String(fallbackErr?.message || fallbackErr || '').slice(0, 160)
+                    };
+                }
+            }
+            throw fallbackErr;
+        }
     }
 }
 

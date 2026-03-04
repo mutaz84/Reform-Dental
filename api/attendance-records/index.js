@@ -186,6 +186,16 @@ function isSqlTruncationError(err) {
         || message.includes('truncat');
 }
 
+function isSqlDuplicateKeyError(err) {
+    const num = Number(err?.number || 0);
+    const message = String(err?.message || '').toLowerCase();
+    return num === 2601
+        || num === 2627
+        || message.includes('duplicate key')
+        || message.includes('unique index')
+        || message.includes('unique constraint');
+}
+
 function parseRecordMeta(value) {
     if (Array.isArray(value)) {
         return {
@@ -351,39 +361,39 @@ module.exports = async function (context, req) {
                 flagsJson: serializeRecordMeta(body.flags, body.clockOutReason, body.employeeClinic)
             };
 
+            const runUpdateById = async (targetId, flagsJson) => {
+                await pool.request()
+                    .input('id', sql.Int, targetId)
+                    .input('localId', sql.NVarChar(120), payload.localId)
+                    .input('userId', sql.Int, payload.userId)
+                    .input('displayName', sql.NVarChar(255), payload.displayName)
+                    .input('scheduledStart', sql.NVarChar(20), toTimeTextOrNull(payload.scheduledStart))
+                    .input('scheduledEnd', sql.NVarChar(20), toTimeTextOrNull(payload.scheduledEnd))
+                    .input('clockIn', sql.DateTime2, payload.clockIn)
+                    .input('clockOut', sql.DateTime2, payload.clockOut)
+                    .input('minutesWorked', sql.Int, payload.minutesWorked)
+                    .input('flagsJson', sql.NVarChar(sql.MAX), flagsJson)
+                    .query(`UPDATE AttendanceRecords
+                            SET LocalRecordId = @localId,
+                                UserId = COALESCE(@userId, UserId),
+                                DisplayName = @displayName,
+                                ScheduledStart = TRY_CONVERT(time, @scheduledStart),
+                                ScheduledEnd = TRY_CONVERT(time, @scheduledEnd),
+                                ClockIn = @clockIn,
+                                ClockOut = @clockOut,
+                                MinutesWorked = @minutesWorked,
+                                FlagsJson = @flagsJson,
+                                ModifiedDate = SYSDATETIME()
+                            WHERE Id = @id`);
+            };
+
             if (exists.recordset[0]?.Id) {
                 const targetId = exists.recordset[0].Id;
-                const runUpdate = async (flagsJson) => {
-                    await pool.request()
-                        .input('id', sql.Int, targetId)
-                        .input('localId', sql.NVarChar(120), payload.localId)
-                        .input('userId', sql.Int, payload.userId)
-                        .input('displayName', sql.NVarChar(255), payload.displayName)
-                        .input('scheduledStart', sql.NVarChar(20), toTimeTextOrNull(payload.scheduledStart))
-                        .input('scheduledEnd', sql.NVarChar(20), toTimeTextOrNull(payload.scheduledEnd))
-                        .input('clockIn', sql.DateTime2, payload.clockIn)
-                        .input('clockOut', sql.DateTime2, payload.clockOut)
-                        .input('minutesWorked', sql.Int, payload.minutesWorked)
-                        .input('flagsJson', sql.NVarChar(sql.MAX), flagsJson)
-                        .query(`UPDATE AttendanceRecords
-                                SET LocalRecordId = @localId,
-                                    UserId = COALESCE(@userId, UserId),
-                                    DisplayName = @displayName,
-                                    ScheduledStart = TRY_CONVERT(time, @scheduledStart),
-                                    ScheduledEnd = TRY_CONVERT(time, @scheduledEnd),
-                                    ClockIn = @clockIn,
-                                    ClockOut = @clockOut,
-                                    MinutesWorked = @minutesWorked,
-                                    FlagsJson = @flagsJson,
-                                    ModifiedDate = SYSDATETIME()
-                                WHERE Id = @id`);
-                };
-
                 try {
-                    await runUpdate(payload.flagsJson);
+                    await runUpdateById(targetId, payload.flagsJson);
                 } catch (err) {
                     if (!isSqlTruncationError(err)) throw err;
-                    await runUpdate(serializeRecordMeta([], null, null));
+                    await runUpdateById(targetId, serializeRecordMeta([], null, null));
                 }
 
                 context.res = { status: 200, headers, body: { id: targetId, upserted: true } };
@@ -414,8 +424,53 @@ module.exports = async function (context, req) {
             try {
                 insert = await runInsert(payload.flagsJson);
             } catch (err) {
+                if (isSqlDuplicateKeyError(err) && payload.localId) {
+                    const byLocalId = await pool.request()
+                        .input('localId', sql.NVarChar(120), payload.localId)
+                        .query('SELECT TOP 1 Id FROM AttendanceRecords WHERE LocalRecordId = @localId ORDER BY Id DESC');
+                    const existingId = byLocalId.recordset[0]?.Id;
+                    if (existingId) {
+                        await runUpdateById(existingId, payload.flagsJson);
+                        context.res = {
+                            status: 200,
+                            headers,
+                            body: {
+                                id: existingId,
+                                upserted: true,
+                                mode: 'duplicate-recovered-full',
+                                warning: String(err?.message || err || '').slice(0, 160)
+                            }
+                        };
+                        return;
+                    }
+                }
+
                 if (!isSqlTruncationError(err)) throw err;
-                insert = await runInsert(serializeRecordMeta([], null, null));
+                try {
+                    insert = await runInsert(serializeRecordMeta([], null, null));
+                } catch (fallbackErr) {
+                    if (isSqlDuplicateKeyError(fallbackErr) && payload.localId) {
+                        const byLocalId = await pool.request()
+                            .input('localId', sql.NVarChar(120), payload.localId)
+                            .query('SELECT TOP 1 Id FROM AttendanceRecords WHERE LocalRecordId = @localId ORDER BY Id DESC');
+                        const existingId = byLocalId.recordset[0]?.Id;
+                        if (existingId) {
+                            await runUpdateById(existingId, serializeRecordMeta([], null, null));
+                            context.res = {
+                                status: 200,
+                                headers,
+                                body: {
+                                    id: existingId,
+                                    upserted: true,
+                                    mode: 'duplicate-recovered-minimal-meta',
+                                    warning: String(fallbackErr?.message || fallbackErr || '').slice(0, 160)
+                                }
+                            };
+                            return;
+                        }
+                    }
+                    throw fallbackErr;
+                }
             }
 
             context.res = { status: 201, headers, body: { id: insert.recordset[0].Id, upserted: false } };
