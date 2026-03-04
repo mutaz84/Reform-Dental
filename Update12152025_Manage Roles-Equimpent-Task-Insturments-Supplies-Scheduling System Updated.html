@@ -77267,7 +77267,21 @@ console.log('✅ Global functions exported to window object');
             const identityCandidates = options.identityCandidates instanceof Set ? options.identityCandidates : null;
             const scheduleMap = options.scheduleMap || {};
             const selectedClinicKey = normalizeClinicForCompare(options.selectedClinicKey || '');
-            return records
+            const normalizeIsoSecond = (value) => {
+                if (!value) return '-';
+                const ms = new Date(value).getTime();
+                if (!Number.isFinite(ms)) return String(value).trim() || '-';
+                return new Date(Math.floor(ms / 1000) * 1000).toISOString();
+            };
+
+            const rowReasonPriority = (row) => {
+                const reason = normalizeClockOutReason(row?.clockOutReason);
+                if (reason === 'break') return 3;
+                if (reason === 'leave') return 2;
+                return 1;
+            };
+
+            const mappedRows = records
                 .filter((record) => {
                     if (!record) return false;
                     const businessDateISO = getRecordBusinessDateISO(record, '');
@@ -77299,17 +77313,48 @@ console.log('✅ Global functions exported to window object');
                         status = 'Clocked In';
                     }
 
+                    const dedupeIdentity = toIdentityKey(resolveCanonicalUsername(row.username) || row.username || row.displayName || '');
+                    const dedupeKey = `${dedupeIdentity}|${displayDate}|${normalizeIsoSecond(row.clockIn)}|${normalizeIsoSecond(row.clockOut)}`;
+
                     return {
                         ...(includeEmployee ? { employee: getCanonicalEmployeeDisplayName(row), employeeClinic: employeeClinic || '-', clockOutReason } : {}),
                         date: displayDate,
                         clockIn: row.clockIn,
                         clockOut: row.clockOut,
+                        clockOutReason,
                         minutesWorked: normalizedMinutesWorked,
                         status,
                         __recordKey: recordKey,
+                        __dedupeKey: dedupeKey,
+                        __reasonPriority: rowReasonPriority(row),
                         sortTime: Math.max(inMs, outMs, new Date(eventTimestamp).getTime() || 0)
                     };
                 })
+                .sort((a, b) => Number(b.sortTime || 0) - Number(a.sortTime || 0));
+
+            // Collapse local/server duplicates of the same segment fingerprint.
+            const dedupedBySegment = new Map();
+            mappedRows.forEach((row) => {
+                const key = String(row.__dedupeKey || row.__recordKey || '');
+                if (!key) return;
+                const existing = dedupedBySegment.get(key);
+                if (!existing) {
+                    dedupedBySegment.set(key, row);
+                    return;
+                }
+
+                const existingScore = Number(existing.__reasonPriority || 0) * 1000000000
+                    + Number(existing.sortTime || 0) * 1000
+                    + Number(existing.minutesWorked || 0);
+                const rowScore = Number(row.__reasonPriority || 0) * 1000000000
+                    + Number(row.sortTime || 0) * 1000
+                    + Number(row.minutesWorked || 0);
+                if (rowScore > existingScore) {
+                    dedupedBySegment.set(key, row);
+                }
+            });
+
+            return Array.from(dedupedBySegment.values())
                 .sort((a, b) => Number(b.sortTime || 0) - Number(a.sortTime || 0));
         }
 
