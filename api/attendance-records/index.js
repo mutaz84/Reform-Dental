@@ -36,7 +36,11 @@ function getConfig() {
     if (connStr) {
         const serverMatch = connStr.match(/Server=(?:tcp:)?([^,;]+)/i);
         const portMatch = connStr.match(/Server=(?:tcp:)?[^,;]+,(\d+)/i);
-        const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
+                        if (!req?.__poolRetried) {
+                            const retriedReq = { ...(req || {}), __poolRetried: true };
+                            context.log.warn('Attendance Records API transient connection failure, retrying once.');
+                            return module.exports(context, retriedReq);
+                        }
         const userMatch = connStr.match(/User ID=([^;]+)/i);
         const passMatch = connStr.match(/Password=([^;]+)/i);
         const encryptMatch = connStr.match(/Encrypt=([^;]+)/i);

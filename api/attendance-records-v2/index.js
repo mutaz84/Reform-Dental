@@ -536,6 +536,11 @@ module.exports = async function (context, req) {
     } catch (err) {
         if (isConnectionError(err)) {
             resetSharedPool();
+            if (!req?.__poolRetried) {
+                const retriedReq = { ...(req || {}), __poolRetried: true };
+                context.log.warn('Attendance Records v2 API transient connection failure, retrying once.');
+                return module.exports(context, retriedReq);
+            }
         }
 
         context.log.error('Attendance Records v2 API error:', err);
