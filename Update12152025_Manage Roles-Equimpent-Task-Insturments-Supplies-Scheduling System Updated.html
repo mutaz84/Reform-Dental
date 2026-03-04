@@ -76442,6 +76442,45 @@ console.log('✅ Global functions exported to window object');
             };
         }
 
+        function mergeFetchedRecordsWithLocalSafety(fetchedRecords) {
+            const mergedById = new Map();
+            const fetched = Array.isArray(fetchedRecords) ? fetchedRecords : [];
+            const localRecords = getRecords();
+            const pendingQueue = getPendingRecordSyncQueue();
+            const nowMs = Date.now();
+            const recentWindowMs = 2 * 60 * 1000;
+
+            fetched.forEach((record) => {
+                const id = String(record?.id || '').trim();
+                if (!id) return;
+                mergedById.set(id, record);
+            });
+
+            // Keep queued local records visible even if API has not reflected them yet.
+            pendingQueue.forEach((record) => {
+                const id = String(record?.id || '').trim();
+                if (!id) return;
+                mergedById.set(id, { ...record });
+            });
+
+            // Keep very recent local records for a short grace window to avoid UI flicker.
+            localRecords.forEach((record) => {
+                const id = String(record?.id || '').trim();
+                if (!id || mergedById.has(id)) return;
+                const ts = new Date(record?.createdAt || record?.clockIn || record?.clockOut || 0).getTime();
+                if (!Number.isFinite(ts)) return;
+                if ((nowMs - ts) > recentWindowMs) return;
+                mergedById.set(id, { ...record });
+            });
+
+            return Array.from(mergedById.values())
+                .sort((a, b) => {
+                    const at = new Date(a?.clockOut || a?.clockIn || a?.createdAt || 0).getTime() || 0;
+                    const bt = new Date(b?.clockOut || b?.clockIn || b?.createdAt || 0).getTime() || 0;
+                    return bt - at;
+                });
+        }
+
         function mapApiPtoRequestToLocal(item) {
             return {
                 id: String(item?.id || item?.Id || ''),
@@ -76542,7 +76581,8 @@ console.log('✅ Global functions exported to window object');
                 ]);
 
                 if (Array.isArray(records)) {
-                    writeJSON(STORAGE.records, records.map(mapApiRecordToLocal));
+                    const mapped = records.map(mapApiRecordToLocal);
+                    writeJSON(STORAGE.records, mergeFetchedRecordsWithLocalSafety(mapped));
                 }
 
                 if (Array.isArray(policies)) {
