@@ -76848,6 +76848,70 @@ console.log('✅ Global functions exported to window object');
             throw lastErr || new Error('Attendance record sync failed');
         }
 
+        function getApiRecordLocalId(item) {
+            return String(item?.localId || item?.localRecordId || item?.id || '').trim();
+        }
+
+        function parseTimestampMs(value) {
+            if (!value) return 0;
+            const ms = new Date(value).getTime();
+            return Number.isFinite(ms) ? ms : 0;
+        }
+
+        function timestampsCloseEnough(a, b, toleranceMs = 90000) {
+            const aMs = parseTimestampMs(a);
+            const bMs = parseTimestampMs(b);
+            if (!aMs && !bMs) return true;
+            if (!aMs || !bMs) return false;
+            return Math.abs(aMs - bMs) <= Math.max(0, Number(toleranceMs || 0));
+        }
+
+        function isRecordPersistedInApi(localRecord, apiRecord) {
+            if (!localRecord || !apiRecord) return false;
+            if (!timestampsCloseEnough(localRecord.clockIn, apiRecord.clockIn, 120000)) return false;
+
+            const localHasClockOut = !!localRecord.clockOut;
+            if (localHasClockOut && !timestampsCloseEnough(localRecord.clockOut, apiRecord.clockOut, 120000)) {
+                return false;
+            }
+
+            const localReason = normalizeClockOutReason(localRecord.clockOutReason);
+            if (localReason) {
+                const apiReason = normalizeClockOutReason(apiRecord.clockOutReason);
+                if (apiReason !== localReason) return false;
+            }
+
+            return true;
+        }
+
+        async function fetchApiRecordByLocalId(localId) {
+            const normalized = String(localId || '').trim();
+            if (!normalized) return null;
+            const query = `${ATTENDANCE_API.records}?localId=${encodeURIComponent(normalized)}`;
+            const rows = await attendanceApiRequest(query, { method: 'GET' });
+            if (!Array.isArray(rows) || !rows.length) return null;
+            return rows.find((row) => getApiRecordLocalId(row) === normalized) || rows[0] || null;
+        }
+
+        async function syncRecordToApiWithVerification(record, maxAttempts = 3) {
+            const response = await syncRecordToApiWithRetry(record, maxAttempts);
+            const localId = String(record?.id || '').trim();
+            if (!localId) {
+                return { response, apiRecord: null };
+            }
+
+            let apiRecord = null;
+            for (let attempt = 1; attempt <= 3; attempt += 1) {
+                apiRecord = await fetchApiRecordByLocalId(localId);
+                if (apiRecord && isRecordPersistedInApi(record, apiRecord)) {
+                    return { response, apiRecord };
+                }
+                if (attempt < 3) await waitMs(250 * attempt);
+            }
+
+            throw new Error('Attendance write not confirmed by API read-after-write (record kept in retry queue).');
+        }
+
         function syncNotificationToApi(notification) {
             return attendanceApiRequest(ATTENDANCE_API.notifications, {
                 method: 'POST',
@@ -76979,7 +77043,7 @@ console.log('✅ Global functions exported to window object');
             try {
                 for (const item of queue) {
                     try {
-                        await syncRecordToApiWithRetry(item, 3);
+                        await syncRecordToApiWithVerification(item, 3);
                         attendanceApiState.available = true;
                     } catch (_) {
                         attendanceApiState.available = false;
@@ -77906,10 +77970,12 @@ console.log('✅ Global functions exported to window object');
 
         async function syncRecordImmediately(record) {
             try {
-                const response = await syncRecordToApiWithRetry(record, 3);
-                const responseId = Number.parseInt(String(response?.id || ''), 10);
-                if (Number.isInteger(responseId) && Number(responseId) !== Number(record?.dbId || 0)) {
-                    record.dbId = responseId;
+                const result = await syncRecordToApiWithVerification(record, 3);
+                const responseId = Number.parseInt(String(result?.response?.id || ''), 10);
+                const apiId = Number.parseInt(String(result?.apiRecord?.id || ''), 10);
+                const resolvedDbId = Number.isInteger(apiId) ? apiId : responseId;
+                if (Number.isInteger(resolvedDbId) && Number(resolvedDbId) !== Number(record?.dbId || 0)) {
+                    record.dbId = resolvedDbId;
                     updateRecord(record);
                 }
                 attendanceApiState.available = true;
