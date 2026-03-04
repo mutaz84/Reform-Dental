@@ -79738,6 +79738,9 @@ console.log('✅ Global functions exported to window object');
     }
 
     function installStationaryDelegatedControls() {
+        if (window.__disableStationaryFeature) {
+            return;
+        }
         if (window.__stationaryDelegatedControlsInstalled) return;
         window.__stationaryDelegatedControlsInstalled = true;
 
@@ -79772,7 +79775,34 @@ console.log('✅ Global functions exported to window object');
         setTimeout(() => ensureStationaryNavVisible(), 1200);
     }
 
-    installStationaryDelegatedControls();
+    function hideStationaryForNow() {
+        const stationaryView = document.getElementById('view-stationary') || document.getElementById('stationary-view');
+        if (stationaryView) {
+            stationaryView.classList.remove('active');
+            stationaryView.style.display = 'none';
+        }
+
+        document.querySelectorAll('a.nav-item').forEach((item) => {
+            const navText = String(item.textContent || '').trim().toLowerCase();
+            const onclickText = String(item.getAttribute('onclick') || '').toLowerCase();
+            if (navText.includes('stationary') || onclickText.includes('stationary')) {
+                item.style.display = 'none';
+            }
+        });
+    }
+
+    window.__disableStationaryFeature = true;
+    if (window.__disableStationaryFeature) {
+        hideStationaryForNow();
+        document.addEventListener('DOMContentLoaded', hideStationaryForNow);
+        window.openStationaryBuilderView = function(event) {
+            if (event && typeof event.preventDefault === 'function') event.preventDefault();
+            if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+            return false;
+        };
+    } else {
+        installStationaryDelegatedControls();
+    }
 
     window.initializeStationaryBuilder = initializeStationaryBuilder;
     window.handleStationaryAddText = handleStationaryAddText;
@@ -79818,6 +79848,29 @@ console.log('✅ Global functions exported to window object');
 
 <script>
 (function installStationaryRescueBridge() {
+    if (window.__disableStationaryFeature) {
+        const hideStationary = function() {
+            const stationaryView = document.getElementById('view-stationary') || document.getElementById('stationary-view');
+            if (stationaryView) {
+                stationaryView.classList.remove('active');
+                stationaryView.style.display = 'none';
+            }
+
+            document.querySelectorAll('a.nav-item').forEach((item) => {
+                const navText = String(item.textContent || '').trim().toLowerCase();
+                const onclickText = String(item.getAttribute('onclick') || '').toLowerCase();
+                if (navText.includes('stationary') || onclickText.includes('stationary')) {
+                    item.style.display = 'none';
+                }
+            });
+        };
+
+        hideStationary();
+        document.addEventListener('DOMContentLoaded', hideStationary);
+        setTimeout(hideStationary, 300);
+        return;
+    }
+
     const STORAGE_KEY = 'stationaryFormTemplatesV1';
 
     function safeParse(value, fallback) {
