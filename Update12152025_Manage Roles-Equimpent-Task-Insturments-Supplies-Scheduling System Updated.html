@@ -20087,7 +20087,7 @@
                 <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
                     <div class="stat-card" style="background: var(--card-bg); border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
                         <div class="stat-value" id="requirementsPendingCount" style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">0</div>
-                        <div class="stat-label" style="font-size: 0.8rem; color: var(--text-secondary);">Pending</div>
+                        <div class="stat-label" style="font-size: 0.8rem; color: var(--text-secondary);">Needs Submission</div>
                     </div>
                     <div class="stat-card" style="background: var(--card-bg); border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
                         <div class="stat-value" id="requirementsCompletedCount" style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">0</div>
@@ -20095,7 +20095,7 @@
                     </div>
                     <div class="stat-card" style="background: var(--card-bg); border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
                         <div class="stat-value" id="requirementsDueSoonCount" style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">0</div>
-                        <div class="stat-label" style="font-size: 0.8rem; color: var(--text-secondary);">Due Soon (≤7 days)</div>
+                        <div class="stat-label" style="font-size: 0.8rem; color: var(--text-secondary);">Pending Approval</div>
                     </div>
                     <div class="stat-card" style="background: var(--card-bg); border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
                         <div class="stat-value" id="requirementsOverdueCount" style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">0</div>
@@ -20106,8 +20106,8 @@
                 <div style="background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 0.75rem; margin-bottom: 1rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem;">
                     <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
                         <button type="button" id="requirementsFilterAll" onclick="setRequirementsQuickFilter('all')" class="btn-secondary" style="padding: 0.4rem 0.7rem; font-size: 0.8rem;">All</button>
+                        <button type="button" id="requirementsFilterNeedsSubmission" onclick="setRequirementsQuickFilter('needs_submission')" class="btn-secondary" style="padding: 0.4rem 0.7rem; font-size: 0.8rem;">Needs Submission</button>
                         <button type="button" id="requirementsFilterOverdue" onclick="setRequirementsQuickFilter('overdue')" class="btn-secondary" style="padding: 0.4rem 0.7rem; font-size: 0.8rem;">Overdue</button>
-                        <button type="button" id="requirementsFilterDueSoon" onclick="setRequirementsQuickFilter('due_soon')" class="btn-secondary" style="padding: 0.4rem 0.7rem; font-size: 0.8rem;">Due Soon</button>
                         <button type="button" id="requirementsFilterApproval" onclick="setRequirementsQuickFilter('pending_approval')" class="btn-secondary" style="padding: 0.4rem 0.7rem; font-size: 0.8rem;">Pending Approval</button>
                         <button type="button" id="requirementsFilterCompleted" onclick="setRequirementsQuickFilter('completed')" class="btn-secondary" style="padding: 0.4rem 0.7rem; font-size: 0.8rem;">Completed</button>
                     </div>
@@ -24630,18 +24630,20 @@
 
         function renderRequirementsStats(requirements) {
             const today = new Date();
-            const pending = requirements.filter((item) => String(item.status || '').toLowerCase() !== 'completed').length;
             const completed = requirements.filter((item) => String(item.status || '').toLowerCase() === 'completed').length;
-            const dueSoon = requirements.filter((item) => {
-                const status = String(item.status || '').toLowerCase();
-                if (status === 'completed' || !item.expiryDate) return false;
-                const days = Math.ceil((new Date(item.expiryDate) - today) / (1000 * 60 * 60 * 24));
-                return days >= 0 && days <= 7;
-            }).length;
             const overdue = requirements.filter((item) => {
                 const status = String(item.status || '').toLowerCase();
                 if (status === 'completed' || !item.expiryDate) return false;
-                return new Date(item.expiryDate) < today;
+                const days = Math.ceil((new Date(item.expiryDate) - today) / (1000 * 60 * 60 * 24));
+                return days < 0;
+            }).length;
+            const pendingApproval = requirements.filter((item) => String(item.status || '').toLowerCase() === 'pending_approval').length;
+            const needsSubmission = requirements.filter((item) => {
+                const status = String(item.status || '').toLowerCase();
+                if (status === 'completed' || status === 'pending_approval') return false;
+                if (!item.expiryDate) return true;
+                const days = Math.ceil((new Date(item.expiryDate) - today) / (1000 * 60 * 60 * 24));
+                return days >= 0;
             }).length;
 
             const setText = (id, value) => {
@@ -24649,9 +24651,9 @@
                 if (el) el.textContent = String(value);
             };
 
-            setText('requirementsPendingCount', pending);
+            setText('requirementsPendingCount', needsSubmission);
             setText('requirementsCompletedCount', completed);
-            setText('requirementsDueSoonCount', dueSoon);
+            setText('requirementsDueSoonCount', pendingApproval);
             setText('requirementsOverdueCount', overdue);
         }
 
@@ -24707,17 +24709,17 @@
                     : `Due in ${daysUntilDue} day${daysUntilDue === 1 ? '' : 's'}`;
 
                 return {
-                    key: 'due_soon',
-                    label: 'Due Soon',
-                    badgeColor: '#f59e0b',
+                    key: 'needs_submission',
+                    label: 'Needs Submission',
+                    badgeColor: '#3b82f6',
                     urgencyRank: 1,
                     dueText
                 };
             }
 
             return {
-                key: 'pending',
-                label: 'Pending',
+                key: 'needs_submission',
+                label: 'Needs Submission',
                 badgeColor: '#3b82f6',
                 urgencyRank: 3,
                 dueText: dueDate ? `Due ${formatComplianceDate(dueDate)}` : 'No due date'
@@ -24727,8 +24729,8 @@
         function updateRequirementsFilterButtons(activeFilter) {
             const buttonByFilter = {
                 all: document.getElementById('requirementsFilterAll'),
+                needs_submission: document.getElementById('requirementsFilterNeedsSubmission'),
                 overdue: document.getElementById('requirementsFilterOverdue'),
-                due_soon: document.getElementById('requirementsFilterDueSoon'),
                 pending_approval: document.getElementById('requirementsFilterApproval'),
                 completed: document.getElementById('requirementsFilterCompleted')
             };
