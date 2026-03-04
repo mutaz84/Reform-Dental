@@ -44668,6 +44668,45 @@ window.initializeCalendar = initializeCalendar;
             if (action.tagName === 'A' && !action.getAttribute('href')) {
                 action.setAttribute('href', '#');
             }
+
+            const deriveLabel = () => {
+                const text = String(action.textContent || '').trim();
+                if (text) return text;
+
+                const title = String(action.getAttribute('title') || '').trim();
+                if (title) return title;
+
+                const aria = String(action.getAttribute('aria-label') || '').trim();
+                if (aria) return aria;
+
+                const userAction = String(action.getAttribute('data-user-action') || '').trim().toLowerCase();
+                if (userAction === 'profile') return 'Profile';
+                if (userAction === 'hr') return 'HR Info';
+                if (userAction === 'requirements') return 'Compliances';
+                if (userAction === 'delete') return 'Delete';
+
+                const onclick = String(action.getAttribute('onclick') || '').toLowerCase();
+                if (onclick.includes('delete')) return 'Delete';
+                if (onclick.includes('edit')) return 'Edit';
+                if (onclick.includes('view')) return 'View';
+                if (onclick.includes('approve')) return 'Approve';
+                if (onclick.includes('deny')) return 'Deny';
+                if (onclick.includes('open')) return 'Open';
+                return 'Action';
+            };
+
+            const icon = action.querySelector('i');
+            const label = deriveLabel();
+            if (!action.querySelector('.crud-menu-label')) {
+                if (icon) {
+                    icon.remove();
+                    action.appendChild(icon);
+                }
+                const span = document.createElement('span');
+                span.className = 'crud-menu-label';
+                span.textContent = label;
+                action.appendChild(span);
+            }
         }
 
         function enhanceSingleCrudGroup(group) {
