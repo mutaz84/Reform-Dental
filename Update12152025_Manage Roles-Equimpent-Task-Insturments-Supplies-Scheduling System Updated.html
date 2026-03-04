@@ -77102,6 +77102,10 @@ console.log('✅ Global functions exported to window object');
                     const normalizedMinutesWorked = getWorkedMinutesForRecord(row);
                     const clockOutReason = getClockOutReasonLabel(row.clockOutReason);
                     const employeeClinic = resolveClinicForRecord(row, scheduleMap);
+                    const recordKey = String(
+                        row.id || row.recordId || row.recordID || row.entryId ||
+                        [row.username || row.displayName || '-', row.clockIn || '-', row.clockOut || '-', row.date || displayDate || '-'].join('|')
+                    );
 
                     let status = 'Not Clocked';
                     if (outMs > 0 && outMs >= inMs) {
@@ -77117,6 +77121,7 @@ console.log('✅ Global functions exported to window object');
                         clockOut: row.clockOut,
                         minutesWorked: normalizedMinutesWorked,
                         status,
+                        __recordKey: recordKey,
                         sortTime: Math.max(inMs, outMs, new Date(eventTimestamp).getTime() || 0)
                     };
                 })
@@ -78429,10 +78434,18 @@ console.log('✅ Global functions exported to window object');
             if (!start || !end) return [];
 
             const list = [];
+            const seenRecordKeys = new Set();
             let cursor = start;
             while (cursor <= end) {
                 const rows = buildDailyAttendanceReportRows(records, cursor, options);
-                if (rows.length) list.push(...rows);
+                if (rows.length) {
+                    rows.forEach((row) => {
+                        const dedupeKey = String(row.__recordKey || `${row.employee || '-'}|${row.clockIn || '-'}|${row.clockOut || '-'}|${row.date || '-'}`);
+                        if (seenRecordKeys.has(dedupeKey)) return;
+                        seenRecordKeys.add(dedupeKey);
+                        list.push(row);
+                    });
+                }
                 cursor = shiftISODate(cursor, 1);
             }
 
