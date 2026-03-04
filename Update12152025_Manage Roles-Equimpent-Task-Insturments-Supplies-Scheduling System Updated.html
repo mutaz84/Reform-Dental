@@ -76668,6 +76668,17 @@ console.log('✅ Global functions exported to window object');
             return `${year}-${month}-${day}`;
         }
 
+        function parseISODateLocal(inputValue, fallbackDate = new Date()) {
+            const raw = String(inputValue || '').trim();
+            const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (match) {
+                return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+            }
+            const parsed = new Date(raw || fallbackDate);
+            if (Number.isNaN(parsed.getTime())) return new Date(fallbackDate);
+            return parsed;
+        }
+
         function formatDate(input) {
             if (!input) return '-';
             const raw = String(input || '').trim();
@@ -77052,7 +77063,7 @@ console.log('✅ Global functions exported to window object');
         }
 
         function getScheduleForDate(targetDate = new Date()) {
-            const dateObj = new Date(targetDate);
+            const dateObj = parseISODateLocal(targetDate);
             const dateISO = toISODate(dateObj);
             const dayLabel = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
             const users = getUsersMap();
@@ -77505,7 +77516,11 @@ console.log('✅ Global functions exported to window object');
             const users = Object.keys(scheduleMap || {});
             const rows = users.map((username) => {
                 const schedule = scheduleMap[username] || {};
-                const hasClock = records.some((record) => record.username === username && record.date === dateISO && !!record.clockIn);
+                const hasClock = records.some((record) => {
+                    if (record?.username !== username) return false;
+                    if (!record?.clockIn && !record?.clockOut) return false;
+                    return isRecordOnIsoDay(record, dateISO);
+                });
                 const hasPto = ptoRequests.some((request) => request.username === username && isDateInPto(request, dateISO));
                 if (hasClock || hasPto) return null;
 
@@ -77558,14 +77573,18 @@ console.log('✅ Global functions exported to window object');
         function auditAttendanceAbsences(targetDate = null) {
             const managerDayValue = String(document.getElementById('attendanceManagerDay')?.value || '').trim();
             const dateISO = targetDate || managerDayValue || toISODate(new Date());
-            const scheduleMap = getScheduleForDate(new Date(dateISO));
+            const scheduleMap = getScheduleForDate(parseISODateLocal(dateISO));
             const records = getRecords();
             const ptoRequests = getPtoRequests();
             const absences = getAbsences();
 
             let added = 0;
             Object.keys(scheduleMap).forEach((username) => {
-                const hasClock = records.some((record) => record.username === username && record.date === dateISO && !!record.clockIn);
+                const hasClock = records.some((record) => {
+                    if (record?.username !== username) return false;
+                    if (!record?.clockIn && !record?.clockOut) return false;
+                    return isRecordOnIsoDay(record, dateISO);
+                });
                 const hasPto = ptoRequests.some((request) => request.username === username && isDateInPto(request, dateISO));
                 if (hasClock || hasPto) return;
 
@@ -77621,7 +77640,11 @@ console.log('✅ Global functions exported to window object');
                 if (!Number.isFinite(scheduledStart)) return;
                 if (nowMinutes < (scheduledStart + 15)) return;
 
-                const hasClock = records.some((record) => record.username === username && record.date === dateISO && !!record.clockIn);
+                const hasClock = records.some((record) => {
+                    if (record?.username !== username) return false;
+                    if (!record?.clockIn && !record?.clockOut) return false;
+                    return isRecordOnIsoDay(record, dateISO);
+                });
                 const hasPto = ptoRequests.some((request) => request.username === username && isDateInPto(request, dateISO));
                 if (hasClock || hasPto) return;
 
@@ -77873,15 +77896,15 @@ console.log('✅ Global functions exported to window object');
             const employees = getAllEmployees();
             const employee = employees.find((item) => item.username === targetUsername) || {};
 
-            const target = new Date(targetDate);
+            const target = parseISODateLocal(targetDate);
             const weekStart = new Date(target);
             weekStart.setDate(weekStart.getDate() - weekStart.getDay());
             const weekEnd = new Date(weekStart);
             weekEnd.setDate(weekEnd.getDate() + 6);
 
             const monthKey = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}`;
-            const hireDate = employee.hireDate ? new Date(employee.hireDate) : null;
-            const separationDate = employee.separationDate ? new Date(employee.separationDate) : new Date();
+            const hireDate = employee.hireDate ? parseISODateLocal(employee.hireDate) : null;
+            const separationDate = employee.separationDate ? parseISODateLocal(employee.separationDate) : new Date();
 
             const totalBy = {
                 day: 0,
@@ -77892,7 +77915,7 @@ console.log('✅ Global functions exported to window object');
 
             records.forEach((record) => {
                 const minutes = Number(record.minutesWorked || 0);
-                const recordDate = new Date(record.date);
+                const recordDate = parseISODateLocal(record.date);
                 if (record.date === targetDate) totalBy.day += minutes;
                 if (recordDate >= weekStart && recordDate <= weekEnd) totalBy.week += minutes;
                 if (String(record.date || '').slice(0, 7) === monthKey) totalBy.month += minutes;
@@ -78244,7 +78267,7 @@ console.log('✅ Global functions exported to window object');
 
                 const selectedClinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
                 const selectedClinicKey = normalizeClinicForCompare(selectedClinicMeta?.selectedClinicName || getSelectedAttendanceClinicFilter());
-                const managerScheduleMap = getScheduleForDate(new Date(managerFilters.dayISO));
+                const managerScheduleMap = getScheduleForDate(parseISODateLocal(managerFilters.dayISO));
                 const identityCandidates = managerFilters.selectedEmployee
                     ? getAttendanceIdentityCandidates(managerFilters.selectedEmployee)
                     : null;
