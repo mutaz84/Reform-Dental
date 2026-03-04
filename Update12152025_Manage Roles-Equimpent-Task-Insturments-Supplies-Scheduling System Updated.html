@@ -79659,6 +79659,67 @@ console.log('✅ Global functions exported to window object');
         return false;
     }
 
+    function ensureStationaryNavVisible() {
+        try {
+            const hasStationaryNav = !!document.querySelector("a.nav-item[onclick*='switchContentView(\'stationary\'']")
+                || !!document.querySelector('a.nav-item[onclick*="switchContentView(\"stationary\""]')
+                || !!document.querySelector("a.nav-item[onclick*='switchContentView(\'stationary\',']");
+
+            const resourceSections = Array.from(document.querySelectorAll('.nav-section')).filter((section) => {
+                const title = (section.querySelector('.nav-title span')?.textContent || '').trim().toUpperCase();
+                return title === 'RESOURCES' || title === 'CLINICAL RESOURCES';
+            });
+
+            resourceSections.forEach((section) => section.classList.remove('collapsed'));
+
+            if (!hasStationaryNav && resourceSections.length) {
+                const navItems = resourceSections[0].querySelector('.nav-items');
+                if (navItems) {
+                    const anchor = document.createElement('a');
+                    anchor.href = '#';
+                    anchor.className = 'nav-item';
+                    anchor.onclick = function(evt) {
+                        if (typeof window.switchContentView === 'function') {
+                            return window.switchContentView('stationary', evt), false;
+                        }
+                        return false;
+                    };
+                    anchor.innerHTML = '<i class="fas fa-pencil-ruler"></i><span>Stationary</span>';
+                    navItems.appendChild(anchor);
+                }
+            }
+        } catch (_) {}
+    }
+
+    function installStationaryDelegatedControls() {
+        if (window.__stationaryDelegatedControlsInstalled) return;
+        window.__stationaryDelegatedControlsInstalled = true;
+
+        document.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!target || typeof target.closest !== 'function') return;
+
+            if (target.closest('#stationaryAddTextBtn')) return handleStationaryAddText(event);
+            if (target.closest('#stationaryAddSignatureBtn')) return handleStationaryAddSignature(event);
+            if (target.closest('#stationaryNewTemplateBtn')) return handleStationaryNewTemplate(event);
+            if (target.closest('#stationarySaveTemplateBtn')) return handleStationarySaveTemplate(event);
+            if (target.closest('#stationaryDeleteTemplateBtn')) return handleStationaryDeleteTemplate(event);
+            if (target.closest('#stationaryPrintBtn')) return handleStationaryPrint(event);
+            if (target.closest('#stationaryExportPdfBtn')) return handleStationaryExportPdf(event);
+            if (target.closest('#stationaryBoldBtn')) return handleStationaryToggleBold(event);
+            if (target.closest('#stationaryItalicBtn')) return handleStationaryToggleItalic(event);
+            if (target.closest('#stationaryUnderlineBtn')) return handleStationaryToggleUnderline(event);
+        }, true);
+
+        document.addEventListener('DOMContentLoaded', () => {
+            ensureStationaryNavVisible();
+        });
+        setTimeout(() => ensureStationaryNavVisible(), 400);
+        setTimeout(() => ensureStationaryNavVisible(), 1200);
+    }
+
+    installStationaryDelegatedControls();
+
     window.initializeStationaryBuilder = initializeStationaryBuilder;
     window.handleStationaryAddText = handleStationaryAddText;
     window.handleStationaryAddSignature = handleStationaryAddSignature;
@@ -79670,6 +79731,7 @@ console.log('✅ Global functions exported to window object');
     window.handleStationaryToggleBold = handleStationaryToggleBold;
     window.handleStationaryToggleItalic = handleStationaryToggleItalic;
     window.handleStationaryToggleUnderline = handleStationaryToggleUnderline;
+    window.ensureStationaryNavVisible = ensureStationaryNavVisible;
 
     // ===== EXPOSE PUBLIC API =====
     window.ReformCopilot = {
