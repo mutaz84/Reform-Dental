@@ -17402,7 +17402,7 @@
                                 <button class="btn-secondary" type="button" onclick="if(window.refreshAttendanceView){window.refreshAttendanceView();}">
                                     <i class="fas fa-sync-alt"></i> Refresh
                                 </button>
-                                <button class="btn-primary" id="attendanceAuditAbsencesBtn" type="button" onclick="if(window.auditAttendanceAbsences){window.auditAttendanceAbsences();}">
+                                <button class="btn-primary" id="attendanceAuditAbsencesBtn" type="button" onclick="if(window.triggerAttendanceAbsenceAudit){window.triggerAttendanceAbsenceAudit();}else if(window.auditAttendanceAbsences){window.auditAttendanceAbsences();}">
                                     <i class="fas fa-user-check"></i> Audit Absences
                                 </button>
                             </div>
@@ -17568,6 +17568,7 @@
 
                             <div class="attendance-tabs" id="attendanceManagerTabs" style="margin-top:0.4rem;">
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="overview" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','overview');}">Overview</button>
+                                <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="audit" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','audit');}">Absence Audit</button>
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="policy" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','policy');}">Flex &amp; PTO</button>
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="queue" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','queue');}">PTO Queue</button>
                             </div>
@@ -17621,28 +17622,6 @@
                                     </div>
 
                                     <div id="attendanceManagerReportSummary" class="attendance-manager-summary"></div>
-
-                                    <div class="attendance-audit-report" id="attendanceAuditReportPanel" style="display:none;">
-                                        <div class="attendance-audit-report-head">
-                                            <h4 class="attendance-audit-report-title"><i class="fas fa-clipboard-check"></i> Absence Audit Report</h4>
-                                            <div class="attendance-audit-report-note" id="attendanceAuditReportSummary"></div>
-                                        </div>
-                                        <div class="attendance-table-wrap">
-                                            <table class="attendance-table">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Employee</th>
-                                                        <th>Clinic</th>
-                                                        <th>Scheduled Shift</th>
-                                                        <th>Date</th>
-                                                        <th>Status</th>
-                                                        <th>Reason</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody id="attendanceAuditReportBody"></tbody>
-                                            </table>
-                                        </div>
-                                    </div>
 
                                     <div class="attendance-table-wrap">
                                         <table class="attendance-table">
@@ -17711,6 +17690,37 @@
                             </div>
 
                             <div class="attendance-grid" style="margin-top:0.9rem;">
+                                <div class="attendance-card" data-attendance-manager-panel="audit" style="padding:0.7rem;">
+                                    <div class="attendance-audit-report" id="attendanceAuditReportPanel" style="display:none; margin-bottom:0;">
+                                        <div class="attendance-audit-report-head">
+                                            <h4 class="attendance-audit-report-title"><i class="fas fa-clipboard-check"></i> Absence Audit Report</h4>
+                                            <div class="attendance-btn-row" style="margin-top:0;">
+                                                <button class="btn-secondary" type="button" onclick="if(window.exportAttendanceAuditReportExcel){window.exportAttendanceAuditReportExcel();}">
+                                                    <i class="fas fa-file-excel"></i> Export Excel
+                                                </button>
+                                                <button class="btn-secondary" type="button" onclick="if(window.exportAttendanceAuditReportPDF){window.exportAttendanceAuditReportPDF();}">
+                                                    <i class="fas fa-file-pdf"></i> Export PDF
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="attendance-audit-report-note" id="attendanceAuditReportSummary" style="margin-bottom:0.35rem;"></div>
+                                        <div class="attendance-table-wrap">
+                                            <table class="attendance-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Employee</th>
+                                                        <th>Clinic</th>
+                                                        <th>Scheduled Shift</th>
+                                                        <th>Date</th>
+                                                        <th>Status</th>
+                                                        <th>Reason</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="attendanceAuditReportBody"></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="attendance-card" data-attendance-manager-panel="queue" style="padding:0.7rem;">
                                     <h3 style="font-size:0.88rem;"><i class="fas fa-hourglass-half"></i> PTO Approval Queue</h3>
                                     <div class="attendance-table-wrap" style="max-height:220px;">
@@ -77016,6 +77026,97 @@ console.log('✅ Global functions exported to window object');
             html2pdf().set(options).from(exportContent).save();
         }
 
+        function getAttendanceAuditReportExportContext() {
+            const report = window.__attendanceAbsenceAuditReport || null;
+            const rows = Array.isArray(report?.rows) ? report.rows : [];
+            const reportDate = String(report?.dateISO || toISODateInTimeZone(new Date())).trim();
+            return { rows, reportDate };
+        }
+
+        function exportAttendanceAuditReportExcel() {
+            const exportContext = getAttendanceAuditReportExportContext();
+            if (!exportContext.rows.length) {
+                showNotification('No absence audit rows available to export.', 'warning');
+                return;
+            }
+
+            const headers = ['Employee', 'Clinic', 'Scheduled Shift', 'Date', 'Status', 'Reason'];
+            const csvRows = [headers.join(',')];
+            exportContext.rows.forEach((row) => {
+                const values = [
+                    row.displayName || row.username || '-',
+                    row.clinic || '-',
+                    row.shift || '-',
+                    formatDate(row.date),
+                    row.status || '-',
+                    row.reason || '-'
+                ];
+                csvRows.push(values.map(csvEscape).join(','));
+            });
+
+            const bom = '\uFEFF';
+            const blob = new Blob([bom + csvRows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            const filename = `Attendance_Absence_Audit_${exportContext.reportDate}.csv`;
+            link.href = url;
+            link.download = filename;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            showNotification(`Exported ${exportContext.rows.length} absence row(s) to ${filename}`, 'success');
+        }
+
+        function exportAttendanceAuditReportPDF() {
+            const exportContext = getAttendanceAuditReportExportContext();
+            if (!exportContext.rows.length) {
+                showNotification('No absence audit rows available to export.', 'warning');
+                return;
+            }
+            if (typeof html2pdf !== 'function') {
+                showNotification('PDF export library is unavailable right now.', 'error');
+                return;
+            }
+
+            const filename = `Attendance_Absence_Audit_${exportContext.reportDate}.pdf`;
+            const tableBody = exportContext.rows.map((row) => {
+                return `<tr><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.displayName || row.username || '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.clinic || '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.shift || '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(formatDate(row.date))}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.status || '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.reason || '-')}</td></tr>`;
+            }).join('');
+
+            const exportContent = document.createElement('div');
+            exportContent.style.padding = '10px';
+            exportContent.style.fontFamily = 'Arial, sans-serif';
+            exportContent.style.backgroundColor = '#ffffff';
+            exportContent.innerHTML = `
+                <div style="margin-bottom:10px; border-bottom:2px solid #10b981; padding-bottom:8px;">
+                    <h2 style="margin:0; color:#10b981;">Absence Audit Report</h2>
+                    <div style="font-size:12px; color:#555; margin-top:4px;">Date: ${sanitizeHtml(formatDate(exportContext.reportDate))} | Generated: ${sanitizeHtml(new Date().toLocaleString('en-US'))}</div>
+                </div>
+                <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                    <thead><tr><th style="text-align:left; border:1px solid #ddd; padding:6px;">Employee</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Clinic</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Scheduled Shift</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Date</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Status</th><th style="text-align:left; border:1px solid #ddd; padding:6px;">Reason</th></tr></thead>
+                    <tbody>${tableBody}</tbody>
+                </table>
+            `;
+
+            const options = {
+                margin: [8, 8, 12, 8],
+                filename,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true, allowTaint: true, logging: false },
+                jsPDF: { orientation: 'landscape', unit: 'mm', format: 'a4', compress: true }
+            };
+            html2pdf().set(options).from(exportContent).save();
+        }
+
+        function triggerAttendanceAbsenceAudit() {
+            if (typeof window.setAttendanceSubTab === 'function') {
+                window.setAttendanceSubTab('manager', 'audit');
+            }
+            auditAttendanceAbsences();
+        }
+
         function parseHMToMinutes(hm) {
             if (!hm || typeof hm !== 'string' || hm.indexOf(':') < 0) return null;
             const [h, m] = hm.split(':').map((x) => Number(x));
@@ -77605,9 +77706,9 @@ console.log('✅ Global functions exported to window object');
 
             if (!panel || !summaryEl || !bodyEl) return;
             if (!report || !Array.isArray(report.rows)) {
-                panel.style.display = 'none';
-                bodyEl.innerHTML = '';
-                summaryEl.textContent = '';
+                panel.style.display = '';
+                bodyEl.innerHTML = '<tr><td colspan="6" class="attendance-note">Run Audit Absences to generate a report.</td></tr>';
+                summaryEl.textContent = 'No audit generated yet.';
                 return;
             }
 
@@ -78125,7 +78226,7 @@ console.log('✅ Global functions exported to window object');
             if (!value) return;
 
             if (normalizedMode === 'manager') {
-                const allowedManagerTabs = new Set(['overview', 'policy', 'queue']);
+                const allowedManagerTabs = new Set(['overview', 'audit', 'policy', 'queue']);
                 window.__attendanceManagerTab = allowedManagerTabs.has(value) ? value : 'overview';
             } else {
                 window.__attendanceEmployeeTab = value;
@@ -78212,7 +78313,7 @@ console.log('✅ Global functions exported to window object');
             if (managerSection) managerSection.style.display = managerMode ? '' : 'none';
 
             if (!window.__attendanceEmployeeTab) window.__attendanceEmployeeTab = 'clockpto';
-            if (!window.__attendanceManagerTab || !['overview', 'policy', 'queue'].includes(window.__attendanceManagerTab)) {
+            if (!window.__attendanceManagerTab || !['overview', 'audit', 'policy', 'queue'].includes(window.__attendanceManagerTab)) {
                 window.__attendanceManagerTab = 'overview';
             }
             renderAttendanceSubTabs();
@@ -78402,6 +78503,7 @@ console.log('✅ Global functions exported to window object');
         window.attendanceClockIn = attendanceClockIn;
         window.attendanceClockOut = attendanceClockOut;
         window.auditAttendanceAbsences = auditAttendanceAbsences;
+        window.triggerAttendanceAbsenceAudit = triggerAttendanceAbsenceAudit;
         window.submitPtoRequest = submitPtoRequest;
         window.reviewPtoRequest = reviewPtoRequest;
         window.saveAttendancePolicyAndCredit = saveAttendancePolicyAndCredit;
@@ -78413,6 +78515,8 @@ console.log('✅ Global functions exported to window object');
         window.resetAttendanceManagerDay = resetAttendanceManagerDay;
         window.exportAttendanceDailyReportExcel = exportAttendanceDailyReportExcel;
         window.exportAttendanceDailyReportPDF = exportAttendanceDailyReportPDF;
+        window.exportAttendanceAuditReportExcel = exportAttendanceAuditReportExcel;
+        window.exportAttendanceAuditReportPDF = exportAttendanceAuditReportPDF;
 
         window.openMyAttendance = function(event) {
             if (event) event.preventDefault();
