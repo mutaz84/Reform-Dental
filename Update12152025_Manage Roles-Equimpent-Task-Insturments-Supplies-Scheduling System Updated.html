@@ -20098,12 +20098,23 @@
                     </div>
                     <div class="stat-card" style="background: var(--card-bg); border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
                         <div class="stat-value" id="requirementsDueSoonCount" style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">0</div>
-                        <div class="stat-label" style="font-size: 0.8rem; color: var(--text-secondary);">Due Soon (7/3/1)</div>
+                        <div class="stat-label" style="font-size: 0.8rem; color: var(--text-secondary);">Due Soon (≤7 days)</div>
                     </div>
                     <div class="stat-card" style="background: var(--card-bg); border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
                         <div class="stat-value" id="requirementsOverdueCount" style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">0</div>
                         <div class="stat-label" style="font-size: 0.8rem; color: var(--text-secondary);">Overdue</div>
                     </div>
+                </div>
+
+                <div style="background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 0.75rem; margin-bottom: 1rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                        <button type="button" id="requirementsFilterAll" onclick="setRequirementsQuickFilter('all')" class="btn-secondary" style="padding: 0.4rem 0.7rem; font-size: 0.8rem;">All</button>
+                        <button type="button" id="requirementsFilterOverdue" onclick="setRequirementsQuickFilter('overdue')" class="btn-secondary" style="padding: 0.4rem 0.7rem; font-size: 0.8rem;">Overdue</button>
+                        <button type="button" id="requirementsFilterDueSoon" onclick="setRequirementsQuickFilter('due_soon')" class="btn-secondary" style="padding: 0.4rem 0.7rem; font-size: 0.8rem;">Due Soon</button>
+                        <button type="button" id="requirementsFilterApproval" onclick="setRequirementsQuickFilter('pending_approval')" class="btn-secondary" style="padding: 0.4rem 0.7rem; font-size: 0.8rem;">Pending Approval</button>
+                        <button type="button" id="requirementsFilterCompleted" onclick="setRequirementsQuickFilter('completed')" class="btn-secondary" style="padding: 0.4rem 0.7rem; font-size: 0.8rem;">Completed</button>
+                    </div>
+                    <div id="requirementsFilterSummary" style="font-size: 0.82rem; color: var(--text-secondary);">Showing 0 of 0</div>
                 </div>
 
                 <div class="compliances-container" style="background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color);">
@@ -24628,7 +24639,7 @@
                 const status = String(item.status || '').toLowerCase();
                 if (status === 'completed' || !item.expiryDate) return false;
                 const days = Math.ceil((new Date(item.expiryDate) - today) / (1000 * 60 * 60 * 24));
-                return [7, 3, 1].includes(days);
+                return days >= 0 && days <= 7;
             }).length;
             const overdue = requirements.filter((item) => {
                 const status = String(item.status || '').toLowerCase();
@@ -24647,17 +24658,137 @@
             setText('requirementsOverdueCount', overdue);
         }
 
+        function getRequirementsViewState() {
+            if (!window.__requirementsViewState || typeof window.__requirementsViewState !== 'object') {
+                window.__requirementsViewState = { quickFilter: 'all' };
+            }
+            return window.__requirementsViewState;
+        }
+
+        function getRequirementTimingMeta(item, now = new Date()) {
+            const status = String(item?.status || 'pending').toLowerCase();
+            const parsedDueDate = item?.expiryDate ? new Date(item.expiryDate) : null;
+            const hasDueDate = !!(parsedDueDate && !Number.isNaN(parsedDueDate.getTime()));
+            const dueDate = hasDueDate ? parsedDueDate : null;
+            const daysUntilDue = dueDate
+                ? Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+                : null;
+
+            if (status === 'completed') {
+                return {
+                    key: 'completed',
+                    label: 'Completed',
+                    badgeColor: '#10b981',
+                    urgencyRank: 5,
+                    dueText: 'Completed'
+                };
+            }
+
+            if (status === 'pending_approval') {
+                return {
+                    key: 'pending_approval',
+                    label: 'Pending Approval',
+                    badgeColor: '#f59e0b',
+                    urgencyRank: 2,
+                    dueText: dueDate ? `Awaiting review • Due ${formatComplianceDate(dueDate)}` : 'Awaiting review'
+                };
+            }
+
+            if (daysUntilDue !== null && daysUntilDue < 0) {
+                return {
+                    key: 'overdue',
+                    label: 'Overdue',
+                    badgeColor: '#ef4444',
+                    urgencyRank: 0,
+                    dueText: `Overdue by ${Math.abs(daysUntilDue)} day${Math.abs(daysUntilDue) === 1 ? '' : 's'}`
+                };
+            }
+
+            if (daysUntilDue !== null && daysUntilDue <= 7) {
+                const dueText = daysUntilDue === 0
+                    ? 'Due today'
+                    : `Due in ${daysUntilDue} day${daysUntilDue === 1 ? '' : 's'}`;
+
+                return {
+                    key: 'due_soon',
+                    label: 'Due Soon',
+                    badgeColor: '#f59e0b',
+                    urgencyRank: 1,
+                    dueText
+                };
+            }
+
+            return {
+                key: 'pending',
+                label: 'Pending',
+                badgeColor: '#3b82f6',
+                urgencyRank: 3,
+                dueText: dueDate ? `Due ${formatComplianceDate(dueDate)}` : 'No due date'
+            };
+        }
+
+        function updateRequirementsFilterButtons(activeFilter) {
+            const buttonByFilter = {
+                all: document.getElementById('requirementsFilterAll'),
+                overdue: document.getElementById('requirementsFilterOverdue'),
+                due_soon: document.getElementById('requirementsFilterDueSoon'),
+                pending_approval: document.getElementById('requirementsFilterApproval'),
+                completed: document.getElementById('requirementsFilterCompleted')
+            };
+
+            Object.keys(buttonByFilter).forEach((key) => {
+                const button = buttonByFilter[key];
+                if (!button) return;
+                if (key === activeFilter) {
+                    button.className = 'btn-primary';
+                } else {
+                    button.className = 'btn-secondary';
+                }
+                button.style.padding = '0.4rem 0.7rem';
+                button.style.fontSize = '0.8rem';
+            });
+        }
+
+        function setRequirementsQuickFilter(filterKey) {
+            const state = getRequirementsViewState();
+            state.quickFilter = String(filterKey || 'all').toLowerCase();
+            updateRequirementsFilterButtons(state.quickFilter);
+            renderRequirementsList(Array.isArray(window.__latestRequirementsData) ? window.__latestRequirementsData : []);
+        }
+
         function renderRequirementsList(requirements) {
             const listEl = document.getElementById('requirementsList');
             if (!listEl) return;
 
-            if (!requirements.length) {
+            const state = getRequirementsViewState();
+            const activeFilter = String(state.quickFilter || 'all').toLowerCase();
+            updateRequirementsFilterButtons(activeFilter);
+            const now = new Date();
+
+            window.__latestRequirementsData = Array.isArray(requirements) ? requirements.slice() : [];
+
+            const filtered = (Array.isArray(requirements) ? requirements : []).filter((item) => {
+                if (activeFilter === 'all') return true;
+                return getRequirementTimingMeta(item, now).key === activeFilter;
+            });
+
+            const summary = document.getElementById('requirementsFilterSummary');
+            if (summary) {
+                summary.textContent = `Showing ${filtered.length} of ${Array.isArray(requirements) ? requirements.length : 0}`;
+            }
+
+            if (!filtered.length) {
                 listEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No requirements assigned.</div>';
                 return;
             }
 
             listEl.innerHTML = '';
-            const sorted = requirements.sort((a, b) => {
+            const sorted = filtered.sort((a, b) => {
+                const aMeta = getRequirementTimingMeta(a, now);
+                const bMeta = getRequirementTimingMeta(b, now);
+                if (aMeta.urgencyRank !== bMeta.urgencyRank) {
+                    return aMeta.urgencyRank - bMeta.urgencyRank;
+                }
                 const aDate = a.expiryDate ? new Date(a.expiryDate).getTime() : Number.MAX_SAFE_INTEGER;
                 const bDate = b.expiryDate ? new Date(b.expiryDate).getTime() : Number.MAX_SAFE_INTEGER;
                 return aDate - bDate;
@@ -24667,21 +24798,22 @@
                 const status = String(item.status || 'pending').toLowerCase();
                 const isCompleted = status === 'completed';
                 const isPendingApproval = status === 'pending_approval';
+                const timingMeta = getRequirementTimingMeta(item, now);
                 const card = document.createElement('div');
-                card.style.cssText = 'border: 1px solid var(--border-color); border-radius: 10px; padding: 0.9rem; margin-bottom: 0.75rem; background: var(--bg-secondary);';
+                card.style.cssText = 'border: 1px solid var(--border-color); border-radius: 10px; padding: 0.8rem; margin-bottom: 0.6rem; background: var(--bg-secondary);';
                 card.innerHTML = `
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.75rem;">
-                        <div>
-                            <div style="font-weight:600; color: var(--text-primary);">${item.title || '(Untitled Compliance)'}</div>
-                            <div style="font-size:0.8rem; color: var(--text-secondary); margin-top:0.15rem;">${getComplianceTypeDisplay(item)} • Due: ${formatComplianceDate(item.expiryDate)}</div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap: wrap;">
+                        <div style="min-width: 240px;">
+                            <div style="font-weight:600; color: var(--text-primary); line-height:1.3;">${item.title || '(Untitled Compliance)'}</div>
+                            <div style="font-size:0.8rem; color: var(--text-secondary); margin-top:0.12rem;">${getComplianceTypeDisplay(item)} • ${timingMeta.dueText}</div>
                         </div>
-                        <span style="font-size:0.75rem; padding:0.2rem 0.55rem; border-radius:999px; background:${isCompleted ? '#10b98120' : (isPendingApproval ? '#f59e0b20' : '#3b82f620')}; color:${isCompleted ? '#10b981' : (isPendingApproval ? '#f59e0b' : '#3b82f6')}; font-weight:600;">${isCompleted ? 'Completed' : (isPendingApproval ? 'Pending Approval' : (status || 'Pending'))}</span>
+                        <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+                            <span style="font-size:0.72rem; padding:0.2rem 0.55rem; border-radius:999px; background:${timingMeta.badgeColor}20; color:${timingMeta.badgeColor}; font-weight:600;">${timingMeta.label}</span>
+                            <button onclick="openComplianceFromRequirement(${item.id || 0})" class="btn-secondary" style="padding:0.4rem 0.7rem; font-size:0.8rem;">Open</button>
+                            ${(!isCompleted && !isPendingApproval) ? `<button onclick="markRequirementCompleted(${item.id || 0})" class="btn-primary" style="padding:0.4rem 0.7rem; font-size:0.8rem;">Submit</button>` : ''}
+                        </div>
                     </div>
-                    <div style="font-size:0.85rem; color: var(--text-secondary); margin-top:0.5rem;">${item.description || 'No description provided.'}</div>
-                    <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
-                        <button onclick="openComplianceFromRequirement(${item.id || 0})" class="btn-secondary" style="padding:0.45rem 0.75rem;">Open</button>
-                        ${(!isCompleted && !isPendingApproval) ? `<button onclick="markRequirementCompleted(${item.id || 0})" class="btn-primary" style="padding:0.45rem 0.75rem;">Submit for Approval</button>` : ''}
-                    </div>
+                    ${item.description ? `<div style="font-size:0.83rem; color: var(--text-secondary); margin-top:0.5rem;">${item.description}</div>` : ''}
                 `;
                 listEl.appendChild(card);
             });
