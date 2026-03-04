@@ -24801,6 +24801,7 @@
                 const timingMeta = getRequirementTimingMeta(item, now);
                 const card = document.createElement('div');
                 card.style.cssText = 'border: 1px solid var(--border-color); border-radius: 10px; padding: 0.8rem; margin-bottom: 0.6rem; background: var(--bg-secondary);';
+                const primaryActionLabel = (!isCompleted && !isPendingApproval) ? 'Compliance Submission' : 'Open';
                 card.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap: wrap;">
                         <div style="min-width: 240px;">
@@ -24809,8 +24810,8 @@
                         </div>
                         <form onsubmit="return submitRequirementForm(event, ${item.id || 0})" style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; margin:0;">
                             <span style="font-size:0.72rem; padding:0.2rem 0.55rem; border-radius:999px; background:${timingMeta.badgeColor}20; color:${timingMeta.badgeColor}; font-weight:600;">${timingMeta.label}</span>
+                            <button type="submit" class="btn-primary" style="padding:0.4rem 0.7rem; font-size:0.8rem;">${primaryActionLabel}</button>
                             <button type="button" onclick="openComplianceFromRequirement(${item.id || 0})" class="btn-secondary" style="padding:0.4rem 0.7rem; font-size:0.8rem;">Open</button>
-                            ${(!isCompleted && !isPendingApproval) ? `<button type="submit" class="btn-primary" style="padding:0.4rem 0.7rem; font-size:0.8rem;">Submit</button>` : ''}
                         </form>
                     </div>
                     ${item.description ? `<div style="font-size:0.83rem; color: var(--text-secondary); margin-top:0.5rem;">${item.description}</div>` : ''}
@@ -24823,7 +24824,10 @@
             if (event) {
                 event.preventDefault();
             }
-            await markRequirementCompleted(complianceId);
+            if (!complianceId) return false;
+            if (typeof editCompliance === 'function') {
+                await editCompliance(complianceId);
+            }
             return false;
         }
 
@@ -26251,11 +26255,34 @@
                 return;
             }
 
+            if (mode === 'submission') {
+                if (formTitle) formTitle.textContent = 'Compliance Submission';
+                if (saveBtn) {
+                    saveBtn.style.display = '';
+                    saveBtn.innerHTML = '<i class="fas fa-paper-plane" style="margin-right: 0.5rem;"></i>Submit Compliance';
+                }
+                if (approveBtn) approveBtn.style.display = 'none';
+                if (employeeGroup) employeeGroup.style.display = isRegularUser ? '' : 'none';
+                if (employeeSelector) {
+                    employeeSelector.required = false;
+                    employeeSelector.dataset.baseRequired = '0';
+                }
+                setComplianceModalReadOnly(false);
+                applyComplianceModalAccess();
+                return;
+            }
+
             const isNewRecord = !document.getElementById('complianceId')?.value;
-            if (formTitle) formTitle.textContent = isNewRecord ? 'Add Compliance' : 'Edit Compliance';
+            if (formTitle) {
+                formTitle.textContent = isNewRecord
+                    ? 'Add Compliance'
+                    : (isRegularUser ? 'Compliance Submission' : 'Edit Compliance');
+            }
             if (saveBtn) {
                 saveBtn.style.display = '';
-                saveBtn.innerHTML = '<i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save Compliance';
+                saveBtn.innerHTML = isRegularUser && !isNewRecord
+                    ? '<i class="fas fa-paper-plane" style="margin-right: 0.5rem;"></i>Submit Compliance'
+                    : '<i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save Compliance';
             }
             if (approveBtn) approveBtn.style.display = 'none';
             if (employeeGroup) employeeGroup.style.display = isRegularUser ? '' : 'none';
@@ -26359,6 +26386,7 @@
 
             const modalMode = String(window.__complianceModalMode || 'standard');
             const isTemplateMode = modalMode === 'template';
+            const isSubmissionMode = modalMode === 'submission';
             const complianceId = document.getElementById('complianceId')?.value;
             const employeeSelector = document.getElementById('complianceEmployeeSelector');
             const selectedEmployeeRaw = String(employeeSelector?.value || document.getElementById('complianceEmployeeId')?.value || '').trim();
@@ -26417,6 +26445,7 @@
             const costNotApplicable = isComplianceNotApplicable('complianceCostNotApplicable');
             const notesNotApplicable = isComplianceNotApplicable('complianceNotesNotApplicable');
             const statusValue = statusNotApplicable ? 'active' : (document.getElementById('complianceStatus')?.value || 'active');
+            const finalStatusValue = isSubmissionMode ? 'pending_approval' : statusValue;
 
             const compliance = {
                 title: titleInput || (isTemplateMode ? `${complianceTypeLabel} Template` : ''),
@@ -26427,7 +26456,7 @@
                 issueDate: issueDateNotApplicable ? '' : (document.getElementById('complianceIssueDate')?.value || ''),
                 expiryDate: expiryDateNotApplicable ? '' : (document.getElementById('complianceExpiryDate')?.value || ''),
                 reminderDate: reminderDateNotApplicable ? '' : (document.getElementById('complianceReminderDate')?.value || ''),
-                status: isTemplateMode ? 'pending' : statusValue,
+                status: isTemplateMode ? 'pending' : finalStatusValue,
                 attachmentData: attachmentData,
                 attachmentName: attachmentName,
                 attachmentType: attachmentType,
@@ -26489,7 +26518,10 @@
                     }
                     closeComplianceModal();
                     if (typeof showNotification === 'function') {
-                        showNotification(isTemplateMode ? 'Compliance template created successfully.' : 'Compliance saved successfully!', 'success');
+                        const successMessage = isTemplateMode
+                            ? 'Compliance template created successfully.'
+                            : (isSubmissionMode ? 'Compliance submitted for approval successfully.' : 'Compliance saved successfully!');
+                        showNotification(successMessage, 'success');
                     }
                     if (typeof refreshComplianceNavBadges === 'function') {
                         refreshComplianceNavBadges({ forceAllFetch: true, forceUserFetch: true });
@@ -26698,8 +26730,9 @@
                     const currentViewId = document.querySelector('.content-view.active')?.id || '';
                     const statusValue = String(fullCompliance.status || '').toLowerCase();
                     const canReviewAndApprove = canCurrentUserApproveCompliances() && statusValue === 'pending_approval' && currentViewId === 'view-compliances';
+                    const isSubmissionFlow = !canCurrentUserApproveCompliances() && currentViewId === 'view-requirements' && statusValue !== 'completed' && statusValue !== 'pending_approval';
                     initializeComplianceNotApplicableControls();
-                    applyComplianceModalMode(canReviewAndApprove ? 'review' : 'standard');
+                    applyComplianceModalMode(canReviewAndApprove ? 'review' : (isSubmissionFlow ? 'submission' : 'standard'));
 
                     document.getElementById('complianceModal').style.display = 'flex';
                     return;
