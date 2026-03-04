@@ -79816,4 +79816,247 @@ console.log('✅ Global functions exported to window object');
 })();
 </script>
 
+<script>
+(function installStationaryRescueBridge() {
+    const STORAGE_KEY = 'stationaryFormTemplatesV1';
+
+    function safeParse(value, fallback) {
+        try { return JSON.parse(value); } catch (_) { return fallback; }
+    }
+
+    function getView() {
+        return document.getElementById('view-stationary') || document.getElementById('stationary-view');
+    }
+
+    function showViewDirectly() {
+        const view = getView();
+        if (!view) return false;
+        document.querySelectorAll('.content-view').forEach((node) => {
+            node.classList.remove('active');
+            node.style.display = 'none';
+        });
+        view.classList.add('active');
+        view.style.display = 'block';
+        return true;
+    }
+
+    function openStationary(event) {
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+
+        let opened = false;
+        if (typeof window.openStationaryBuilderView === 'function') {
+            try {
+                window.openStationaryBuilderView(event || null);
+                opened = true;
+            } catch (_) {}
+        }
+        if (!opened && typeof window.switchContentView === 'function') {
+            try {
+                window.switchContentView('stationary', event || null, { force: true });
+                opened = true;
+            } catch (_) {}
+        }
+        if (!opened) opened = showViewDirectly();
+
+        try {
+            if (typeof window.initializeStationaryBuilder === 'function') {
+                window.initializeStationaryBuilder();
+                return false;
+            }
+        } catch (_) {}
+
+        renderFallbackTemplate();
+        return false;
+    }
+
+    function readFallbackTemplates() {
+        const parsed = safeParse(localStorage.getItem(STORAGE_KEY) || '[]', []);
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+        return [{
+            id: `stf-${Date.now()}`,
+            name: 'General Form',
+            headerLine1: 'Reform Dentistry',
+            headerLine2: 'Address • Phone • Email',
+            footerText: 'Confidential form - clinic copy',
+            elements: []
+        }];
+    }
+
+    function writeFallbackTemplates(templates) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.isArray(templates) ? templates : []));
+    }
+
+    function getFallbackState() {
+        if (!window.__stationaryFallbackState) {
+            const templates = readFallbackTemplates();
+            window.__stationaryFallbackState = {
+                templates,
+                currentTemplateId: String(templates[0]?.id || '')
+            };
+        }
+        return window.__stationaryFallbackState;
+    }
+
+    function getCurrentTemplate() {
+        const state = getFallbackState();
+        let current = (state.templates || []).find((item) => String(item.id) === String(state.currentTemplateId));
+        if (!current) {
+            current = state.templates[0] || null;
+            state.currentTemplateId = String(current?.id || '');
+        }
+        return current;
+    }
+
+    function renderFallbackTemplate() {
+        const state = getFallbackState();
+        const template = getCurrentTemplate();
+        if (!template) return;
+
+        const select = document.getElementById('stationaryTemplateSelect');
+        const nameInput = document.getElementById('stationaryTemplateName');
+        const header1 = document.getElementById('stationaryHeaderLine1');
+        const header2 = document.getElementById('stationaryHeaderLine2');
+        const footer = document.getElementById('stationaryFooterText');
+        const pageHeader1 = document.getElementById('stationaryPageHeaderLine1');
+        const pageHeader2 = document.getElementById('stationaryPageHeaderLine2');
+        const pageFooter = document.getElementById('stationaryPageFooter');
+        const body = document.getElementById('stationaryCanvasBody');
+
+        if (select) {
+            select.innerHTML = state.templates.map((item) => `<option value="${String(item.id)}">${String(item.name || 'Untitled')}</option>`).join('');
+            select.value = String(template.id);
+        }
+
+        if (nameInput) nameInput.value = String(template.name || 'Untitled Form');
+        if (header1) header1.value = String(template.headerLine1 || '');
+        if (header2) header2.value = String(template.headerLine2 || '');
+        if (footer) footer.value = String(template.footerText || '');
+
+        if (pageHeader1) pageHeader1.textContent = String(template.headerLine1 || 'Reform Dentistry');
+        if (pageHeader2) pageHeader2.textContent = String(template.headerLine2 || 'Address • Phone • Email');
+        if (pageFooter) pageFooter.textContent = String(template.footerText || 'Confidential form - clinic copy');
+
+        if (body) {
+            const elements = Array.isArray(template.elements) ? template.elements : [];
+            body.innerHTML = elements.map((element) => {
+                const left = Number(element.x || 24);
+                const top = Number(element.y || 24);
+                const width = Number(element.width || 220);
+                const height = Number(element.height || 80);
+                const text = String(element.text || (element.type === 'signature' ? 'Signer Name' : 'Type here...'));
+                const line = element.type === 'signature' ? '<div style="border-bottom:1px solid #111; margin-top:6px;"></div>' : '';
+                return `<div style="position:absolute; left:${left}px; top:${top}px; width:${width}px; min-height:${height}px; border:1px dashed #9ca3af; background:#fff; padding:6px 8px; box-sizing:border-box;">${text}${line}</div>`;
+            }).join('');
+        }
+    }
+
+    function addFallbackElement(type) {
+        const template = getCurrentTemplate();
+        if (!template) return;
+        if (!Array.isArray(template.elements)) template.elements = [];
+        template.elements.push({
+            id: `stf-el-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            type: type || 'text',
+            text: type === 'signature' ? 'Signer Name' : 'Type here...',
+            x: 20 + ((template.elements.length % 4) * 18),
+            y: 20 + ((template.elements.length % 6) * 20),
+            width: type === 'signature' ? 260 : 220,
+            height: type === 'signature' ? 90 : 80
+        });
+        writeFallbackTemplates(getFallbackState().templates);
+        renderFallbackTemplate();
+    }
+
+    function saveFallbackTemplate() {
+        const template = getCurrentTemplate();
+        if (!template) return;
+        const nameInput = document.getElementById('stationaryTemplateName');
+        const header1 = document.getElementById('stationaryHeaderLine1');
+        const header2 = document.getElementById('stationaryHeaderLine2');
+        const footer = document.getElementById('stationaryFooterText');
+        template.name = String(nameInput?.value || template.name || 'Untitled Form').trim() || 'Untitled Form';
+        template.headerLine1 = String(header1?.value || template.headerLine1 || '').trim();
+        template.headerLine2 = String(header2?.value || template.headerLine2 || '').trim();
+        template.footerText = String(footer?.value || template.footerText || '').trim();
+        writeFallbackTemplates(getFallbackState().templates);
+        renderFallbackTemplate();
+        if (typeof window.showNotification === 'function') {
+            window.showNotification('Stationary template saved (fallback mode).', 'success');
+        }
+    }
+
+    function installButtonBridge() {
+        const addText = document.getElementById('stationaryAddTextBtn');
+        const addSignature = document.getElementById('stationaryAddSignatureBtn');
+        const saveBtn = document.getElementById('stationarySaveTemplateBtn');
+        const select = document.getElementById('stationaryTemplateSelect');
+
+        if (addText) {
+            addText.onclick = function(event) {
+                if (typeof window.handleStationaryAddText === 'function') {
+                    try { return window.handleStationaryAddText(event); } catch (_) {}
+                }
+                if (event) event.preventDefault();
+                addFallbackElement('text');
+                return false;
+            };
+        }
+
+        if (addSignature) {
+            addSignature.onclick = function(event) {
+                if (typeof window.handleStationaryAddSignature === 'function') {
+                    try { return window.handleStationaryAddSignature(event); } catch (_) {}
+                }
+                if (event) event.preventDefault();
+                addFallbackElement('signature');
+                return false;
+            };
+        }
+
+        if (saveBtn) {
+            saveBtn.onclick = function(event) {
+                if (typeof window.handleStationarySaveTemplate === 'function') {
+                    try { return window.handleStationarySaveTemplate(event); } catch (_) {}
+                }
+                if (event) event.preventDefault();
+                saveFallbackTemplate();
+                return false;
+            };
+        }
+
+        if (select) {
+            select.onchange = function() {
+                const state = getFallbackState();
+                state.currentTemplateId = String(select.value || '');
+                renderFallbackTemplate();
+            };
+        }
+    }
+
+    function installNavBridge() {
+        document.addEventListener('click', function(event) {
+            const target = event.target;
+            if (!target || typeof target.closest !== 'function') return;
+            const navItem = target.closest('a.nav-item');
+            if (!navItem) return;
+            const navText = String(navItem.textContent || '').trim().toLowerCase();
+            if (navText.includes('stationary')) {
+                openStationary(event);
+            }
+        }, true);
+    }
+
+    window.openStationaryBuilderView = openStationary;
+    installNavBridge();
+    setTimeout(() => {
+        installButtonBridge();
+        renderFallbackTemplate();
+    }, 100);
+    setTimeout(() => installButtonBridge(), 600);
+})();
+</script>
+
 </body></html>
