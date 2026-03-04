@@ -20081,9 +20081,6 @@
                         <button onclick="initializeRequirementsView(true)" class="btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">
                             <i class="fas fa-sync" style="margin-right: 0.5rem;"></i>Refresh
                         </button>
-                        <button onclick="return openComplianceManagerFromRequirements(event);" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">
-                            <i class="fas fa-external-link-alt" style="margin-right: 0.5rem;"></i>Open Compliance Manager
-                        </button>
                     </div>
                 </div>
 
@@ -24809,7 +24806,7 @@
                         </div>
                         <form onsubmit="return submitRequirementForm(event, ${item.id || 0})" style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; margin:0;">
                             <span style="font-size:0.72rem; padding:0.2rem 0.55rem; border-radius:999px; background:${timingMeta.badgeColor}20; color:${timingMeta.badgeColor}; font-weight:600;">${timingMeta.label}</span>
-                            <button type="submit" class="btn-primary" style="padding:0.4rem 0.7rem; font-size:0.8rem;">Compliance Submission</button>
+                            <button type="submit" class="btn-primary" style="padding:0.4rem 0.7rem; font-size:0.8rem;">Compliances Submission</button>
                         </form>
                     </div>
                     ${item.description ? `<div style="font-size:0.83rem; color: var(--text-secondary); margin-top:0.5rem;">${item.description}</div>` : ''}
@@ -26254,7 +26251,7 @@
             }
 
             if (mode === 'submission') {
-                if (formTitle) formTitle.textContent = 'Compliance Submission';
+                if (formTitle) formTitle.textContent = 'Compliances Submission';
                 if (saveBtn) {
                     saveBtn.style.display = '';
                     saveBtn.innerHTML = '<i class="fas fa-paper-plane" style="margin-right: 0.5rem;"></i>Submit Compliance';
@@ -26271,14 +26268,16 @@
             }
 
             const isNewRecord = !document.getElementById('complianceId')?.value;
+            const currentViewId = document.querySelector('.content-view.active')?.id || '';
+            const isRequirementsContext = currentViewId === 'view-requirements';
             if (formTitle) {
                 formTitle.textContent = isNewRecord
-                    ? 'Add Compliance'
-                    : (isRegularUser ? 'Compliance Submission' : 'Edit Compliance');
+                    ? (isRequirementsContext ? 'Compliances Submission' : 'Add Compliance')
+                    : ((isRegularUser || isRequirementsContext) ? 'Compliances Submission' : 'Edit Compliance');
             }
             if (saveBtn) {
                 saveBtn.style.display = '';
-                saveBtn.innerHTML = isRegularUser
+                saveBtn.innerHTML = (isRegularUser || isRequirementsContext)
                     ? '<i class="fas fa-paper-plane" style="margin-right: 0.5rem;"></i>Submit Compliance'
                     : '<i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save Compliance';
             }
@@ -26728,7 +26727,7 @@
                     const currentViewId = document.querySelector('.content-view.active')?.id || '';
                     const statusValue = String(fullCompliance.status || '').toLowerCase();
                     const canReviewAndApprove = canCurrentUserApproveCompliances() && statusValue === 'pending_approval' && currentViewId === 'view-compliances';
-                    const isSubmissionFlow = !canCurrentUserApproveCompliances() && currentViewId === 'view-requirements' && statusValue !== 'completed' && statusValue !== 'pending_approval';
+                    const isSubmissionFlow = currentViewId === 'view-requirements';
                     initializeComplianceNotApplicableControls();
                     applyComplianceModalMode(canReviewAndApprove ? 'review' : (isSubmissionFlow ? 'submission' : 'standard'));
 
