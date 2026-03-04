@@ -80037,16 +80037,98 @@ console.log('✅ Global functions exported to window object');
     }
 
     function installNavBridge() {
+        const STATIONARY_PATTERN = /stationar/i;
+
+        function releaseClickBlockers() {
+            const blockerSelectors = [
+                '#rdTabCloseOverlay',
+                '.rd-tab-close-overlay',
+                '#mobileOverlay',
+                '.mobile-overlay.active',
+                '.modal-overlay.active',
+                '.request-modal-overlay.active',
+                '.procedure-modal-overlay.active'
+            ];
+
+            blockerSelectors.forEach((selector) => {
+                document.querySelectorAll(selector).forEach((node) => {
+                    const element = node;
+                    if (!element || !element.classList) return;
+                    element.classList.remove('active');
+                    if (element.id === 'mobileOverlay' || element.id === 'rdTabCloseOverlay' || element.classList.contains('rd-tab-close-overlay')) {
+                        element.style.display = 'none';
+                    }
+                    element.style.pointerEvents = 'none';
+                });
+            });
+
+            if (document && document.body && document.body.style) {
+                document.body.style.pointerEvents = 'auto';
+                document.body.style.overflow = 'auto';
+            }
+        }
+
+        function isStationaryNavItem(navItem) {
+            if (!navItem) return false;
+            const navText = String(navItem.textContent || '').trim();
+            const onclickText = String(navItem.getAttribute('onclick') || '');
+            const dataView = String(navItem.getAttribute('data-view') || '');
+            return STATIONARY_PATTERN.test(navText) || STATIONARY_PATTERN.test(onclickText) || STATIONARY_PATTERN.test(dataView);
+        }
+
+        function onStationaryNavIntent(event, navItem) {
+            if (!isStationaryNavItem(navItem)) return;
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (typeof event.stopImmediatePropagation === 'function') {
+                    event.stopImmediatePropagation();
+                }
+            }
+            releaseClickBlockers();
+            openStationary(event || null);
+        }
+
+        function bindStationaryNavLinks() {
+            const links = Array.from(document.querySelectorAll('a.nav-item'));
+            links.forEach((link) => {
+                if (!isStationaryNavItem(link)) return;
+                link.setAttribute('href', '#');
+                link.onclick = function(evt) {
+                    onStationaryNavIntent(evt, link);
+                    return false;
+                };
+                if (link.dataset.stationaryBridgeBound === '1') return;
+                link.dataset.stationaryBridgeBound = '1';
+                link.addEventListener('pointerdown', function(evt) {
+                    onStationaryNavIntent(evt, link);
+                }, true);
+                link.addEventListener('click', function(evt) {
+                    onStationaryNavIntent(evt, link);
+                }, true);
+            });
+        }
+
+        document.addEventListener('pointerdown', function(event) {
+            const target = event.target;
+            if (!target || typeof target.closest !== 'function') return;
+            const navItem = target.closest('a.nav-item');
+            if (!navItem) return;
+            onStationaryNavIntent(event, navItem);
+        }, true);
+
         document.addEventListener('click', function(event) {
             const target = event.target;
             if (!target || typeof target.closest !== 'function') return;
             const navItem = target.closest('a.nav-item');
             if (!navItem) return;
-            const navText = String(navItem.textContent || '').trim().toLowerCase();
-            if (navText.includes('stationary')) {
-                openStationary(event);
-            }
+            onStationaryNavIntent(event, navItem);
         }, true);
+
+        bindStationaryNavLinks();
+        setTimeout(bindStationaryNavLinks, 200);
+        setTimeout(bindStationaryNavLinks, 900);
+        setTimeout(bindStationaryNavLinks, 1800);
     }
 
     window.openStationaryBuilderView = openStationary;
