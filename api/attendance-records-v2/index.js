@@ -246,6 +246,11 @@ async function findExistingRecord(pool, localId, username, workDate) {
         if (byLocalId.recordset[0]?.Id) {
             return byLocalId.recordset[0].Id;
         }
+
+        // Important: when localId is provided but not found, treat it as a new segment.
+        // Do not fallback to username+workDate because that would overwrite same-day records
+        // (e.g., break + re-clock-in activity on the same date).
+        return null;
     }
 
     const byIdentity = await pool.request()

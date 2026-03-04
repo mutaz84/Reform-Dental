@@ -328,13 +328,6 @@ module.exports = async function (context, req) {
                 exists = await pool.request()
                     .input('localId', sql.NVarChar(120), localId)
                     .query('SELECT TOP 1 Id FROM AttendanceRecords WHERE LocalRecordId = @localId ORDER BY Id DESC');
-
-                if (!exists.recordset[0]?.Id) {
-                    exists = await pool.request()
-                        .input('username', sql.NVarChar(150), username)
-                        .input('workDate', sql.Date, workDate)
-                        .query('SELECT TOP 1 Id FROM AttendanceRecords WHERE Username = @username AND WorkDate = @workDate ORDER BY Id DESC');
-                }
             } else {
                 exists = await pool.request()
                     .input('username', sql.NVarChar(150), username)
