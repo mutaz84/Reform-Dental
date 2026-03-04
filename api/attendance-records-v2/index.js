@@ -187,6 +187,13 @@ function isSqlDuplicateKeyError(err) {
         || message.includes('unique constraint');
 }
 
+function buildUniqueConstraintError(details = '') {
+    const error = new Error('Attendance insert blocked by a unique index. Likely legacy Username+WorkDate unique index still active in live DB.');
+    error.code = 'ATTENDANCE_UNIQUE_CONSTRAINT';
+    error.details = String(details || '').slice(0, 240);
+    return error;
+}
+
 function parseRecordMeta(value) {
     if (!value) {
         return { flags: [], clockOutReason: null, employeeClinic: null };
@@ -373,6 +380,8 @@ async function upsertRecord(pool, payload) {
                     };
                 }
             }
+
+            throw buildUniqueConstraintError(insertErr?.message || insertErr);
         }
 
         try {
@@ -395,6 +404,8 @@ async function upsertRecord(pool, payload) {
                         warning: String(fallbackErr?.message || fallbackErr || '').slice(0, 160)
                     };
                 }
+
+                throw buildUniqueConstraintError(fallbackErr?.message || fallbackErr);
             }
             throw fallbackErr;
         }
@@ -429,6 +440,7 @@ module.exports = async function (context, req) {
             }
 
             const username = safeString(req.query?.username, 150);
+            const localId = safeString(req.query?.localId, 120);
             const date = toDateOnly(req.query?.date);
             const fromDate = toDateOnly(req.query?.fromDate);
             const toDate = toDateOnly(req.query?.toDate);
@@ -438,6 +450,10 @@ module.exports = async function (context, req) {
             if (username) {
                 request.input('username', sql.NVarChar(150), username);
                 where.push('Username = @username');
+            }
+            if (localId) {
+                request.input('localId', sql.NVarChar(120), localId);
+                where.push('LocalRecordId = @localId');
             }
             if (date) {
                 request.input('date', sql.Date, date);
@@ -529,7 +545,8 @@ module.exports = async function (context, req) {
             body: {
                 error: err.message || 'Server error',
                 code: err.code || null,
-                number: Number.isFinite(Number(err.number)) ? Number(err.number) : null
+                number: Number.isFinite(Number(err.number)) ? Number(err.number) : null,
+                details: err.details || null
             }
         };
     }

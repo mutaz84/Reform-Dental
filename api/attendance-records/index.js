@@ -196,6 +196,13 @@ function isSqlDuplicateKeyError(err) {
         || message.includes('unique constraint');
 }
 
+function buildUniqueConstraintError(details = '') {
+    const error = new Error('Attendance insert blocked by a unique index. Likely legacy Username+WorkDate unique index still active in live DB.');
+    error.code = 'ATTENDANCE_UNIQUE_CONSTRAINT';
+    error.details = String(details || '').slice(0, 240);
+    return error;
+}
+
 function parseRecordMeta(value) {
     if (Array.isArray(value)) {
         return {
@@ -443,6 +450,8 @@ module.exports = async function (context, req) {
                         };
                         return;
                     }
+
+                    throw buildUniqueConstraintError(err?.message || err);
                 }
 
                 if (!isSqlTruncationError(err)) throw err;
@@ -468,6 +477,8 @@ module.exports = async function (context, req) {
                             };
                             return;
                         }
+
+                        throw buildUniqueConstraintError(fallbackErr?.message || fallbackErr);
                     }
                     throw fallbackErr;
                 }
@@ -531,7 +542,8 @@ module.exports = async function (context, req) {
             body: {
                 error: err.message || 'Server error',
                 code: err.code || null,
-                number: Number.isFinite(Number(err.number)) ? Number(err.number) : null
+                number: Number.isFinite(Number(err.number)) ? Number(err.number) : null,
+                details: err.details || null
             }
         };
     }
