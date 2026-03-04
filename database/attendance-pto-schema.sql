@@ -27,8 +27,12 @@ BEGIN
             FOREIGN KEY (UserId) REFERENCES dbo.Users(Id);
     END
 
-    CREATE UNIQUE INDEX UX_AttendanceRecords_Username_WorkDate
-        ON dbo.AttendanceRecords (Username, WorkDate);
+    CREATE INDEX IX_AttendanceRecords_Username_WorkDate
+        ON dbo.AttendanceRecords (Username, WorkDate DESC, Id DESC);
+
+    CREATE UNIQUE INDEX UX_AttendanceRecords_LocalRecordId
+        ON dbo.AttendanceRecords (LocalRecordId)
+        WHERE LocalRecordId IS NOT NULL;
 
     CREATE INDEX IX_AttendanceRecords_WorkDate
         ON dbo.AttendanceRecords (WorkDate DESC);
