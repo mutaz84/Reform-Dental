@@ -526,6 +526,36 @@ ELSE
 GO
 
 -- =============================================
+-- 17. STATIONARY TEMPLATES TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='StationaryTemplates' AND xtype='U')
+BEGIN
+    CREATE TABLE StationaryTemplates (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        TemplateKey NVARCHAR(120) NOT NULL UNIQUE,
+        Name NVARCHAR(255) NOT NULL,
+        HeaderLine1 NVARCHAR(MAX),
+        HeaderLine2 NVARCHAR(MAX),
+        FooterText NVARCHAR(MAX),
+        Elements NVARCHAR(MAX),
+        ClinicId INT,
+        OwnerUsername NVARCHAR(100),
+        IsActive BIT NOT NULL DEFAULT 1,
+        CreatedDate DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        ModifiedDate DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        FOREIGN KEY (ClinicId) REFERENCES Clinics(Id)
+    );
+
+    CREATE INDEX IX_StationaryTemplates_ClinicId ON StationaryTemplates(ClinicId);
+    CREATE INDEX IX_StationaryTemplates_OwnerUsername ON StationaryTemplates(OwnerUsername);
+
+    PRINT 'Created StationaryTemplates table';
+END
+ELSE
+    PRINT 'StationaryTemplates table already exists';
+GO
+
+-- =============================================
 -- VERIFY ALL TABLES
 -- =============================================
 SELECT 
@@ -534,6 +564,7 @@ SELECT
 FROM sys.tables t
 WHERE t.name IN ('Clinics', 'Rooms', 'Users', 'Vendors', 'Equipment', 'Instruments', 
                  'Supplies', 'Schedules', 'Tasks', 'Duties', 'Settings', 'Events', 'ChatMessages', 'StickyNotes',
+                 'StationaryTemplates',
                  'Requests', 'RequestComments', 'RequestAttachments', 'RequestRoutingLog', 'RequestNotifications', 'Categories')
 ORDER BY t.name;
 

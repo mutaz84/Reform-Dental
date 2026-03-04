@@ -7074,6 +7074,72 @@
             font-weight: 600;
             vertical-align: middle;
         }
+        .stationary-builder-el {
+            position: absolute;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.98);
+            box-sizing: border-box;
+            overflow: hidden;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        }
+        .stationary-builder-el.selected {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 20%, transparent);
+        }
+        .stationary-builder-el-handle {
+            height: 18px;
+            background: color-mix(in srgb, var(--accent-primary) 12%, #f3f4f6);
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 0.62rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 6px;
+            color: #4b5563;
+            cursor: move;
+            user-select: none;
+        }
+        .stationary-builder-el-content {
+            width: 100%;
+            height: calc(100% - 18px);
+            box-sizing: border-box;
+            padding: 6px 8px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            outline: none;
+            overflow: auto;
+            background: transparent;
+        }
+        .stationary-builder-el.signature .stationary-builder-el-content {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            gap: 4px;
+        }
+        .stationary-sign-line {
+            border-bottom: 1px solid #111827;
+            height: 20px;
+            width: 100%;
+        }
+        .stationary-resize-handle {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            right: 1px;
+            bottom: 1px;
+            border-radius: 3px;
+            background: color-mix(in srgb, var(--accent-primary) 30%, #9ca3af);
+            cursor: nwse-resize;
+            z-index: 4;
+        }
+        #stationaryBoldBtn.active,
+        #stationaryItalicBtn.active,
+        #stationaryUnderlineBtn.active {
+            background: var(--accent-primary);
+            color: #fff;
+            border-color: var(--accent-primary);
+        }
         .attendance-tabs {
             display: flex;
             flex-wrap: wrap;
@@ -20524,10 +20590,110 @@
     <!-- Stationary View -->
     <div class="content-view" id="view-stationary" style="display: none;">
         <div class="dashboard-grid">
-            <div class="main-content" style="padding: 2rem;">
-                <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 2rem; text-align: center;">
-                    <i class="fas fa-pencil-ruler" style="font-size: 2.5rem; color: var(--accent-primary); margin-bottom: 0.75rem;"></i>
-                    <h2 style="margin: 0; color: var(--text-primary);">Stationary</h2>
+            <div class="main-content" style="padding: 1rem;">
+                <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 0.9rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.6rem; margin-bottom:0.65rem;">
+                        <h2 style="margin: 0; color: var(--text-primary); display:flex; align-items:center; gap:0.45rem;"><i class="fas fa-pencil-ruler" style="color: var(--accent-primary);"></i> Stationary Form Builder</h2>
+                        <div class="attendance-note">Create printable office forms with clinic header/footer and custom fields.</div>
+                    </div>
+
+                    <div class="attendance-tabs" style="margin-top:0; margin-bottom:0.75rem;">
+                        <div class="attendance-input-row" style="grid-template-columns:minmax(220px, 1.4fr) minmax(180px, 1fr); margin:0; flex:1;">
+                            <div>
+                                <label style="font-size:0.72rem; color:var(--text-secondary);">Template</label>
+                                <select id="stationaryTemplateSelect"></select>
+                            </div>
+                            <div>
+                                <label style="font-size:0.72rem; color:var(--text-secondary);">Template Name</label>
+                                <input id="stationaryTemplateName" type="text" placeholder="Patient Consent Form">
+                            </div>
+                        </div>
+                        <div class="attendance-btn-row" style="margin-top:0;">
+                            <button class="btn-secondary" type="button" id="stationaryNewTemplateBtn"><i class="fas fa-file"></i> New</button>
+                            <button class="btn-primary" type="button" id="stationarySaveTemplateBtn"><i class="fas fa-save"></i> Save</button>
+                            <button class="btn-secondary" type="button" id="stationaryDeleteTemplateBtn"><i class="fas fa-trash"></i> Delete</button>
+                            <button class="btn-secondary" type="button" id="stationaryPrintBtn"><i class="fas fa-print"></i> Print</button>
+                            <button class="btn-secondary" type="button" id="stationaryExportPdfBtn"><i class="fas fa-file-pdf"></i> PDF</button>
+                        </div>
+                    </div>
+
+                    <div class="attendance-grid" style="grid-template-columns:minmax(260px, 0.95fr) minmax(560px, 2fr); margin-top:0; gap:0.75rem; align-items:start;">
+                        <div class="attendance-card" style="padding:0.7rem;">
+                            <h3 style="font-size:0.88rem; margin-bottom:0.45rem;"><i class="fas fa-sliders-h"></i> Form Controls</h3>
+
+                            <div class="attendance-btn-row" style="margin-top:0; margin-bottom:0.5rem;">
+                                <button class="btn-primary" type="button" id="stationaryAddTextBtn"><i class="fas fa-font"></i> Add Text Box</button>
+                                <button class="btn-secondary" type="button" id="stationaryAddSignatureBtn"><i class="fas fa-signature"></i> Add Signature</button>
+                            </div>
+
+                            <div class="attendance-input-row" style="grid-template-columns:1fr 1fr;">
+                                <div>
+                                    <label>Font</label>
+                                    <select id="stationaryFontFamily">
+                                        <option value="Arial, sans-serif">Arial</option>
+                                        <option value="'Times New Roman', serif">Times New Roman</option>
+                                        <option value="'Calibri', sans-serif">Calibri</option>
+                                        <option value="'Georgia', serif">Georgia</option>
+                                        <option value="'Verdana', sans-serif">Verdana</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label>Font Size</label>
+                                    <input id="stationaryFontSize" type="number" min="8" max="64" step="1" value="14">
+                                </div>
+                                <div>
+                                    <label>Font Color</label>
+                                    <input id="stationaryFontColor" type="color" value="#1f2937">
+                                </div>
+                                <div>
+                                    <label>Alignment</label>
+                                    <select id="stationaryAlign">
+                                        <option value="left">Left</option>
+                                        <option value="center">Center</option>
+                                        <option value="right">Right</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="attendance-btn-row" style="margin-top:0.1rem; margin-bottom:0.55rem;">
+                                <button class="btn-secondary" type="button" id="stationaryBoldBtn"><i class="fas fa-bold"></i></button>
+                                <button class="btn-secondary" type="button" id="stationaryItalicBtn"><i class="fas fa-italic"></i></button>
+                                <button class="btn-secondary" type="button" id="stationaryUnderlineBtn"><i class="fas fa-underline"></i></button>
+                            </div>
+
+                            <div class="attendance-input-row" style="grid-template-columns:1fr;">
+                                <div>
+                                    <label>Clinic Header Line 1</label>
+                                    <input id="stationaryHeaderLine1" type="text" placeholder="Reform Dentistry">
+                                </div>
+                                <div>
+                                    <label>Clinic Header Line 2</label>
+                                    <input id="stationaryHeaderLine2" type="text" placeholder="Address • Phone • Email">
+                                </div>
+                                <div>
+                                    <label>Footer Text</label>
+                                    <input id="stationaryFooterText" type="text" placeholder="Confidential form - clinic copy">
+                                </div>
+                            </div>
+
+                            <div class="attendance-note" style="margin-top:0.4rem;">Tip: click any field to edit, drag the top grip to move, and drag the bottom-right corner to resize.</div>
+                        </div>
+
+                        <div class="attendance-card" style="padding:0.7rem;">
+                            <h3 style="font-size:0.88rem; margin-bottom:0.45rem;"><i class="fas fa-file-alt"></i> Form Preview</h3>
+                            <div id="stationaryCanvasViewport" style="background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; overflow:auto; max-height:70vh;">
+                                <div id="stationaryCanvasPage" style="width:794px; min-height:1123px; margin:0 auto; background:#fff; color:#111827; border:1px solid #d1d5db; position:relative; box-shadow:0 8px 24px rgba(0,0,0,0.08);">
+                                    <div id="stationaryPageHeader" style="padding:26px 30px 10px 30px; border-bottom:1px solid #d1d5db; text-align:center;">
+                                        <div id="stationaryPageHeaderLine1" style="font-size:20px; font-weight:700; line-height:1.25;">Reform Dentistry</div>
+                                        <div id="stationaryPageHeaderLine2" style="font-size:12px; color:#4b5563; line-height:1.4; margin-top:4px;">Address • Phone • Email</div>
+                                    </div>
+                                    <div id="stationaryCanvasBody" style="position:relative; min-height:900px; padding:14px 20px 70px 20px;"></div>
+                                    <div id="stationaryPageFooter" style="position:absolute; left:0; right:0; bottom:0; border-top:1px solid #d1d5db; padding:8px 20px; font-size:11px; color:#6b7280; text-align:center;">Confidential form - clinic copy</div>
+                                </div>
+                            </div>
+                            <div class="attendance-note" style="margin-top:0.45rem;">A4 layout preview. Prints with header and footer.</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -44780,6 +44946,11 @@ window.initializeCalendar = initializeCalendar;
                     if (typeof refreshComplianceNavBadges === 'function') {
                         refreshComplianceNavBadges();
                     }
+                }
+
+                // Initialize stationary form builder on demand
+                if (viewName === 'stationary' && typeof initializeStationaryBuilder === 'function') {
+                    initializeStationaryBuilder();
                 }
 
                 // Initialize manage-tasks view on demand
@@ -78750,6 +78921,648 @@ console.log('✅ Global functions exported to window object');
             onReady();
         }
     })();
+
+    // ===== STATIONARY FORM BUILDER =====
+    const STATIONARY_STORAGE_KEY = 'stationaryFormTemplatesV1';
+    const stationaryState = {
+        templates: [],
+        currentTemplateId: '',
+        selectedElementId: '',
+        initialized: false,
+        drag: null,
+        resize: null,
+        syncTimer: null,
+        apiSyncInFlight: false,
+        apiReachable: null
+    };
+
+    function getStationaryApiBase() {
+        if (typeof API_BASE_URL === 'string' && API_BASE_URL.trim()) {
+            return API_BASE_URL.trim().replace(/\/$/, '');
+        }
+        return '';
+    }
+
+    function getStationaryScope() {
+        const clinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
+        const clinicIdRaw = clinicMeta?.selectedClinicId || localStorage.getItem('selectedClinicId') || '';
+        const clinicId = Number.parseInt(clinicIdRaw, 10);
+        return {
+            clinicId: Number.isInteger(clinicId) ? clinicId : null,
+            ownerUsername: String(localStorage.getItem('loggedInUser') || '').trim()
+        };
+    }
+
+    function normalizeStationaryTemplate(template) {
+        const raw = template || {};
+        const defaults = getStationaryClinicDefaults();
+        const id = String(raw.id || raw.templateKey || `stf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`).trim();
+        let elements = raw.elements;
+        if (typeof elements === 'string') {
+            try { elements = JSON.parse(elements); } catch (_) { elements = []; }
+        }
+        if (!Array.isArray(elements)) elements = [];
+        return {
+            id,
+            apiId: Number(raw.apiId || raw.dbId || raw.Id || raw.id || 0) || null,
+            name: String(raw.name || raw.Name || 'Untitled Form').trim() || 'Untitled Form',
+            headerLine1: String(raw.headerLine1 || raw.HeaderLine1 || defaults.line1 || '').trim(),
+            headerLine2: String(raw.headerLine2 || raw.HeaderLine2 || defaults.line2 || '').trim(),
+            footerText: String(raw.footerText || raw.FooterText || defaults.footer || '').trim(),
+            elements
+        };
+    }
+
+    async function fetchStationaryTemplatesFromApi() {
+        const apiBase = getStationaryApiBase();
+        if (!apiBase) return null;
+        try {
+            const scope = getStationaryScope();
+            const params = new URLSearchParams();
+            if (scope.clinicId) params.set('clinicId', String(scope.clinicId));
+            if (scope.ownerUsername) params.set('owner', scope.ownerUsername);
+            const url = `${apiBase}/stationary${params.toString() ? `?${params.toString()}` : ''}`;
+            const response = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+            if (!response.ok) return null;
+            const rows = await response.json().catch(() => []);
+            stationaryState.apiReachable = true;
+            if (!Array.isArray(rows)) return [];
+            return rows.map((row) => normalizeStationaryTemplate({
+                id: row.templateKey || row.id,
+                apiId: row.id,
+                name: row.name,
+                headerLine1: row.headerLine1,
+                headerLine2: row.headerLine2,
+                footerText: row.footerText,
+                elements: row.elements
+            }));
+        } catch (_) {
+            stationaryState.apiReachable = false;
+            return null;
+        }
+    }
+
+    async function pushStationaryTemplateToApi(template) {
+        const apiBase = getStationaryApiBase();
+        if (!apiBase || !template) return false;
+        try {
+            const scope = getStationaryScope();
+            const payload = {
+                templateKey: String(template.id || '').trim(),
+                name: String(template.name || 'Untitled Form').trim() || 'Untitled Form',
+                headerLine1: String(template.headerLine1 || ''),
+                headerLine2: String(template.headerLine2 || ''),
+                footerText: String(template.footerText || ''),
+                elements: Array.isArray(template.elements) ? template.elements : [],
+                clinicId: scope.clinicId,
+                ownerUsername: scope.ownerUsername || null
+            };
+            if (!payload.templateKey) return false;
+            const response = await fetch(`${apiBase}/stationary`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) return false;
+            const result = await response.json().catch(() => null);
+            if (result?.id) template.apiId = Number(result.id) || template.apiId || null;
+            stationaryState.apiReachable = true;
+            return true;
+        } catch (_) {
+            stationaryState.apiReachable = false;
+            return false;
+        }
+    }
+
+    async function deleteStationaryTemplateFromApi(templateId) {
+        const apiBase = getStationaryApiBase();
+        const cleaned = String(templateId || '').trim();
+        if (!apiBase || !cleaned) return false;
+        try {
+            const response = await fetch(`${apiBase}/stationary/${encodeURIComponent(cleaned)}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            stationaryState.apiReachable = response.ok;
+            return !!response.ok;
+        } catch (_) {
+            stationaryState.apiReachable = false;
+            return false;
+        }
+    }
+
+    async function pushAllStationaryTemplatesToApi() {
+        if (stationaryState.apiSyncInFlight) return;
+        const apiBase = getStationaryApiBase();
+        if (!apiBase) return;
+        stationaryState.apiSyncInFlight = true;
+        try {
+            for (let index = 0; index < stationaryState.templates.length; index += 1) {
+                await pushStationaryTemplateToApi(stationaryState.templates[index]);
+            }
+        } finally {
+            stationaryState.apiSyncInFlight = false;
+        }
+    }
+
+    function scheduleStationaryApiSync(delay = 650) {
+        if (stationaryState.syncTimer) {
+            clearTimeout(stationaryState.syncTimer);
+        }
+        stationaryState.syncTimer = setTimeout(() => {
+            stationaryState.syncTimer = null;
+            pushAllStationaryTemplatesToApi();
+        }, Math.max(200, Number(delay || 0)));
+    }
+
+    function getStationaryClinicDefaults() {
+        const clinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
+        const clinicName = String(clinicMeta?.selectedClinicName || localStorage.getItem('appCompanyName') || 'Reform Dentistry').trim();
+        return {
+            line1: clinicName || 'Reform Dentistry',
+            line2: 'Address • Phone • Email',
+            footer: 'Confidential form - clinic copy'
+        };
+    }
+
+    function createStationaryTemplate(name = 'New Form') {
+        const defaults = getStationaryClinicDefaults();
+        return normalizeStationaryTemplate({
+            id: `stf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            name,
+            headerLine1: defaults.line1,
+            headerLine2: defaults.line2,
+            footerText: defaults.footer,
+            elements: []
+        });
+    }
+
+    function loadStationaryTemplates() {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(STATIONARY_STORAGE_KEY) || '[]');
+            if (Array.isArray(parsed) && parsed.length) return parsed.map((item) => normalizeStationaryTemplate(item));
+        } catch (_) {}
+        return [createStationaryTemplate('General Form')];
+    }
+
+    function saveStationaryTemplates(options = {}) {
+        localStorage.setItem(STATIONARY_STORAGE_KEY, JSON.stringify(stationaryState.templates));
+        if (!options?.skipApi) {
+            scheduleStationaryApiSync();
+        }
+    }
+
+    function getCurrentStationaryTemplate() {
+        let current = stationaryState.templates.find((template) => template.id === stationaryState.currentTemplateId) || null;
+        if (!current && stationaryState.templates.length) {
+            current = stationaryState.templates[0];
+            stationaryState.currentTemplateId = current.id;
+        }
+        return current;
+    }
+
+    function getSelectedStationaryElement() {
+        const template = getCurrentStationaryTemplate();
+        if (!template) return null;
+        return template.elements.find((el) => el.id === stationaryState.selectedElementId) || null;
+    }
+
+    function stationaryClampElement(element, maxWidth, maxHeight) {
+        element.width = Math.max(120, Math.min(Number(element.width || 120), maxWidth));
+        element.height = Math.max(60, Math.min(Number(element.height || 60), maxHeight));
+        element.x = Math.max(0, Math.min(Number(element.x || 0), Math.max(0, maxWidth - element.width)));
+        element.y = Math.max(0, Math.min(Number(element.y || 0), Math.max(0, maxHeight - element.height)));
+    }
+
+    function renderStationaryTemplateSelect() {
+        const select = document.getElementById('stationaryTemplateSelect');
+        const nameInput = document.getElementById('stationaryTemplateName');
+        const template = getCurrentStationaryTemplate();
+        if (!select || !template) return;
+
+        select.innerHTML = stationaryState.templates
+            .map((item) => `<option value="${item.id}">${sanitizeHtml(item.name || 'Untitled')}</option>`)
+            .join('');
+        select.value = template.id;
+        if (nameInput) nameInput.value = template.name || '';
+    }
+
+    function renderStationaryCanvas() {
+        const template = getCurrentStationaryTemplate();
+        if (!template) return;
+
+        const header1 = document.getElementById('stationaryPageHeaderLine1');
+        const header2 = document.getElementById('stationaryPageHeaderLine2');
+        const footer = document.getElementById('stationaryPageFooter');
+        const body = document.getElementById('stationaryCanvasBody');
+
+        if (header1) header1.textContent = String(template.headerLine1 || '').trim() || 'Reform Dentistry';
+        if (header2) header2.textContent = String(template.headerLine2 || '').trim() || 'Address • Phone • Email';
+        if (footer) footer.textContent = String(template.footerText || '').trim() || 'Confidential form - clinic copy';
+        if (!body) return;
+
+        const maxWidth = Math.max(200, body.clientWidth || 740);
+        const maxHeight = Math.max(300, body.clientHeight || 900);
+
+        body.innerHTML = template.elements.map((element) => {
+            stationaryClampElement(element, maxWidth, maxHeight);
+            const isSelected = element.id === stationaryState.selectedElementId;
+            const weight = element.bold ? 700 : 400;
+            const style = [
+                `left:${element.x}px`,
+                `top:${element.y}px`,
+                `width:${element.width}px`,
+                `height:${element.height}px`,
+                `font-family:${element.fontFamily || 'Arial, sans-serif'}`,
+                `font-size:${Number(element.fontSize || 14)}px`,
+                `color:${element.color || '#1f2937'}`,
+                `font-weight:${weight}`,
+                `font-style:${element.italic ? 'italic' : 'normal'}`,
+                `text-decoration:${element.underline ? 'underline' : 'none'}`,
+                `text-align:${element.align || 'left'}`
+            ].join(';');
+            return `
+                <div class="stationary-builder-el ${isSelected ? 'selected' : ''} ${element.type === 'signature' ? 'signature' : ''}" data-el-id="${element.id}" style="${style}">
+                    <div class="stationary-builder-el-handle" data-el-handle="${element.id}"><span><i class="fas fa-grip-lines"></i> ${element.type === 'signature' ? 'Signature' : 'Text Box'}</span></div>
+                    <div class="stationary-builder-el-content" contenteditable="true" data-el-content="${element.id}">${sanitizeHtml(element.text || '')}</div>
+                    ${element.type === 'signature' ? '<div class="stationary-sign-line"></div>' : ''}
+                    <div class="stationary-resize-handle" data-el-resize="${element.id}"></div>
+                </div>
+            `;
+        }).join('');
+
+        const headerLine1Input = document.getElementById('stationaryHeaderLine1');
+        const headerLine2Input = document.getElementById('stationaryHeaderLine2');
+        const footerInput = document.getElementById('stationaryFooterText');
+        if (headerLine1Input) headerLine1Input.value = template.headerLine1 || '';
+        if (headerLine2Input) headerLine2Input.value = template.headerLine2 || '';
+        if (footerInput) footerInput.value = template.footerText || '';
+
+        syncStationaryToolbarFromSelection();
+    }
+
+    function syncStationaryToolbarFromSelection() {
+        const element = getSelectedStationaryElement();
+        const fontFamily = document.getElementById('stationaryFontFamily');
+        const fontSize = document.getElementById('stationaryFontSize');
+        const fontColor = document.getElementById('stationaryFontColor');
+        const align = document.getElementById('stationaryAlign');
+        const boldBtn = document.getElementById('stationaryBoldBtn');
+        const italicBtn = document.getElementById('stationaryItalicBtn');
+        const underlineBtn = document.getElementById('stationaryUnderlineBtn');
+
+        if (fontFamily && element) fontFamily.value = element.fontFamily || 'Arial, sans-serif';
+        if (fontSize && element) fontSize.value = Number(element.fontSize || 14);
+        if (fontColor && element) fontColor.value = element.color || '#1f2937';
+        if (align && element) align.value = element.align || 'left';
+
+        if (boldBtn) boldBtn.classList.toggle('active', !!element?.bold);
+        if (italicBtn) italicBtn.classList.toggle('active', !!element?.italic);
+        if (underlineBtn) underlineBtn.classList.toggle('active', !!element?.underline);
+    }
+
+    function stationarySelectElement(elementId) {
+        stationaryState.selectedElementId = String(elementId || '').trim();
+        renderStationaryCanvas();
+    }
+
+    function stationaryUpdateSelectedStyle(changes) {
+        const element = getSelectedStationaryElement();
+        if (!element) {
+            if (typeof showNotification === 'function') showNotification('Select an element first.', 'warning');
+            return;
+        }
+        Object.assign(element, changes || {});
+        renderStationaryCanvas();
+    }
+
+    function stationaryAddElement(type = 'text') {
+        const template = getCurrentStationaryTemplate();
+        const body = document.getElementById('stationaryCanvasBody');
+        if (!template || !body) return;
+
+        const element = {
+            id: `stf-el-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            type,
+            text: type === 'signature' ? 'Signer Name' : 'Type here...',
+            x: 24 + (template.elements.length % 4) * 16,
+            y: 24 + (template.elements.length % 6) * 20,
+            width: type === 'signature' ? 260 : 240,
+            height: type === 'signature' ? 90 : 110,
+            fontFamily: 'Arial, sans-serif',
+            fontSize: 14,
+            color: '#1f2937',
+            bold: false,
+            italic: false,
+            underline: false,
+            align: 'left'
+        };
+        template.elements.push(element);
+        stationaryState.selectedElementId = element.id;
+        renderStationaryCanvas();
+    }
+
+    function stationaryDeleteCurrentTemplate() {
+        if (stationaryState.templates.length <= 1) {
+            if (typeof showNotification === 'function') showNotification('At least one template is required.', 'warning');
+            return;
+        }
+        const current = getCurrentStationaryTemplate();
+        if (!current) return;
+        stationaryState.templates = stationaryState.templates.filter((item) => item.id !== current.id);
+        deleteStationaryTemplateFromApi(current.id);
+        stationaryState.currentTemplateId = stationaryState.templates[0]?.id || '';
+        stationaryState.selectedElementId = '';
+        saveStationaryTemplates();
+        renderStationaryTemplateSelect();
+        renderStationaryCanvas();
+        if (typeof showNotification === 'function') showNotification('Template deleted.', 'success');
+    }
+
+    function buildStationaryRenderHtml(template) {
+        const elementsHtml = (template.elements || []).map((element) => {
+            const style = [
+                'position:absolute',
+                `left:${element.x}px`,
+                `top:${element.y}px`,
+                `width:${element.width}px`,
+                `height:${element.height}px`,
+                `font-family:${element.fontFamily || 'Arial, sans-serif'}`,
+                `font-size:${Number(element.fontSize || 14)}px`,
+                `color:${element.color || '#1f2937'}`,
+                `font-weight:${element.bold ? 700 : 400}`,
+                `font-style:${element.italic ? 'italic' : 'normal'}`,
+                `text-decoration:${element.underline ? 'underline' : 'none'}`,
+                `text-align:${element.align || 'left'}`,
+                'box-sizing:border-box',
+                'padding:6px 8px'
+            ].join(';');
+            const safeText = sanitizeHtml(element.text || '');
+            const signLine = element.type === 'signature' ? '<div style="border-bottom:1px solid #111; width:100%; margin-top:8px;"></div>' : '';
+            return `<div style="${style}">${safeText.replace(/\n/g, '<br>')}${signLine}</div>`;
+        }).join('');
+
+        return `
+            <div style="width:794px; min-height:1123px; margin:0 auto; background:#fff; color:#111827; border:1px solid #d1d5db; position:relative; font-family:Arial, sans-serif;">
+                <div style="padding:26px 30px 10px 30px; border-bottom:1px solid #d1d5db; text-align:center;">
+                    <div style="font-size:20px; font-weight:700; line-height:1.25;">${sanitizeHtml(template.headerLine1 || '')}</div>
+                    <div style="font-size:12px; color:#4b5563; line-height:1.4; margin-top:4px;">${sanitizeHtml(template.headerLine2 || '')}</div>
+                </div>
+                <div style="position:relative; min-height:900px; padding:14px 20px 70px 20px;">${elementsHtml}</div>
+                <div style="position:absolute; left:0; right:0; bottom:0; border-top:1px solid #d1d5db; padding:8px 20px; font-size:11px; color:#6b7280; text-align:center;">${sanitizeHtml(template.footerText || '')}</div>
+            </div>
+        `;
+    }
+
+    function printStationaryTemplate() {
+        const template = getCurrentStationaryTemplate();
+        if (!template) return;
+        const html = buildStationaryRenderHtml(template);
+        const printWindow = window.open('', '_blank', 'width=960,height=900');
+        if (!printWindow) return;
+        printWindow.document.write(`<!doctype html><html><head><title>${sanitizeHtml(template.name || 'Form')}</title></head><body style="margin:0;padding:16px;background:#f3f4f6;">${html}</body></html>`);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => printWindow.print(), 250);
+    }
+
+    function exportStationaryTemplatePdf() {
+        const template = getCurrentStationaryTemplate();
+        if (!template) return;
+        if (typeof html2pdf !== 'function') {
+            if (typeof showNotification === 'function') showNotification('PDF export library is unavailable right now.', 'error');
+            return;
+        }
+        const exportContent = document.createElement('div');
+        exportContent.style.padding = '12px';
+        exportContent.style.background = '#fff';
+        exportContent.innerHTML = buildStationaryRenderHtml(template);
+        html2pdf().set({
+            margin: [6, 6, 10, 6],
+            filename: `Stationary_${String(template.name || 'Form').replace(/[^a-z0-9]+/gi, '_')}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, allowTaint: true, logging: false },
+            jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4', compress: true }
+        }).from(exportContent).save();
+    }
+
+    function bindStationaryBuilderEvents() {
+        const templateSelect = document.getElementById('stationaryTemplateSelect');
+        const nameInput = document.getElementById('stationaryTemplateName');
+        const saveBtn = document.getElementById('stationarySaveTemplateBtn');
+        const newBtn = document.getElementById('stationaryNewTemplateBtn');
+        const deleteBtn = document.getElementById('stationaryDeleteTemplateBtn');
+        const addTextBtn = document.getElementById('stationaryAddTextBtn');
+        const addSignBtn = document.getElementById('stationaryAddSignatureBtn');
+        const printBtn = document.getElementById('stationaryPrintBtn');
+        const exportPdfBtn = document.getElementById('stationaryExportPdfBtn');
+        const body = document.getElementById('stationaryCanvasBody');
+
+        if (templateSelect) {
+            templateSelect.addEventListener('change', () => {
+                stationaryState.currentTemplateId = String(templateSelect.value || '').trim();
+                stationaryState.selectedElementId = '';
+                renderStationaryTemplateSelect();
+                renderStationaryCanvas();
+            });
+        }
+        if (newBtn) {
+            newBtn.addEventListener('click', () => {
+                const newTemplate = createStationaryTemplate('Untitled Form');
+                stationaryState.templates.unshift(newTemplate);
+                stationaryState.currentTemplateId = newTemplate.id;
+                stationaryState.selectedElementId = '';
+                saveStationaryTemplates();
+                renderStationaryTemplateSelect();
+                renderStationaryCanvas();
+            });
+        }
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                const template = getCurrentStationaryTemplate();
+                if (!template) return;
+                template.name = String(nameInput?.value || template.name || 'Untitled Form').trim() || 'Untitled Form';
+                saveStationaryTemplates();
+                renderStationaryTemplateSelect();
+                if (typeof showNotification === 'function') showNotification('Stationary template saved.', 'success');
+            });
+        }
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+                if (confirm('Delete this stationary template?')) {
+                    stationaryDeleteCurrentTemplate();
+                }
+            });
+        }
+        if (addTextBtn) addTextBtn.addEventListener('click', () => stationaryAddElement('text'));
+        if (addSignBtn) addSignBtn.addEventListener('click', () => stationaryAddElement('signature'));
+        if (printBtn) printBtn.addEventListener('click', printStationaryTemplate);
+        if (exportPdfBtn) exportPdfBtn.addEventListener('click', exportStationaryTemplatePdf);
+
+        [['stationaryHeaderLine1', 'headerLine1'], ['stationaryHeaderLine2', 'headerLine2'], ['stationaryFooterText', 'footerText']].forEach(([id, key]) => {
+            const input = document.getElementById(id);
+            if (!input) return;
+            input.addEventListener('input', () => {
+                const template = getCurrentStationaryTemplate();
+                if (!template) return;
+                template[key] = String(input.value || '');
+                renderStationaryCanvas();
+            });
+        });
+
+        const fontFamily = document.getElementById('stationaryFontFamily');
+        const fontSize = document.getElementById('stationaryFontSize');
+        const fontColor = document.getElementById('stationaryFontColor');
+        const align = document.getElementById('stationaryAlign');
+        const boldBtn = document.getElementById('stationaryBoldBtn');
+        const italicBtn = document.getElementById('stationaryItalicBtn');
+        const underlineBtn = document.getElementById('stationaryUnderlineBtn');
+
+        if (fontFamily) fontFamily.addEventListener('change', () => stationaryUpdateSelectedStyle({ fontFamily: fontFamily.value }));
+        if (fontSize) fontSize.addEventListener('input', () => stationaryUpdateSelectedStyle({ fontSize: Math.max(8, Number(fontSize.value || 14)) }));
+        if (fontColor) fontColor.addEventListener('input', () => stationaryUpdateSelectedStyle({ color: fontColor.value }));
+        if (align) align.addEventListener('change', () => stationaryUpdateSelectedStyle({ align: align.value || 'left' }));
+        if (boldBtn) boldBtn.addEventListener('click', () => {
+            const element = getSelectedStationaryElement();
+            stationaryUpdateSelectedStyle({ bold: !element?.bold });
+        });
+        if (italicBtn) italicBtn.addEventListener('click', () => {
+            const element = getSelectedStationaryElement();
+            stationaryUpdateSelectedStyle({ italic: !element?.italic });
+        });
+        if (underlineBtn) underlineBtn.addEventListener('click', () => {
+            const element = getSelectedStationaryElement();
+            stationaryUpdateSelectedStyle({ underline: !element?.underline });
+        });
+
+        if (body) {
+            body.addEventListener('click', (event) => {
+                const root = event.target.closest('[data-el-id]');
+                if (!root) return;
+                stationarySelectElement(root.getAttribute('data-el-id'));
+            });
+
+            body.addEventListener('input', (event) => {
+                const content = event.target.closest('[data-el-content]');
+                if (!content) return;
+                const id = String(content.getAttribute('data-el-content') || '').trim();
+                const template = getCurrentStationaryTemplate();
+                const element = template?.elements?.find((el) => el.id === id);
+                if (!element) return;
+                element.text = content.innerText || '';
+            });
+
+            body.addEventListener('mousedown', (event) => {
+                const resize = event.target.closest('[data-el-resize]');
+                const handle = event.target.closest('[data-el-handle]');
+                const root = event.target.closest('[data-el-id]');
+                if (!root) return;
+                const id = root.getAttribute('data-el-id');
+                stationaryState.selectedElementId = id;
+
+                const template = getCurrentStationaryTemplate();
+                const element = template?.elements?.find((el) => el.id === id);
+                if (!element) return;
+
+                const bodyRect = body.getBoundingClientRect();
+                if (resize) {
+                    stationaryState.resize = {
+                        id,
+                        startX: event.clientX,
+                        startY: event.clientY,
+                        startWidth: Number(element.width || 120),
+                        startHeight: Number(element.height || 60),
+                        maxWidth: Math.max(200, body.clientWidth || bodyRect.width),
+                        maxHeight: Math.max(300, body.clientHeight || bodyRect.height)
+                    };
+                    event.preventDefault();
+                } else if (handle) {
+                    stationaryState.drag = {
+                        id,
+                        startX: event.clientX,
+                        startY: event.clientY,
+                        startLeft: Number(element.x || 0),
+                        startTop: Number(element.y || 0),
+                        maxWidth: Math.max(200, body.clientWidth || bodyRect.width),
+                        maxHeight: Math.max(300, body.clientHeight || bodyRect.height),
+                        width: Number(element.width || 120),
+                        height: Number(element.height || 60)
+                    };
+                    event.preventDefault();
+                }
+                renderStationaryCanvas();
+            });
+        }
+
+        document.addEventListener('mousemove', (event) => {
+            const template = getCurrentStationaryTemplate();
+            if (!template) return;
+            if (stationaryState.drag) {
+                const drag = stationaryState.drag;
+                const element = template.elements.find((el) => el.id === drag.id);
+                if (!element) return;
+                const deltaX = event.clientX - drag.startX;
+                const deltaY = event.clientY - drag.startY;
+                element.x = Math.max(0, Math.min(drag.startLeft + deltaX, Math.max(0, drag.maxWidth - drag.width)));
+                element.y = Math.max(0, Math.min(drag.startTop + deltaY, Math.max(0, drag.maxHeight - drag.height)));
+                const node = document.querySelector(`[data-el-id="${drag.id}"]`);
+                if (node) {
+                    node.style.left = `${element.x}px`;
+                    node.style.top = `${element.y}px`;
+                }
+            } else if (stationaryState.resize) {
+                const resize = stationaryState.resize;
+                const element = template.elements.find((el) => el.id === resize.id);
+                if (!element) return;
+                const deltaX = event.clientX - resize.startX;
+                const deltaY = event.clientY - resize.startY;
+                element.width = Math.max(120, Math.min(resize.startWidth + deltaX, resize.maxWidth - Number(element.x || 0)));
+                element.height = Math.max(60, Math.min(resize.startHeight + deltaY, resize.maxHeight - Number(element.y || 0)));
+                const node = document.querySelector(`[data-el-id="${resize.id}"]`);
+                if (node) {
+                    node.style.width = `${element.width}px`;
+                    node.style.height = `${element.height}px`;
+                }
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (stationaryState.drag || stationaryState.resize) {
+                stationaryState.drag = null;
+                stationaryState.resize = null;
+                saveStationaryTemplates();
+                renderStationaryCanvas();
+            }
+        });
+    }
+
+    function initializeStationaryBuilder() {
+        if (!stationaryState.initialized) {
+            stationaryState.templates = loadStationaryTemplates();
+            stationaryState.currentTemplateId = stationaryState.templates[0]?.id || '';
+            stationaryState.selectedElementId = '';
+            bindStationaryBuilderEvents();
+            stationaryState.initialized = true;
+
+            fetchStationaryTemplatesFromApi().then((apiTemplates) => {
+                if (!Array.isArray(apiTemplates)) return;
+                if (!apiTemplates.length) {
+                    scheduleStationaryApiSync(300);
+                    return;
+                }
+                stationaryState.templates = apiTemplates;
+                stationaryState.currentTemplateId = stationaryState.templates[0]?.id || '';
+                stationaryState.selectedElementId = '';
+                saveStationaryTemplates({ skipApi: true });
+                renderStationaryTemplateSelect();
+                renderStationaryCanvas();
+            }).catch(() => {});
+        }
+        renderStationaryTemplateSelect();
+        renderStationaryCanvas();
+    }
+
+    window.initializeStationaryBuilder = initializeStationaryBuilder;
 
     // ===== EXPOSE PUBLIC API =====
     window.ReformCopilot = {

@@ -486,4 +486,27 @@ LEFT JOIN Clinics c ON s.ClinicId = c.Id
 WHERE s.QuantityInStock <= s.ReorderPoint AND s.IsActive = 1;
 GO
 
+-- =============================================
+-- 22. STATIONARY TEMPLATES TABLE
+-- =============================================
+CREATE TABLE StationaryTemplates (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    TemplateKey NVARCHAR(120) NOT NULL UNIQUE,
+    Name NVARCHAR(255) NOT NULL,
+    HeaderLine1 NVARCHAR(MAX),
+    HeaderLine2 NVARCHAR(MAX),
+    FooterText NVARCHAR(MAX),
+    Elements NVARCHAR(MAX), -- JSON array of positioned builder elements
+    ClinicId INT FOREIGN KEY REFERENCES Clinics(Id),
+    OwnerUsername NVARCHAR(100),
+    IsActive BIT DEFAULT 1,
+    CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
+    ModifiedDate DATETIME2 DEFAULT GETUTCDATE()
+);
+
+CREATE INDEX IX_StationaryTemplates_ClinicId ON StationaryTemplates(ClinicId);
+CREATE INDEX IX_StationaryTemplates_OwnerUsername ON StationaryTemplates(OwnerUsername);
+CREATE INDEX IX_StationaryTemplates_ModifiedDate ON StationaryTemplates(ModifiedDate DESC);
+GO
+
 PRINT 'ReformDental Database Schema Created Successfully!';
