@@ -76479,6 +76479,18 @@ console.log('✅ Global functions exported to window object');
                 return `${usernameKey}|${businessDate}|${clockIn}|${clockOut}|${reason}`;
             };
 
+            const recordRichnessScore = (record) => {
+                if (!record) return 0;
+                let score = 0;
+                if (record.clockIn) score += 10;
+                if (record.clockOut) score += 20;
+                if (normalizeClockOutReason(record.clockOutReason)) score += 8;
+                const minutes = Number(record.minutesWorked || 0) || 0;
+                score += Math.min(15, Math.max(0, Math.floor(minutes / 15)));
+                if (Array.isArray(record.flags) && record.flags.length) score += Math.min(10, record.flags.length);
+                return score;
+            };
+
             const mergedFingerprints = new Set();
 
             fetched.forEach((record) => {
@@ -76501,7 +76513,18 @@ console.log('✅ Global functions exported to window object');
             // Keep very recent local records for a short grace window to avoid UI flicker.
             localRecords.forEach((record) => {
                 const id = String(record?.id || '').trim();
-                if (!id || mergedById.has(id)) return;
+                if (!id) return;
+
+                if (mergedById.has(id)) {
+                    const existing = mergedById.get(id);
+                    if (recordRichnessScore(record) > recordRichnessScore(existing)) {
+                        mergedById.set(id, { ...record });
+                        const fp = recordFingerprint(record);
+                        if (fp) mergedFingerprints.add(fp);
+                    }
+                    return;
+                }
+
                 const ts = new Date(record?.createdAt || record?.clockIn || record?.clockOut || 0).getTime();
                 if (!Number.isFinite(ts)) return;
                 if ((nowMs - ts) > recentWindowMs) return;
