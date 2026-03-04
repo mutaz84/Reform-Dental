@@ -76321,6 +76321,17 @@ console.log('✅ Global functions exported to window object');
             flushTimerId: null
         };
 
+        let attendanceRecordSequence = 0;
+
+        function generateAttendanceLocalId(now = new Date()) {
+            const ms = Number(now?.getTime?.() || Date.now());
+            attendanceRecordSequence = (attendanceRecordSequence + 1) % 1000;
+            const seq = String(attendanceRecordSequence).padStart(3, '0');
+            const rand = Math.random().toString(36).slice(2, 8);
+            // Keep localId compact so it never gets truncated by SQL nvarchar limits.
+            return `att-${ms}-${seq}-${rand}`;
+        }
+
         function normalizeUsernameKey(username) {
             return String(username || '').trim().toLowerCase();
         }
@@ -77782,7 +77793,7 @@ console.log('✅ Global functions exported to window object');
             }
 
             const record = {
-                id: `att-${dateISO}-${username}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                id: generateAttendanceLocalId(now),
                 username,
                 displayName,
                 date: dateISO,
