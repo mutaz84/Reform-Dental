@@ -17298,7 +17298,7 @@
                             <div class="attendance-grid" style="margin-top:0;">
                                 <div class="attendance-card" data-attendance-manager-panel="overview" style="padding:0.7rem;">
                                     <div style="display:flex; justify-content:space-between; align-items:center; gap:0.4rem; flex-wrap:wrap; margin-bottom:0.45rem;">
-                                        <h3 style="font-size:0.88rem; margin:0;"><i class="fas fa-users"></i> Today Scheduled vs Clocked</h3>
+                                        <h3 style="font-size:0.88rem; margin:0;"><i class="fas fa-users"></i> Attendance Activity Report</h3>
                                         <div class="attendance-btn-row" style="margin-top:0;">
                                             <button class="btn-secondary" type="button" onclick="if(window.exportAttendanceDailyReportExcel){window.exportAttendanceDailyReportExcel('manager');}">
                                                 <i class="fas fa-file-excel"></i> Export Excel
@@ -17308,16 +17308,45 @@
                                             </button>
                                         </div>
                                     </div>
+                                    <div class="attendance-input-row" style="margin-bottom:0.5rem; grid-template-columns:auto minmax(140px, 1fr) auto minmax(160px, 1fr); align-items:end;">
+                                        <div>
+                                            <label>Day Navigation</label>
+                                            <div class="attendance-btn-row" style="margin-top:0.35rem; gap:0.35rem;">
+                                                <button class="btn-secondary" type="button" onclick="if(window.shiftAttendanceManagerDay){window.shiftAttendanceManagerDay(-1);}" title="Previous Day"><i class="fas fa-chevron-left"></i></button>
+                                                <button class="btn-secondary" type="button" onclick="if(window.shiftAttendanceManagerDay){window.shiftAttendanceManagerDay(1);}" title="Next Day"><i class="fas fa-chevron-right"></i></button>
+                                                <button class="btn-secondary" type="button" onclick="if(window.resetAttendanceManagerDay){window.resetAttendanceManagerDay();}">Today</button>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label>Day</label>
+                                            <input type="date" id="attendanceManagerDay">
+                                        </div>
+                                        <div>
+                                            <label>Employee</label>
+                                            <select id="attendanceManagerEmployee">
+                                                <option value="">All Employees</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label>Date Range</label>
+                                            <div class="attendance-input-row" style="grid-template-columns:1fr 1fr; gap:0.35rem; margin:0;">
+                                                <input type="date" id="attendanceManagerRangeStart">
+                                                <input type="date" id="attendanceManagerRangeEnd">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div id="attendanceManagerReportSummary" class="attendance-note" style="margin-bottom:0.45rem;"></div>
                                     <div class="attendance-table-wrap" style="max-height:240px;">
                                         <table class="attendance-table">
                                             <thead>
                                                 <tr>
                                                     <th>Employee</th>
                                                     <th>Employee Clinic</th>
-                                                    <th>Schedule</th>
+                                                    <th>Date</th>
                                                     <th>Clock In</th>
                                                     <th>Clock Out</th>
                                                     <th>Clock-out Reason</th>
+                                                    <th>Hours Worked</th>
                                                     <th>Status</th>
                                                 </tr>
                                             </thead>
@@ -77495,6 +77524,106 @@ console.log('✅ Global functions exported to window object');
             `;
         }
 
+        function shiftISODate(isoDate, dayOffset) {
+            const raw = String(isoDate || '').trim();
+            const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            const baseDate = match
+                ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+                : new Date();
+            baseDate.setDate(baseDate.getDate() + (Number(dayOffset || 0) || 0));
+            return toISODate(baseDate);
+        }
+
+        function populateAttendanceManagerReportEmployees() {
+            const select = document.getElementById('attendanceManagerEmployee');
+            if (!select) return;
+
+            const employees = getAllEmployees().filter((emp) => emp.username !== 'admin' && emp.isActive !== false);
+            const current = String(select.value || '').trim();
+            const options = ['<option value="">All Employees</option>'];
+            employees.forEach((employee) => {
+                options.push(`<option value="${employee.username}">${employee.displayName}</option>`);
+            });
+            select.innerHTML = options.join('');
+
+            if (current && employees.some((emp) => emp.username === current)) {
+                select.value = current;
+            }
+        }
+
+        function getAttendanceManagerReportFilters() {
+            const todayISO = toISODate(new Date());
+            const dayInput = document.getElementById('attendanceManagerDay');
+            const startInput = document.getElementById('attendanceManagerRangeStart');
+            const endInput = document.getElementById('attendanceManagerRangeEnd');
+            const employeeInput = document.getElementById('attendanceManagerEmployee');
+
+            const dayISO = String(dayInput?.value || '').trim() || todayISO;
+            let startISO = String(startInput?.value || '').trim();
+            let endISO = String(endInput?.value || '').trim();
+
+            if (!startISO && !endISO) {
+                startISO = dayISO;
+                endISO = dayISO;
+            } else if (!startISO) {
+                startISO = endISO;
+            } else if (!endISO) {
+                endISO = startISO;
+            }
+
+            if (startISO > endISO) {
+                const tmp = startISO;
+                startISO = endISO;
+                endISO = tmp;
+            }
+
+            const selectedEmployee = String(employeeInput?.value || '').trim();
+            return { dayISO, startISO, endISO, selectedEmployee };
+        }
+
+        function buildAttendanceRangeReportRows(records, startISO, endISO, options = {}) {
+            const start = String(startISO || '').trim();
+            const end = String(endISO || '').trim();
+            if (!start || !end) return [];
+
+            const list = [];
+            let cursor = start;
+            while (cursor <= end) {
+                const rows = buildDailyAttendanceReportRows(records, cursor, options);
+                if (rows.length) list.push(...rows);
+                cursor = shiftISODate(cursor, 1);
+            }
+
+            return list.sort((a, b) => Number(b.sortTime || 0) - Number(a.sortTime || 0));
+        }
+
+        function shiftAttendanceManagerDay(offsetDays) {
+            const dayInput = document.getElementById('attendanceManagerDay');
+            const startInput = document.getElementById('attendanceManagerRangeStart');
+            const endInput = document.getElementById('attendanceManagerRangeEnd');
+            if (!dayInput) return;
+
+            const currentDay = String(dayInput.value || '').trim() || toISODate(new Date());
+            const nextDay = shiftISODate(currentDay, Number(offsetDays || 0));
+            dayInput.value = nextDay;
+
+            if (startInput) startInput.value = nextDay;
+            if (endInput) endInput.value = nextDay;
+
+            refreshAttendanceView();
+        }
+
+        function resetAttendanceManagerDay() {
+            const dayInput = document.getElementById('attendanceManagerDay');
+            const startInput = document.getElementById('attendanceManagerRangeStart');
+            const endInput = document.getElementById('attendanceManagerRangeEnd');
+            const todayISO = toISODate(new Date());
+            if (dayInput) dayInput.value = todayISO;
+            if (startInput) startInput.value = todayISO;
+            if (endInput) endInput.value = todayISO;
+            refreshAttendanceView();
+        }
+
         function renderAttendanceSubTabs() {
             const employeeTab = String(window.__attendanceEmployeeTab || 'clockpto');
             const managerTab = String(window.__attendanceManagerTab || 'overview');
@@ -77710,123 +77839,59 @@ console.log('✅ Global functions exported to window object');
             if (managerMode) {
                 autoAuditAbsencesForToday();
                 populateManagerEmployeeSelectors();
+                populateAttendanceManagerReportEmployees();
                 renderCurrentPolicy();
+
+                const managerDayInput = document.getElementById('attendanceManagerDay');
+                const managerRangeStartInput = document.getElementById('attendanceManagerRangeStart');
+                const managerRangeEndInput = document.getElementById('attendanceManagerRangeEnd');
+                if (managerDayInput && !managerDayInput.value) managerDayInput.value = todayISO;
+                if (managerRangeStartInput && !managerRangeStartInput.value) managerRangeStartInput.value = todayISO;
+                if (managerRangeEndInput && !managerRangeEndInput.value) managerRangeEndInput.value = todayISO;
+
+                const managerFilters = getAttendanceManagerReportFilters();
 
                 const selectedClinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
                 const selectedClinicKey = normalizeClinicForCompare(selectedClinicMeta?.selectedClinicName || getSelectedAttendanceClinicFilter());
-                const filteredScheduleEntries = Object.entries(scheduleMap).filter(([username, schedule]) => {
-                    const employeeClinic = resolveClinicForEmployee(username, schedule);
-                    return clinicMatchesFilter(employeeClinic, selectedClinicKey);
-                });
-                const recordsTodayFiltered = recordsToday.filter((record) => {
-                    const recordClinic = resolveClinicForRecord(record, scheduleMap);
-                    return clinicMatchesFilter(recordClinic, selectedClinicKey);
-                });
-
-                const getRecordEventTime = (record) => new Date(record?.clockOut || record?.clockIn || 0).getTime() || 0;
+                const managerScheduleMap = getScheduleForDate(new Date(managerFilters.dayISO));
+                const identityCandidates = managerFilters.selectedEmployee
+                    ? getAttendanceIdentityCandidates(managerFilters.selectedEmployee)
+                    : null;
                 const todayBody = document.getElementById('attendanceManagerTodayBody');
                 if (todayBody) {
-                    const identityToUsername = {};
-                    filteredScheduleEntries.forEach(([username]) => {
-                        const candidates = getAttendanceIdentityCandidates(username);
-                        candidates.forEach((candidate) => {
-                            if (candidate) identityToUsername[candidate] = username;
-                        });
+                    const reportRows = buildAttendanceRangeReportRows(allRecords, managerFilters.startISO, managerFilters.endISO, {
+                        includeEmployee: true,
+                        identityCandidates,
+                        scheduleMap: managerScheduleMap,
+                        selectedClinicKey
                     });
 
-                    const rosterMap = new Map(filteredScheduleEntries.map(([username, schedule]) => [username, {
-                        username,
-                        schedule: schedule || null,
-                        latestRecord: null
-                    }]));
+                    todayBody.innerHTML = reportRows.map((row) => `
+                        <tr>
+                            <td>${row.employee || '-'}</td>
+                            <td>${row.employeeClinic || '-'}</td>
+                            <td>${formatDate(row.date)}</td>
+                            <td>${row.clockIn ? formatDateTime(row.clockIn) : '-'}</td>
+                            <td>${row.clockOut ? formatDateTime(row.clockOut) : '-'}</td>
+                            <td>${row.clockOutReason || '-'}</td>
+                            <td>${formatHours(row.minutesWorked || 0)}</td>
+                            <td>${row.status || '-'}</td>
+                        </tr>
+                    `).join('') || '<tr><td colspan="8" class="attendance-note">No attendance activity found for selected filters.</td></tr>';
 
-                    recordsTodayFiltered.forEach((record) => {
-                        const recordUser = toIdentityKey(record?.username);
-                        const recordDisplay = toIdentityKey(record?.displayName);
-                        const matchedUsername = identityToUsername[recordUser] || identityToUsername[recordDisplay] || null;
+                    window.__attendanceManagerDailyReportRows = reportRows;
 
-                        let rosterKey = matchedUsername;
-                        if (!rosterKey) {
-                            const canonical = resolveCanonicalUsername(record?.username || record?.displayName || '');
-                            rosterKey = canonical || String(record?.username || record?.displayName || '').trim();
-                        }
-                        if (!rosterKey) return;
-
-                        if (!rosterMap.has(rosterKey)) {
-                            rosterMap.set(rosterKey, {
-                                username: rosterKey,
-                                schedule: scheduleMap[rosterKey] || null,
-                                latestRecord: null
-                            });
-                        }
-
-                        const entry = rosterMap.get(rosterKey);
-                        const existingLatestTime = getRecordEventTime(entry.latestRecord);
-                        const recordTime = getRecordEventTime(record);
-                        if (!entry.latestRecord || recordTime >= existingLatestTime) {
-                            entry.latestRecord = record;
-                        }
-                    });
-
-                    const rosterRows = Array.from(rosterMap.values())
-                        .sort((a, b) => {
-                            const aName = String(a?.schedule?.displayName || a?.latestRecord?.displayName || a?.username || '').toLowerCase();
-                            const bName = String(b?.schedule?.displayName || b?.latestRecord?.displayName || b?.username || '').toLowerCase();
-                            return aName.localeCompare(bName);
-                        });
-
-                    todayBody.innerHTML = rosterRows.map((entry) => {
-                        const username = entry.username;
-                        const schedule = entry.schedule || {};
-                        const userCandidates = getAttendanceIdentityCandidates(username);
-                        const userRecords = recordsTodayFiltered
-                            .filter((record) => recordMatchesIdentityCandidates(record, userCandidates) && (!!record?.clockIn || !!record?.clockOut))
-                            .sort((a, b) => getRecordEventTime(a) - getRecordEventTime(b));
-                        const latestRecord = entry.latestRecord || userRecords[userRecords.length - 1] || null;
-                        const ptoApproved = getPtoRequests().some((request) => request.username === username && isDateInPto(request, todayISO));
-                        const employeeClinic = resolveClinicForEmployee(username, schedule) || resolveClinicForRecord(latestRecord, scheduleMap) || '-';
-                        const hasOpenClock = userRecords.some((record) => !!record?.clockIn && !record?.clockOut);
-                        const clockInEvents = userRecords
-                            .filter((record) => !!record?.clockIn)
-                            .map((record) => formatDateTime(record.clockIn));
-                        const clockOutEvents = userRecords
-                            .filter((record) => !!record?.clockOut)
-                            .map((record) => formatDateTime(record.clockOut));
-                        const clockOutReasons = userRecords
-                            .filter((record) => !!record?.clockOut)
-                            .map((record) => getClockOutReasonLabel(record.clockOutReason));
-
-                        const clockInLabel = clockInEvents.length ? clockInEvents.join('<br>') : '-';
-                        const clockOutLabel = clockOutEvents.length ? clockOutEvents.join('<br>') : '-';
-                        const clockOutReason = clockOutReasons.length ? clockOutReasons.join('<br>') : '-';
-
-                        let status = 'Scheduled';
-                        if (hasOpenClock) {
-                            status = 'Clocked In';
-                        } else if (latestRecord?.clockOut) {
-                            status = normalizeClockOutReason(latestRecord.clockOutReason) === 'break' ? 'On Break' : 'Clocked Out';
-                        } else if (ptoApproved) {
-                            status = 'PTO Approved';
-                        } else {
-                            status = schedule.startTime ? 'Not Clocked' : 'Not Scheduled';
-                        }
-
-                        return `
-                            <tr>
-                                <td>${schedule.displayName || latestRecord?.displayName || username}</td>
-                                <td>${employeeClinic}</td>
-                                <td>${schedule.startTime ? `${schedule.startTime || '--:--'} - ${schedule.endTime || '--:--'}` : 'Not Scheduled'}</td>
-                                <td>${clockInLabel}</td>
-                                <td>${clockOutLabel}</td>
-                                <td>${clockOutReason}</td>
-                                <td>${status}</td>
-                            </tr>
-                        `;
-                    }).join('') || '<tr><td colspan="7" class="attendance-note">No attendance activity or schedules found for today.</td></tr>';
+                    const summaryEl = document.getElementById('attendanceManagerReportSummary');
+                    if (summaryEl) {
+                        const employeeLabel = managerFilters.selectedEmployee
+                            ? (getAllEmployees().find((entry) => entry.username === managerFilters.selectedEmployee)?.displayName || managerFilters.selectedEmployee)
+                            : 'All Employees';
+                        const dateLabel = managerFilters.startISO === managerFilters.endISO
+                            ? formatDate(managerFilters.startISO)
+                            : `${formatDate(managerFilters.startISO)} - ${formatDate(managerFilters.endISO)}`;
+                        summaryEl.textContent = `${reportRows.length} activity row(s) • ${employeeLabel} • ${dateLabel}`;
+                    }
                 }
-
-                const reportRows = buildDailyAttendanceReportRows(recordsTodayFiltered, todayISO, { includeEmployee: true, scheduleMap, selectedClinicKey });
-                window.__attendanceManagerDailyReportRows = reportRows;
 
                 const queueBody = document.getElementById('attendancePtoQueueBody');
                 if (queueBody) {
@@ -77868,6 +77933,8 @@ console.log('✅ Global functions exported to window object');
         window.calculateAttendanceHours = calculateAttendanceHours;
         window.setAttendanceSubTab = setAttendanceSubTab;
         window.refreshAttendanceView = refreshAttendanceView;
+        window.shiftAttendanceManagerDay = shiftAttendanceManagerDay;
+        window.resetAttendanceManagerDay = resetAttendanceManagerDay;
         window.exportAttendanceDailyReportExcel = exportAttendanceDailyReportExcel;
         window.exportAttendanceDailyReportPDF = exportAttendanceDailyReportPDF;
 
@@ -77903,6 +77970,9 @@ console.log('✅ Global functions exported to window object');
             }
             if (targetId === 'attendanceHoursEmployee' || targetId === 'attendanceHoursDate') {
                 calculateAttendanceHours();
+            }
+            if (targetId === 'attendanceManagerDay' || targetId === 'attendanceManagerRangeStart' || targetId === 'attendanceManagerRangeEnd' || targetId === 'attendanceManagerEmployee') {
+                refreshAttendanceView();
             }
             if (targetId === 'clinicFilterSelect') {
                 refreshAttendanceView();
