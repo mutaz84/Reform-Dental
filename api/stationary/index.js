@@ -74,7 +74,55 @@ BEGIN
         CreatedDate DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         ModifiedDate DATETIME2 NOT NULL DEFAULT GETUTCDATE()
     );
-END`);
+END
+
+IF COL_LENGTH('dbo.StationaryTemplates', 'TemplateKey') IS NULL
+    ALTER TABLE dbo.StationaryTemplates ADD TemplateKey NVARCHAR(150) NOT NULL CONSTRAINT DF_StationaryTemplates_TemplateKey DEFAULT ('default');
+
+IF COL_LENGTH('dbo.StationaryTemplates', 'Name') IS NULL
+    ALTER TABLE dbo.StationaryTemplates ADD Name NVARCHAR(255) NOT NULL CONSTRAINT DF_StationaryTemplates_Name DEFAULT ('Untitled Form');
+
+IF COL_LENGTH('dbo.StationaryTemplates', 'HeaderLine1') IS NULL
+    ALTER TABLE dbo.StationaryTemplates ADD HeaderLine1 NVARCHAR(MAX) NULL;
+
+IF COL_LENGTH('dbo.StationaryTemplates', 'HeaderLine2') IS NULL
+    ALTER TABLE dbo.StationaryTemplates ADD HeaderLine2 NVARCHAR(MAX) NULL;
+
+IF COL_LENGTH('dbo.StationaryTemplates', 'FooterText') IS NULL
+    ALTER TABLE dbo.StationaryTemplates ADD FooterText NVARCHAR(MAX) NULL;
+
+IF COL_LENGTH('dbo.StationaryTemplates', 'Elements') IS NULL
+    ALTER TABLE dbo.StationaryTemplates ADD Elements NVARCHAR(MAX) NULL;
+
+IF COL_LENGTH('dbo.StationaryTemplates', 'ClinicId') IS NULL
+    ALTER TABLE dbo.StationaryTemplates ADD ClinicId INT NULL;
+
+IF COL_LENGTH('dbo.StationaryTemplates', 'OwnerUsername') IS NULL
+    ALTER TABLE dbo.StationaryTemplates ADD OwnerUsername NVARCHAR(100) NULL;
+
+IF COL_LENGTH('dbo.StationaryTemplates', 'IsActive') IS NULL
+    ALTER TABLE dbo.StationaryTemplates ADD IsActive BIT NOT NULL CONSTRAINT DF_StationaryTemplates_IsActive DEFAULT (1);
+
+IF COL_LENGTH('dbo.StationaryTemplates', 'CreatedDate') IS NULL
+    ALTER TABLE dbo.StationaryTemplates ADD CreatedDate DATETIME2 NOT NULL CONSTRAINT DF_StationaryTemplates_CreatedDate DEFAULT (GETUTCDATE());
+
+IF COL_LENGTH('dbo.StationaryTemplates', 'ModifiedDate') IS NULL
+    ALTER TABLE dbo.StationaryTemplates ADD ModifiedDate DATETIME2 NOT NULL CONSTRAINT DF_StationaryTemplates_ModifiedDate DEFAULT (GETUTCDATE());
+
+IF COL_LENGTH('dbo.StationaryTemplates', 'TemplateName') IS NULL
+    ALTER TABLE dbo.StationaryTemplates ADD TemplateName NVARCHAR(255) NULL;
+
+IF COL_LENGTH('dbo.StationaryTemplates', 'TemplateJson') IS NULL
+    ALTER TABLE dbo.StationaryTemplates ADD TemplateJson NVARCHAR(MAX) NULL;
+
+UPDATE dbo.StationaryTemplates
+SET Name = COALESCE(NULLIF(Name, ''), NULLIF(TemplateName, ''), 'Untitled Form')
+WHERE Name IS NULL OR LTRIM(RTRIM(Name)) = '';
+
+UPDATE dbo.StationaryTemplates
+SET Elements = COALESCE(NULLIF(Elements, ''), NULLIF(TemplateJson, ''), '[]')
+WHERE Elements IS NULL OR LTRIM(RTRIM(Elements)) = '';
+`);
 }
 
 module.exports = async function (context, req) {
@@ -104,13 +152,21 @@ module.exports = async function (context, req) {
                     ? await pool.request()
                         .input('id', sql.Int, Number.parseInt(routeId, 10))
                         .query(`
-SELECT Id, TemplateKey, Name, HeaderLine1, HeaderLine2, FooterText, Elements, ClinicId, OwnerUsername, CreatedDate, ModifiedDate
+SELECT Id, TemplateKey,
+       COALESCE(NULLIF(Name, ''), NULLIF(TemplateName, ''), 'Untitled Form') AS Name,
+       HeaderLine1, HeaderLine2, FooterText,
+       COALESCE(NULLIF(Elements, ''), NULLIF(TemplateJson, ''), '[]') AS Elements,
+       ClinicId, OwnerUsername, CreatedDate, ModifiedDate
 FROM dbo.StationaryTemplates
 WHERE Id = @id AND IsActive = 1`)
                     : await pool.request()
                         .input('templateKey', sql.NVarChar(120), routeId)
                         .query(`
-SELECT Id, TemplateKey, Name, HeaderLine1, HeaderLine2, FooterText, Elements, ClinicId, OwnerUsername, CreatedDate, ModifiedDate
+SELECT Id, TemplateKey,
+       COALESCE(NULLIF(Name, ''), NULLIF(TemplateName, ''), 'Untitled Form') AS Name,
+       HeaderLine1, HeaderLine2, FooterText,
+       COALESCE(NULLIF(Elements, ''), NULLIF(TemplateJson, ''), '[]') AS Elements,
+       ClinicId, OwnerUsername, CreatedDate, ModifiedDate
 FROM dbo.StationaryTemplates
 WHERE TemplateKey = @templateKey AND IsActive = 1`);
 
@@ -152,7 +208,11 @@ WHERE TemplateKey = @templateKey AND IsActive = 1`);
             }
 
             const result = await request.query(`
-SELECT Id, TemplateKey, Name, HeaderLine1, HeaderLine2, FooterText, Elements, ClinicId, OwnerUsername, CreatedDate, ModifiedDate
+SELECT Id, TemplateKey,
+       COALESCE(NULLIF(Name, ''), NULLIF(TemplateName, ''), 'Untitled Form') AS Name,
+       HeaderLine1, HeaderLine2, FooterText,
+       COALESCE(NULLIF(Elements, ''), NULLIF(TemplateJson, ''), '[]') AS Elements,
+       ClinicId, OwnerUsername, CreatedDate, ModifiedDate
 FROM dbo.StationaryTemplates
 WHERE ${whereParts.join(' AND ')}
 ORDER BY ModifiedDate DESC, Id DESC`);
@@ -211,10 +271,12 @@ ORDER BY ModifiedDate DESC, Id DESC`);
                     .query(`
 UPDATE dbo.StationaryTemplates
 SET Name = @name,
+    TemplateName = @name,
     HeaderLine1 = @headerLine1,
     HeaderLine2 = @headerLine2,
     FooterText = @footerText,
     Elements = @elements,
+    TemplateJson = @elements,
     ClinicId = @clinicId,
     OwnerUsername = @ownerUsername,
     IsActive = 1,
@@ -235,9 +297,9 @@ WHERE Id = @id`);
                 .input('clinicId', sql.Int, clinicId)
                 .input('ownerUsername', sql.NVarChar(100), ownerUsername || null)
                 .query(`
-INSERT INTO dbo.StationaryTemplates (TemplateKey, Name, HeaderLine1, HeaderLine2, FooterText, Elements, ClinicId, OwnerUsername)
+INSERT INTO dbo.StationaryTemplates (TemplateKey, Name, TemplateName, HeaderLine1, HeaderLine2, FooterText, Elements, TemplateJson, ClinicId, OwnerUsername)
 OUTPUT INSERTED.Id
-VALUES (@templateKey, @name, @headerLine1, @headerLine2, @footerText, @elements, @clinicId, @ownerUsername)`);
+VALUES (@templateKey, @name, @name, @headerLine1, @headerLine2, @footerText, @elements, @elements, @clinicId, @ownerUsername)`);
 
             context.res = {
                 status: 201,
@@ -276,10 +338,12 @@ VALUES (@templateKey, @name, @headerLine1, @headerLine2, @footerText, @elements,
             await request.query(`
 UPDATE dbo.StationaryTemplates
 SET Name = @name,
+    TemplateName = @name,
     HeaderLine1 = @headerLine1,
     HeaderLine2 = @headerLine2,
     FooterText = @footerText,
     Elements = @elements,
+    TemplateJson = @elements,
     ClinicId = @clinicId,
     OwnerUsername = @ownerUsername,
     IsActive = 1,
