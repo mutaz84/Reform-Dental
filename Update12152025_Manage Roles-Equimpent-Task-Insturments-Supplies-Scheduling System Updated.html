@@ -21838,6 +21838,16 @@
             const resolvedClinics = getClinicsFromUser(userData);
             const resolvedClinicIds = getClinicIdsFromUser(userData);
             const primaryClinicId = toNumericId(userData.clinicId || userData.ClinicId || userData.officeID || userData.OfficeID || resolvedClinicIds[0]);
+            const resolvedOfficeLocation = String(
+                userData.officeLocation ||
+                userData.OfficeLocation ||
+                userData.office ||
+                userData.Office ||
+                userData.clinic ||
+                userData.Clinic ||
+                getPrimaryClinicFromUser(userData) ||
+                ''
+            ).trim();
 
             const payload = {
                 username: normalizedUsername,
@@ -21872,10 +21882,12 @@
                 emergencyContactPhone: userData.emergencyContactPhone || '',
                 emergencyContactEmail: userData.emergencyContactEmail || '',
                 nextReviewDate: userData.nextReviewDate || null,
-                officeLocation: userData.officeLocation || '',
+                officeLocation: resolvedOfficeLocation,
                 clinicId: primaryClinicId,
                 clinicIds: resolvedClinicIds,
                 clinics: resolvedClinics,
+                office: resolvedOfficeLocation,
+                clinic: resolvedOfficeLocation,
                 directSupervisor: userData.directSupervisor || '',
                 separationDate: userData.separationDate || null,
                 separationReason: userData.separationReason || '',
@@ -21923,10 +21935,12 @@
                 EmergencyContactPhone: userData.emergencyContactPhone || '',
                 EmergencyContactEmail: userData.emergencyContactEmail || '',
                 NextReviewDate: userData.nextReviewDate || null,
-                OfficeLocation: userData.officeLocation || '',
+                OfficeLocation: resolvedOfficeLocation,
                 ClinicId: primaryClinicId,
                 ClinicIds: resolvedClinicIds,
                 Clinics: resolvedClinics,
+                Office: resolvedOfficeLocation,
+                Clinic: resolvedOfficeLocation,
                 DirectSupervisor: userData.directSupervisor || '',
                 SeparationDate: userData.separationDate || null,
                 SeparationReason: userData.separationReason || '',
@@ -23350,6 +23364,32 @@
         }
 
         // Display users list as table rows
+        function getRawApiUsersMap() {
+            if (window.__lastSyncedApiUsersByUsername && typeof window.__lastSyncedApiUsersByUsername === 'object') {
+                return window.__lastSyncedApiUsersByUsername;
+            }
+            return safeParseLocalStorageJSON('appUsersRawFromAPI', {}, { expect: 'object' }) || {};
+        }
+
+        function getRawApiUserByUsername(username) {
+            const key = String(username || '').trim().toLowerCase();
+            if (!key) return null;
+            const rawMap = getRawApiUsersMap();
+            return rawMap[key] || null;
+        }
+
+        function getRawApiOfficeLocation(rawApiUser) {
+            return String(
+                rawApiUser?.OfficeLocation ||
+                rawApiUser?.officeLocation ||
+                rawApiUser?.Office ||
+                rawApiUser?.office ||
+                rawApiUser?.Clinic ||
+                rawApiUser?.clinic ||
+                ''
+            ).trim();
+        }
+
         function displayUsersList() {
             const users = loadUsers();
             const usersList = document.getElementById('usersList');
@@ -23396,6 +23436,8 @@
             
             Object.keys(users).forEach(username => {
                 const user = users[username];
+                const rawApiUser = getRawApiUserByUsername(username);
+                const rawApiOfficeLocation = getRawApiOfficeLocation(rawApiUser);
                 const complianceSummary = getComplianceSummaryForUser(user);
                 const encodedUsernameAttr = String(username || '')
                     .replace(/&/g, '&amp;')
@@ -23419,6 +23461,10 @@
                         <span style="background: ${roleColors[user.role] || '#6b7280'}; color: white; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">${(user.role || 'user').toUpperCase()}</span>
                     </td>
                     <td style="padding: 1rem; color: var(--text-secondary);">${user.jobTitle || '-'}</td>
+                    <td style="padding: 1rem; color: var(--text-secondary);">
+                        <div style="font-weight:600; color:${rawApiOfficeLocation ? 'var(--text-primary)' : '#dc2626'};">${rawApiOfficeLocation || 'MISSING IN DB'}</div>
+                        <div style="font-size:0.75rem; opacity:0.8;">${rawApiUser ? 'source: /api/users' : 'source: local only'}</div>
+                    </td>
                     <td style="padding: 1rem;">
                         <span style="background: ${statusColors[status] || '#6b7280'}20; color: ${statusColors[status] || '#6b7280'}; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">${status}</span>
                     </td>
@@ -64974,6 +65020,7 @@ document.addEventListener('keydown', function(e) {
                             <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Username</th>
                             <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Role</th>
                             <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Job Title</th>
+                            <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">DB Office (API)</th>
                             <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Status</th>
                             <th style="padding: 1rem; text-align: left; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Requirements</th>
                             <th style="padding: 1rem; text-align: center; font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">Actions</th>
@@ -70900,11 +70947,16 @@ async function syncUsersFromAPI() {
         return '';
     }
     
+    // Keep an inspectable snapshot of raw API users for Manage Users diagnostics.
+    const rawApiUsersByUsername = {};
+
     // Convert API format to localStorage format - map ALL fields
     const localUsers = {};
     apiUsers.forEach(user => {
         const username = (user.Username || user.username || '').trim();
         if (!username) return;
+
+        rawApiUsersByUsername[username.toLowerCase()] = user;
 
         const existingKey = Object.keys(existingUsers).find(key => key.toLowerCase() === username.toLowerCase()) || username;
         const existing = existingUsers[existingKey] || {};
@@ -71003,6 +71055,9 @@ async function syncUsersFromAPI() {
     
     // REPLACE localStorage with API users only (database is source of truth)
     localStorage.setItem('appUsers', JSON.stringify(localUsers));
+    localStorage.setItem('appUsersRawFromAPI', JSON.stringify(rawApiUsersByUsername));
+    window.__lastSyncedApiUsersByUsername = rawApiUsersByUsername;
+    window.__lastSyncedUsersAt = new Date().toISOString();
     console.log('✅ Synced', Object.keys(localUsers).length, 'users from API (database is source of truth)');
     
     // Refresh employee resources
