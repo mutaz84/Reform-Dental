@@ -80400,11 +80400,18 @@ console.log('✅ Global functions exported to window object');
                 if (manageApprovedEl) manageApprovedEl.textContent = String(allRequests.filter((r) => String(r?.status || '').toLowerCase() === 'approved').length);
 
                 const trackedUsers = new Map();
+                const allEmployees = getAllEmployees().filter((emp) => emp?.isActive !== false && String(emp?.username || '').trim() && String(emp?.username || '').trim() !== 'admin');
+                allEmployees.forEach((emp) => {
+                    const username = String(emp?.username || '').trim();
+                    if (!username) return;
+                    const label = String(emp?.displayName || username).trim() || username;
+                    trackedUsers.set(username, label);
+                });
                 allRequests.forEach((request) => {
                     const username = String(request?.username || '').trim();
-                    if (!username) return;
+                    if (!username || trackedUsers.has(username)) return;
                     const label = String(request?.employeeName || username).trim() || username;
-                    if (!trackedUsers.has(username)) trackedUsers.set(username, label);
+                    trackedUsers.set(username, label);
                 });
                 const trackedRows = [...trackedUsers.entries()].map(([username, label]) => ({
                     username,
