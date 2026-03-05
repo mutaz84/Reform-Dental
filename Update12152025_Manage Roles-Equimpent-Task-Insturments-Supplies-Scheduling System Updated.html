@@ -77476,8 +77476,15 @@ console.log('✅ Global functions exported to window object');
 
         function getWorkedMinutesForRecord(record) {
             const storedMinutes = Number(record?.minutesWorked || 0) || 0;
-            if (!record?.clockIn || !record?.clockOut) return storedMinutes;
-            const diffMs = new Date(record.clockOut).getTime() - new Date(record.clockIn).getTime();
+            if (!record?.clockIn) return storedMinutes;
+
+            const clockInMs = new Date(record.clockIn).getTime();
+            if (!Number.isFinite(clockInMs) || clockInMs <= 0) return storedMinutes;
+
+            const endMs = record?.clockOut
+                ? new Date(record.clockOut).getTime()
+                : Date.now();
+            const diffMs = endMs - clockInMs;
             const computedMinutes = (Number.isFinite(diffMs) && diffMs > 0) ? Math.round(diffMs / 60000) : 0;
             return Math.max(storedMinutes, computedMinutes);
         }
@@ -78926,7 +78933,10 @@ console.log('✅ Global functions exported to window object');
             const targetDate = dateInput?.value || toISODate(new Date());
             if (!targetUsername) return;
 
-            const records = getRecords().filter((record) => record.username === targetUsername && Number(record.minutesWorked || 0) > 0);
+            const records = getRecords().filter((record) => {
+                if (record.username !== targetUsername) return false;
+                return getWorkedMinutesForRecord(record) > 0;
+            });
             const employees = getAllEmployees();
             const employee = employees.find((item) => item.username === targetUsername) || {};
 
@@ -78948,7 +78958,7 @@ console.log('✅ Global functions exported to window object');
             };
 
             records.forEach((record) => {
-                const minutes = Number(record.minutesWorked || 0);
+                const minutes = getWorkedMinutesForRecord(record);
                 const recordDate = parseISODateLocal(record.date);
                 if (record.date === targetDate) totalBy.day += minutes;
                 if (recordDate >= weekStart && recordDate <= weekEnd) totalBy.week += minutes;
@@ -79512,6 +79522,23 @@ console.log('✅ Global functions exported to window object');
             renderAttendanceSubTabs();
         }
 
+        function scheduleAttendanceLiveRefresh(hasOpenClockIn) {
+            if (window.__attendanceLiveRefreshTimerId) {
+                clearTimeout(window.__attendanceLiveRefreshTimerId);
+                window.__attendanceLiveRefreshTimerId = null;
+            }
+
+            if (!hasOpenClockIn) return;
+
+            window.__attendanceLiveRefreshTimerId = setTimeout(() => {
+                window.__attendanceLiveRefreshTimerId = null;
+                const attendanceView = document.getElementById('view-attendance');
+                const isVisible = attendanceView && attendanceView.classList.contains('active');
+                if (!isVisible) return;
+                renderAttendanceView();
+            }, 60000);
+        }
+
         function renderAttendanceView() {
             const root = document.getElementById('view-attendance');
             if (!root) return;
@@ -79549,6 +79576,7 @@ console.log('✅ Global functions exported to window object');
             });
             const myLatestRow = myTodayRows[0] || null;
             const myTodayWorkedMinutes = myTodayRows.reduce((sum, row) => sum + Number(row?.minutesWorked || 0), 0);
+            const hasOpenClockIn = myTodayRows.some((row) => !!row?.clockIn && !row?.clockOut);
 
             const titleEl = document.getElementById('attendanceViewTitle');
             if (titleEl) {
@@ -79794,6 +79822,7 @@ console.log('✅ Global functions exported to window object');
             const dateEl = document.getElementById('attendanceHoursDate');
             if (dateEl && !dateEl.value) dateEl.value = todayISO;
             calculateAttendanceHours();
+            scheduleAttendanceLiveRefresh(hasOpenClockIn);
         }
 
         async function refreshAttendanceView() {
