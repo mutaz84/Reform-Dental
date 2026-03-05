@@ -7475,6 +7475,85 @@
             flex-direction: column;
             gap: 0.45rem;
         }
+        .attendance-timeoff-calendar-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+            margin-bottom: 0.4rem;
+        }
+        .attendance-timeoff-month-label {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .attendance-timeoff-calendar-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.74rem;
+            table-layout: fixed;
+        }
+        .attendance-timeoff-calendar-table th,
+        .attendance-timeoff-calendar-table td {
+            border: 1px solid var(--border-color);
+            text-align: center;
+            padding: 0.36rem 0.2rem;
+        }
+        .attendance-timeoff-calendar-table th {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-weight: 700;
+        }
+        .attendance-timeoff-calendar-table td {
+            background: var(--card-bg);
+            color: var(--text-primary);
+        }
+        .attendance-timeoff-day-out {
+            color: var(--text-secondary) !important;
+            opacity: 0.55;
+            background: var(--bg-secondary) !important;
+        }
+        .attendance-timeoff-day-today {
+            box-shadow: inset 0 0 0 1px var(--accent-primary);
+            font-weight: 700;
+        }
+        .attendance-timeoff-day-approved {
+            background: #d1fae5 !important;
+            color: #065f46 !important;
+            font-weight: 700;
+        }
+        .attendance-timeoff-day-pending {
+            background: #fef3c7 !important;
+            color: #92400e !important;
+            font-weight: 700;
+        }
+        .attendance-timeoff-legend {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            margin-top: 0.45rem;
+            font-size: 0.72rem;
+            color: var(--text-secondary);
+        }
+        .attendance-timeoff-legend span {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        .attendance-timeoff-legend i {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .attendance-timeoff-legend .approved i {
+            background: #10b981;
+        }
+        .attendance-timeoff-legend .pending i {
+            background: #f59e0b;
+        }
 
         /* Disable the top measures cards (My Tasks / Completed Today / Overdue / Weekly Completion) */
         .stats-grid[data-user-stats],
@@ -17672,6 +17751,34 @@
                                         <div class="attendance-stat-label">Next Approved Day</div>
                                         <div class="attendance-stat-value" id="attendanceTimeoffNextApproved">-</div>
                                     </div>
+                                </div>
+                                <div class="attendance-timeoff-calendar-head">
+                                    <div class="attendance-timeoff-month-label" id="attendanceTimeoffMonthLabel">--</div>
+                                    <div class="attendance-btn-row" style="margin-top:0;">
+                                        <button class="btn-secondary" type="button" onclick="if(window.shiftAttendanceTimeoffMonth){window.shiftAttendanceTimeoffMonth(-1);}" title="Previous Month"><i class="fas fa-chevron-left"></i></button>
+                                        <button class="btn-secondary" type="button" onclick="if(window.resetAttendanceTimeoffMonth){window.resetAttendanceTimeoffMonth();}">Current</button>
+                                        <button class="btn-secondary" type="button" onclick="if(window.shiftAttendanceTimeoffMonth){window.shiftAttendanceTimeoffMonth(1);}" title="Next Month"><i class="fas fa-chevron-right"></i></button>
+                                    </div>
+                                </div>
+                                <div class="attendance-table-wrap">
+                                    <table class="attendance-timeoff-calendar-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Sun</th>
+                                                <th>Mon</th>
+                                                <th>Tue</th>
+                                                <th>Wed</th>
+                                                <th>Thu</th>
+                                                <th>Fri</th>
+                                                <th>Sat</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="attendanceTimeoffCalendarBody"></tbody>
+                                    </table>
+                                </div>
+                                <div class="attendance-timeoff-legend">
+                                    <span class="approved"><i></i> Approved</span>
+                                    <span class="pending"><i></i> Pending</span>
                                 </div>
                                 <div class="attendance-table-wrap" style="margin-top:0.8rem;">
                                     <table class="attendance-table">
@@ -79600,6 +79707,71 @@ console.log('✅ Global functions exported to window object');
             if (endInput) endInput.value = todayISO;
         }
 
+        function normalizeAttendanceMonthISO(rawIso) {
+            const fallback = toISODateInTimeZone(new Date()).slice(0, 7) + '-01';
+            const source = String(rawIso || fallback).trim();
+            const parsed = parseISODateLocal(source);
+            if (!(parsed instanceof Date) || Number.isNaN(parsed.getTime())) return fallback;
+            parsed.setDate(1);
+            return toISODateInTimeZone(parsed).slice(0, 7) + '-01';
+        }
+
+        function shiftAttendanceTimeoffMonth(offsetMonths) {
+            const current = normalizeAttendanceMonthISO(window.__attendanceTimeoffMonthISO);
+            const dateObj = parseISODateLocal(current);
+            dateObj.setDate(1);
+            dateObj.setMonth(dateObj.getMonth() + Number(offsetMonths || 0));
+            window.__attendanceTimeoffMonthISO = toISODateInTimeZone(dateObj).slice(0, 7) + '-01';
+            renderAttendanceView();
+        }
+
+        function resetAttendanceTimeoffMonth() {
+            window.__attendanceTimeoffMonthISO = toISODateInTimeZone(new Date()).slice(0, 7) + '-01';
+            renderAttendanceView();
+        }
+
+        function renderAttendanceTimeoffCalendar(requests, todayISO) {
+            const monthISO = normalizeAttendanceMonthISO(window.__attendanceTimeoffMonthISO);
+            window.__attendanceTimeoffMonthISO = monthISO;
+
+            const monthLabelEl = document.getElementById('attendanceTimeoffMonthLabel');
+            const calendarBody = document.getElementById('attendanceTimeoffCalendarBody');
+            if (!monthLabelEl || !calendarBody) return;
+
+            const monthStart = parseISODateLocal(monthISO);
+            monthStart.setDate(1);
+            monthLabelEl.textContent = monthStart.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+            const firstWeekday = monthStart.getDay();
+            const cursor = new Date(monthStart);
+            cursor.setDate(cursor.getDate() - firstWeekday);
+            const list = Array.isArray(requests) ? requests : [];
+            const rows = [];
+
+            for (let week = 0; week < 6; week += 1) {
+                const cells = [];
+                for (let day = 0; day < 7; day += 1) {
+                    const cellDate = new Date(cursor);
+                    const cellISO = toISODateInTimeZone(cellDate);
+                    const inMonth = cellDate.getMonth() === monthStart.getMonth() && cellDate.getFullYear() === monthStart.getFullYear();
+                    const approved = list.some((request) => String(request?.status || '').toLowerCase() === 'approved' && isDateInPto(request, cellISO));
+                    const pending = !approved && list.some((request) => String(request?.status || '').toLowerCase() === 'pending' && isDateInPto(request, cellISO));
+
+                    const classList = [];
+                    if (!inMonth) classList.push('attendance-timeoff-day-out');
+                    if (cellISO === todayISO) classList.push('attendance-timeoff-day-today');
+                    if (approved) classList.push('attendance-timeoff-day-approved');
+                    else if (pending) classList.push('attendance-timeoff-day-pending');
+
+                    cells.push(`<td class="${classList.join(' ')}">${cellDate.getDate()}</td>`);
+                    cursor.setDate(cursor.getDate() + 1);
+                }
+                rows.push(`<tr>${cells.join('')}</tr>`);
+            }
+
+            calendarBody.innerHTML = rows.join('');
+        }
+
         function renderAttendanceSubTabs() {
             const employeeTab = String(window.__attendanceEmployeeTab || 'clockpto');
             const managerTab = String(window.__attendanceManagerTab || 'overview');
@@ -79736,6 +79908,9 @@ console.log('✅ Global functions exported to window object');
             if (!window.__attendanceManagerTab || !['overview', 'detailed', 'audit', 'policy', 'queue'].includes(window.__attendanceManagerTab)) {
                 window.__attendanceManagerTab = 'overview';
             }
+            if (!window.__attendanceTimeoffMonthISO) {
+                window.__attendanceTimeoffMonthISO = toISODateInTimeZone(new Date()).slice(0, 7) + '-01';
+            }
             renderAttendanceSubTabs();
 
             const scheduleEl = document.getElementById('attendanceTodaySchedule');
@@ -79823,6 +79998,8 @@ console.log('✅ Global functions exported to window object');
                     `;
                 }).join('') || '<tr><td colspan="4" class="attendance-note">No time-off requests yet.</td></tr>';
             }
+
+            renderAttendanceTimeoffCalendar(myRequests, todayISO);
 
             const historyBody = document.getElementById('attendanceMyHistoryBody');
             if (historyBody) {
@@ -80017,6 +80194,8 @@ console.log('✅ Global functions exported to window object');
         window.resetAttendanceManagerDay = resetAttendanceManagerDay;
         window.shiftAttendanceAuditDay = shiftAttendanceAuditDay;
         window.resetAttendanceAuditDay = resetAttendanceAuditDay;
+        window.shiftAttendanceTimeoffMonth = shiftAttendanceTimeoffMonth;
+        window.resetAttendanceTimeoffMonth = resetAttendanceTimeoffMonth;
         window.exportAttendanceDailyReportExcel = exportAttendanceDailyReportExcel;
         window.exportAttendanceDailyReportPDF = exportAttendanceDailyReportPDF;
         window.exportAttendanceOverviewExcel = exportAttendanceOverviewExcel;
