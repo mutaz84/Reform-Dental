@@ -17717,6 +17717,7 @@
 
                             <div class="attendance-tabs" id="attendanceManagerTabs" style="margin-top:0.4rem;">
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="overview" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','overview');}">Overview</button>
+                                <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="detailed" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','detailed');}">Detailed View</button>
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="audit" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','audit');}">Absence Audit</button>
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="policy" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','policy');}">Flex &amp; PTO</button>
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="queue" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','queue');}">PTO Queue</button>
@@ -17726,7 +17727,40 @@
                                 <div class="attendance-card attendance-manager-overview" data-attendance-manager-panel="overview">
                                     <div class="attendance-manager-head">
                                         <div>
-                                            <h3 class="attendance-manager-title"><i class="fas fa-users"></i> Attendance Activity Report</h3>
+                                            <h3 class="attendance-manager-title"><i class="fas fa-chart-pie"></i> Attendance Overview</h3>
+                                            <div class="attendance-manager-subtitle">Quick status snapshot by employee, clinic, and date.</div>
+                                        </div>
+                                        <div class="attendance-btn-row" style="margin-top:0;">
+                                            <button class="btn-secondary" type="button" onclick="if(window.exportAttendanceOverviewExcel){window.exportAttendanceOverviewExcel();}">
+                                                <i class="fas fa-file-excel"></i> Export Excel
+                                            </button>
+                                            <button class="btn-secondary" type="button" onclick="if(window.exportAttendanceOverviewPDF){window.exportAttendanceOverviewPDF();}">
+                                                <i class="fas fa-print"></i> Print
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div id="attendanceManagerOverviewSummary" class="attendance-manager-summary"></div>
+
+                                    <div class="attendance-table-wrap">
+                                        <table class="attendance-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Employee</th>
+                                                    <th>Employee Clinic</th>
+                                                    <th>Date</th>
+                                                    <th>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="attendanceManagerOverviewBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div class="attendance-card attendance-manager-overview" data-attendance-manager-panel="detailed">
+                                    <div class="attendance-manager-head">
+                                        <div>
+                                            <h3 class="attendance-manager-title"><i class="fas fa-users"></i> Attendance Detailed View</h3>
                                             <div class="attendance-manager-subtitle">Daily timeline and range reporting with employee-level filtering.</div>
                                         </div>
                                         <div class="attendance-btn-row" style="margin-top:0;">
@@ -17782,7 +17816,7 @@
                                                     <th>Actions</th>
                                                 </tr>
                                             </thead>
-                                            <tbody id="attendanceManagerTodayBody"></tbody>
+                                            <tbody id="attendanceManagerDetailedBody"></tbody>
                                         </table>
                                     </div>
                                 </div>
@@ -77661,6 +77695,94 @@ console.log('✅ Global functions exported to window object');
             return { scope: targetScope, rows, today };
         }
 
+        function getAttendanceOverviewExportContext() {
+            const rows = Array.isArray(window.__attendanceManagerDailyReportRows) ? window.__attendanceManagerDailyReportRows : [];
+            const today = toISODate(new Date());
+            return { rows, today };
+        }
+
+        function exportAttendanceOverviewExcel() {
+            const exportContext = getAttendanceOverviewExportContext();
+            if (!exportContext.rows.length) {
+                showNotification('No attendance overview rows available to export.', 'warning');
+                return;
+            }
+
+            const headers = ['Employee', 'Employee Clinic', 'Date', 'Status'];
+            const csvRows = [headers.join(',')];
+            exportContext.rows.forEach((row) => {
+                const values = [
+                    row.employee || '-',
+                    row.employeeClinic || '-',
+                    formatDate(row.date),
+                    row.status || '-'
+                ];
+                csvRows.push(values.map(csvEscape).join(','));
+            });
+
+            const bom = '\uFEFF';
+            const blob = new Blob([bom + csvRows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            const filename = `Attendance_Overview_Report_${exportContext.today}.csv`;
+            link.href = url;
+            link.download = filename;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            showNotification(`Exported ${exportContext.rows.length} overview row(s) to ${filename}`, 'success');
+        }
+
+        function exportAttendanceOverviewPDF() {
+            const exportContext = getAttendanceOverviewExportContext();
+            if (!exportContext.rows.length) {
+                showNotification('No attendance overview rows available to export.', 'warning');
+                return;
+            }
+            if (typeof html2pdf !== 'function') {
+                showNotification('PDF export library is unavailable right now.', 'error');
+                return;
+            }
+
+            const filename = `Attendance_Overview_Report_${exportContext.today}.pdf`;
+            const tableBody = exportContext.rows.map((row) => {
+                return `<tr><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.employee || '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.employeeClinic || '-')}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(formatDate(row.date))}</td><td style="border:1px solid #ddd; padding:6px;">${sanitizeHtml(row.status || '-')}</td></tr>`;
+            }).join('');
+
+            const exportContent = document.createElement('div');
+            exportContent.style.padding = '10px';
+            exportContent.style.fontFamily = 'Arial, sans-serif';
+            exportContent.style.backgroundColor = '#ffffff';
+            exportContent.innerHTML = `
+                <div style="margin-bottom:10px; border-bottom:2px solid #10b981; padding-bottom:8px;">
+                    <h2 style="margin:0; color:#10b981;">Attendance Overview Report</h2>
+                    <div style="font-size:12px; color:#555; margin-top:4px;">Date: ${sanitizeHtml(formatDate(exportContext.today))} | Generated: ${sanitizeHtml(new Date().toLocaleString('en-US'))}</div>
+                </div>
+                <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left; border:1px solid #ddd; padding:6px;">Employee</th>
+                            <th style="text-align:left; border:1px solid #ddd; padding:6px;">Employee Clinic</th>
+                            <th style="text-align:left; border:1px solid #ddd; padding:6px;">Date</th>
+                            <th style="text-align:left; border:1px solid #ddd; padding:6px;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>${tableBody}</tbody>
+                </table>
+            `;
+
+            const options = {
+                margin: [8, 8, 12, 8],
+                filename,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true, allowTaint: true, logging: false },
+                jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4', compress: true }
+            };
+            html2pdf().set(options).from(exportContent).save();
+        }
+
         function exportAttendanceDailyReportExcel(scope) {
             const exportContext = getAttendanceReportExportContext(scope);
             if (!exportContext.rows.length) {
@@ -79381,7 +79503,7 @@ console.log('✅ Global functions exported to window object');
             if (!value) return;
 
             if (normalizedMode === 'manager') {
-                const allowedManagerTabs = new Set(['overview', 'audit', 'policy', 'queue']);
+                const allowedManagerTabs = new Set(['overview', 'detailed', 'audit', 'policy', 'queue']);
                 window.__attendanceManagerTab = allowedManagerTabs.has(value) ? value : 'overview';
             } else {
                 window.__attendanceEmployeeTab = value;
@@ -79465,7 +79587,7 @@ console.log('✅ Global functions exported to window object');
             if (managerSection) managerSection.style.display = managerMode ? '' : 'none';
 
             if (!window.__attendanceEmployeeTab) window.__attendanceEmployeeTab = 'clockpto';
-            if (!window.__attendanceManagerTab || !['overview', 'audit', 'policy', 'queue'].includes(window.__attendanceManagerTab)) {
+            if (!window.__attendanceManagerTab || !['overview', 'detailed', 'audit', 'policy', 'queue'].includes(window.__attendanceManagerTab)) {
                 window.__attendanceManagerTab = 'overview';
             }
             renderAttendanceSubTabs();
@@ -79589,16 +79711,16 @@ console.log('✅ Global functions exported to window object');
                 const identityCandidates = managerFilters.selectedEmployee
                     ? getAttendanceIdentityCandidates(managerFilters.selectedEmployee)
                     : null;
-                const todayBody = document.getElementById('attendanceManagerTodayBody');
-                if (todayBody) {
-                    const reportRows = buildAttendanceRangeReportRows(allRecords, managerFilters.startISO, managerFilters.endISO, {
-                        includeEmployee: true,
-                        identityCandidates,
-                        scheduleMap: managerScheduleMap,
-                        selectedClinicKey
-                    });
+                const reportRows = buildAttendanceRangeReportRows(allRecords, managerFilters.startISO, managerFilters.endISO, {
+                    includeEmployee: true,
+                    identityCandidates,
+                    scheduleMap: managerScheduleMap,
+                    selectedClinicKey
+                });
 
-                    todayBody.innerHTML = reportRows.map((row) => `
+                const detailedBody = document.getElementById('attendanceManagerDetailedBody');
+                if (detailedBody) {
+                    detailedBody.innerHTML = reportRows.map((row) => `
                         <tr>
                             <td>${row.employee || '-'}</td>
                             <td>${row.employeeClinic || '-'}</td>
@@ -79618,19 +79740,37 @@ console.log('✅ Global functions exported to window object');
                             </td>
                         </tr>
                     `).join('') || '<tr><td colspan="9" class="attendance-note">No attendance activity found for selected filters.</td></tr>';
+                }
 
-                    window.__attendanceManagerDailyReportRows = reportRows;
+                const overviewBody = document.getElementById('attendanceManagerOverviewBody');
+                if (overviewBody) {
+                    overviewBody.innerHTML = reportRows.map((row) => `
+                        <tr>
+                            <td>${row.employee || '-'}</td>
+                            <td>${row.employeeClinic || '-'}</td>
+                            <td>${formatDate(row.date)}</td>
+                            <td>${row.status || '-'}</td>
+                        </tr>
+                    `).join('') || '<tr><td colspan="4" class="attendance-note">No attendance activity found for selected filters.</td></tr>';
+                }
 
-                    const summaryEl = document.getElementById('attendanceManagerReportSummary');
-                    if (summaryEl) {
-                        const employeeLabel = managerFilters.selectedEmployee
-                            ? (getAllEmployees().find((entry) => entry.username === managerFilters.selectedEmployee)?.displayName || managerFilters.selectedEmployee)
-                            : 'All Employees';
-                        const dateLabel = managerFilters.startISO === managerFilters.endISO
-                            ? formatDate(managerFilters.startISO)
-                            : `${formatDate(managerFilters.startISO)} - ${formatDate(managerFilters.endISO)}`;
-                        summaryEl.textContent = `${reportRows.length} activity row(s) • ${employeeLabel} • ${dateLabel}`;
-                    }
+                window.__attendanceManagerDailyReportRows = reportRows;
+
+                const employeeLabel = managerFilters.selectedEmployee
+                    ? (getAllEmployees().find((entry) => entry.username === managerFilters.selectedEmployee)?.displayName || managerFilters.selectedEmployee)
+                    : 'All Employees';
+                const dateLabel = managerFilters.startISO === managerFilters.endISO
+                    ? formatDate(managerFilters.startISO)
+                    : `${formatDate(managerFilters.startISO)} - ${formatDate(managerFilters.endISO)}`;
+
+                const detailedSummaryEl = document.getElementById('attendanceManagerReportSummary');
+                if (detailedSummaryEl) {
+                    detailedSummaryEl.textContent = `${reportRows.length} activity row(s) • ${employeeLabel} • ${dateLabel}`;
+                }
+
+                const overviewSummaryEl = document.getElementById('attendanceManagerOverviewSummary');
+                if (overviewSummaryEl) {
+                    overviewSummaryEl.textContent = `${reportRows.length} overview row(s) • ${employeeLabel} • ${dateLabel}`;
                 }
 
                 const queueBody = document.getElementById('attendancePtoQueueBody');
@@ -79679,6 +79819,8 @@ console.log('✅ Global functions exported to window object');
         window.resetAttendanceAuditDay = resetAttendanceAuditDay;
         window.exportAttendanceDailyReportExcel = exportAttendanceDailyReportExcel;
         window.exportAttendanceDailyReportPDF = exportAttendanceDailyReportPDF;
+        window.exportAttendanceOverviewExcel = exportAttendanceOverviewExcel;
+        window.exportAttendanceOverviewPDF = exportAttendanceOverviewPDF;
         window.exportAttendanceAuditReportExcel = exportAttendanceAuditReportExcel;
         window.exportAttendanceAuditReportPDF = exportAttendanceAuditReportPDF;
         window.openAttendanceAdjustmentFromReport = openAttendanceAdjustmentFromReport;
