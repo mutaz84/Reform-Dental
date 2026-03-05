@@ -17559,6 +17559,7 @@
 
                         <div class="attendance-tabs" id="attendanceEmployeeTabs">
                             <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="employee" data-attendance-tab="clockpto" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('employee','clockpto');}">Clock &amp; PTO</button>
+                            <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="employee" data-attendance-tab="timeoff" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('employee','timeoff');}">Time Off</button>
                             <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="employee" data-attendance-tab="history" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('employee','history');}">History</button>
                             <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="employee" data-attendance-tab="daily" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('employee','daily');}">Daily Report</button>
                             <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="employee" data-attendance-tab="notifications" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('employee','notifications');}">Notifications</button>
@@ -17647,6 +17648,45 @@
                         </div>
 
                         <div class="attendance-grid" style="margin-top:0.95rem;">
+                            <div class="attendance-card attendance-employee-card" data-attendance-employee-panel="timeoff">
+                                <div class="attendance-employee-head">
+                                    <div>
+                                        <h3 class="attendance-employee-title"><i class="fas fa-calendar-check"></i> Time Off</h3>
+                                        <div class="attendance-employee-subtitle">ADP-style snapshot for your available balance, pending requests, and recent request status.</div>
+                                    </div>
+                                </div>
+                                <div class="attendance-stat-grid">
+                                    <div class="attendance-stat">
+                                        <div class="attendance-stat-label">Available Balance</div>
+                                        <div class="attendance-stat-value" id="attendanceTimeoffBalance">0.00 h</div>
+                                    </div>
+                                    <div class="attendance-stat">
+                                        <div class="attendance-stat-label">Pending</div>
+                                        <div class="attendance-stat-value" id="attendanceTimeoffPending">0</div>
+                                    </div>
+                                    <div class="attendance-stat">
+                                        <div class="attendance-stat-label">Approved Hours</div>
+                                        <div class="attendance-stat-value" id="attendanceTimeoffApprovedHours">0.00 h</div>
+                                    </div>
+                                    <div class="attendance-stat">
+                                        <div class="attendance-stat-label">Next Approved Day</div>
+                                        <div class="attendance-stat-value" id="attendanceTimeoffNextApproved">-</div>
+                                    </div>
+                                </div>
+                                <div class="attendance-table-wrap" style="margin-top:0.8rem;">
+                                    <table class="attendance-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Date Range</th>
+                                                <th>Hours</th>
+                                                <th>Status</th>
+                                                <th>Submitted</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="attendanceTimeoffTableBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
                             <div class="attendance-card attendance-employee-card" data-attendance-employee-panel="history">
                                 <div class="attendance-employee-head">
                                     <div>
@@ -79174,6 +79214,15 @@ console.log('✅ Global functions exported to window object');
             return 'status-neutral';
         }
 
+        function getPtoRequestStatusBadgeClass(status) {
+            const normalized = String(status || '').trim().toLowerCase();
+            if (normalized === 'approved') return 'status-success';
+            if (normalized === 'pending') return 'status-warning';
+            if (normalized === 'denied' || normalized === 'rejected') return 'status-danger';
+            if (normalized === 'submitted') return 'status-info';
+            return 'status-neutral';
+        }
+
         function toLocalDateTimeInputValue(isoValue) {
             if (!isoValue) return '';
             const dateObj = new Date(isoValue);
@@ -79727,6 +79776,53 @@ console.log('✅ Global functions exported to window object');
             const pendingCount = myRequests.filter((request) => request.status === 'pending').length;
             const pendingEl = document.getElementById('attendancePtoPendingCount');
             if (pendingEl) pendingEl.textContent = String(pendingCount);
+
+            const approvedRequests = myRequests.filter((request) => String(request?.status || '').toLowerCase() === 'approved');
+            const approvedHours = approvedRequests.reduce((sum, request) => sum + Number(request?.hours || 0), 0);
+            const upcomingApproved = approvedRequests
+                .filter((request) => String(request?.endDate || '') >= todayISO)
+                .sort((a, b) => String(a?.startDate || '').localeCompare(String(b?.startDate || '')))[0] || null;
+
+            const timeoffBalanceEl = document.getElementById('attendanceTimeoffBalance');
+            if (timeoffBalanceEl) timeoffBalanceEl.textContent = `${getPtoCreditForUser(context.username).toFixed(2)} h`;
+
+            const timeoffPendingEl = document.getElementById('attendanceTimeoffPending');
+            if (timeoffPendingEl) timeoffPendingEl.textContent = String(pendingCount);
+
+            const timeoffApprovedEl = document.getElementById('attendanceTimeoffApprovedHours');
+            if (timeoffApprovedEl) timeoffApprovedEl.textContent = `${approvedHours.toFixed(2)} h`;
+
+            const timeoffNextApprovedEl = document.getElementById('attendanceTimeoffNextApproved');
+            if (timeoffNextApprovedEl) {
+                timeoffNextApprovedEl.textContent = upcomingApproved
+                    ? formatDate(upcomingApproved.startDate || upcomingApproved.endDate)
+                    : '-';
+            }
+
+            const timeoffTableBody = document.getElementById('attendanceTimeoffTableBody');
+            if (timeoffTableBody) {
+                const esc = (typeof escapeHtml === 'function') ? escapeHtml : (v) => String(v ?? '');
+                const rows = [...myRequests]
+                    .sort((a, b) => {
+                        const aTs = new Date(a?.requestedAt || a?.createdAt || a?.updatedAt || 0).getTime() || 0;
+                        const bTs = new Date(b?.requestedAt || b?.createdAt || b?.updatedAt || 0).getTime() || 0;
+                        return bTs - aTs;
+                    })
+                    .slice(0, 20);
+
+                timeoffTableBody.innerHTML = rows.map((request) => {
+                    const statusLabel = String(request?.status || 'pending').trim() || 'pending';
+                    const statusClass = getPtoRequestStatusBadgeClass(statusLabel);
+                    return `
+                        <tr>
+                            <td>${esc(request.startDate || '-')} - ${esc(request.endDate || '-')}</td>
+                            <td>${Number(request?.hours || 0).toFixed(2)} h</td>
+                            <td><span class="status-badge-enhanced ${statusClass}">${esc(statusLabel)}</span></td>
+                            <td>${request?.requestedAt ? formatDateTime(request.requestedAt) : '-'}</td>
+                        </tr>
+                    `;
+                }).join('') || '<tr><td colspan="4" class="attendance-note">No time-off requests yet.</td></tr>';
+            }
 
             const historyBody = document.getElementById('attendanceMyHistoryBody');
             if (historyBody) {
