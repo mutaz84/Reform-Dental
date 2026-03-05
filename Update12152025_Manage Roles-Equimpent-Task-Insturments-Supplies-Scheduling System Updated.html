@@ -7645,12 +7645,28 @@
             padding: 0.28rem 0.55rem;
             font-size: 0.75rem;
         }
+        .attendance-timeoff-manager-actions {
+            display: flex;
+            gap: 0.45rem;
+            margin-top: 0.65rem;
+        }
+        .attendance-timeoff-manager-actions .btn-primary,
+        .attendance-timeoff-manager-actions .btn-secondary {
+            min-height: 34px;
+            padding: 0.24rem 0.65rem;
+            border-radius: 8px;
+            font-size: 0.76rem;
+            font-weight: 700;
+        }
         @media (max-width: 760px) {
             .attendance-timeoff-panel {
                 max-width: 100%;
             }
             .attendance-timeoff-request-head {
                 flex-direction: row;
+            }
+            .attendance-timeoff-manager-actions {
+                flex-wrap: wrap;
             }
         }
         .attendance-timeoff-calendar-head {
@@ -18017,7 +18033,7 @@
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="detailed" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','detailed');}">Manage Punches</button>
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="audit" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','audit');}">Absence Audit</button>
                                 <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="policy" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','policy');}">Flex &amp; PTO</button>
-                                <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="queue" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','queue');}">PTO Queue</button>
+                                <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="manager" data-attendance-tab="managetimeoff" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('manager','managetimeoff');}">Manage Time Off</button>
                             </div>
 
                             <div class="attendance-grid" style="margin-top:0;">
@@ -18225,22 +18241,37 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="attendance-card" data-attendance-manager-panel="queue" style="padding:0.7rem;">
-                                    <h3 style="font-size:0.88rem;"><i class="fas fa-hourglass-half"></i> PTO Approval Queue</h3>
-                                    <div class="attendance-table-wrap" style="max-height:220px;">
-                                        <table class="attendance-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>Employee</th>
-                                                    <th>Dates</th>
-                                                    <th>Hours</th>
-                                                    <th>Reason</th>
-                                                    <th>Action</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="attendancePtoQueueBody"></tbody>
-                                        </table>
+                                <div class="attendance-card attendance-manager-overview" data-attendance-manager-panel="managetimeoff" style="padding:0.7rem;">
+                                    <div class="attendance-manager-head" style="margin-bottom:0.6rem;">
+                                        <div>
+                                            <h3 class="attendance-manager-title"><i class="fas fa-hourglass-half"></i> Manage Time Off</h3>
+                                            <div class="attendance-manager-subtitle">Review employee requests and approve or deny from the same Time Off request stream.</div>
+                                        </div>
                                     </div>
+                                    <div class="attendance-stat-grid" style="margin-bottom:0.6rem;">
+                                        <div class="attendance-stat">
+                                            <div class="attendance-stat-label">Total Requests</div>
+                                            <div class="attendance-stat-value" id="attendanceManageTimeoffTotal">0</div>
+                                        </div>
+                                        <div class="attendance-stat">
+                                            <div class="attendance-stat-label">Pending</div>
+                                            <div class="attendance-stat-value" id="attendanceManageTimeoffPending">0</div>
+                                        </div>
+                                        <div class="attendance-stat">
+                                            <div class="attendance-stat-label">Approved</div>
+                                            <div class="attendance-stat-value" id="attendanceManageTimeoffApproved">0</div>
+                                        </div>
+                                    </div>
+                                    <div class="attendance-manager-filter" style="margin-bottom:0.65rem; max-width:220px;">
+                                        <label class="attendance-manager-filter-label"><i class="fas fa-filter"></i>Status</label>
+                                        <select id="attendanceManageTimeoffStatusFilter" onchange="if(window.refreshAttendanceView){window.refreshAttendanceView();}">
+                                            <option value="pending">Pending</option>
+                                            <option value="all">All</option>
+                                            <option value="approved">Approved</option>
+                                            <option value="denied">Denied</option>
+                                        </select>
+                                    </div>
+                                    <div id="attendanceManageTimeoffCards" class="attendance-timeoff-request-cards"></div>
                                 </div>
                             </div>
                         </div>
@@ -79965,7 +79996,7 @@ console.log('✅ Global functions exported to window object');
             if (!value) return;
 
             if (normalizedMode === 'manager') {
-                const allowedManagerTabs = new Set(['overview', 'detailed', 'audit', 'policy', 'queue']);
+                const allowedManagerTabs = new Set(['overview', 'detailed', 'audit', 'policy', 'managetimeoff']);
                 window.__attendanceManagerTab = allowedManagerTabs.has(value) ? value : 'overview';
             } else {
                 window.__attendanceEmployeeTab = value;
@@ -80067,7 +80098,7 @@ console.log('✅ Global functions exported to window object');
             if (managerSection) managerSection.style.display = managerMode ? '' : 'none';
 
             if (!window.__attendanceEmployeeTab) window.__attendanceEmployeeTab = 'clock';
-            if (!window.__attendanceManagerTab || !['overview', 'detailed', 'audit', 'policy', 'queue'].includes(window.__attendanceManagerTab)) {
+            if (!window.__attendanceManagerTab || !['overview', 'detailed', 'audit', 'policy', 'managetimeoff'].includes(window.__attendanceManagerTab)) {
                 window.__attendanceManagerTab = 'overview';
             }
             if (!window.__attendanceTimeoffMonthISO) {
@@ -80336,21 +80367,63 @@ console.log('✅ Global functions exported to window object');
                     overviewSummaryEl.textContent = `${overviewRows.length} overview row(s) • ${employeeLabel} • ${formatDate(managerFilters.dayISO)}`;
                 }
 
-                const queueBody = document.getElementById('attendancePtoQueueBody');
-                if (queueBody) {
-                    const queue = getPtoRequests().filter((request) => request.status === 'pending');
-                    queueBody.innerHTML = queue.map((request) => `
-                        <tr>
-                            <td>${request.employeeName || request.username}</td>
-                            <td>${request.startDate} → ${request.endDate}</td>
-                            <td>${Number(request.hours || 0).toFixed(2)} h</td>
-                            <td title="${String(request.reason || '').replace(/"/g, '&quot;')}">${String(request.reason || '-').slice(0, 30) || '-'}</td>
-                            <td>
-                                <button type="button" class="btn-primary" style="padding:0.2rem 0.35rem;" onclick="window.reviewPtoRequest('${request.id}', true)">Approve</button>
-                                <button type="button" class="btn-secondary" style="padding:0.2rem 0.35rem;" onclick="window.reviewPtoRequest('${request.id}', false)">Deny</button>
-                            </td>
-                        </tr>
-                    `).join('') || '<tr><td colspan="5" class="attendance-note">No PTO requests pending approval.</td></tr>';
+                const allRequests = getPtoRequests();
+                const manageTotalEl = document.getElementById('attendanceManageTimeoffTotal');
+                const managePendingEl = document.getElementById('attendanceManageTimeoffPending');
+                const manageApprovedEl = document.getElementById('attendanceManageTimeoffApproved');
+                if (manageTotalEl) manageTotalEl.textContent = String(allRequests.length);
+                if (managePendingEl) managePendingEl.textContent = String(allRequests.filter((r) => String(r?.status || '').toLowerCase() === 'pending').length);
+                if (manageApprovedEl) manageApprovedEl.textContent = String(allRequests.filter((r) => String(r?.status || '').toLowerCase() === 'approved').length);
+
+                const manageCardsEl = document.getElementById('attendanceManageTimeoffCards');
+                if (manageCardsEl) {
+                    const esc = (typeof escapeHtml === 'function') ? escapeHtml : (v) => String(v ?? '');
+                    const filterValue = String(document.getElementById('attendanceManageTimeoffStatusFilter')?.value || 'pending').toLowerCase();
+                    const rows = [...allRequests]
+                        .sort((a, b) => {
+                            const aTs = new Date(a?.requestedAt || a?.createdAt || a?.updatedAt || 0).getTime() || 0;
+                            const bTs = new Date(b?.requestedAt || b?.createdAt || b?.updatedAt || 0).getTime() || 0;
+                            return bTs - aTs;
+                        })
+                        .filter((request) => {
+                            if (filterValue === 'all') return true;
+                            const normalized = String(request?.status || '').trim().toLowerCase();
+                            if (filterValue === 'denied') return normalized === 'denied' || normalized === 'rejected';
+                            return normalized === filterValue;
+                        })
+                        .slice(0, 40);
+
+                    manageCardsEl.innerHTML = rows.map((request) => {
+                        const statusLabel = String(request?.status || 'pending').trim() || 'pending';
+                        const statusClass = getPtoRequestStatusBadgeClass(statusLabel);
+                        const startDate = String(request?.startDate || '').trim();
+                        const endDate = String(request?.endDate || '').trim();
+                        const dateLabel = startDate && endDate && startDate !== endDate
+                            ? `${formatDate(startDate)} - ${formatDate(endDate)}`
+                            : (startDate ? formatDate(startDate) : '-');
+                        const titleText = String(request?.requestType || request?.policyName || '').trim() || 'Time Off Request';
+                        const reasonText = String(request?.reason || '').trim();
+                        const employeeLabel = String(request?.employeeName || request?.username || 'Employee').trim() || 'Employee';
+                        const hourCount = Number(request?.hours || 0);
+                        const hoursLabel = Number.isInteger(hourCount) ? String(hourCount) : hourCount.toFixed(2);
+                        const submittedAt = request?.requestedAt || request?.createdAt || request?.updatedAt || '';
+                        const actionButtons = String(statusLabel).toLowerCase() === 'pending'
+                            ? `<div class="attendance-timeoff-manager-actions"><button type="button" class="btn-primary" onclick="window.reviewPtoRequest('${esc(request.id)}', true)">Approve</button><button type="button" class="btn-secondary" onclick="window.reviewPtoRequest('${esc(request.id)}', false)">Deny</button></div>`
+                            : '';
+
+                        return `
+                            <article class="attendance-timeoff-request-card">
+                                <div class="attendance-timeoff-request-head">
+                                    <h5 class="attendance-timeoff-request-title">${esc(titleText)} - ${esc(employeeLabel)}</h5>
+                                    <span class="status-badge-enhanced ${statusClass}">${esc(statusLabel)}</span>
+                                </div>
+                                ${reasonText ? `<p class="attendance-timeoff-request-meta">${esc(reasonText)}</p>` : ''}
+                                <p class="attendance-timeoff-request-meta">${esc(dateLabel)} (${esc(hoursLabel)} Hours)</p>
+                                <p class="attendance-timeoff-request-meta">Submitted On: ${submittedAt ? formatDate(submittedAt) : '-'}</p>
+                                ${actionButtons}
+                            </article>
+                        `;
+                    }).join('') || '<article class="attendance-timeoff-request-card"><p class="attendance-timeoff-request-meta">No time-off requests for the selected status.</p></article>';
                 }
             }
 
