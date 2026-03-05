@@ -77703,7 +77703,7 @@ console.log('✅ Global functions exported to window object');
         }
 
         function getAttendanceOverviewExportContext() {
-            const rows = Array.isArray(window.__attendanceManagerDailyReportRows) ? window.__attendanceManagerDailyReportRows : [];
+            const rows = Array.isArray(window.__attendanceManagerOverviewRows) ? window.__attendanceManagerOverviewRows : [];
             const today = toISODate(new Date());
             return { rows, today };
         }
@@ -79105,6 +79105,66 @@ console.log('✅ Global functions exported to window object');
             return list.sort((a, b) => Number(b.sortTime || 0) - Number(a.sortTime || 0));
         }
 
+        function buildAttendanceOverviewRows(records, dayISO, options = {}) {
+            const targetDay = String(dayISO || '').trim();
+            if (!targetDay) return [];
+
+            const scheduleMap = options.scheduleMap || getScheduleForDate(parseISODateLocal(targetDay));
+            const selectedClinicKey = normalizeClinicForCompare(options.selectedClinicKey || options.selectedClinic || '');
+            const selectedEmployee = String(options.selectedEmployee || '').trim();
+            const selectedEmployeeCanonical = selectedEmployee ? (resolveCanonicalUsername(selectedEmployee) || selectedEmployee) : '';
+
+            const scheduledEmployees = Object.values(scheduleMap || {}).filter((entry) => {
+                if (!entry) return false;
+                const username = String(entry.username || '').trim();
+                if (!username) return false;
+                if (selectedEmployeeCanonical && username !== selectedEmployeeCanonical) return false;
+                const clinic = String(entry.clinic || '').trim();
+                if (selectedClinicKey && !clinicMatchesFilter(clinic, selectedClinicKey)) return false;
+                return true;
+            });
+
+            const rows = scheduledEmployees.map((scheduled) => {
+                const username = String(scheduled.username || '').trim();
+                const identityCandidates = getAttendanceIdentityCandidates(username);
+
+                const employeeRecords = (Array.isArray(records) ? records : [])
+                    .filter((record) => {
+                        if (!record) return false;
+                        const businessDateISO = getRecordBusinessDateISO(record, '');
+                        if (businessDateISO !== targetDay) return false;
+                        if (!record.clockIn && !record.clockOut) return false;
+                        return recordMatchesIdentityCandidates(record, identityCandidates);
+                    })
+                    .sort((a, b) => {
+                        const aTs = Math.max(new Date(a?.clockOut || 0).getTime() || 0, new Date(a?.clockIn || 0).getTime() || 0, new Date(a?.date || 0).getTime() || 0);
+                        const bTs = Math.max(new Date(b?.clockOut || 0).getTime() || 0, new Date(b?.clockIn || 0).getTime() || 0, new Date(b?.date || 0).getTime() || 0);
+                        return bTs - aTs;
+                    });
+
+                const latest = employeeRecords[0] || null;
+                const latestReason = normalizeClockOutReason(latest?.clockOutReason);
+                let status = 'Absence';
+                if (latest?.clockIn && !latest?.clockOut) {
+                    status = 'Clocked In';
+                } else if (latest?.clockOut) {
+                    if (latestReason === 'lunch') status = 'At Lunch';
+                    else if (latestReason === 'break') status = 'At Break';
+                    else status = 'At Home';
+                }
+
+                return {
+                    employee: String(scheduled.displayName || username).trim() || username,
+                    employeeClinic: String(scheduled.clinic || '').trim() || '-',
+                    date: targetDay,
+                    status,
+                    sortKey: String(scheduled.displayName || username).trim().toLowerCase()
+                };
+            });
+
+            return rows.sort((a, b) => String(a.sortKey || '').localeCompare(String(b.sortKey || '')));
+        }
+
         function toLocalDateTimeInputValue(isoValue) {
             if (!isoValue) return '';
             const dateObj = new Date(isoValue);
@@ -79770,19 +79830,25 @@ console.log('✅ Global functions exported to window object');
                     `).join('') || '<tr><td colspan="9" class="attendance-note">No attendance activity found for selected filters.</td></tr>';
                 }
 
+                const overviewRows = buildAttendanceOverviewRows(allRecords, managerFilters.dayISO, {
+                    selectedClinic: managerFilters.selectedClinic,
+                    selectedEmployee: managerFilters.selectedEmployee
+                });
+
                 const overviewBody = document.getElementById('attendanceManagerOverviewBody');
                 if (overviewBody) {
-                    overviewBody.innerHTML = reportRows.map((row) => `
+                    overviewBody.innerHTML = overviewRows.map((row) => `
                         <tr>
                             <td>${row.employee || '-'}</td>
                             <td>${row.employeeClinic || '-'}</td>
                             <td>${formatDate(row.date)}</td>
                             <td>${row.status || '-'}</td>
                         </tr>
-                    `).join('') || '<tr><td colspan="4" class="attendance-note">No attendance activity found for selected filters.</td></tr>';
+                    `).join('') || '<tr><td colspan="4" class="attendance-note">No scheduled employees found for selected filters.</td></tr>';
                 }
 
                 window.__attendanceManagerDailyReportRows = reportRows;
+                window.__attendanceManagerOverviewRows = overviewRows;
 
                 const employeeLabel = managerFilters.selectedEmployee
                     ? (getAllEmployees().find((entry) => entry.username === managerFilters.selectedEmployee)?.displayName || managerFilters.selectedEmployee)
@@ -79798,7 +79864,7 @@ console.log('✅ Global functions exported to window object');
 
                 const overviewSummaryEl = document.getElementById('attendanceManagerOverviewSummary');
                 if (overviewSummaryEl) {
-                    overviewSummaryEl.textContent = `${reportRows.length} overview row(s) • ${employeeLabel} • ${dateLabel}`;
+                    overviewSummaryEl.textContent = `${overviewRows.length} overview row(s) • ${employeeLabel} • ${formatDate(managerFilters.dayISO)}`;
                 }
 
                 const queueBody = document.getElementById('attendancePtoQueueBody');
