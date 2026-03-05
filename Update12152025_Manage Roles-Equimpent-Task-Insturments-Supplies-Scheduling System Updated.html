@@ -80509,6 +80509,10 @@ console.log('✅ Global functions exported to window object');
 
                 const selectedClinicKey = managerFilters.selectedClinicKey || getSelectedAttendanceClinicKey();
                 const managerScheduleMap = getScheduleForDate(parseISODateLocal(managerFilters.dayISO));
+                const clinicScopeScheduleMap = {
+                    ...(getScheduleForDate(new Date()) || {}),
+                    ...(managerScheduleMap || {})
+                };
                 const identityCandidates = managerFilters.selectedEmployee
                     ? getAttendanceIdentityCandidates(managerFilters.selectedEmployee)
                     : null;
@@ -80582,7 +80586,7 @@ console.log('✅ Global functions exported to window object');
 
                 const allRequests = getPtoRequests();
                 const clinicScopedRequests = selectedClinicKey
-                    ? allRequests.filter((request) => attendanceIdentityMatchesClinic(request?.username || request?.employeeName, selectedClinicKey, null, request?.employeeClinic))
+                    ? allRequests.filter((request) => attendanceIdentityMatchesClinic(request?.username || request?.employeeName, selectedClinicKey, clinicScopeScheduleMap, request?.employeeClinic))
                     : allRequests;
                 const manageTotalEl = document.getElementById('attendanceManageTimeoffTotal');
                 const managePendingEl = document.getElementById('attendanceManageTimeoffPending');
@@ -80594,7 +80598,7 @@ console.log('✅ Global functions exported to window object');
                 if (manageApprovedEl) manageApprovedEl.textContent = String(clinicScopedRequests.filter((r) => String(r?.status || '').toLowerCase() === 'approved').length);
 
                 const trackedUsers = new Map();
-                const allEmployees = getAttendanceEmployeesScopedToClinic(selectedClinicKey, null)
+                const allEmployees = getAttendanceEmployeesScopedToClinic(selectedClinicKey, clinicScopeScheduleMap)
                     .filter((emp) => String(emp?.username || '').trim() && String(emp?.username || '').trim() !== 'admin');
                 allEmployees.forEach((emp) => {
                     const username = String(emp?.username || '').trim();
