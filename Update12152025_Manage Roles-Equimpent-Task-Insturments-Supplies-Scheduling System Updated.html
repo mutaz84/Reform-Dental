@@ -78528,6 +78528,30 @@ console.log('✅ Global functions exported to window object');
             return Number.isFinite(fallback) ? fallback : 0;
         }
 
+        function getPtoUndeductedApprovedHoursForUser(username) {
+            const target = toIdentityKey(username);
+            if (!target) return 0;
+            const requests = getPtoRequests();
+            return requests.reduce((sum, request) => {
+                const requestUser = toIdentityKey(request?.username);
+                if (!requestUser || requestUser !== target) return sum;
+                const approved = String(request?.status || '').trim().toLowerCase() === 'approved';
+                const consumesPto = request?.usePtoBalance !== false;
+                const alreadyDeducted = request?.ptoDeducted === true;
+                if (!approved || !consumesPto || alreadyDeducted) return sum;
+                const hours = Number(request?.hours || 0);
+                if (!Number.isFinite(hours) || hours <= 0) return sum;
+                return sum + hours;
+            }, 0);
+        }
+
+        function getPtoAvailableForUser(username) {
+            const currentCredit = Number(getPtoCreditForUser(username) || 0);
+            const undeductedApproved = Number(getPtoUndeductedApprovedHoursForUser(username) || 0);
+            const available = currentCredit - undeductedApproved;
+            return Number(Math.max(0, available).toFixed(2));
+        }
+
         function getAttendanceIdentityCandidates(username) {
             const users = getUsersMap();
             const canonical = resolveCanonicalUsername(username);
@@ -79062,9 +79086,9 @@ console.log('✅ Global functions exported to window object');
                 hours = countWeekdayHours(startDate, endDate);
             }
 
-            const balance = getPtoCreditForUser(username);
-            if (usePtoBalance && hours > balance) {
-                if (typeof showNotification === 'function') showNotification(`Time-off request exceeds balance (${balance.toFixed(2)} h available).`, 'error');
+            const availableBalance = getPtoAvailableForUser(username);
+            if (usePtoBalance && hours > availableBalance) {
+                if (typeof showNotification === 'function') showNotification(`Time-off request exceeds balance (${availableBalance.toFixed(2)} h available).`, 'error');
                 return;
             }
 
@@ -79078,6 +79102,7 @@ console.log('✅ Global functions exported to window object');
                 hours: Number(hours.toFixed(2)),
                 reason,
                 usePtoBalance,
+                ptoDeducted: false,
                 status: 'pending',
                 createdAt: new Date().toISOString(),
                 reviewedAt: null,
@@ -79121,13 +79146,16 @@ console.log('✅ Global functions exported to window object');
 
             const consumesPto = request?.usePtoBalance !== false;
             if (approved && consumesPto) {
-                const currentCredit = getPtoCreditForUser(request.username);
-                if (request.hours > currentCredit) {
+                const currentAvailable = getPtoAvailableForUser(request.username);
+                if (request.hours > currentAvailable) {
                     if (typeof showNotification === 'function') showNotification('Insufficient PTO credit to approve this request.', 'error');
                     return;
                 }
+                const currentCredit = getPtoCreditForUser(request.username);
                 persistPtoCreditLocal(request.username, Number((currentCredit - request.hours).toFixed(2)));
+                request.ptoDeducted = true;
             }
+            if (!approved) request.ptoDeducted = false;
 
             request.status = approved ? 'approved' : 'denied';
             request.reviewedAt = new Date().toISOString();
@@ -80135,7 +80163,7 @@ console.log('✅ Global functions exported to window object');
             }
 
             const ptoBalanceEl = document.getElementById('attendancePtoBalance');
-            if (ptoBalanceEl) ptoBalanceEl.textContent = `${getPtoCreditForUser(context.username).toFixed(2)} h`;
+            if (ptoBalanceEl) ptoBalanceEl.textContent = `${getPtoAvailableForUser(context.username).toFixed(2)} h`;
 
             const myRequests = getPtoRequests().filter((request) => request.username === context.username);
             const pendingCount = myRequests.filter((request) => request.status === 'pending').length;
@@ -80149,7 +80177,7 @@ console.log('✅ Global functions exported to window object');
                 .sort((a, b) => String(a?.startDate || '').localeCompare(String(b?.startDate || '')))[0] || null;
 
             const timeoffBalanceEl = document.getElementById('attendanceTimeoffBalance');
-            if (timeoffBalanceEl) timeoffBalanceEl.textContent = `${getPtoCreditForUser(context.username).toFixed(2)} h`;
+            if (timeoffBalanceEl) timeoffBalanceEl.textContent = `${getPtoAvailableForUser(context.username).toFixed(2)} h`;
 
             const timeoffPendingEl = document.getElementById('attendanceTimeoffPending');
             if (timeoffPendingEl) timeoffPendingEl.textContent = String(pendingCount);
@@ -80386,7 +80414,7 @@ console.log('✅ Global functions exported to window object');
                 const trackedRows = [...trackedUsers.entries()].map(([username, label]) => ({
                     username,
                     label,
-                    balance: getPtoCreditForUser(username)
+                    balance: getPtoAvailableForUser(username)
                 })).sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')));
                 const trackedTotalBalance = trackedRows.reduce((sum, row) => sum + Number(row?.balance || 0), 0);
                 if (manageBalanceEl) manageBalanceEl.textContent = `${trackedTotalBalance.toFixed(2)} h`;
@@ -80431,7 +80459,7 @@ console.log('✅ Global functions exported to window object');
                         const employeeLabel = String(request?.employeeName || request?.username || 'Employee').trim() || 'Employee';
                         const hourCount = Number(request?.hours || 0);
                         const hoursLabel = Number.isInteger(hourCount) ? String(hourCount) : hourCount.toFixed(2);
-                        const availableBalance = getPtoCreditForUser(request.username);
+                        const availableBalance = getPtoAvailableForUser(request.username);
                         const submittedAt = request?.requestedAt || request?.createdAt || request?.updatedAt || '';
                         const actionButtons = String(statusLabel).toLowerCase() === 'pending'
                             ? `<div class="attendance-timeoff-manager-actions"><button type="button" class="btn-primary" onclick="window.reviewPtoRequest('${esc(request.id)}', true)">Approve</button><button type="button" class="btn-secondary" onclick="window.reviewPtoRequest('${esc(request.id)}', false)">Deny</button></div>`
