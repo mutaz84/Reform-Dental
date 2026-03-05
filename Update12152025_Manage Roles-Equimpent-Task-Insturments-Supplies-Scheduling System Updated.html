@@ -17730,6 +17730,7 @@
                                                     <th>Clock-out Reason</th>
                                                     <th>Hours Worked</th>
                                                     <th>Status</th>
+                                                    <th>Actions</th>
                                                 </tr>
                                             </thead>
                                             <tbody id="attendanceManagerTodayBody"></tbody>
@@ -77427,6 +77428,9 @@ console.log('✅ Global functions exported to window object');
                         clockOutReason,
                         minutesWorked: normalizedMinutesWorked,
                         status,
+                        __sourceRecordId: String(row.id || ''),
+                        __sourceDbId: String(row.dbId || ''),
+                        __sourceUsername: String(row.username || '').trim(),
                         __recordKey: recordKey,
                         __dedupeKey: dedupeKey,
                         __reasonPriority: rowReasonPriority(row),
@@ -78792,6 +78796,243 @@ console.log('✅ Global functions exported to window object');
             return list.sort((a, b) => Number(b.sortTime || 0) - Number(a.sortTime || 0));
         }
 
+        function toLocalDateTimeInputValue(isoValue) {
+            if (!isoValue) return '';
+            const dateObj = new Date(isoValue);
+            if (Number.isNaN(dateObj.getTime())) return '';
+            const y = dateObj.getFullYear();
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            const hh = String(dateObj.getHours()).padStart(2, '0');
+            const mm = String(dateObj.getMinutes()).padStart(2, '0');
+            return `${y}-${m}-${d}T${hh}:${mm}`;
+        }
+
+        function parseAttendanceManagerDateTimeInput(rawValue) {
+            const raw = String(rawValue || '').trim();
+            if (!raw) return null;
+            const normalized = raw.replace(/\s+/, 'T');
+            const parsed = new Date(normalized);
+            if (Number.isNaN(parsed.getTime())) return null;
+            return parsed.toISOString();
+        }
+
+        function computeWorkedMinutesFromClockTimes(clockIn, clockOut) {
+            if (!clockIn || !clockOut) return 0;
+            const inMs = new Date(clockIn).getTime();
+            const outMs = new Date(clockOut).getTime();
+            if (!Number.isFinite(inMs) || !Number.isFinite(outMs) || outMs <= inMs) return 0;
+            return Math.max(0, Math.round((outMs - inMs) / 60000));
+        }
+
+        function recomputeAttendanceFlagsForRecord(record) {
+            const flags = [];
+            if (!record?.clockIn) return flags;
+
+            const canonicalUsername = resolveCanonicalUsername(record.username) || String(record.username || '').trim();
+            const businessDateISO = getRecordBusinessDateISO(record, toISODateInTimeZone(record.clockIn || record.clockOut || new Date()));
+            const scheduleMap = getScheduleForDate(parseISODateLocal(businessDateISO));
+            const schedule = scheduleMap[canonicalUsername] || scheduleMap[record.username] || null;
+
+            const policies = getPolicies();
+            const policy = policies[canonicalUsername] || policies[record.username] || { allowFlex: false, beforeMins: 0, afterMins: 0 };
+            const beforeLimit = policy.allowFlex ? Number(policy.beforeMins || 0) : 0;
+            const afterLimit = policy.allowFlex ? Number(policy.afterMins || 0) : 0;
+
+            const clockInDate = new Date(record.clockIn);
+            if (!schedule || !schedule.startTime) {
+                flags.push('unscheduled_clock_in');
+            } else if (!Number.isNaN(clockInDate.getTime())) {
+                const plannedStart = parseHMToMinutes(schedule.startTime);
+                const actualStart = timestampMinutes(clockInDate);
+                const startDelta = actualStart - plannedStart;
+                if (startDelta > 0) flags.push('late_to_work');
+                if (startDelta < 0) flags.push('clock_in_before_time');
+                if (startDelta < (beforeLimit * -1)) flags.push('unauthorized_before_clock_in');
+                if (startDelta > afterLimit) flags.push('unauthorized_late_clock_in');
+            }
+
+            if (record.clockOut && schedule && schedule.endTime) {
+                const clockOutDate = new Date(record.clockOut);
+                if (!Number.isNaN(clockOutDate.getTime())) {
+                    const plannedEnd = parseHMToMinutes(schedule.endTime);
+                    const actualEnd = timestampMinutes(clockOutDate);
+                    const endDelta = actualEnd - plannedEnd;
+                    if (endDelta < 0) flags.push('early_clock_out');
+                    if (endDelta > 0) flags.push('delay_clock_out');
+                    if (endDelta < (beforeLimit * -1)) flags.push('unauthorized_early_clock_out');
+                    if (endDelta > afterLimit) flags.push('unauthorized_delay_clock_out');
+                }
+            }
+
+            return Array.from(new Set(flags));
+        }
+
+        async function openAttendanceAdjustmentFromReport(encodedRecordKey) {
+            const context = getCurrentUserContext();
+            if (!isManagerRole(context.role)) {
+                if (typeof showNotification === 'function') showNotification('Only manager roles can adjust attendance records.', 'error');
+                return;
+            }
+
+            let recordKey = '';
+            try {
+                recordKey = decodeURIComponent(String(encodedRecordKey || ''));
+            } catch (_) {
+                recordKey = String(encodedRecordKey || '');
+            }
+            recordKey = String(recordKey || '').trim();
+            if (!recordKey) return;
+
+            const reportRows = Array.isArray(window.__attendanceManagerDailyReportRows) ? window.__attendanceManagerDailyReportRows : [];
+            const reportRow = reportRows.find((row) => String(row?.__recordKey || '') === recordKey);
+            if (!reportRow) {
+                if (typeof showNotification === 'function') showNotification('Unable to locate that attendance row. Refresh and try again.', 'warning');
+                return;
+            }
+
+            const records = getRecords();
+            let record = records.find((entry) => String(entry?.id || '') === String(reportRow.__sourceRecordId || '')) || null;
+            if (!record && reportRow.__sourceDbId) {
+                record = records.find((entry) => String(entry?.dbId || '') === String(reportRow.__sourceDbId || '')) || null;
+            }
+            if (!record) {
+                record = records.find((entry) => {
+                    const sameUser = toIdentityKey(entry?.username) === toIdentityKey(reportRow.__sourceUsername || reportRow.employee);
+                    const sameDate = getRecordBusinessDateISO(entry, '') === String(reportRow.date || '');
+                    const sameIn = normalizeIsoSecond(entry?.clockIn) === normalizeIsoSecond(reportRow.clockIn);
+                    const sameOut = normalizeIsoSecond(entry?.clockOut) === normalizeIsoSecond(reportRow.clockOut);
+                    return sameUser && sameDate && sameIn && sameOut;
+                }) || null;
+            }
+            if (!record) {
+                if (typeof showNotification === 'function') showNotification('Original attendance record was not found.', 'error');
+                return;
+            }
+
+            const employeeLabel = reportRow.employee || record.displayName || record.username || 'Employee';
+            const dateLabel = formatDate(reportRow.date || record.date);
+            const clockInDefault = toLocalDateTimeInputValue(record.clockIn);
+            const clockOutDefault = toLocalDateTimeInputValue(record.clockOut);
+            const currentReason = normalizeClockOutReason(record.clockOutReason) || '';
+
+            const clockInInput = prompt(
+                `${employeeLabel} - ${dateLabel}\nEdit clock-in (YYYY-MM-DDTHH:MM). Leave blank to keep. Type \"clear\" to remove.`,
+                clockInDefault
+            );
+            if (clockInInput === null) return;
+
+            const clockOutInput = prompt(
+                `${employeeLabel} - ${dateLabel}\nEdit clock-out (YYYY-MM-DDTHH:MM). Leave blank to keep. Type \"clear\" to remove.`,
+                clockOutDefault
+            );
+            if (clockOutInput === null) return;
+
+            const reasonInput = prompt(
+                `${employeeLabel} - ${dateLabel}\nClock-out reason: \"leave\" or \"break\". Leave blank to keep. Type \"clear\" to remove.`,
+                currentReason
+            );
+            if (reasonInput === null) return;
+
+            let nextClockIn = record.clockIn || null;
+            let nextClockOut = record.clockOut || null;
+            let nextReason = normalizeClockOutReason(record.clockOutReason) || '';
+
+            const normalizedClockInInput = String(clockInInput || '').trim();
+            if (/^clear$/i.test(normalizedClockInInput)) {
+                nextClockIn = null;
+            } else if (normalizedClockInInput) {
+                const parsedClockIn = parseAttendanceManagerDateTimeInput(normalizedClockInInput);
+                if (!parsedClockIn) {
+                    if (typeof showNotification === 'function') showNotification('Clock-in value is invalid. Use YYYY-MM-DDTHH:MM.', 'error');
+                    return;
+                }
+                nextClockIn = parsedClockIn;
+            }
+
+            const normalizedClockOutInput = String(clockOutInput || '').trim();
+            if (/^clear$/i.test(normalizedClockOutInput)) {
+                nextClockOut = null;
+            } else if (normalizedClockOutInput) {
+                const parsedClockOut = parseAttendanceManagerDateTimeInput(normalizedClockOutInput);
+                if (!parsedClockOut) {
+                    if (typeof showNotification === 'function') showNotification('Clock-out value is invalid. Use YYYY-MM-DDTHH:MM.', 'error');
+                    return;
+                }
+                nextClockOut = parsedClockOut;
+            }
+
+            const normalizedReasonInput = String(reasonInput || '').trim().toLowerCase();
+            if (/^clear$/i.test(normalizedReasonInput)) {
+                nextReason = '';
+            } else if (normalizedReasonInput) {
+                const parsedReason = normalizeClockOutReason(normalizedReasonInput);
+                if (!parsedReason) {
+                    if (typeof showNotification === 'function') showNotification('Clock-out reason must be "leave" or "break".', 'error');
+                    return;
+                }
+                nextReason = parsedReason;
+            }
+
+            if (nextClockOut && !nextClockIn) {
+                if (typeof showNotification === 'function') showNotification('Clock-out cannot exist without a clock-in time.', 'error');
+                return;
+            }
+
+            if (nextClockIn && nextClockOut) {
+                const inMs = new Date(nextClockIn).getTime();
+                const outMs = new Date(nextClockOut).getTime();
+                if (!Number.isFinite(inMs) || !Number.isFinite(outMs) || outMs <= inMs) {
+                    if (typeof showNotification === 'function') showNotification('Clock-out must be later than clock-in.', 'error');
+                    return;
+                }
+            }
+
+            if (!nextClockOut) {
+                nextReason = '';
+            } else if (!nextReason) {
+                nextReason = 'leave';
+            }
+
+            const canonicalUsername = resolveCanonicalUsername(record.username) || String(record.username || '').trim();
+            const businessDate = getRecordBusinessDateISO({
+                ...record,
+                clockIn: nextClockIn,
+                clockOut: nextClockOut
+            }, toISODateInTimeZone(nextClockIn || nextClockOut || new Date()));
+            const scheduleMap = getScheduleForDate(parseISODateLocal(businessDate));
+            const schedule = scheduleMap[canonicalUsername] || scheduleMap[record.username] || null;
+
+            record.clockIn = nextClockIn;
+            record.clockOut = nextClockOut;
+            record.clockOutReason = nextReason || null;
+            record.date = businessDate;
+            record.scheduledStart = schedule?.startTime || record.scheduledStart || null;
+            record.scheduledEnd = schedule?.endTime || record.scheduledEnd || null;
+            record.employeeClinic = resolveClinicForEmployee(canonicalUsername || record.username, schedule) || record.employeeClinic || null;
+            record.minutesWorked = computeWorkedMinutesFromClockTimes(record.clockIn, record.clockOut);
+            record.flags = recomputeAttendanceFlagsForRecord(record);
+
+            updateRecord(record);
+            const synced = await syncRecordImmediately(record);
+
+            addNotification('__managers__', `${context.displayName} adjusted attendance for ${employeeLabel} (${formatDate(record.date)}).`, 'warning');
+            addNotification(record.username, `Your attendance was adjusted by ${context.displayName} for ${formatDate(record.date)}.`, 'info');
+
+            if (typeof showNotification === 'function') {
+                const detail = String(attendanceApiState.lastError || '').trim();
+                const suffix = detail ? ` (${detail.slice(0, 140)})` : '';
+                showNotification(
+                    synced
+                        ? 'Attendance record adjusted and synced to server.'
+                        : `Attendance adjusted locally; server sync will retry.${suffix}`,
+                    synced ? 'success' : 'warning'
+                );
+            }
+
+            refreshAttendanceView();
+        }
+
         function shiftAttendanceManagerDay(offsetDays) {
             const dayInput = document.getElementById('attendanceManagerDay');
             const startInput = document.getElementById('attendanceManagerRangeStart');
@@ -79102,8 +79343,13 @@ console.log('✅ Global functions exported to window object');
                             <td>${row.clockOutReason || '-'}</td>
                             <td>${formatHours(row.minutesWorked || 0)}</td>
                             <td>${row.status || '-'}</td>
+                            <td>
+                                <button type="button" class="btn-secondary" style="padding:0.2rem 0.45rem;" onclick="if(window.openAttendanceAdjustmentFromReport){window.openAttendanceAdjustmentFromReport('${encodeURIComponent(String(row.__recordKey || ''))}');}">
+                                    <i class="fas fa-edit"></i> Adjust
+                                </button>
+                            </td>
                         </tr>
-                    `).join('') || '<tr><td colspan="8" class="attendance-note">No attendance activity found for selected filters.</td></tr>';
+                    `).join('') || '<tr><td colspan="9" class="attendance-note">No attendance activity found for selected filters.</td></tr>';
 
                     window.__attendanceManagerDailyReportRows = reportRows;
 
@@ -79167,6 +79413,7 @@ console.log('✅ Global functions exported to window object');
         window.exportAttendanceDailyReportPDF = exportAttendanceDailyReportPDF;
         window.exportAttendanceAuditReportExcel = exportAttendanceAuditReportExcel;
         window.exportAttendanceAuditReportPDF = exportAttendanceAuditReportPDF;
+        window.openAttendanceAdjustmentFromReport = openAttendanceAdjustmentFromReport;
 
         window.openMyAttendance = function(event) {
             if (event) event.preventDefault();
