@@ -17833,8 +17833,6 @@
                         <div class="attendance-tabs" id="attendanceEmployeeTabs">
                             <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="employee" data-attendance-tab="clock" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('employee','clock');}">Clock</button>
                             <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="employee" data-attendance-tab="timeoff" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('employee','timeoff');}">Time Off</button>
-                            <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="employee" data-attendance-tab="history" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('employee','history');}">History</button>
-                            <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="employee" data-attendance-tab="daily" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('employee','daily');}">Daily Report</button>
                             <button type="button" class="attendance-tab-btn" data-attendance-tab-mode="employee" data-attendance-tab="notifications" onclick="if(window.setAttendanceSubTab){window.setAttendanceSubTab('employee','notifications');}">Notifications</button>
                         </div>
 
@@ -17960,58 +17958,6 @@
                         </div>
 
                         <div class="attendance-grid" style="margin-top:0.95rem;">
-                            <div class="attendance-card attendance-employee-card" data-attendance-employee-panel="history">
-                                <div class="attendance-employee-head">
-                                    <div>
-                                        <h3 class="attendance-employee-title"><i class="fas fa-history"></i> My Attendance History</h3>
-                                        <div class="attendance-employee-subtitle">Review your recorded clock in/out entries and status history.</div>
-                                    </div>
-                                </div>
-                                <div class="attendance-table-wrap">
-                                    <table class="attendance-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Date</th>
-                                                <th>Clock In</th>
-                                                <th>Clock Out</th>
-                                                <th>Worked</th>
-                                                <th>Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="attendanceMyHistoryBody"></tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="attendance-card attendance-employee-card attendance-employee-daily" data-attendance-employee-panel="daily">
-                                <div class="attendance-employee-head" style="margin-bottom:0.5rem;">
-                                    <div>
-                                        <h3 class="attendance-employee-title"><i class="fas fa-file-alt"></i> Daily Timesheet Report</h3>
-                                        <div class="attendance-employee-subtitle">Export your day-by-day hours and status report.</div>
-                                    </div>
-                                    <div class="attendance-btn-row" style="margin-top:0;">
-                                        <button class="btn-secondary" type="button" onclick="if(window.exportAttendanceDailyReportExcel){window.exportAttendanceDailyReportExcel('employee');}">
-                                            <i class="fas fa-file-excel"></i> Export Excel
-                                        </button>
-                                        <button class="btn-secondary" type="button" onclick="if(window.exportAttendanceDailyReportPDF){window.exportAttendanceDailyReportPDF('employee');}">
-                                            <i class="fas fa-file-pdf"></i> Export PDF
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="attendance-table-wrap">
-                                    <table class="attendance-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Date</th>
-                                                <th>Clock In</th>
-                                                <th>Clock Out</th>
-                                                <th>Hours Worked</th>
-                                                <th>Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="attendanceEmployeeDailyReportBody"></tbody>
-                                    </table>
-                                </div>
-                            </div>
                             <div class="attendance-card attendance-employee-card" data-attendance-employee-panel="notifications">
                                 <div class="attendance-employee-head">
                                     <div>
@@ -79966,7 +79912,10 @@ console.log('✅ Global functions exported to window object');
         }
 
         function renderAttendanceSubTabs() {
-            const employeeTab = String(window.__attendanceEmployeeTab || 'clock');
+            const allowedEmployeeTabs = new Set(['clock', 'timeoff', 'notifications']);
+            const rawEmployeeTab = String(window.__attendanceEmployeeTab || 'clock');
+            const employeeTab = allowedEmployeeTabs.has(rawEmployeeTab) ? rawEmployeeTab : 'clock';
+            window.__attendanceEmployeeTab = employeeTab;
             const managerTab = String(window.__attendanceManagerTab || 'overview');
 
             document.querySelectorAll('[data-attendance-employee-panel]').forEach((el) => {
@@ -79999,7 +79948,8 @@ console.log('✅ Global functions exported to window object');
                 const allowedManagerTabs = new Set(['overview', 'detailed', 'audit', 'policy', 'managetimeoff']);
                 window.__attendanceManagerTab = allowedManagerTabs.has(value) ? value : 'overview';
             } else {
-                window.__attendanceEmployeeTab = value;
+                const allowedEmployeeTabs = new Set(['clock', 'timeoff', 'notifications']);
+                window.__attendanceEmployeeTab = allowedEmployeeTabs.has(value) ? value : 'clock';
             }
 
             renderAttendanceSubTabs();
@@ -80097,7 +80047,9 @@ console.log('✅ Global functions exported to window object');
             const managerSection = document.getElementById('attendanceManagerSection');
             if (managerSection) managerSection.style.display = managerMode ? '' : 'none';
 
-            if (!window.__attendanceEmployeeTab) window.__attendanceEmployeeTab = 'clock';
+            if (!window.__attendanceEmployeeTab || !['clock', 'timeoff', 'notifications'].includes(window.__attendanceEmployeeTab)) {
+                window.__attendanceEmployeeTab = 'clock';
+            }
             if (!window.__attendanceManagerTab || !['overview', 'detailed', 'audit', 'policy', 'managetimeoff'].includes(window.__attendanceManagerTab)) {
                 window.__attendanceManagerTab = 'overview';
             }
