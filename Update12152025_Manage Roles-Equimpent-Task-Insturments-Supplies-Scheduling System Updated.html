@@ -76855,6 +76855,16 @@ console.log('✅ Global functions exported to window object');
             });
         }
 
+        function deleteRecordFromApiByDbId(dbId) {
+            const numericId = Number.parseInt(String(dbId || ''), 10);
+            if (!Number.isInteger(numericId)) {
+                return Promise.reject(new Error('Missing dbId for attendance DELETE'));
+            }
+            return attendanceApiRequest(`${ATTENDANCE_API.records}/${numericId}`, {
+                method: 'DELETE'
+            });
+        }
+
         function waitMs(ms) {
             return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))));
         }
@@ -79033,6 +79043,89 @@ console.log('✅ Global functions exported to window object');
             refreshAttendanceView();
         }
 
+        async function deleteAttendanceRecordFromReport(encodedRecordKey) {
+            const context = getCurrentUserContext();
+            if (!isManagerRole(context.role)) {
+                if (typeof showNotification === 'function') showNotification('Only manager roles can delete attendance records.', 'error');
+                return;
+            }
+
+            let recordKey = '';
+            try {
+                recordKey = decodeURIComponent(String(encodedRecordKey || ''));
+            } catch (_) {
+                recordKey = String(encodedRecordKey || '');
+            }
+            recordKey = String(recordKey || '').trim();
+            if (!recordKey) return;
+
+            const reportRows = Array.isArray(window.__attendanceManagerDailyReportRows) ? window.__attendanceManagerDailyReportRows : [];
+            const reportRow = reportRows.find((row) => String(row?.__recordKey || '') === recordKey);
+            if (!reportRow) {
+                if (typeof showNotification === 'function') showNotification('Unable to locate that attendance row. Refresh and try again.', 'warning');
+                return;
+            }
+
+            const records = getRecords();
+            let record = records.find((entry) => String(entry?.id || '') === String(reportRow.__sourceRecordId || '')) || null;
+            if (!record && reportRow.__sourceDbId) {
+                record = records.find((entry) => String(entry?.dbId || '') === String(reportRow.__sourceDbId || '')) || null;
+            }
+            if (!record) {
+                record = records.find((entry) => {
+                    const sameUser = toIdentityKey(entry?.username) === toIdentityKey(reportRow.__sourceUsername || reportRow.employee);
+                    const sameDate = getRecordBusinessDateISO(entry, '') === String(reportRow.date || '');
+                    const sameIn = normalizeIsoSecond(entry?.clockIn) === normalizeIsoSecond(reportRow.clockIn);
+                    const sameOut = normalizeIsoSecond(entry?.clockOut) === normalizeIsoSecond(reportRow.clockOut);
+                    return sameUser && sameDate && sameIn && sameOut;
+                }) || null;
+            }
+            if (!record) {
+                if (typeof showNotification === 'function') showNotification('Original attendance record was not found.', 'error');
+                return;
+            }
+
+            const employeeLabel = reportRow.employee || record.displayName || record.username || 'Employee';
+            const dateLabel = formatDate(reportRow.date || record.date);
+            const confirmDelete = confirm(`Delete attendance record for ${employeeLabel} on ${dateLabel}? This cannot be undone.`);
+            if (!confirmDelete) return;
+
+            let apiDeleted = false;
+            const dbId = Number.parseInt(String(record?.dbId || ''), 10);
+            if (Number.isInteger(dbId)) {
+                try {
+                    await deleteRecordFromApiByDbId(dbId);
+                    apiDeleted = true;
+                } catch (error) {
+                    attendanceApiState.available = false;
+                    attendanceApiState.lastError = String(error?.message || error || 'Attendance API delete failed');
+                }
+            }
+
+            const remainingRecords = records.filter((entry) => String(entry?.id || '') !== String(record.id || ''));
+            saveRecords(remainingRecords);
+
+            const pendingQueue = getPendingRecordSyncQueue().filter((entry) => String(entry?.id || '') !== String(record.id || ''));
+            savePendingRecordSyncQueue(pendingQueue);
+
+            clearActiveClockRecordForContext({ username: record.username, rawUsername: record.username, displayName: record.displayName, user: {} }, record.id);
+
+            addNotification('__managers__', `${context.displayName} deleted attendance for ${employeeLabel} (${dateLabel}).`, 'warning');
+
+            if (typeof showNotification === 'function') {
+                const detail = String(attendanceApiState.lastError || '').trim();
+                const suffix = detail ? ` (${detail.slice(0, 140)})` : '';
+                showNotification(
+                    apiDeleted || !Number.isInteger(dbId)
+                        ? 'Attendance record deleted.'
+                        : `Attendance deleted locally; server delete failed.${suffix}`,
+                    apiDeleted || !Number.isInteger(dbId) ? 'success' : 'warning'
+                );
+            }
+
+            refreshAttendanceView();
+        }
+
         function shiftAttendanceManagerDay(offsetDays) {
             const dayInput = document.getElementById('attendanceManagerDay');
             const startInput = document.getElementById('attendanceManagerRangeStart');
@@ -79347,6 +79440,9 @@ console.log('✅ Global functions exported to window object');
                                 <button type="button" class="btn-secondary" style="padding:0.2rem 0.45rem;" onclick="if(window.openAttendanceAdjustmentFromReport){window.openAttendanceAdjustmentFromReport('${encodeURIComponent(String(row.__recordKey || ''))}');}">
                                     <i class="fas fa-edit"></i> Adjust
                                 </button>
+                                <button type="button" class="btn-secondary" style="padding:0.2rem 0.45rem; margin-left:0.25rem; color:#dc2626; border-color:#dc262655;" onclick="if(window.deleteAttendanceRecordFromReport){window.deleteAttendanceRecordFromReport('${encodeURIComponent(String(row.__recordKey || ''))}');}">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
                             </td>
                         </tr>
                     `).join('') || '<tr><td colspan="9" class="attendance-note">No attendance activity found for selected filters.</td></tr>';
@@ -79414,6 +79510,7 @@ console.log('✅ Global functions exported to window object');
         window.exportAttendanceAuditReportExcel = exportAttendanceAuditReportExcel;
         window.exportAttendanceAuditReportPDF = exportAttendanceAuditReportPDF;
         window.openAttendanceAdjustmentFromReport = openAttendanceAdjustmentFromReport;
+        window.deleteAttendanceRecordFromReport = deleteAttendanceRecordFromReport;
 
         window.openMyAttendance = function(event) {
             if (event) event.preventDefault();
