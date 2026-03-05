@@ -77867,6 +77867,32 @@ console.log('✅ Global functions exported to window object');
             return normalizeClinicForCompare(clinicValue) === selectedClinicKey;
         }
 
+        function getSelectedAttendanceClinicKey() {
+            const selectedClinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
+            return normalizeClinicForCompare(selectedClinicMeta?.selectedClinicName || getSelectedAttendanceClinicFilter());
+        }
+
+        function getAttendanceEmployeesScopedToClinic(selectedClinicKey, scheduleMap = {}) {
+            const employees = getAllEmployees().filter((emp) => emp.username !== 'admin' && emp.isActive !== false);
+            if (!selectedClinicKey) return employees;
+            return employees.filter((emp) => {
+                const username = String(emp?.username || '').trim();
+                if (!username) return false;
+                const canonical = resolveCanonicalUsername(username) || username;
+                const schedule = scheduleMap[canonical] || scheduleMap[username] || null;
+                const clinic = resolveClinicForEmployee(canonical, schedule);
+                return clinicMatchesFilter(clinic, selectedClinicKey);
+            });
+        }
+
+        function attendanceIdentityMatchesClinic(username, selectedClinicKey, scheduleMap = {}, fallbackClinic = '') {
+            if (!selectedClinicKey) return true;
+            const canonical = resolveCanonicalUsername(username) || String(username || '').trim();
+            const schedule = scheduleMap[canonical] || scheduleMap[username] || null;
+            const clinic = String(fallbackClinic || '').trim() || resolveClinicForEmployee(canonical, schedule);
+            return clinicMatchesFilter(clinic, selectedClinicKey);
+        }
+
         function normalizeClockOutReason(value) {
             const raw = String(value || '').trim().toLowerCase();
             if (raw === 'break' || raw === 'clock out for break') return 'break';
@@ -79247,7 +79273,9 @@ console.log('✅ Global functions exported to window object');
         }
 
         function populateManagerEmployeeSelectors() {
-            const employees = getAllEmployees().filter((emp) => emp.username !== 'admin' && emp.isActive !== false);
+            const selectedClinicKey = getSelectedAttendanceClinicKey();
+            const scheduleMap = getScheduleForDate(new Date());
+            const employees = getAttendanceEmployeesScopedToClinic(selectedClinicKey, scheduleMap);
             const ids = ['attendancePolicyUser', 'attendanceHoursEmployee'];
 
             ids.forEach((id) => {
@@ -79338,7 +79366,9 @@ console.log('✅ Global functions exported to window object');
             const select = document.getElementById('attendanceManagerEmployee');
             if (!select) return;
 
-            const employees = getAllEmployees().filter((emp) => emp.username !== 'admin' && emp.isActive !== false);
+            const selectedClinicKey = getSelectedAttendanceClinicKey();
+            const scheduleMap = getScheduleForDate(new Date());
+            const employees = getAttendanceEmployeesScopedToClinic(selectedClinicKey, scheduleMap);
             const current = String(select.value || '').trim();
             const options = ['<option value="">All Employees</option>'];
             employees.forEach((employee) => {
@@ -79355,7 +79385,9 @@ console.log('✅ Global functions exported to window object');
             const select = document.getElementById('attendanceAuditEmployee');
             if (!select) return;
 
-            const employees = getAllEmployees().filter((emp) => emp.username !== 'admin' && emp.isActive !== false);
+            const selectedClinicKey = getSelectedAttendanceClinicKey();
+            const scheduleMap = getScheduleForDate(new Date());
+            const employees = getAttendanceEmployeesScopedToClinic(selectedClinicKey, scheduleMap);
             const current = String(select.value || '').trim();
             const options = ['<option value="">All Employees</option>'];
             employees.forEach((employee) => {
@@ -79393,7 +79425,9 @@ console.log('✅ Global functions exported to window object');
             }
 
             const selectedEmployee = String(employeeInput?.value || '').trim();
-            return { dayISO: startISO, startISO, endISO, selectedEmployee };
+            const selectedClinic = getSelectedAttendanceClinicFilter();
+            const selectedClinicKey = getSelectedAttendanceClinicKey();
+            return { dayISO: startISO, startISO, endISO, selectedEmployee, selectedClinic, selectedClinicKey };
         }
 
         function getAttendanceAuditReportFilters() {
@@ -80315,8 +80349,7 @@ console.log('✅ Global functions exported to window object');
 
                 const managerFilters = getAttendanceManagerReportFilters();
 
-                const selectedClinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
-                const selectedClinicKey = normalizeClinicForCompare(selectedClinicMeta?.selectedClinicName || getSelectedAttendanceClinicFilter());
+                const selectedClinicKey = managerFilters.selectedClinicKey || getSelectedAttendanceClinicKey();
                 const managerScheduleMap = getScheduleForDate(parseISODateLocal(managerFilters.dayISO));
                 const identityCandidates = managerFilters.selectedEmployee
                     ? getAttendanceIdentityCandidates(managerFilters.selectedEmployee)
@@ -80353,7 +80386,7 @@ console.log('✅ Global functions exported to window object');
                 }
 
                 const overviewRows = buildAttendanceOverviewRows(allRecords, managerFilters.dayISO, {
-                    selectedClinic: managerFilters.selectedClinic,
+                    selectedClinicKey,
                     selectedEmployee: managerFilters.selectedEmployee
                 });
 
@@ -80390,24 +80423,28 @@ console.log('✅ Global functions exported to window object');
                 }
 
                 const allRequests = getPtoRequests();
+                const clinicScopedRequests = selectedClinicKey
+                    ? allRequests.filter((request) => attendanceIdentityMatchesClinic(request?.username, selectedClinicKey, managerScheduleMap, request?.employeeClinic))
+                    : allRequests;
                 const manageTotalEl = document.getElementById('attendanceManageTimeoffTotal');
                 const managePendingEl = document.getElementById('attendanceManageTimeoffPending');
                 const manageApprovedEl = document.getElementById('attendanceManageTimeoffApproved');
                 const manageBalanceEl = document.getElementById('attendanceManageTimeoffBalance');
                 const manageBalancesListEl = document.getElementById('attendanceManageTimeoffBalances');
-                if (manageTotalEl) manageTotalEl.textContent = String(allRequests.length);
-                if (managePendingEl) managePendingEl.textContent = String(allRequests.filter((r) => String(r?.status || '').toLowerCase() === 'pending').length);
-                if (manageApprovedEl) manageApprovedEl.textContent = String(allRequests.filter((r) => String(r?.status || '').toLowerCase() === 'approved').length);
+                if (manageTotalEl) manageTotalEl.textContent = String(clinicScopedRequests.length);
+                if (managePendingEl) managePendingEl.textContent = String(clinicScopedRequests.filter((r) => String(r?.status || '').toLowerCase() === 'pending').length);
+                if (manageApprovedEl) manageApprovedEl.textContent = String(clinicScopedRequests.filter((r) => String(r?.status || '').toLowerCase() === 'approved').length);
 
                 const trackedUsers = new Map();
-                const allEmployees = getAllEmployees().filter((emp) => emp?.isActive !== false && String(emp?.username || '').trim() && String(emp?.username || '').trim() !== 'admin');
+                const allEmployees = getAttendanceEmployeesScopedToClinic(selectedClinicKey, managerScheduleMap)
+                    .filter((emp) => String(emp?.username || '').trim() && String(emp?.username || '').trim() !== 'admin');
                 allEmployees.forEach((emp) => {
                     const username = String(emp?.username || '').trim();
                     if (!username) return;
                     const label = String(emp?.displayName || username).trim() || username;
                     trackedUsers.set(username, label);
                 });
-                allRequests.forEach((request) => {
+                clinicScopedRequests.forEach((request) => {
                     const username = String(request?.username || '').trim();
                     if (!username || trackedUsers.has(username)) return;
                     const label = String(request?.employeeName || username).trim() || username;
@@ -80433,7 +80470,7 @@ console.log('✅ Global functions exported to window object');
                 if (manageCardsEl) {
                     const esc = (typeof escapeHtml === 'function') ? escapeHtml : (v) => String(v ?? '');
                     const filterValue = String(document.getElementById('attendanceManageTimeoffStatusFilter')?.value || 'pending').toLowerCase();
-                    const rows = [...allRequests]
+                    const rows = [...clinicScopedRequests]
                         .sort((a, b) => {
                             const aTs = new Date(a?.requestedAt || a?.createdAt || a?.updatedAt || 0).getTime() || 0;
                             const bTs = new Date(b?.requestedAt || b?.createdAt || b?.updatedAt || 0).getTime() || 0;
