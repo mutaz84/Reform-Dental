@@ -7542,6 +7542,11 @@
             overflow: hidden;
             background: var(--bg-secondary);
         }
+        .attendance-timeoff-balance-list .attendance-note {
+            display: block;
+            padding: 0.65rem 0.78rem;
+            color: var(--text-secondary);
+        }
         .attendance-timeoff-balance-item {
             display: flex;
             justify-content: space-between;
@@ -18234,6 +18239,14 @@
                                             <div class="attendance-stat-label">Approved</div>
                                             <div class="attendance-stat-value" id="attendanceManageTimeoffApproved">0</div>
                                         </div>
+                                        <div class="attendance-stat">
+                                            <div class="attendance-stat-label">Current Balance (Tracked)</div>
+                                            <div class="attendance-stat-value" id="attendanceManageTimeoffBalance">0.00 h</div>
+                                        </div>
+                                    </div>
+                                    <div class="attendance-manager-summary" style="margin-bottom:0.6rem;">
+                                        <strong>Employee Available Balances</strong>
+                                        <div id="attendanceManageTimeoffBalances" class="attendance-timeoff-balance-list" style="margin-top:0.45rem;"></div>
                                     </div>
                                     <div class="attendance-manager-filter" style="margin-bottom:0.65rem; max-width:220px;">
                                         <label class="attendance-manager-filter-label"><i class="fas fa-filter"></i>Status</label>
@@ -80357,9 +80370,34 @@ console.log('✅ Global functions exported to window object');
                 const manageTotalEl = document.getElementById('attendanceManageTimeoffTotal');
                 const managePendingEl = document.getElementById('attendanceManageTimeoffPending');
                 const manageApprovedEl = document.getElementById('attendanceManageTimeoffApproved');
+                const manageBalanceEl = document.getElementById('attendanceManageTimeoffBalance');
+                const manageBalancesListEl = document.getElementById('attendanceManageTimeoffBalances');
                 if (manageTotalEl) manageTotalEl.textContent = String(allRequests.length);
                 if (managePendingEl) managePendingEl.textContent = String(allRequests.filter((r) => String(r?.status || '').toLowerCase() === 'pending').length);
                 if (manageApprovedEl) manageApprovedEl.textContent = String(allRequests.filter((r) => String(r?.status || '').toLowerCase() === 'approved').length);
+
+                const trackedUsers = new Map();
+                allRequests.forEach((request) => {
+                    const username = String(request?.username || '').trim();
+                    if (!username) return;
+                    const label = String(request?.employeeName || username).trim() || username;
+                    if (!trackedUsers.has(username)) trackedUsers.set(username, label);
+                });
+                const trackedRows = [...trackedUsers.entries()].map(([username, label]) => ({
+                    username,
+                    label,
+                    balance: getPtoCreditForUser(username)
+                })).sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')));
+                const trackedTotalBalance = trackedRows.reduce((sum, row) => sum + Number(row?.balance || 0), 0);
+                if (manageBalanceEl) manageBalanceEl.textContent = `${trackedTotalBalance.toFixed(2)} h`;
+                if (manageBalancesListEl) {
+                    manageBalancesListEl.innerHTML = trackedRows.map((row) => `
+                        <div class="attendance-timeoff-balance-item">
+                            <span>${row.label}</span>
+                            <strong>${Number(row.balance || 0).toFixed(2)} h</strong>
+                        </div>
+                    `).join('') || '<div class="attendance-note">No employee balances to display yet.</div>';
+                }
 
                 const manageCardsEl = document.getElementById('attendanceManageTimeoffCards');
                 if (manageCardsEl) {
@@ -80393,6 +80431,7 @@ console.log('✅ Global functions exported to window object');
                         const employeeLabel = String(request?.employeeName || request?.username || 'Employee').trim() || 'Employee';
                         const hourCount = Number(request?.hours || 0);
                         const hoursLabel = Number.isInteger(hourCount) ? String(hourCount) : hourCount.toFixed(2);
+                        const availableBalance = getPtoCreditForUser(request.username);
                         const submittedAt = request?.requestedAt || request?.createdAt || request?.updatedAt || '';
                         const actionButtons = String(statusLabel).toLowerCase() === 'pending'
                             ? `<div class="attendance-timeoff-manager-actions"><button type="button" class="btn-primary" onclick="window.reviewPtoRequest('${esc(request.id)}', true)">Approve</button><button type="button" class="btn-secondary" onclick="window.reviewPtoRequest('${esc(request.id)}', false)">Deny</button></div>`
@@ -80407,6 +80446,7 @@ console.log('✅ Global functions exported to window object');
                                 ${reasonText ? `<p class="attendance-timeoff-request-meta">${esc(reasonText)}</p>` : ''}
                                 <p class="attendance-timeoff-request-meta">${esc(dateLabel)} (${esc(hoursLabel)} Hours)</p>
                                 <p class="attendance-timeoff-request-meta">PTO Balance: ${usesPtoBalance ? 'Yes' : 'No'}</p>
+                                <p class="attendance-timeoff-request-meta">Available Balance: ${Number(availableBalance || 0).toFixed(2)} h</p>
                                 <p class="attendance-timeoff-request-meta">Submitted On: ${submittedAt ? formatDate(submittedAt) : '-'}</p>
                                 ${actionButtons}
                             </article>
