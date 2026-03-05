@@ -7072,6 +7072,36 @@
         .attendance-btn-row .attendance-pill-btn:hover {
             filter: brightness(0.96);
         }
+        .attendance-clockout-control {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            min-width: 190px;
+        }
+        .attendance-clockout-control i {
+            position: absolute;
+            left: 0.72rem;
+            color: #fff;
+            pointer-events: none;
+            font-size: 0.76rem;
+        }
+        .attendance-clockout-select {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            width: 100%;
+            padding-left: 1.85rem;
+            padding-right: 1.55rem;
+            cursor: pointer;
+        }
+        .attendance-clockout-control::after {
+            content: '\25BE';
+            position: absolute;
+            right: 0.72rem;
+            font-size: 0.62rem;
+            color: #fff;
+            pointer-events: none;
+        }
         .attendance-note {
             font-size: 0.73rem;
             color: var(--text-secondary);
@@ -17557,12 +17587,15 @@
                                     <button class="btn-primary attendance-pill-btn" type="button" onclick="if(window.attendanceClockIn){window.attendanceClockIn();}">
                                         <i class="fas fa-sign-in-alt"></i> Clock In
                                     </button>
-                                    <button class="btn-secondary attendance-pill-btn" type="button" onclick="if(window.attendanceClockOut){window.attendanceClockOut('break');}">
-                                        <i class="fas fa-coffee"></i> Clock Out for Break
-                                    </button>
-                                    <button class="btn-secondary attendance-pill-btn" type="button" onclick="if(window.attendanceClockOut){window.attendanceClockOut('leave');}">
-                                        <i class="fas fa-sign-out-alt"></i> Clock Out &amp; Leave
-                                    </button>
+                                    <div class="attendance-clockout-control">
+                                        <i class="fas fa-sign-out-alt" aria-hidden="true"></i>
+                                        <select class="btn-secondary attendance-pill-btn attendance-clockout-select" aria-label="Clock out reason" onchange="if(this.value && window.attendanceClockOut){window.attendanceClockOut(this.value);} this.selectedIndex = 0;">
+                                            <option value="">Clock Out as...</option>
+                                            <option value="home">Home</option>
+                                            <option value="break">Break</option>
+                                            <option value="lunch">Lunch</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div id="attendanceCurrentFlags" style="margin-top:0.6rem;"></div>
                                 <div class="attendance-employee-summary" style="margin-top:0.55rem; margin-bottom:0;">System compares your clock times to scheduled office hours and manager-approved flexibility.</div>
@@ -77381,14 +77414,18 @@ console.log('✅ Global functions exported to window object');
         function normalizeClockOutReason(value) {
             const raw = String(value || '').trim().toLowerCase();
             if (raw === 'break' || raw === 'clock out for break') return 'break';
-            if (raw === 'leave' || raw === 'clock out and leave' || raw === 'clock out & leave') return 'leave';
+            if (raw === 'lunch' || raw === 'clock out for lunch') return 'lunch';
+            if (raw === 'home' || raw === 'clock out to home') return 'home';
+            // Keep legacy values mapped to the new Home option.
+            if (raw === 'leave' || raw === 'clock out and leave' || raw === 'clock out & leave') return 'home';
             return '';
         }
 
         function getClockOutReasonLabel(value) {
             const key = normalizeClockOutReason(value);
             if (key === 'break') return 'Break';
-            if (key === 'leave') return 'Leave';
+            if (key === 'lunch') return 'Lunch';
+            if (key === 'home') return 'Home';
             return '-';
         }
 
@@ -77407,7 +77444,8 @@ console.log('✅ Global functions exported to window object');
             const rowReasonPriority = (row) => {
                 const reason = normalizeClockOutReason(row?.clockOutReason);
                 if (reason === 'break') return 3;
-                if (reason === 'leave') return 2;
+                if (reason === 'lunch') return 2;
+                if (reason === 'home') return 1;
                 return 1;
             };
 
@@ -77438,7 +77476,10 @@ console.log('✅ Global functions exported to window object');
 
                     let status = 'Not Clocked';
                     if (outMs > 0 && outMs >= inMs) {
-                        status = normalizeClockOutReason(row.clockOutReason) === 'break' ? 'On Break' : 'Clocked Out';
+                        const normalizedReason = normalizeClockOutReason(row.clockOutReason);
+                        if (normalizedReason === 'break') status = 'On Break';
+                        else if (normalizedReason === 'lunch') status = 'At Lunch';
+                        else status = 'Clocked Out';
                     } else if (inMs > 0) {
                         status = 'Clocked In';
                     }
@@ -78144,7 +78185,7 @@ console.log('✅ Global functions exported to window object');
             refreshAttendanceView();
         }
 
-        async function attendanceClockOut(reasonType = 'leave') {
+        async function attendanceClockOut(reasonType = 'home') {
             const context = getCurrentUserContext();
             const { username, displayName } = context;
             if (!username) return;
@@ -78195,7 +78236,7 @@ console.log('✅ Global functions exported to window object');
             }
 
             const workedMinutes = Math.max(0, Math.round((new Date(now).getTime() - new Date(existing.clockIn).getTime()) / 60000));
-            const reasonKey = normalizeClockOutReason(reasonType) || 'leave';
+            const reasonKey = normalizeClockOutReason(reasonType) || 'home';
             existing.clockOut = now.toISOString();
             existing.clockOutReason = reasonKey;
             existing.employeeClinic = existing.employeeClinic || resolveClinicForEmployee(username) || null;
@@ -78955,7 +78996,7 @@ console.log('✅ Global functions exported to window object');
             if (clockOutInput === null) return;
 
             const reasonInput = prompt(
-                `${employeeLabel} - ${dateLabel}\nClock-out reason: \"leave\" or \"break\". Leave blank to keep. Type \"clear\" to remove.`,
+                `${employeeLabel} - ${dateLabel}\nClock-out reason: \"home\", \"break\", or \"lunch\". Leave blank to keep. Type \"clear\" to remove.`,
                 currentReason
             );
             if (reasonInput === null) return;
@@ -78994,7 +79035,7 @@ console.log('✅ Global functions exported to window object');
             } else if (normalizedReasonInput) {
                 const parsedReason = normalizeClockOutReason(normalizedReasonInput);
                 if (!parsedReason) {
-                    if (typeof showNotification === 'function') showNotification('Clock-out reason must be "leave" or "break".', 'error');
+                    if (typeof showNotification === 'function') showNotification('Clock-out reason must be "home", "break", or "lunch".', 'error');
                     return;
                 }
                 nextReason = parsedReason;
@@ -79017,7 +79058,7 @@ console.log('✅ Global functions exported to window object');
             if (!nextClockOut) {
                 nextReason = '';
             } else if (!nextReason) {
-                nextReason = 'leave';
+                nextReason = 'home';
             }
 
             const canonicalUsername = resolveCanonicalUsername(record.username) || String(record.username || '').trim();
