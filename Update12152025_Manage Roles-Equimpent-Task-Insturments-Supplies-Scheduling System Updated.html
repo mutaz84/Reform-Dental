@@ -76522,9 +76522,54 @@ console.log('✅ Global functions exported to window object');
         }
 
         function mapApiRecordToLocal(item) {
+            const extractClockOutReasonFromFlags = (flags) => {
+                if (!Array.isArray(flags)) return '';
+                for (const rawFlag of flags) {
+                    const flag = String(rawFlag || '').trim().toLowerCase();
+                    if (!flag) continue;
+                    const match = flag.match(/^clock[_-]?out[_-]?reason(?:[:_\-])(.+)$/i);
+                    if (match && match[1]) {
+                        const parsed = normalizeClockOutReason(match[1]);
+                        if (parsed) return parsed;
+                    }
+                }
+                return '';
+            };
+
+            const readClockOutReason = (source) => {
+                if (!source || typeof source !== 'object') return '';
+                const candidates = [
+                    source.clockOutReason,
+                    source.ClockOutReason,
+                    source.clockoutReason,
+                    source.clockoutreason,
+                    source.clock_out_reason,
+                    source.clockOutType,
+                    source.ClockOutType,
+                    source.reason,
+                    source.Reason
+                ];
+                for (const candidate of candidates) {
+                    const parsed = normalizeClockOutReason(candidate);
+                    if (parsed) return parsed;
+                }
+                return extractClockOutReasonFromFlags(source.flags);
+            };
+
+            const withClockOutReasonFlag = (flags, reason) => {
+                const next = Array.isArray(flags)
+                    ? flags.filter((flag) => !/^clock[_-]?out[_-]?reason(?:[:_\-]).+/i.test(String(flag || '').trim()))
+                    : [];
+                const normalizedReason = normalizeClockOutReason(reason);
+                if (normalizedReason) next.push(`clock_out_reason_${normalizedReason}`);
+                return Array.from(new Set(next));
+            };
+
             const date = item?.date || item?.workDate || item?.WorkDate || null;
             const username = item?.username || item?.Username || '';
             const fallbackId = item?.id ? `att-db-${item.id}` : `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const normalizedReason = readClockOutReason(item) || null;
+            const normalizedFlags = withClockOutReasonFlag(Array.isArray(item?.flags) ? item.flags : [], normalizedReason);
             return {
                 id: item?.localId || item?.localRecordId || fallbackId,
                 dbId: item?.id || item?.Id || null,
@@ -76535,10 +76580,10 @@ console.log('✅ Global functions exported to window object');
                 scheduledEnd: item?.scheduledEnd || item?.ScheduledEnd || null,
                 clockIn: item?.clockIn || item?.ClockIn || null,
                 clockOut: item?.clockOut || item?.ClockOut || null,
-                clockOutReason: item?.clockOutReason || item?.ClockOutReason || null,
+                clockOutReason: normalizedReason,
                 employeeClinic: item?.employeeClinic || item?.EmployeeClinic || null,
                 minutesWorked: Number(item?.minutesWorked || item?.MinutesWorked || 0) || 0,
-                flags: Array.isArray(item?.flags) ? item.flags : []
+                flags: normalizedFlags
             };
         }
 
@@ -76800,6 +76845,15 @@ console.log('✅ Global functions exported to window object');
         }
 
         function syncRecordToApi(record) {
+            const withClockOutReasonFlag = (flags, reason) => {
+                const next = Array.isArray(flags)
+                    ? flags.filter((flag) => !/^clock[_-]?out[_-]?reason(?:[:_\-]).+/i.test(String(flag || '').trim()))
+                    : [];
+                const normalizedReason = normalizeClockOutReason(reason);
+                if (normalizedReason) next.push(`clock_out_reason_${normalizedReason}`);
+                return Array.from(new Set(next));
+            };
+
             const normalizeTimeForApi = (value) => {
                 if (value === null || value === undefined) return null;
                 const raw = String(value).trim();
@@ -76828,6 +76882,9 @@ console.log('✅ Global functions exported to window object');
 
                 return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
             };
+
+            const normalizedReason = normalizeClockOutReason(record.clockOutReason) || null;
+            const normalizedFlags = withClockOutReasonFlag(Array.isArray(record.flags) ? record.flags : [], normalizedReason);
 
             return attendanceApiRequest(ATTENDANCE_API.records, {
                 method: 'POST',
@@ -76841,10 +76898,11 @@ console.log('✅ Global functions exported to window object');
                     scheduledEnd: normalizeTimeForApi(record.scheduledEnd),
                     clockIn: record.clockIn,
                     clockOut: record.clockOut,
-                    clockOutReason: record.clockOutReason,
+                    clockOutReason: normalizedReason,
+                    ClockOutReason: normalizedReason,
                     employeeClinic: record.employeeClinic,
                     minutesWorked: record.minutesWorked,
-                    flags: Array.isArray(record.flags) ? record.flags : []
+                    flags: normalizedFlags
                 }
             });
         }
@@ -76854,6 +76912,15 @@ console.log('✅ Global functions exported to window object');
             if (!Number.isInteger(dbId)) {
                 return Promise.reject(new Error('Missing dbId for attendance PUT fallback'));
             }
+
+            const withClockOutReasonFlag = (flags, reason) => {
+                const next = Array.isArray(flags)
+                    ? flags.filter((flag) => !/^clock[_-]?out[_-]?reason(?:[:_\-]).+/i.test(String(flag || '').trim()))
+                    : [];
+                const normalizedReason = normalizeClockOutReason(reason);
+                if (normalizedReason) next.push(`clock_out_reason_${normalizedReason}`);
+                return Array.from(new Set(next));
+            };
 
             const normalizeTimeForApi = (value) => {
                 if (value === null || value === undefined) return null;
@@ -76884,6 +76951,9 @@ console.log('✅ Global functions exported to window object');
                 return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
             };
 
+            const normalizedReason = normalizeClockOutReason(record.clockOutReason) || null;
+            const normalizedFlags = withClockOutReasonFlag(Array.isArray(record.flags) ? record.flags : [], normalizedReason);
+
             return attendanceApiRequest(`${ATTENDANCE_API.records}/${dbId}`, {
                 method: 'PUT',
                 body: {
@@ -76896,10 +76966,11 @@ console.log('✅ Global functions exported to window object');
                     scheduledEnd: normalizeTimeForApi(record.scheduledEnd),
                     clockIn: record.clockIn,
                     clockOut: record.clockOut,
-                    clockOutReason: record.clockOutReason,
+                    clockOutReason: normalizedReason,
+                    ClockOutReason: normalizedReason,
                     employeeClinic: record.employeeClinic,
                     minutesWorked: record.minutesWorked,
-                    flags: Array.isArray(record.flags) ? record.flags : []
+                    flags: normalizedFlags
                 }
             });
         }
@@ -76966,6 +77037,37 @@ console.log('✅ Global functions exported to window object');
         }
 
         function isRecordPersistedInApi(localRecord, apiRecord) {
+            const readClockOutReason = (source) => {
+                if (!source || typeof source !== 'object') return '';
+                const fromFields = [
+                    source.clockOutReason,
+                    source.ClockOutReason,
+                    source.clockoutReason,
+                    source.clockoutreason,
+                    source.clock_out_reason,
+                    source.clockOutType,
+                    source.ClockOutType,
+                    source.reason,
+                    source.Reason
+                ];
+                for (const candidate of fromFields) {
+                    const parsed = normalizeClockOutReason(candidate);
+                    if (parsed) return parsed;
+                }
+                if (Array.isArray(source.flags)) {
+                    for (const rawFlag of source.flags) {
+                        const flag = String(rawFlag || '').trim().toLowerCase();
+                        if (!flag) continue;
+                        const match = flag.match(/^clock[_-]?out[_-]?reason(?:[:_\-])(.+)$/i);
+                        if (match && match[1]) {
+                            const parsed = normalizeClockOutReason(match[1]);
+                            if (parsed) return parsed;
+                        }
+                    }
+                }
+                return '';
+            };
+
             if (!localRecord || !apiRecord) return false;
             if (!timestampsCloseEnough(localRecord.clockIn, apiRecord.clockIn, 120000)) return false;
 
@@ -76974,9 +77076,9 @@ console.log('✅ Global functions exported to window object');
                 return false;
             }
 
-            const localReason = normalizeClockOutReason(localRecord.clockOutReason);
+            const localReason = readClockOutReason(localRecord);
             if (localReason) {
-                const apiReason = normalizeClockOutReason(apiRecord.clockOutReason);
+                const apiReason = readClockOutReason(apiRecord);
                 if (apiReason !== localReason) return false;
             }
 
@@ -78224,6 +78326,14 @@ console.log('✅ Global functions exported to window object');
             const afterLimit = policy.allowFlex ? Number(policy.afterMins || 0) : 0;
 
             const flags = Array.isArray(existing.flags) ? [...existing.flags] : [];
+            const withClockOutReasonFlag = (inputFlags, reason) => {
+                const next = Array.isArray(inputFlags)
+                    ? inputFlags.filter((flag) => !/^clock[_-]?out[_-]?reason(?:[:_\-]).+/i.test(String(flag || '').trim()))
+                    : [];
+                const normalizedReason = normalizeClockOutReason(reason);
+                if (normalizedReason) next.push(`clock_out_reason_${normalizedReason}`);
+                return Array.from(new Set(next));
+            };
 
             if (existing.scheduledEnd) {
                 const plannedEnd = parseHMToMinutes(existing.scheduledEnd);
@@ -78242,7 +78352,7 @@ console.log('✅ Global functions exported to window object');
             existing.employeeClinic = existing.employeeClinic || resolveClinicForEmployee(username) || null;
             existing.minutesWorked = workedMinutes;
             existing.displayName = displayName;
-            existing.flags = Array.from(new Set(flags));
+            existing.flags = withClockOutReasonFlag(flags, reasonKey);
             updateRecord(existing);
             const primarySynced = await syncRecordImmediately(existing);
             clearActiveClockRecordForContext(context, existing.id);
@@ -78260,7 +78370,7 @@ console.log('✅ Global functions exported to window object');
                     record.employeeClinic = record.employeeClinic || resolveClinicForEmployee(record.username) || null;
                     record.minutesWorked = staleMinutes;
                     record.displayName = record.displayName || displayName;
-                    record.flags = Array.from(new Set(staleFlags));
+                    record.flags = withClockOutReasonFlag(staleFlags, record.clockOutReason);
                     updateRecord(record);
                     const staleSynced = await syncRecordImmediately(record);
                     if (!staleSynced) staleSyncFailed += 1;
@@ -78932,7 +79042,12 @@ console.log('✅ Global functions exported to window object');
                 }
             }
 
-            return Array.from(new Set(flags));
+            const next = Array.from(new Set(flags));
+            const normalizedReason = normalizeClockOutReason(record?.clockOutReason);
+            if (normalizedReason) {
+                next.push(`clock_out_reason_${normalizedReason}`);
+            }
+            return Array.from(new Set(next));
         }
 
         async function openAttendanceAdjustmentFromReport(encodedRecordKey) {
