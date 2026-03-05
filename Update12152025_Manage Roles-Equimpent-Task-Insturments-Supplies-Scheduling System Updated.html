@@ -18133,32 +18133,11 @@
                                     </div>
                                 </div>
                                 <div class="attendance-card" data-attendance-manager-panel="policy" style="padding:0.7rem;">
-                                    <h3 style="font-size:0.88rem;"><i class="fas fa-user-cog"></i> Flexibility &amp; PTO Manager</h3>
+                                    <h3 style="font-size:0.88rem;"><i class="fas fa-user-cog"></i> PTO Manager</h3>
                                     <div class="attendance-input-row">
                                         <div>
                                             <label>Employee</label>
                                             <select id="attendancePolicyUser"></select>
-                                        </div>
-                                        <div>
-                                            <label>Allow Flexibility</label>
-                                            <select id="attendanceAllowFlex">
-                                                <option value="true">Yes</option>
-                                                <option value="false">No</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="attendance-input-row">
-                                        <div>
-                                            <label>Before Time (min)</label>
-                                            <input type="number" id="attendanceFlexBefore" min="0" step="1" value="0">
-                                        </div>
-                                        <div>
-                                            <label>After Time (min)</label>
-                                            <input type="number" id="attendanceFlexAfter" min="0" step="1" value="0">
-                                        </div>
-                                        <div>
-                                            <label>Set PTO Balance (hours)</label>
-                                            <input type="number" id="attendancePtoCreditInput" min="0" step="0.5" value="0">
                                         </div>
                                     </div>
                                     <div class="attendance-stat-grid" style="margin-bottom:0.45rem;">
@@ -18174,7 +18153,7 @@
                                         </div>
                                     </div>
                                     <div class="attendance-btn-row">
-                                        <button class="attendance-tab-action attendance-tab-action-primary" type="button" onclick="if(window.saveAttendancePolicyAndCredit){window.saveAttendancePolicyAndCredit();}">Save Policy &amp; Set Balance</button>
+                                        <button class="attendance-tab-action attendance-tab-action-primary" type="button" onclick="if(window.saveAttendancePolicyAndCredit){window.saveAttendancePolicyAndCredit();}">Save</button>
                                         <button class="attendance-tab-action" type="button" onclick="if(window.addPtoHoursForSelectedEmployee){window.addPtoHoursForSelectedEmployee();}">Add PTO Hours</button>
                                     </div>
                                 </div>
@@ -79192,35 +79171,21 @@ console.log('✅ Global functions exported to window object');
         function saveAttendancePolicyAndCredit() {
             const context = getCurrentUserContext();
             if (!isManagerRole(context.role)) {
-                if (typeof showNotification === 'function') showNotification('Only manager roles can save policies.', 'error');
+                if (typeof showNotification === 'function') showNotification('Only manager roles can save PTO settings.', 'error');
                 return;
             }
 
             const userSelect = document.getElementById('attendancePolicyUser');
-            const allowFlexEl = document.getElementById('attendanceAllowFlex');
-            const beforeEl = document.getElementById('attendanceFlexBefore');
-            const afterEl = document.getElementById('attendanceFlexAfter');
-            const creditEl = document.getElementById('attendancePtoCreditInput');
-
             const username = userSelect?.value || '';
             if (!username) {
                 if (typeof showNotification === 'function') showNotification('Select an employee first.', 'warning');
                 return;
             }
 
-            const policies = getPolicies();
-            policies[username] = {
-                allowFlex: String(allowFlexEl?.value || 'false') === 'true',
-                beforeMins: Math.max(0, Number(beforeEl?.value || 0) || 0),
-                afterMins: Math.max(0, Number(afterEl?.value || 0) || 0)
-            };
-            savePolicies(policies);
-            fireAndForget(syncPolicyToApi(username, policies[username], context.displayName));
-
-            const targetCredit = persistPtoCreditLocal(username, creditEl?.value || 0);
+            const targetCredit = getPtoCreditForUser(username);
             fireAndForget(syncPtoCreditToApi(username, targetCredit, context.displayName));
 
-            if (typeof showNotification === 'function') showNotification('Attendance policy and PTO credit saved.', 'success');
+            if (typeof showNotification === 'function') showNotification('Current PTO balance saved.', 'success');
             refreshAttendanceView();
         }
 
@@ -79278,20 +79243,7 @@ console.log('✅ Global functions exported to window object');
             const userSelect = document.getElementById('attendancePolicyUser');
             const username = userSelect?.value;
             if (!username) return;
-            const policies = getPolicies();
-            const policy = policies[username] || { allowFlex: false, beforeMins: 0, afterMins: 0 };
-            const credits = getPtoCredits();
-
-            const allowFlexEl = document.getElementById('attendanceAllowFlex');
-            const beforeEl = document.getElementById('attendanceFlexBefore');
-            const afterEl = document.getElementById('attendanceFlexAfter');
-            const creditEl = document.getElementById('attendancePtoCreditInput');
             const balanceEl = document.getElementById('attendanceSelectedPtoBalance');
-
-            if (allowFlexEl) allowFlexEl.value = policy.allowFlex ? 'true' : 'false';
-            if (beforeEl) beforeEl.value = Number(policy.beforeMins || 0);
-            if (afterEl) afterEl.value = Number(policy.afterMins || 0);
-            if (creditEl) creditEl.value = Number.isFinite(Number(credits[username])) ? Number(credits[username]) : 0;
             if (balanceEl) balanceEl.textContent = `${getPtoAvailableForUser(username).toFixed(2)} h`;
         }
 
