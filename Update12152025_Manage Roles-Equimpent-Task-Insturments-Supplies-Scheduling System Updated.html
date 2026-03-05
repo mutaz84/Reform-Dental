@@ -23076,6 +23076,12 @@
         function handleUsersListAction(action, username) {
             if (!username) return;
 
+            if (typeof closeAllCrudMenus === 'function') {
+                closeAllCrudMenus();
+                // Run a second close pass on the next frame for async modal-open paths.
+                requestAnimationFrame(() => closeAllCrudMenus());
+            }
+
             if (action === 'profile') {
                 openEditUserModal(username);
                 return;
@@ -23102,6 +23108,10 @@
                 event.stopPropagation();
             }
 
+            if (typeof closeAllCrudMenus === 'function') {
+                closeAllCrudMenus();
+            }
+
             let username = '';
             try {
                 username = decodeURIComponent(String(encodedUsername || ''));
@@ -23110,6 +23120,10 @@
             }
 
             handleUsersListAction(String(action || '').trim(), username.trim());
+
+            if (typeof closeAllCrudMenus === 'function') {
+                setTimeout(() => closeAllCrudMenus(), 0);
+            }
             return false;
         };
 
@@ -24427,6 +24441,10 @@
         
         // Open edit user modal
         async function openEditUserModal(username) {
+            if (typeof closeAllCrudMenus === 'function') {
+                closeAllCrudMenus();
+            }
+
             const users = loadUsers();
             const localUsername = Object.keys(users).find((key) => key.toLowerCase() === String(username || '').toLowerCase()) || username;
             const localUser = users[localUsername] || null;
@@ -45242,7 +45260,7 @@ window.initializeCalendar = initializeCalendar;
         }
 
         function closeAllCrudMenus() {
-            document.querySelectorAll('.crud-ellipsis-menu.open').forEach((menu) => {
+            document.querySelectorAll('.crud-ellipsis-menu').forEach((menu) => {
                 menu.classList.remove('open');
                 if (menu.__crudOriginalParent && menu.parentNode !== menu.__crudOriginalParent) {
                     menu.__crudOriginalParent.appendChild(menu);
@@ -45250,6 +45268,7 @@ window.initializeCalendar = initializeCalendar;
                 menu.classList.remove('crud-portal');
                 menu.style.left = '';
                 menu.style.top = '';
+                menu.style.visibility = '';
                 menu.__crudTrigger = null;
             });
             document.querySelectorAll('.crud-ellipsis-wrapper.crud-active').forEach((wrapper) => wrapper.classList.remove('crud-active'));
