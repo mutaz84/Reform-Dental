@@ -7608,6 +7608,25 @@
         .attendance-timeoff-form-wrap label {
             color: var(--text-primary);
         }
+        .attendance-timeoff-checkbox-row {
+            display: flex;
+            align-items: center;
+        }
+        .attendance-timeoff-checkbox {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.82rem;
+            color: var(--text-primary);
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .attendance-timeoff-checkbox input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--accent-primary);
+            cursor: pointer;
+        }
         .attendance-timeoff-request-cards {
             display: flex;
             flex-direction: column;
@@ -17938,6 +17957,14 @@
                                             <div>
                                                 <label>Hours per Day</label>
                                                 <input type="number" id="attendancePtoHours" min="1" step="0.5" placeholder="8.0">
+                                            </div>
+                                        </div>
+                                        <div class="attendance-input-row" style="grid-template-columns:1fr;">
+                                            <div class="attendance-timeoff-checkbox-row">
+                                                <label class="attendance-timeoff-checkbox" for="attendancePtoUseBalance">
+                                                    <input type="checkbox" id="attendancePtoUseBalance" checked>
+                                                    <span>Use PTO balance for this request</span>
+                                                </label>
                                             </div>
                                         </div>
                                         <div class="attendance-input-row" style="grid-template-columns:1fr;">
@@ -79006,6 +79033,7 @@ console.log('✅ Global functions exported to window object');
             const startDate = document.getElementById('attendancePtoStart')?.value || '';
             const endDate = document.getElementById('attendancePtoEnd')?.value || '';
             const reason = String(document.getElementById('attendancePtoReason')?.value || '').trim();
+            const usePtoBalance = document.getElementById('attendancePtoUseBalance')?.checked !== false;
             let hours = Number(document.getElementById('attendancePtoHours')?.value || 0);
 
             if (!startDate || !endDate) {
@@ -79022,7 +79050,7 @@ console.log('✅ Global functions exported to window object');
             }
 
             const balance = getPtoCreditForUser(username);
-            if (hours > balance) {
+            if (usePtoBalance && hours > balance) {
                 if (typeof showNotification === 'function') showNotification(`Time-off request exceeds balance (${balance.toFixed(2)} h available).`, 'error');
                 return;
             }
@@ -79036,6 +79064,7 @@ console.log('✅ Global functions exported to window object');
                 endDate,
                 hours: Number(hours.toFixed(2)),
                 reason,
+                usePtoBalance,
                 status: 'pending',
                 createdAt: new Date().toISOString(),
                 reviewedAt: null,
@@ -79052,14 +79081,16 @@ console.log('✅ Global functions exported to window object');
                 })
             );
 
-            addNotification('__managers__', `Time-off request pending from ${displayName} (${startDate} to ${endDate}, ${hours.toFixed(2)}h).`, 'warning');
+            addNotification('__managers__', `Time-off request pending from ${displayName} (${startDate} to ${endDate}, ${hours.toFixed(2)}h${usePtoBalance ? ', uses PTO balance' : ', no PTO balance'}).`, 'warning');
             addNotification(username, 'Time-off request submitted and waiting for manager review.', 'info');
             if (typeof showNotification === 'function') showNotification('Time-off request submitted.', 'success');
 
             const reasonEl = document.getElementById('attendancePtoReason');
             const hoursEl = document.getElementById('attendancePtoHours');
+            const usePtoEl = document.getElementById('attendancePtoUseBalance');
             if (reasonEl) reasonEl.value = '';
             if (hoursEl) hoursEl.value = '';
+            if (usePtoEl) usePtoEl.checked = true;
             if (typeof toggleAttendanceTimeoffRequestForm === 'function') toggleAttendanceTimeoffRequestForm(false);
             refreshAttendanceView();
         }
@@ -79075,7 +79106,8 @@ console.log('✅ Global functions exported to window object');
             const request = requests.find((item) => item.id === requestId);
             if (!request || request.status !== 'pending') return;
 
-            if (approved) {
+            const consumesPto = request?.usePtoBalance !== false;
+            if (approved && consumesPto) {
                 const currentCredit = getPtoCreditForUser(request.username);
                 if (request.hours > currentCredit) {
                     if (typeof showNotification === 'function') showNotification('Insufficient PTO credit to approve this request.', 'error');
@@ -79090,7 +79122,7 @@ console.log('✅ Global functions exported to window object');
             savePtoRequests(requests);
             fireAndForget(syncPtoReviewToApi(request));
 
-            addNotification(request.username, `Your PTO request (${request.startDate} to ${request.endDate}) was ${request.status}.`, approved ? 'success' : 'warning');
+            addNotification(request.username, `Your PTO request (${request.startDate} to ${request.endDate}) was ${request.status}.${approved && consumesPto ? ' PTO balance was deducted.' : ''}`, approved ? 'success' : 'warning');
             if (typeof showNotification === 'function') showNotification(`PTO request ${request.status}.`, approved ? 'success' : 'warning');
             refreshAttendanceView();
         }
@@ -80152,6 +80184,7 @@ console.log('✅ Global functions exported to window object');
                         : (startDate ? formatDate(startDate) : '-');
                     const titleText = String(request?.requestType || request?.policyName || '').trim() || 'Time Off Request';
                     const reasonText = String(request?.reason || '').trim();
+                    const usesPtoBalance = request?.usePtoBalance !== false;
                     const hourCount = Number(request?.hours || 0);
                     const hoursLabel = Number.isInteger(hourCount) ? String(hourCount) : hourCount.toFixed(2);
                     const submittedAt = request?.requestedAt || request?.createdAt || request?.updatedAt || '';
@@ -80163,6 +80196,7 @@ console.log('✅ Global functions exported to window object');
                             </div>
                             ${reasonText ? `<p class="attendance-timeoff-request-meta">${esc(reasonText)}</p>` : ''}
                             <p class="attendance-timeoff-request-meta">${esc(dateLabel)} (${esc(hoursLabel)} Hours)</p>
+                            <p class="attendance-timeoff-request-meta">PTO Balance: ${usesPtoBalance ? 'Yes' : 'No'}</p>
                             <p class="attendance-timeoff-request-meta">Submitted On: ${submittedAt ? formatDate(submittedAt) : '-'}</p>
                         </article>
                     `;
@@ -80355,6 +80389,7 @@ console.log('✅ Global functions exported to window object');
                             : (startDate ? formatDate(startDate) : '-');
                         const titleText = String(request?.requestType || request?.policyName || '').trim() || 'Time Off Request';
                         const reasonText = String(request?.reason || '').trim();
+                        const usesPtoBalance = request?.usePtoBalance !== false;
                         const employeeLabel = String(request?.employeeName || request?.username || 'Employee').trim() || 'Employee';
                         const hourCount = Number(request?.hours || 0);
                         const hoursLabel = Number.isInteger(hourCount) ? String(hourCount) : hourCount.toFixed(2);
@@ -80371,6 +80406,7 @@ console.log('✅ Global functions exported to window object');
                                 </div>
                                 ${reasonText ? `<p class="attendance-timeoff-request-meta">${esc(reasonText)}</p>` : ''}
                                 <p class="attendance-timeoff-request-meta">${esc(dateLabel)} (${esc(hoursLabel)} Hours)</p>
+                                <p class="attendance-timeoff-request-meta">PTO Balance: ${usesPtoBalance ? 'Yes' : 'No'}</p>
                                 <p class="attendance-timeoff-request-meta">Submitted On: ${submittedAt ? formatDate(submittedAt) : '-'}</p>
                                 ${actionButtons}
                             </article>
