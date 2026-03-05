@@ -21388,11 +21388,11 @@
                 const role = (user && user.role) || localStorage.getItem('userRole') || 'user';
                 const isAdmin = role === 'admin' || role === 'owner';
 
-                const rawOffice =
-                    (user && (user.officeLocation || user.OfficeLocation || user.clinic || user.Clinic || user.office || user.Office)) ||
-                    (sessionUser && (sessionUser.officeLocation || sessionUser.OfficeLocation || sessionUser.clinic || sessionUser.office)) ||
-                    '';
-                const officeName = String(rawOffice || '').trim();
+                const officeName = String(
+                    getPrimaryClinicFromUser(user || {}) ||
+                    getPrimaryClinicFromUser(sessionUser || {}) ||
+                    ''
+                ).trim();
 
                 // If user has an assigned office and is not admin, force clinic selection.
                 const shouldLock = !isAdmin && !!officeName;
@@ -21835,6 +21835,9 @@
             const permissionsValue = typeof userData.permissions === 'object'
                 ? JSON.stringify(userData.permissions)
                 : (userData.permissions || userData.Permissions || null);
+            const resolvedClinics = getClinicsFromUser(userData);
+            const resolvedClinicIds = getClinicIdsFromUser(userData);
+            const primaryClinicId = toNumericId(userData.clinicId || userData.ClinicId || userData.officeID || userData.OfficeID || resolvedClinicIds[0]);
 
             const payload = {
                 username: normalizedUsername,
@@ -21870,6 +21873,9 @@
                 emergencyContactEmail: userData.emergencyContactEmail || '',
                 nextReviewDate: userData.nextReviewDate || null,
                 officeLocation: userData.officeLocation || '',
+                clinicId: primaryClinicId,
+                clinicIds: resolvedClinicIds,
+                clinics: resolvedClinics,
                 directSupervisor: userData.directSupervisor || '',
                 separationDate: userData.separationDate || null,
                 separationReason: userData.separationReason || '',
@@ -21918,6 +21924,9 @@
                 EmergencyContactEmail: userData.emergencyContactEmail || '',
                 NextReviewDate: userData.nextReviewDate || null,
                 OfficeLocation: userData.officeLocation || '',
+                ClinicId: primaryClinicId,
+                ClinicIds: resolvedClinicIds,
+                Clinics: resolvedClinics,
                 DirectSupervisor: userData.directSupervisor || '',
                 SeparationDate: userData.separationDate || null,
                 SeparationReason: userData.separationReason || '',
@@ -23085,6 +23094,8 @@
             const employeeStatus = document.getElementById('newEmployeeStatus').value;
             const nextReviewDate = document.getElementById('newNextReviewDate').value;
             const officeLocation = document.getElementById('newOfficeLocation').value.trim();
+            const selectedClinics = getClinicsFromUser({ officeLocation });
+            const selectedClinicIds = getClinicIdsFromUser({ officeLocation });
             const directSupervisor = document.getElementById('newDirectSupervisor').value.trim();
             const separationDate = document.getElementById('newSeparationDate').value;
             const separationReason = document.getElementById('newSeparationReason').value.trim();
@@ -23166,6 +23177,9 @@
                 employeeStatus: employeeStatus,
                 nextReviewDate: nextReviewDate,
                 officeLocation: officeLocation,
+                clinicId: selectedClinicIds[0] || null,
+                clinicIds: selectedClinicIds,
+                clinics: selectedClinics,
                 directSupervisor: directSupervisor,
                 separationDate: separationDate,
                 separationReason: separationReason,
@@ -23722,6 +23736,17 @@
                 emergencyContactEmail: apiUser?.EmergencyContactEmail || apiUser?.emergencyContactEmail || fallback.emergencyContactEmail || '',
                 nextReviewDate: normalizeDateInput(apiUser?.NextReviewDate || apiUser?.nextReviewDate || fallback.nextReviewDate),
                 officeLocation: apiUser?.OfficeLocation || apiUser?.officeLocation || apiUser?.Office || apiUser?.office || fallback.officeLocation || '',
+                clinicId: apiUser?.ClinicId ?? apiUser?.clinicId ?? apiUser?.OfficeID ?? apiUser?.officeID ?? fallback.clinicId ?? null,
+                clinicIds: Array.isArray(apiUser?.ClinicIds)
+                    ? apiUser.ClinicIds
+                    : (Array.isArray(apiUser?.clinicIds)
+                        ? apiUser.clinicIds
+                        : (Array.isArray(fallback.clinicIds) ? fallback.clinicIds : getClinicIdsFromUser(apiUser))),
+                clinics: Array.isArray(apiUser?.Clinics)
+                    ? apiUser.Clinics
+                    : (Array.isArray(apiUser?.clinics)
+                        ? apiUser.clinics
+                        : (Array.isArray(fallback.clinics) ? fallback.clinics : getClinicsFromUser(apiUser))),
                 directSupervisor: apiUser?.DirectSupervisor || apiUser?.directSupervisor || apiUser?.Supervisor || apiUser?.supervisor || fallback.directSupervisor || '',
                 separationDate: normalizeDateInput(apiUser?.SeparationDate || apiUser?.separationDate || fallback.separationDate),
                 separationReason: apiUser?.SeparationReason || apiUser?.separationReason || fallback.separationReason || '',
@@ -24217,6 +24242,15 @@
             user.hireDate = document.getElementById('viewUserHireDate').value;
             user.nextReviewDate = document.getElementById('viewUserNextReviewDate').value;
             user.officeLocation = document.getElementById('viewUserOfficeLocation').value.trim();
+            user.clinics = getClinicsFromUser({
+                ...user,
+                officeLocation: user.officeLocation
+            });
+            user.clinicIds = getClinicIdsFromUser({
+                ...user,
+                officeLocation: user.officeLocation
+            });
+            user.clinicId = user.clinicIds[0] || null;
             user.directSupervisor = document.getElementById('viewUserDirectSupervisor').value.trim();
             user.separationDate = document.getElementById('viewUserSeparationDate').value;
             user.separationReason = document.getElementById('viewUserSeparationReason').value.trim();
@@ -24902,7 +24936,7 @@
             document.getElementById('newHireDate').value = normalizeDateInput(user.hireDate);
             setSelectValueWithFallback(document.getElementById('newEmployeeStatus'), normalizeEmployeeStatusValue(user.employeeStatus, 'Active'), 'Active');
             document.getElementById('newNextReviewDate').value = normalizeDateInput(user.nextReviewDate);
-            setSelectValueWithFallback(document.getElementById('newOfficeLocation'), user.officeLocation || '', '');
+            setSelectValueWithFallback(document.getElementById('newOfficeLocation'), user.officeLocation || getPrimaryClinicFromUser(user) || '', '');
             setSelectValueWithFallback(document.getElementById('newDirectSupervisor'), user.directSupervisor || '', '');
             document.getElementById('newSeparationDate').value = normalizeDateInput(user.separationDate);
             document.getElementById('newSeparationReason').value = user.separationReason || '';
@@ -30133,6 +30167,83 @@
                 return true;
             }
             return false;
+        }
+
+        function resolveOfficeFromReference(referenceValue) {
+            const raw = String(referenceValue || '').trim();
+            if (!raw) return null;
+            const offices = (typeof loadOffices === 'function') ? loadOffices() : [];
+            if (!Array.isArray(offices) || !offices.length) return null;
+            return offices.find((office) => doesOfficeReferenceMatch(office, raw)) || null;
+        }
+
+        function getClinicsFromUser(user = {}) {
+            const refs = [];
+            const pushRef = (value) => {
+                if (Array.isArray(value)) {
+                    value.forEach(pushRef);
+                    return;
+                }
+                const raw = String(value || '').trim();
+                if (!raw) return;
+                refs.push(raw);
+            };
+
+            pushRef(user?.clinics);
+            pushRef(user?.Clinics);
+            pushRef(user?.clinicIds);
+            pushRef(user?.ClinicIds);
+            pushRef(user?.clinicId);
+            pushRef(user?.ClinicId);
+            pushRef(user?.officeID);
+            pushRef(user?.OfficeID);
+            pushRef(user?.officeLocation || user?.OfficeLocation || user?.clinic || user?.Clinic || user?.office || user?.Office);
+
+            const mappedNames = refs.map((ref) => {
+                const office = resolveOfficeFromReference(ref);
+                return String(office?.officeName || office?.name || ref || '').trim();
+            }).filter(Boolean);
+
+            return Array.from(new Set(mappedNames));
+        }
+
+        function getClinicIdsFromUser(user = {}) {
+            const refs = [];
+            const pushRef = (value) => {
+                if (Array.isArray(value)) {
+                    value.forEach(pushRef);
+                    return;
+                }
+                const raw = String(value || '').trim();
+                if (!raw) return;
+                refs.push(raw);
+            };
+
+            pushRef(user?.clinicIds);
+            pushRef(user?.ClinicIds);
+            pushRef(user?.clinicId);
+            pushRef(user?.ClinicId);
+            pushRef(user?.officeID);
+            pushRef(user?.OfficeID);
+            pushRef(user?.clinics);
+            pushRef(user?.Clinics);
+            pushRef(user?.officeLocation || user?.OfficeLocation || user?.clinic || user?.Clinic || user?.office || user?.Office);
+
+            const ids = refs.map((ref) => {
+                const office = resolveOfficeFromReference(ref);
+                if (office) {
+                    return toNumericId(office?.officeID || office?.dbId || office?.id);
+                }
+                return toNumericId(ref) || toNumericId(String(ref).replace(/^clinic-/i, ''));
+            }).filter((id) => Number.isInteger(id) && id > 0);
+
+            return Array.from(new Set(ids));
+        }
+
+        function getPrimaryClinicFromUser(user = {}) {
+            const clinics = getClinicsFromUser(user);
+            if (clinics.length) return clinics[0];
+            return String(user?.officeLocation || user?.OfficeLocation || user?.clinic || user?.Clinic || user?.office || user?.Office || '').trim();
         }
 
         function getOfficeRelatedRooms(office) {
@@ -73562,10 +73673,20 @@ async function loadClinicFilterDropdown() {
         clinicSelect.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
     });
 
-    // Preserve selection if still present
+    // Preserve selection if still present (including legacy ID-based selections)
     if (currentValue) {
-        const hasOption = Array.from(clinicSelect.options).some(opt => opt.value === currentValue);
-        if (hasOption) clinicSelect.value = currentValue;
+        const options = Array.from(clinicSelect.options);
+        const directMatch = options.find(opt => opt.value === currentValue);
+        if (directMatch) {
+            clinicSelect.value = directMatch.value;
+        } else {
+            const matchedOffice = (typeof resolveOfficeFromReference === 'function') ? resolveOfficeFromReference(currentValue) : null;
+            const matchedName = String(matchedOffice?.officeName || matchedOffice?.name || '').trim();
+            if (matchedName) {
+                const nameMatch = options.find(opt => String(opt.value || '').trim().toLowerCase() === matchedName.toLowerCase());
+                if (nameMatch) clinicSelect.value = nameMatch.value;
+            }
+        }
     }
 
     console.log('✅ Clinic filter loaded with', (offices || []).length, 'offices');
@@ -77822,14 +77943,18 @@ console.log('✅ Global functions exported to window object');
         }
 
         function normalizeClinicForCompare(value) {
-            return String(value || '').trim().toLowerCase();
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            const matchedOffice = (typeof resolveOfficeFromReference === 'function') ? resolveOfficeFromReference(raw) : null;
+            const canonical = String(matchedOffice?.officeName || matchedOffice?.name || raw).trim();
+            return canonical.toLowerCase();
         }
 
         function getUserClinicByUsername(username) {
             const users = getUsersMap();
             const canonical = resolveCanonicalUsername(username) || String(username || '').trim();
             const user = users[canonical] || users[username] || {};
-            return String(user.officeLocation || user.OfficeLocation || user.clinic || user.Clinic || user.office || user.Office || '').trim();
+            return String(getPrimaryClinicFromUser(user) || '').trim();
         }
 
         function resolveClinicForEmployee(username, schedule = null) {
