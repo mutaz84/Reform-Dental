@@ -77957,10 +77957,32 @@ console.log('✅ Global functions exported to window object');
             return String(getPrimaryClinicFromUser(user) || '').trim();
         }
 
+        function getUserClinicsByUsername(username) {
+            const users = getUsersMap();
+            const canonical = resolveCanonicalUsername(username) || String(username || '').trim();
+            const user = users[canonical] || users[username] || {};
+            if (typeof getClinicsFromUser === 'function') {
+                const clinics = getClinicsFromUser(user);
+                if (Array.isArray(clinics) && clinics.length) {
+                    return Array.from(new Set(clinics.map((value) => String(value || '').trim()).filter(Boolean)));
+                }
+            }
+            const fallback = String(getPrimaryClinicFromUser(user) || '').trim();
+            return fallback ? [fallback] : [];
+        }
+
         function resolveClinicForEmployee(username, schedule = null) {
             const scheduleClinic = String(schedule?.clinic || '').trim();
             if (scheduleClinic) return scheduleClinic;
             return getUserClinicByUsername(username);
+        }
+
+        function resolveClinicsForEmployee(username, schedule = null) {
+            const clinics = [];
+            const scheduleClinic = String(schedule?.clinic || '').trim();
+            if (scheduleClinic) clinics.push(scheduleClinic);
+            clinics.push(...getUserClinicsByUsername(username));
+            return Array.from(new Set(clinics.map((value) => String(value || '').trim()).filter(Boolean)));
         }
 
         function resolveClinicForRecord(record, scheduleMap = {}) {
@@ -78005,8 +78027,8 @@ console.log('✅ Global functions exported to window object');
                 if (!username) return false;
                 const canonical = resolveCanonicalUsername(username) || username;
                 const schedule = scheduleMap[canonical] || scheduleMap[username] || null;
-                const clinic = resolveClinicForEmployee(canonical, schedule);
-                return clinicMatchesFilter(clinic, selectedClinicKey);
+                const clinics = resolveClinicsForEmployee(canonical, schedule);
+                return clinics.some((clinic) => clinicMatchesFilter(clinic, selectedClinicKey));
             });
         }
 
@@ -78014,8 +78036,14 @@ console.log('✅ Global functions exported to window object');
             if (!selectedClinicKey) return true;
             const canonical = resolveCanonicalUsername(username) || String(username || '').trim();
             const schedule = scheduleMap[canonical] || scheduleMap[username] || null;
-            const clinic = String(fallbackClinic || '').trim() || resolveClinicForEmployee(canonical, schedule);
-            return clinicMatchesFilter(clinic, selectedClinicKey);
+            const fallbackClinics = Array.isArray(fallbackClinic)
+                ? fallbackClinic
+                : [fallbackClinic];
+            const clinics = [
+                ...fallbackClinics.map((value) => String(value || '').trim()).filter(Boolean),
+                ...resolveClinicsForEmployee(canonical, schedule)
+            ];
+            return clinics.some((clinic) => clinicMatchesFilter(clinic, selectedClinicKey));
         }
 
         function normalizeClockOutReason(value) {
