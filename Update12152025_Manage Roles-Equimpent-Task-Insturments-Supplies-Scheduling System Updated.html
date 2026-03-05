@@ -78034,13 +78034,18 @@ console.log('✅ Global functions exported to window object');
 
         function attendanceIdentityMatchesClinic(username, selectedClinicKey, scheduleMap = {}, fallbackClinic = '') {
             if (!selectedClinicKey) return true;
-            const canonical = resolveCanonicalUsername(username) || String(username || '').trim();
-            const schedule = scheduleMap[canonical] || scheduleMap[username] || null;
             const fallbackClinics = Array.isArray(fallbackClinic)
                 ? fallbackClinic
                 : [fallbackClinic];
+            const normalizedFallbackClinics = fallbackClinics
+                .map((value) => String(value || '').trim())
+                .filter((value) => value && value !== '-');
+            if (normalizedFallbackClinics.length) {
+                return normalizedFallbackClinics.some((clinic) => clinicMatchesFilter(clinic, selectedClinicKey));
+            }
+            const canonical = resolveCanonicalUsername(username) || String(username || '').trim();
+            const schedule = scheduleMap[canonical] || scheduleMap[username] || null;
             const clinics = [
-                ...fallbackClinics.map((value) => String(value || '').trim()).filter(Boolean),
                 ...resolveClinicsForEmployee(canonical, schedule)
             ];
             return clinics.some((clinic) => clinicMatchesFilter(clinic, selectedClinicKey));
@@ -80577,7 +80582,7 @@ console.log('✅ Global functions exported to window object');
 
                 const allRequests = getPtoRequests();
                 const clinicScopedRequests = selectedClinicKey
-                    ? allRequests.filter((request) => attendanceIdentityMatchesClinic(request?.username, selectedClinicKey, null, request?.employeeClinic))
+                    ? allRequests.filter((request) => attendanceIdentityMatchesClinic(request?.username || request?.employeeName, selectedClinicKey, null, request?.employeeClinic))
                     : allRequests;
                 const manageTotalEl = document.getElementById('attendanceManageTimeoffTotal');
                 const managePendingEl = document.getElementById('attendanceManageTimeoffPending');
