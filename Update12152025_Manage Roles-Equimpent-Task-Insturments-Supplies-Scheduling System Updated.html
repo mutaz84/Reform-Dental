@@ -70957,12 +70957,47 @@ async function syncUsersFromAPI() {
         return '';
     }
     
+    const parseUserRankTimestamp = (user) => {
+        const stamp = user?.ModifiedDate || user?.modifiedDate || user?.CreatedDate || user?.createdDate || '';
+        const ms = new Date(stamp).getTime();
+        return Number.isFinite(ms) ? ms : 0;
+    };
+
+    const parseUserRankId = (user) => {
+        const raw = Number(user?.Id || user?.id || 0);
+        return Number.isFinite(raw) ? raw : 0;
+    };
+
+    // Collapse duplicate usernames (case-insensitive) from API to a single canonical user row.
+    const apiUsersByNormalizedUsername = new Map();
+    (apiUsers || []).forEach((user) => {
+        const usernameRaw = String(user?.Username || user?.username || '').trim();
+        const key = usernameRaw.toLowerCase();
+        if (!key) return;
+
+        const existing = apiUsersByNormalizedUsername.get(key);
+        if (!existing) {
+            apiUsersByNormalizedUsername.set(key, user);
+            return;
+        }
+
+        const existingTs = parseUserRankTimestamp(existing);
+        const incomingTs = parseUserRankTimestamp(user);
+        const existingId = parseUserRankId(existing);
+        const incomingId = parseUserRankId(user);
+        if (incomingTs > existingTs || (incomingTs === existingTs && incomingId >= existingId)) {
+            apiUsersByNormalizedUsername.set(key, user);
+        }
+    });
+
+    const dedupedApiUsers = Array.from(apiUsersByNormalizedUsername.values());
+
     // Keep an inspectable snapshot of raw API users for Manage Users diagnostics.
     const rawApiUsersByUsername = {};
 
     // Convert API format to localStorage format - map ALL fields
     const localUsers = {};
-    apiUsers.forEach(user => {
+    dedupedApiUsers.forEach(user => {
         const username = (user.Username || user.username || '').trim();
         if (!username) return;
 
@@ -79714,15 +79749,38 @@ console.log('✅ Global functions exported to window object');
             const selectedEmployee = String(options.selectedEmployee || '').trim();
             const selectedEmployeeCanonical = selectedEmployee ? (resolveCanonicalUsername(selectedEmployee) || selectedEmployee) : '';
 
-            const scheduledEmployees = Object.values(scheduleMap || {}).filter((entry) => {
-                if (!entry) return false;
-                const username = String(entry.username || '').trim();
-                if (!username) return false;
-                if (selectedEmployeeCanonical && username !== selectedEmployeeCanonical) return false;
-                const clinic = String(entry.clinic || '').trim();
-                if (selectedClinicKey && !clinicMatchesFilter(clinic, selectedClinicKey)) return false;
-                return true;
+            const scheduledMapByCanonical = new Map();
+            Object.values(scheduleMap || {}).forEach((entry) => {
+                if (!entry) return;
+                const rawUsername = String(entry.username || '').trim();
+                if (!rawUsername) return;
+                const canonicalUsername = resolveCanonicalUsername(rawUsername) || rawUsername;
+                if (selectedEmployeeCanonical && canonicalUsername !== selectedEmployeeCanonical) return;
+
+                const clinic = String(entry.clinic || resolveClinicForEmployee(canonicalUsername, entry) || '').trim();
+                if (selectedClinicKey && !clinicMatchesFilter(clinic, selectedClinicKey)) return;
+
+                const existing = scheduledMapByCanonical.get(canonicalUsername);
+                if (!existing) {
+                    scheduledMapByCanonical.set(canonicalUsername, {
+                        ...entry,
+                        username: canonicalUsername,
+                        clinic
+                    });
+                    return;
+                }
+
+                const existingClinic = String(existing.clinic || '').trim();
+                if (!existingClinic && clinic) {
+                    scheduledMapByCanonical.set(canonicalUsername, {
+                        ...entry,
+                        username: canonicalUsername,
+                        clinic
+                    });
+                }
             });
+
+            const scheduledEmployees = Array.from(scheduledMapByCanonical.values());
 
             const rows = scheduledEmployees.map((scheduled) => {
                 const username = String(scheduled.username || '').trim();
