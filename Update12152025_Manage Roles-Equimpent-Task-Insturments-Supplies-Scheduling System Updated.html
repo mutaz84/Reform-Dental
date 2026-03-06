@@ -75528,10 +75528,12 @@ console.log('✅ Global functions exported to window object');
     const COPILOT_DOC_LIMIT = 20;
     const COPILOT_DOC_TEXT_LIMIT = 20000;
     const COPILOT_DOC_EXCERPT_LIMIT = 1200;
-    const COPILOT_AUTO_REFRESH_MS = 6000;
+    const COPILOT_AUTO_REFRESH_MS = 2000;
+    const COPILOT_POST_SYNC_REFRESH_MS = 700;
 
     let copilotAutoRefreshTimer = null;
     let copilotRefreshInFlight = false;
+    let copilotPostSyncTimer = null;
 
     // ===== DOM REFERENCES =====
     function getEl(id) { return document.getElementById(id); }
@@ -75673,6 +75675,18 @@ console.log('✅ Global functions exported to window object');
     let copilotSyncTimer = null;
     let copilotPendingSyncSession = null;
 
+    function scheduleCopilotPostSyncRefresh(delayMs = COPILOT_POST_SYNC_REFRESH_MS) {
+        if (copilotPostSyncTimer) {
+            clearTimeout(copilotPostSyncTimer);
+            copilotPostSyncTimer = null;
+        }
+        copilotPostSyncTimer = setTimeout(() => {
+            copilotPostSyncTimer = null;
+            if (!copilotState.isOpen) return;
+            refreshCopilotConversationsInBackground();
+        }, Math.max(0, Number(delayMs || 0)));
+    }
+
     function queueCopilotConversationSync(sessionSnapshot, delayMs = 350) {
         const normalized = normalizeConversationSession(sessionSnapshot);
         if (!normalized || !normalized.id) return;
@@ -75689,7 +75703,8 @@ console.log('✅ Global functions exported to window object');
             const session = copilotPendingSyncSession;
             copilotPendingSyncSession = null;
             if (!session || !session.id) return;
-            await upsertCopilotConversationToApi(session);
+            const saved = await upsertCopilotConversationToApi(session);
+            if (saved) scheduleCopilotPostSyncRefresh();
         }, Math.max(0, Number(delayMs || 0)));
     }
 
@@ -83725,6 +83740,12 @@ console.log('✅ Global functions exported to window object');
 
         window.addEventListener('focus', () => {
             if (copilotState.isOpen) {
+                refreshCopilotConversationsInBackground();
+            }
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && copilotState.isOpen) {
                 refreshCopilotConversationsInBackground();
             }
         });
