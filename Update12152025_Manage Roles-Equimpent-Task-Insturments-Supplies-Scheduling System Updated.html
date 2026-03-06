@@ -75722,6 +75722,35 @@ console.log('✅ Global functions exported to window object');
                 return Number(best || 0);
             };
 
+            const getUndeductedApprovedHoursForUser = (username) => {
+                if (!username) return 0;
+                const canonical = canonicalFromAny(username) || username;
+                const target = toKey(canonical);
+                if (!target) return 0;
+
+                const requests = Array.isArray(ptoRequests) ? ptoRequests : [];
+                return requests.reduce((sum, request) => {
+                    const requestUser = canonicalFromAny(request?.username || request?.employeeName) || String(request?.username || request?.employeeName || '').trim();
+                    if (toKey(requestUser) !== target) return sum;
+
+                    const isApproved = String(request?.status || '').trim().toLowerCase() === 'approved';
+                    const usesPtoBalance = request?.usePtoBalance !== false;
+                    const alreadyDeducted = request?.ptoDeducted === true;
+                    if (!isApproved || !usesPtoBalance || alreadyDeducted) return sum;
+
+                    const hours = Number(request?.hours || 0);
+                    if (!Number.isFinite(hours) || hours <= 0) return sum;
+                    return sum + hours;
+                }, 0);
+            };
+
+            const getAvailablePtoForUser = (username) => {
+                const credit = Number(getCreditForUser(username) || 0);
+                const undeductedApproved = Number(getUndeductedApprovedHoursForUser(username) || 0);
+                const available = Math.max(0, credit - undeductedApproved);
+                return Number(available.toFixed(2));
+            };
+
             const getDisplayName = (username, fallback = '') => {
                 const canonical = canonicalFromAny(username) || username;
                 const user = users[canonical] || users[username] || {};
@@ -75918,7 +75947,7 @@ console.log('✅ Global functions exported to window object');
                 .map((employee) => ({
                     username: employee.username,
                     name: employee.displayName,
-                    availableHours: Number(getCreditForUser(employee.username) || 0),
+                    availableHours: Number(getAvailablePtoForUser(employee.username) || 0),
                     pendingRequests: requests.filter((request) => {
                         const requestUser = canonicalFromAny(request?.username || request?.employeeName) || String(request?.username || request?.employeeName || '').trim();
                         return toKey(requestUser) === toKey(employee.username) && String(request?.status || '').trim().toLowerCase() === 'pending';
@@ -76007,7 +76036,8 @@ console.log('✅ Global functions exported to window object');
                     clockOut: myRecord?.clockOut || null,
                     clockOutReason: extractClockOutReason(myRecord) || null,
                     minutesWorked: Number(myRecord?.minutesWorked || 0) || 0,
-                    ptoBalanceHours: Number(getCreditForUser(currentUser) || 0),
+                    ptoBalanceHours: Number(getAvailablePtoForUser(currentUser) || 0),
+                    ptoCreditedHours: Number(getCreditForUser(currentUser) || 0),
                     ptoPendingCount: myRequests.filter((request) => String(request?.status || '').trim().toLowerCase() === 'pending').length,
                     ptoApprovedCount: myRequests.filter((request) => String(request?.status || '').trim().toLowerCase() === 'approved').length
                 },
