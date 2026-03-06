@@ -75528,6 +75528,10 @@ console.log('✅ Global functions exported to window object');
     const COPILOT_DOC_LIMIT = 20;
     const COPILOT_DOC_TEXT_LIMIT = 20000;
     const COPILOT_DOC_EXCERPT_LIMIT = 1200;
+    const COPILOT_AUTO_REFRESH_MS = 6000;
+
+    let copilotAutoRefreshTimer = null;
+    let copilotRefreshInFlight = false;
 
     // ===== DOM REFERENCES =====
     function getEl(id) { return document.getElementById(id); }
@@ -75942,6 +75946,32 @@ console.log('✅ Global functions exported to window object');
         saveCopilotHistory();
         renderCopilotConversationList();
         hydrateCopilotMessagesFromHistory();
+    }
+
+    async function refreshCopilotConversationsInBackground() {
+        if (copilotRefreshInFlight || copilotState.isProcessing) return;
+        copilotRefreshInFlight = true;
+        try {
+            await loadCopilotConversations();
+        } catch (_) {
+            // Keep polling resilient; fall back to current local state silently.
+        } finally {
+            copilotRefreshInFlight = false;
+        }
+    }
+
+    function startCopilotAutoRefresh() {
+        if (copilotAutoRefreshTimer) return;
+        copilotAutoRefreshTimer = setInterval(() => {
+            if (!copilotState.isOpen) return;
+            refreshCopilotConversationsInBackground();
+        }, COPILOT_AUTO_REFRESH_MS);
+    }
+
+    function stopCopilotAutoRefresh() {
+        if (!copilotAutoRefreshTimer) return;
+        clearInterval(copilotAutoRefreshTimer);
+        copilotAutoRefreshTimer = null;
     }
 
     function toggleCopilotHistory(forceOpen) {
@@ -77668,9 +77698,12 @@ console.log('✅ Global functions exported to window object');
                 fab.classList.add('active');
                 getEl('copilotInput').focus();
                 this.checkConnection();
+                startCopilotAutoRefresh();
+                refreshCopilotConversationsInBackground();
             } else {
                 panel.classList.remove('open');
                 fab.classList.remove('active');
+                stopCopilotAutoRefresh();
             }
         },
 
@@ -83658,6 +83691,13 @@ console.log('✅ Global functions exported to window object');
             loadCopilotDocuments();
             hydrateCopilotMessagesFromHistory();
         })();
+
+        window.addEventListener('focus', () => {
+            if (copilotState.isOpen) {
+                refreshCopilotConversationsInBackground();
+            }
+        });
+
         setTimeout(() => CopilotUI.checkConnection(), 2000);
     });
 
