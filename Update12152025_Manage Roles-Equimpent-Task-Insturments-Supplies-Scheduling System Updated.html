@@ -77018,6 +77018,64 @@ console.log('✅ Global functions exported to window object');
 
     // ===== MAIN COPILOT API =====
 
+    function buildDeterministicAttendanceReply(message, context) {
+        const text = String(message || '').trim().toLowerCase();
+        if (!text) return null;
+
+        const asksScheduled = /\bschedule|scheduled|on\s+schedule\b/i.test(text);
+        const asksClockedIn = /\bclock\s*-?\s*in|clocked\s*-?\s*in\b/i.test(text);
+        const asksWorking = /\bworking\b/i.test(text);
+        const asksToday = /\btoday\b/i.test(text);
+        const asksHowMany = /\bhow\s+many|count|number\s+of\b/i.test(text);
+        const asksWho = /\bwho\b/i.test(text);
+
+        // Only short-circuit for real-time attendance intents (not schedule intents).
+        const isRealtimeAttendanceIntent = !asksScheduled && (asksClockedIn || (asksWorking && asksToday));
+        if (!isRealtimeAttendanceIntent) return null;
+
+        const attendance = context?.attendanceData || {};
+        const todayCounts = attendance?.today?.counts || {};
+        const todayBreakdown = attendance?.today?.scheduledVsClockedIn || {};
+        const teamStatus = Array.isArray(attendance?.teamStatus) ? attendance.teamStatus : [];
+        const clockedInPeople = teamStatus
+            .filter((row) => String(row?.status || '') === 'Clocked In')
+            .map((row) => String(row?.name || row?.username || '').trim())
+            .filter(Boolean);
+
+        const actualClockedIn = Number(todayCounts?.clockedIn || 0);
+        const scheduledCount = Number(todayBreakdown?.scheduledCount || 0);
+
+        if (asksWho) {
+            if (!clockedInPeople.length) {
+                return {
+                    reply: `No one is clocked in right now.\n\nScheduled today: ${scheduledCount}.\nActually clocked in: 0.`,
+                    suggestions: ['Who is scheduled today?', 'Show attendance overview', 'Who is absent today?']
+                };
+            }
+            const peopleList = clockedInPeople.slice(0, 25).map((name) => `- ${name}`).join('\n');
+            return {
+                reply: `Currently clocked in (${actualClockedIn}):\n${peopleList}`,
+                suggestions: ['How many are absent today?', 'Show attendance overview', 'Who is on break?']
+            };
+        }
+
+        if (asksHowMany || asksClockedIn || asksWorking) {
+            if (!clockedInPeople.length) {
+                return {
+                    reply: `0 employees are clocked in right now.\n\nScheduled today: ${scheduledCount}.\nActually clocked in: 0.`,
+                    suggestions: ['Who is scheduled today?', 'Show attendance overview', 'Who is absent today?']
+                };
+            }
+            const peopleList = clockedInPeople.slice(0, 25).map((name) => `- ${name}`).join('\n');
+            return {
+                reply: `${actualClockedIn} employee${actualClockedIn === 1 ? '' : 's'} are clocked in right now:\n${peopleList}`,
+                suggestions: ['Who is on break?', 'How many are absent today?', 'Show attendance overview']
+            };
+        }
+
+        return null;
+    }
+
     async function sendMessage(messageText) {
         if (!messageText || !messageText.trim() || copilotState.isProcessing) return;
 
@@ -77038,6 +77096,19 @@ console.log('✅ Global functions exported to window object');
         try {
             // Build context from live app data
             const context = ContextEngine.buildFullContext();
+
+            // Deterministic guardrail for live attendance questions.
+            const localReply = buildDeterministicAttendanceReply(message, context);
+            if (localReply && localReply.reply) {
+                CopilotUI.hideTyping();
+                CopilotUI.addMessage('assistant', localReply.reply);
+                copilotState.conversationHistory.push({ role: 'assistant', content: localReply.reply });
+                CopilotUI.showSuggestions(localReply.suggestions || []);
+                copilotState.isProcessing = false;
+                getEl('copilotSendBtn').disabled = false;
+                getEl('copilotInput').focus();
+                return;
+            }
 
             // Send to backend
             const response = await fetch(COPILOT_API_URL, {
