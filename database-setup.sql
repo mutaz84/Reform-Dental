@@ -393,6 +393,50 @@ GO
 -- =============================================
 -- 11. STICKY NOTES TABLE
 -- =============================================
+-- =============================================
+-- 10.5 COPILOT CONVERSATIONS TABLES
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='CopilotConversations' AND xtype='U')
+BEGIN
+    CREATE TABLE CopilotConversations (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        UserId INT NOT NULL,
+        ConversationId NVARCHAR(100) NOT NULL,
+        Title NVARCHAR(255) NOT NULL,
+        IsDeleted BIT NOT NULL DEFAULT 0,
+        CreatedDate DATETIME2 DEFAULT SYSUTCDATETIME(),
+        ModifiedDate DATETIME2 DEFAULT SYSUTCDATETIME(),
+        FOREIGN KEY (UserId) REFERENCES Users(Id)
+    );
+    CREATE UNIQUE INDEX UX_CopilotConversations_User_Conversation ON CopilotConversations(UserId, ConversationId);
+    CREATE INDEX IX_CopilotConversations_User_ModifiedDate ON CopilotConversations(UserId, ModifiedDate DESC);
+    PRINT 'Created CopilotConversations table';
+END
+ELSE
+    PRINT 'CopilotConversations table already exists';
+GO
+
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='CopilotConversationMessages' AND xtype='U')
+BEGIN
+    CREATE TABLE CopilotConversationMessages (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        ConversationPkId INT NOT NULL,
+        Role NVARCHAR(20) NOT NULL,
+        Content NVARCHAR(MAX) NOT NULL,
+        MessageOrder INT NOT NULL,
+        CreatedDate DATETIME2 DEFAULT SYSUTCDATETIME(),
+        FOREIGN KEY (ConversationPkId) REFERENCES CopilotConversations(Id) ON DELETE CASCADE
+    );
+    CREATE INDEX IX_CopilotConversationMessages_Conversation_Order ON CopilotConversationMessages(ConversationPkId, MessageOrder);
+    PRINT 'Created CopilotConversationMessages table';
+END
+ELSE
+    PRINT 'CopilotConversationMessages table already exists';
+GO
+
+-- =============================================
+-- 11. STICKY NOTES TABLE
+-- =============================================
 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='StickyNotes' AND xtype='U')
 BEGIN
     CREATE TABLE StickyNotes (

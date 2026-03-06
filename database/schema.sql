@@ -375,7 +375,34 @@ CREATE TABLE Vendors (
 );
 
 -- =============================================
--- 14. STICKY NOTES TABLE
+-- 14. COPILOT CONVERSATIONS TABLES
+-- =============================================
+CREATE TABLE CopilotConversations (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    UserId INT NOT NULL FOREIGN KEY REFERENCES Users(Id),
+    ConversationId NVARCHAR(100) NOT NULL,
+    Title NVARCHAR(255) NOT NULL,
+    IsDeleted BIT NOT NULL DEFAULT 0,
+    CreatedDate DATETIME2 DEFAULT SYSUTCDATETIME(),
+    ModifiedDate DATETIME2 DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UX_CopilotConversations_User_Conversation UNIQUE (UserId, ConversationId)
+);
+
+CREATE INDEX IX_CopilotConversations_User_ModifiedDate ON CopilotConversations(UserId, ModifiedDate DESC);
+
+CREATE TABLE CopilotConversationMessages (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    ConversationPkId INT NOT NULL FOREIGN KEY REFERENCES CopilotConversations(Id) ON DELETE CASCADE,
+    Role NVARCHAR(20) NOT NULL,
+    Content NVARCHAR(MAX) NOT NULL,
+    MessageOrder INT NOT NULL,
+    CreatedDate DATETIME2 DEFAULT SYSUTCDATETIME()
+);
+
+CREATE INDEX IX_CopilotConversationMessages_Conversation_Order ON CopilotConversationMessages(ConversationPkId, MessageOrder);
+
+-- =============================================
+-- 15. STICKY NOTES TABLE
 -- =============================================
 CREATE TABLE StickyNotes (
     Id INT IDENTITY(1,1) PRIMARY KEY,
@@ -391,7 +418,7 @@ CREATE TABLE StickyNotes (
 CREATE INDEX IX_StickyNotes_UserId ON StickyNotes(UserId);
 
 -- =============================================
--- 15. AUDIT LOG TABLE (for tracking changes)
+-- 16. AUDIT LOG TABLE (for tracking changes)
 -- =============================================
 CREATE TABLE AuditLog (
     Id INT IDENTITY(1,1) PRIMARY KEY,

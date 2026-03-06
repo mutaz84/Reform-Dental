@@ -19,6 +19,87 @@ function getConfig() {
     return {};
 }
 
+function toInt(value) {
+    const parsed = Number.parseInt(String(value || '').trim(), 10);
+    return Number.isInteger(parsed) ? parsed : null;
+}
+
+function toIsoString(value) {
+    const parsed = new Date(value || Date.now());
+    if (Number.isNaN(parsed.getTime())) return new Date().toISOString();
+    return parsed.toISOString();
+}
+
+function normalizeCopilotRole(value) {
+    const role = String(value || '').trim().toLowerCase();
+    return role === 'assistant' ? 'assistant' : 'user';
+}
+
+function trimCopilotMessages(messages) {
+    if (!Array.isArray(messages)) return [];
+    return messages
+        .map((item) => ({
+            role: normalizeCopilotRole(item?.role),
+            content: String(item?.content || '').trim(),
+            timestamp: toIsoString(item?.timestamp)
+        }))
+        .filter((item) => item.content)
+        .slice(-250);
+}
+
+async function getCopilotConversationDbId(userId, conversationId) {
+    const result = await sql.query`
+        SELECT TOP 1 Id
+        FROM CopilotConversations
+        WHERE UserId = ${userId} AND ConversationId = ${conversationId} AND ISNULL(IsDeleted, 0) = 0`;
+    return result.recordset[0]?.Id || null;
+}
+
+async function upsertCopilotConversation({ userId, conversationId, title, createdAt, updatedAt, messages }) {
+    const safeConversationId = String(conversationId || '').trim();
+    if (!safeConversationId) {
+        throw new Error('conversationId required');
+    }
+
+    const safeTitle = String(title || '').trim() || 'New conversation';
+    const safeCreatedAt = toIsoString(createdAt);
+    const safeUpdatedAt = toIsoString(updatedAt);
+    const safeMessages = trimCopilotMessages(messages);
+
+    let dbConversationId = await getCopilotConversationDbId(userId, safeConversationId);
+    if (!dbConversationId) {
+        const insertConversation = await sql.query`
+            INSERT INTO CopilotConversations (UserId, ConversationId, Title, CreatedDate, ModifiedDate, IsDeleted)
+            OUTPUT INSERTED.Id
+            VALUES (${userId}, ${safeConversationId}, ${safeTitle}, ${safeCreatedAt}, ${safeUpdatedAt}, 0)`;
+        dbConversationId = insertConversation.recordset[0]?.Id || null;
+    } else {
+        await sql.query`
+            UPDATE CopilotConversations
+            SET Title = ${safeTitle},
+                ModifiedDate = ${safeUpdatedAt},
+                IsDeleted = 0
+            WHERE Id = ${dbConversationId}`;
+
+        await sql.query`DELETE FROM CopilotConversationMessages WHERE ConversationPkId = ${dbConversationId}`;
+    }
+
+    for (let i = 0; i < safeMessages.length; i += 1) {
+        const item = safeMessages[i];
+        await sql.query`
+            INSERT INTO CopilotConversationMessages (ConversationPkId, Role, Content, MessageOrder, CreatedDate)
+            VALUES (${dbConversationId}, ${item.role}, ${item.content}, ${i + 1}, ${item.timestamp})`;
+    }
+
+    return {
+        id: safeConversationId,
+        title: safeTitle,
+        createdAt: safeCreatedAt,
+        updatedAt: safeUpdatedAt,
+        messages: safeMessages
+    };
+}
+
 module.exports = async function (context, req) {
     context.log('Chat API triggered');
     
@@ -43,6 +124,82 @@ module.exports = async function (context, req) {
 
         // GET - Fetch conversations or messages
         if (method === 'GET') {
+            if (action === 'copilotConversations') {
+                const userId = toInt(req.query.userId);
+                if (!Number.isInteger(userId)) {
+                    context.res = { status: 400, headers, body: { error: 'userId required' } };
+                    return;
+                }
+
+                const result = await sql.query`
+                    SELECT
+                        c.ConversationId,
+                        c.Title,
+                        c.CreatedDate,
+                        c.ModifiedDate,
+                        COUNT(m.Id) AS MessageCount
+                    FROM CopilotConversations c
+                    LEFT JOIN CopilotConversationMessages m ON m.ConversationPkId = c.Id
+                    WHERE c.UserId = ${userId} AND ISNULL(c.IsDeleted, 0) = 0
+                    GROUP BY c.ConversationId, c.Title, c.CreatedDate, c.ModifiedDate
+                    ORDER BY c.ModifiedDate DESC`;
+
+                const sessions = (result.recordset || []).map((row) => ({
+                    id: String(row.ConversationId || ''),
+                    title: String(row.Title || 'New conversation'),
+                    createdAt: row.CreatedDate,
+                    updatedAt: row.ModifiedDate,
+                    messageCount: Number(row.MessageCount || 0)
+                }));
+
+                context.res = { status: 200, headers, body: sessions };
+                return;
+            }
+
+            if (action === 'copilotConversation') {
+                const userId = toInt(req.query.userId);
+                const conversationId = String(req.query.conversationId || '').trim();
+                if (!Number.isInteger(userId) || !conversationId) {
+                    context.res = { status: 400, headers, body: { error: 'userId and conversationId required' } };
+                    return;
+                }
+
+                const convo = await sql.query`
+                    SELECT TOP 1 Id, ConversationId, Title, CreatedDate, ModifiedDate
+                    FROM CopilotConversations
+                    WHERE UserId = ${userId} AND ConversationId = ${conversationId} AND ISNULL(IsDeleted, 0) = 0`;
+                const row = convo.recordset[0];
+                if (!row) {
+                    context.res = { status: 404, headers, body: { error: 'Conversation not found' } };
+                    return;
+                }
+
+                const messagesResult = await sql.query`
+                    SELECT Role, Content, CreatedDate
+                    FROM CopilotConversationMessages
+                    WHERE ConversationPkId = ${row.Id}
+                    ORDER BY MessageOrder ASC, Id ASC`;
+
+                const messages = (messagesResult.recordset || []).map((item) => ({
+                    role: normalizeCopilotRole(item.Role),
+                    content: String(item.Content || ''),
+                    timestamp: item.CreatedDate
+                }));
+
+                context.res = {
+                    status: 200,
+                    headers,
+                    body: {
+                        id: String(row.ConversationId || ''),
+                        title: String(row.Title || 'New conversation'),
+                        createdAt: row.CreatedDate,
+                        updatedAt: row.ModifiedDate,
+                        messages
+                    }
+                };
+                return;
+            }
+
             // Get total unread count for a user
             if (action === 'unreadCount') {
                 const userId = req.query.userId;
@@ -208,6 +365,26 @@ module.exports = async function (context, req) {
 
         // POST - Send a new message
         if (method === 'POST') {
+            if (action === 'copilotConversation') {
+                const userId = toInt(req.body?.userId);
+                if (!Number.isInteger(userId)) {
+                    context.res = { status: 400, headers, body: { error: 'userId required' } };
+                    return;
+                }
+
+                const payload = await upsertCopilotConversation({
+                    userId,
+                    conversationId: req.body?.conversationId,
+                    title: req.body?.title,
+                    createdAt: req.body?.createdAt,
+                    updatedAt: req.body?.updatedAt,
+                    messages: req.body?.messages
+                });
+
+                context.res = { status: 201, headers, body: payload };
+                return;
+            }
+
             const { senderId, receiverId, message } = req.body;
             
             if (!senderId || !receiverId || !message) {
@@ -253,6 +430,24 @@ module.exports = async function (context, req) {
         }
 
         // DELETE - Delete a message
+        if (method === 'DELETE' && action === 'copilotConversation') {
+            const userId = toInt(req.query.userId);
+            const conversationId = String(req.query.conversationId || '').trim();
+            if (!Number.isInteger(userId) || !conversationId) {
+                context.res = { status: 400, headers, body: { error: 'userId and conversationId required' } };
+                return;
+            }
+
+            await sql.query`
+                UPDATE CopilotConversations
+                SET IsDeleted = 1,
+                    ModifiedDate = SYSUTCDATETIME()
+                WHERE UserId = ${userId} AND ConversationId = ${conversationId}`;
+
+            context.res = { status: 200, headers, body: { success: true } };
+            return;
+        }
+
         if (method === 'DELETE' && messageId) {
             await sql.query`DELETE FROM ChatMessages WHERE Id = ${messageId}`;
             context.res = { status: 200, headers, body: { success: true } };
