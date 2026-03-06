@@ -75614,6 +75614,345 @@ console.log('✅ Global functions exported to window object');
             };
         },
 
+        // Get attendance + PTO data
+        getAttendanceData() {
+            const records = this.safeParse('attendanceClockRecordsV1', []);
+            const policies = this.safeParse('attendanceFlexPoliciesV1', {});
+            const ptoCredits = this.safeParse('attendancePtoCreditsV1', {});
+            const ptoRequests = this.safeParse('attendancePtoRequestsV1', []);
+            const notifications = this.safeParse('attendanceNotificationsV1', []);
+            const absences = this.safeParse('attendanceAbsencesV1', []);
+            const activeClockMap = this.safeParse('attendanceActiveClockMapV1', {});
+            const users = this.safeParse('appUsers', {});
+
+            const toKey = (value) => String(value || '').trim().toLowerCase();
+            const todayDate = new Date();
+            const todayISO = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, '0')}-${String(todayDate.getDate()).padStart(2, '0')}`;
+
+            const dateToISO = (value) => {
+                if (!value) return '';
+                const raw = String(value).trim();
+                const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+                const parsed = new Date(raw);
+                if (Number.isNaN(parsed.getTime())) return '';
+                return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+            };
+
+            const normalizeClockOutReason = (value) => {
+                const raw = String(value || '').trim().toLowerCase();
+                if (raw === 'break' || raw === 'clock out for break') return 'break';
+                if (raw === 'lunch' || raw === 'clock out for lunch') return 'lunch';
+                if (raw === 'home' || raw === 'clock out to home' || raw === 'leave' || raw === 'clock out and leave' || raw === 'clock out & leave') return 'home';
+                return '';
+            };
+
+            const extractClockOutReason = (record) => {
+                const directReason = normalizeClockOutReason(
+                    record?.clockOutReason || record?.ClockOutReason || record?.clockOutType || record?.reason
+                );
+                if (directReason) return directReason;
+                const flags = Array.isArray(record?.flags) ? record.flags : [];
+                for (const rawFlag of flags) {
+                    const flag = String(rawFlag || '').trim().toLowerCase();
+                    const match = flag.match(/^clock[_-]?out[_-]?reason(?:[:_\-])(.+)$/i);
+                    if (!match || !match[1]) continue;
+                    const parsed = normalizeClockOutReason(match[1]);
+                    if (parsed) return parsed;
+                }
+                return '';
+            };
+
+            const getRecordDateISO = (record) => {
+                const direct = dateToISO(record?.date || record?.workDate || record?.Date || record?.WorkDate);
+                if (direct) return direct;
+                const inISO = dateToISO(record?.clockIn);
+                if (inISO) return inISO;
+                return dateToISO(record?.clockOut);
+            };
+
+            const recordTimestamp = (record) => {
+                const ts = new Date(record?.clockOut || record?.clockIn || record?.createdAt || 0).getTime();
+                return Number.isFinite(ts) ? ts : 0;
+            };
+
+            const getUserNameCandidates = (username, userData = {}) => {
+                const names = new Set();
+                const first = String(userData.firstName || '').trim();
+                const last = String(userData.lastName || '').trim();
+                const full = [first, last].filter(Boolean).join(' ').trim();
+                [username, userData.username, userData.name, userData.fullName, full, userData.workEmail, userData.personalEmail].forEach((item) => {
+                    const key = toKey(item);
+                    if (key) names.add(key);
+                });
+                return names;
+            };
+
+            const canonicalFromAny = (rawValue) => {
+                const target = toKey(rawValue);
+                if (!target) return '';
+
+                const direct = Object.keys(users || {}).find((username) => toKey(username) === target);
+                if (direct) return direct;
+
+                const matched = Object.keys(users || {}).find((username) => {
+                    const candidateSet = getUserNameCandidates(username, users[username]);
+                    return candidateSet.has(target);
+                });
+                return matched || '';
+            };
+
+            const getCreditForUser = (username) => {
+                if (!username) return 0;
+                const canonical = canonicalFromAny(username) || username;
+                const candidates = new Set([
+                    String(canonical || '').trim(),
+                    String(username || '').trim(),
+                    toKey(canonical),
+                    toKey(username)
+                ].filter(Boolean));
+
+                let best = 0;
+                Object.keys(ptoCredits || {}).forEach((key) => {
+                    const matches = candidates.has(String(key || '').trim()) || candidates.has(toKey(key));
+                    if (!matches) return;
+                    const value = Number(ptoCredits[key]);
+                    if (Number.isFinite(value) && value > best) best = value;
+                });
+                return Number(best || 0);
+            };
+
+            const getDisplayName = (username, fallback = '') => {
+                const canonical = canonicalFromAny(username) || username;
+                const user = users[canonical] || users[username] || {};
+                const first = String(user.firstName || '').trim();
+                const last = String(user.lastName || '').trim();
+                const full = [first, last].filter(Boolean).join(' ').trim();
+                return String(user.name || user.fullName || full || fallback || canonical || username || '-').trim();
+            };
+
+            const getStatusFromRecord = (record) => {
+                if (!record || !record.clockIn) return 'Not Clocked';
+                if (!record.clockOut) return 'Clocked In';
+                const reason = extractClockOutReason(record);
+                if (reason === 'break') return 'On Break';
+                if (reason === 'lunch') return 'At Lunch';
+                return 'Clocked Out';
+            };
+
+            const employeeUsers = Object.keys(users || {})
+                .filter((username) => {
+                    const user = users[username] || {};
+                    if (user.isActive === false) return false;
+                    return toKey(username) !== 'admin';
+                })
+                .map((username) => ({
+                    username,
+                    displayName: getDisplayName(username, username),
+                    role: String(users[username]?.role || 'user').toLowerCase(),
+                    clinic: users[username]?.clinic || users[username]?.office || ''
+                }));
+
+            const todaysRecords = (Array.isArray(records) ? records : []).filter((record) => getRecordDateISO(record) === todayISO);
+
+            const latestByUser = {};
+            todaysRecords.forEach((record) => {
+                const canonical = canonicalFromAny(record?.username || record?.displayName) || String(record?.username || record?.displayName || '').trim();
+                const key = toKey(canonical);
+                if (!key) return;
+                const existing = latestByUser[key];
+                if (!existing || recordTimestamp(record) >= recordTimestamp(existing)) {
+                    latestByUser[key] = record;
+                }
+            });
+
+            const teamStatus = employeeUsers.map((employee) => {
+                const key = toKey(canonicalFromAny(employee.username) || employee.username);
+                const record = latestByUser[key] || null;
+                const flags = Array.isArray(record?.flags) ? record.flags : [];
+                return {
+                    username: employee.username,
+                    name: employee.displayName,
+                    role: employee.role,
+                    clinic: record?.employeeClinic || employee.clinic || '',
+                    status: getStatusFromRecord(record),
+                    clockIn: record?.clockIn || null,
+                    clockOut: record?.clockOut || null,
+                    clockOutReason: extractClockOutReason(record) || null,
+                    minutesWorked: Number(record?.minutesWorked || 0) || 0,
+                    flags: flags.slice(0, 10)
+                };
+            });
+
+            const todayCounts = {
+                totalEmployees: teamStatus.length,
+                clockedIn: teamStatus.filter((row) => row.status === 'Clocked In').length,
+                onBreak: teamStatus.filter((row) => row.status === 'On Break').length,
+                atLunch: teamStatus.filter((row) => row.status === 'At Lunch').length,
+                clockedOut: teamStatus.filter((row) => row.status === 'Clocked Out').length,
+                notClocked: teamStatus.filter((row) => row.status === 'Not Clocked').length
+            };
+
+            const exceptionCounts = {
+                lateToWork: todaysRecords.filter((record) => Array.isArray(record?.flags) && record.flags.includes('late_to_work')).length,
+                unscheduledClockIn: todaysRecords.filter((record) => Array.isArray(record?.flags) && record.flags.includes('unscheduled_clock_in')).length,
+                unauthorizedEarlyClockIn: todaysRecords.filter((record) => Array.isArray(record?.flags) && record.flags.includes('unauthorized_before_clock_in')).length,
+                unauthorizedLateClockIn: todaysRecords.filter((record) => Array.isArray(record?.flags) && record.flags.includes('unauthorized_late_clock_in')).length,
+                unauthorizedEarlyClockOut: todaysRecords.filter((record) => Array.isArray(record?.flags) && record.flags.includes('unauthorized_early_clock_out')).length,
+                unauthorizedDelayClockOut: todaysRecords.filter((record) => Array.isArray(record?.flags) && record.flags.includes('unauthorized_delay_clock_out')).length
+            };
+
+            const requests = Array.isArray(ptoRequests) ? ptoRequests : [];
+            const statusCount = { pending: 0, approved: 0, denied: 0, rejected: 0, cancelled: 0, other: 0 };
+            requests.forEach((request) => {
+                const status = String(request?.status || '').trim().toLowerCase();
+                if (statusCount[status] !== undefined) statusCount[status] += 1;
+                else statusCount.other += 1;
+            });
+
+            const getRequestDateMs = (request) => {
+                const ts = new Date(request?.requestedAt || request?.createdAt || request?.reviewedAt || 0).getTime();
+                return Number.isFinite(ts) ? ts : 0;
+            };
+
+            const currentUserRaw = localStorage.getItem('loggedInUser') || localStorage.getItem('userName') || '';
+            const currentUser = canonicalFromAny(currentUserRaw) || currentUserRaw;
+            const currentUserKey = toKey(currentUser);
+            const myRecord = latestByUser[currentUserKey] || null;
+            const myRequests = requests.filter((request) => {
+                const user = canonicalFromAny(request?.username || request?.employeeName) || String(request?.username || request?.employeeName || '').trim();
+                return toKey(user) === currentUserKey;
+            });
+
+            const recentAttendance = todaysRecords
+                .slice()
+                .sort((a, b) => recordTimestamp(b) - recordTimestamp(a))
+                .slice(0, 30)
+                .map((record) => ({
+                    username: canonicalFromAny(record?.username || record?.displayName) || record?.username || '',
+                    name: getDisplayName(record?.username || record?.displayName, record?.displayName || record?.username),
+                    date: getRecordDateISO(record),
+                    clockIn: record?.clockIn || null,
+                    clockOut: record?.clockOut || null,
+                    clockOutReason: extractClockOutReason(record) || null,
+                    minutesWorked: Number(record?.minutesWorked || 0) || 0,
+                    flags: Array.isArray(record?.flags) ? record.flags.slice(0, 10) : []
+                }));
+
+            const recentPtoRequests = requests
+                .slice()
+                .sort((a, b) => getRequestDateMs(b) - getRequestDateMs(a))
+                .slice(0, 25)
+                .map((request) => ({
+                    id: request?.id || null,
+                    username: canonicalFromAny(request?.username || request?.employeeName) || request?.username || '',
+                    employeeName: request?.employeeName || getDisplayName(request?.username, request?.username),
+                    status: request?.status || 'pending',
+                    startDate: request?.startDate || null,
+                    endDate: request?.endDate || null,
+                    hours: Number(request?.hours || 0) || 0,
+                    reason: request?.reason || '',
+                    reviewedBy: request?.reviewedBy || null,
+                    reviewedAt: request?.reviewedAt || null
+                }));
+
+            const ptoByEmployee = employeeUsers
+                .map((employee) => ({
+                    username: employee.username,
+                    name: employee.displayName,
+                    availableHours: Number(getCreditForUser(employee.username) || 0),
+                    pendingRequests: requests.filter((request) => {
+                        const requestUser = canonicalFromAny(request?.username || request?.employeeName) || String(request?.username || request?.employeeName || '').trim();
+                        return toKey(requestUser) === toKey(employee.username) && String(request?.status || '').trim().toLowerCase() === 'pending';
+                    }).length
+                }))
+                .sort((a, b) => b.availableHours - a.availableHours)
+                .slice(0, 50);
+
+            const upcomingApprovedRequests = requests
+                .filter((request) => String(request?.status || '').trim().toLowerCase() === 'approved')
+                .filter((request) => {
+                    const endDate = dateToISO(request?.endDate || request?.startDate);
+                    return endDate && endDate >= todayISO;
+                })
+                .sort((a, b) => String(a?.startDate || '').localeCompare(String(b?.startDate || '')))
+                .slice(0, 20)
+                .map((request) => ({
+                    username: canonicalFromAny(request?.username || request?.employeeName) || request?.username || '',
+                    employeeName: request?.employeeName || getDisplayName(request?.username, request?.username),
+                    startDate: request?.startDate || null,
+                    endDate: request?.endDate || null,
+                    hours: Number(request?.hours || 0) || 0,
+                    reason: request?.reason || ''
+                }));
+
+            const recentNotifications = (Array.isArray(notifications) ? notifications : [])
+                .slice()
+                .sort((a, b) => {
+                    const aTs = new Date(a?.createdAt || 0).getTime() || 0;
+                    const bTs = new Date(b?.createdAt || 0).getTime() || 0;
+                    return bTs - aTs;
+                })
+                .slice(0, 25)
+                .map((note) => ({
+                    user: canonicalFromAny(note?.user) || note?.user || '',
+                    type: note?.type || 'info',
+                    message: note?.message || '',
+                    createdAt: note?.createdAt || null
+                }));
+
+            const recentAbsences = (Array.isArray(absences) ? absences : [])
+                .slice()
+                .sort((a, b) => String(b?.date || '').localeCompare(String(a?.date || '')))
+                .slice(0, 25)
+                .map((absence) => ({
+                    username: canonicalFromAny(absence?.username || absence?.displayName) || absence?.username || '',
+                    displayName: absence?.displayName || getDisplayName(absence?.username, absence?.username),
+                    date: absence?.date || null,
+                    reason: absence?.reason || ''
+                }));
+
+            return {
+                summary: {
+                    totalRecords: Array.isArray(records) ? records.length : 0,
+                    activeClockPointers: Object.keys(activeClockMap || {}).length,
+                    flexPolicyUsers: Object.keys(policies || {}).length,
+                    ptoCreditUsers: Object.keys(ptoCredits || {}).length,
+                    totalPtoRequests: requests.length,
+                    totalNotifications: Array.isArray(notifications) ? notifications.length : 0,
+                    totalAbsences: Array.isArray(absences) ? absences.length : 0
+                },
+                today: {
+                    date: todayISO,
+                    counts: todayCounts,
+                    exceptions: exceptionCounts,
+                    recordsLogged: todaysRecords.length
+                },
+                currentUser: {
+                    username: currentUser || '',
+                    name: getDisplayName(currentUser, currentUser),
+                    statusToday: getStatusFromRecord(myRecord),
+                    clockIn: myRecord?.clockIn || null,
+                    clockOut: myRecord?.clockOut || null,
+                    clockOutReason: extractClockOutReason(myRecord) || null,
+                    minutesWorked: Number(myRecord?.minutesWorked || 0) || 0,
+                    ptoBalanceHours: Number(getCreditForUser(currentUser) || 0),
+                    ptoPendingCount: myRequests.filter((request) => String(request?.status || '').trim().toLowerCase() === 'pending').length,
+                    ptoApprovedCount: myRequests.filter((request) => String(request?.status || '').trim().toLowerCase() === 'approved').length
+                },
+                ptoSummary: {
+                    statusCount,
+                    upcomingApprovedRequests,
+                    employeeBalances: ptoByEmployee
+                },
+                teamStatus: teamStatus.slice(0, 80),
+                recentAttendance,
+                recentPtoRequests,
+                recentNotifications,
+                recentAbsences
+            };
+        },
+
         // Get equipment data
         getEquipmentData() {
             const equipment = this.safeParse('equipment', []);
@@ -75769,6 +76108,7 @@ console.log('✅ Global functions exported to window object');
                 currentDate: new Date().toISOString(),
                 staffData: this.getStaffData(),
                 scheduleData: this.getScheduleData(),
+                attendanceData: this.getAttendanceData(),
                 equipmentData: this.getEquipmentData(),
                 instrumentsData: this.getInstrumentsData(),
                 suppliesData: this.getSuppliesData(),
