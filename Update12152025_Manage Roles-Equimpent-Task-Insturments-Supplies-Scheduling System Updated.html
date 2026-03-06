@@ -75793,6 +75793,64 @@ console.log('✅ Global functions exported to window object');
                 notClocked: teamStatus.filter((row) => row.status === 'Not Clocked').length
             };
 
+            const storageShifts = this.safeParse('scheduleShifts', []);
+            const shifts = Array.isArray(window.myScheduleShifts) && window.myScheduleShifts.length
+                ? window.myScheduleShifts
+                : storageShifts;
+            const todayDow = todayDate.toLocaleDateString('en-US', { weekday: 'short' }).toLowerCase();
+            const splitNames = (raw) => String(raw || '')
+                .split(',')
+                .map((name) => name.trim())
+                .filter(Boolean);
+            const isShiftScheduledToday = (shift) => {
+                if (!shift || typeof shift !== 'object') return false;
+
+                const explicitDate = dateToISO(shift.date || shift.start);
+                if (explicitDate) return explicitDate === todayISO;
+
+                const rawDays = Array.isArray(shift.days)
+                    ? shift.days
+                    : String(shift.days || shift.daysOfWeek || '')
+                        .split(',')
+                        .map((value) => value.trim())
+                        .filter(Boolean);
+                if (!rawDays.length) return false;
+
+                const hasTodayDay = rawDays.some((day) => {
+                    const value = String(day || '').trim().toLowerCase();
+                    return value === todayDow || value.startsWith(todayDow);
+                });
+                if (!hasTodayDay) return false;
+
+                const startDate = dateToISO(shift.startDate);
+                const endDate = dateToISO(shift.endDate || shift.untilDate);
+                if (startDate && todayISO < startDate) return false;
+                if (endDate && todayISO > endDate) return false;
+                return true;
+            };
+
+            const scheduledUsernamesSet = new Set();
+            const addScheduledName = (name) => {
+                const canonical = canonicalFromAny(name) || String(name || '').trim();
+                const key = toKey(canonical);
+                if (key) scheduledUsernamesSet.add(key);
+            };
+
+            shifts.filter(isShiftScheduledToday).forEach((shift) => {
+                addScheduledName(shift?.employee || shift?.provider || shift?.name);
+                splitNames(shift?.assistant).forEach(addScheduledName);
+            });
+
+            const teamStatusByCanonical = new Map(
+                teamStatus.map((row) => [toKey(canonicalFromAny(row?.username || row?.name) || row?.username || row?.name), row])
+            );
+            const scheduledRows = Array.from(scheduledUsernamesSet)
+                .map((key) => teamStatusByCanonical.get(key))
+                .filter(Boolean);
+
+            const scheduledClockedInRows = scheduledRows.filter((row) => row.status === 'Clocked In');
+            const scheduledNotClockedRows = scheduledRows.filter((row) => row.status !== 'Clocked In');
+
             const exceptionCounts = {
                 lateToWork: todaysRecords.filter((record) => Array.isArray(record?.flags) && record.flags.includes('late_to_work')).length,
                 unscheduledClockIn: todaysRecords.filter((record) => Array.isArray(record?.flags) && record.flags.includes('unscheduled_clock_in')).length,
@@ -75925,6 +75983,19 @@ console.log('✅ Global functions exported to window object');
                 today: {
                     date: todayISO,
                     counts: todayCounts,
+                    // AI guardrails: actual clock-in counts are attendance-record based, not schedule-based.
+                    definitions: {
+                        actualClockedIn: 'Employee has an attendance record today with clockIn set and no clockOut yet.',
+                        scheduledEmployee: 'Employee has a schedule assignment today. Scheduled does not mean clocked in.',
+                        useAttendanceCountsForClockInQuestions: true
+                    },
+                    scheduledVsClockedIn: {
+                        scheduledCount: scheduledRows.length,
+                        scheduledClockedInCount: scheduledClockedInRows.length,
+                        scheduledNotClockedInCount: scheduledNotClockedRows.length,
+                        scheduledClockedInPeople: scheduledClockedInRows.slice(0, 30).map((row) => row.name),
+                        scheduledNotClockedInPeople: scheduledNotClockedRows.slice(0, 30).map((row) => row.name)
+                    },
                     exceptions: exceptionCounts,
                     recordsLogged: todaysRecords.length
                 },
