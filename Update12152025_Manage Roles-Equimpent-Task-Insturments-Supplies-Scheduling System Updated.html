@@ -77116,27 +77116,69 @@ console.log('✅ Global functions exported to window object');
             return bestScore >= 3 ? best : null;
         };
 
+        const resolveEmployeeBalanceByMention = (value) => {
+            const raw = String(value || '').trim().toLowerCase();
+            if (!raw) return null;
+
+            const escapeRegex = (input) => String(input || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            let best = null;
+            let bestScore = -1;
+
+            employeeBalances.forEach((row) => {
+                const normalizedName = normalizeKey(row?.name);
+                const normalizedUsername = normalizeKey(row?.username);
+                const aliases = new Set([
+                    normalizedName,
+                    normalizedUsername,
+                    String(normalizedName || '').split(' ')[0],
+                    String(normalizedUsername || '').split(' ')[0]
+                ].filter((alias) => alias && alias.length >= 3));
+
+                let score = -1;
+                aliases.forEach((alias) => {
+                    const re = new RegExp(`\\b${escapeRegex(alias)}\\b`, 'i');
+                    if (re.test(raw)) {
+                        const aliasWordCount = alias.split(' ').length;
+                        const nextScore = aliasWordCount >= 2 ? 5 : 4;
+                        if (nextScore > score) score = nextScore;
+                    }
+                });
+
+                if (score > bestScore) {
+                    best = row;
+                    bestScore = score;
+                }
+            });
+
+            return bestScore >= 4 ? best : null;
+        };
+
         if (asksPto) {
             const myBalance = Number(currentUser?.ptoBalanceHours || 0);
             const myPending = Number(currentUser?.ptoPendingCount || 0);
             const myApproved = Number(currentUser?.ptoApprovedCount || 0);
 
-            if (targetPersonQuery) {
-                const targetRow = resolveEmployeeBalanceByQuery(targetPersonQuery);
-                if (!targetRow) {
-                    return {
-                        reply: `I could not find PTO balance data for "${targetPersonQuery}" in the current context.`,
-                        suggestions: ['Show team PTO balances', 'What is my PTO balance?', 'Open PTO Management']
-                    };
-                }
+            const targetRow = targetPersonQuery
+                ? resolveEmployeeBalanceByQuery(targetPersonQuery)
+                : resolveEmployeeBalanceByMention(message);
 
-                const targetName = String(targetRow?.name || targetRow?.username || targetPersonQuery).trim();
+            if (targetRow && !asksTeam) {
+                const targetName = String(targetRow?.name || targetRow?.username || targetPersonQuery || '').trim() || 'Employee';
                 const targetBalance = Number(targetRow?.availableHours || 0);
                 const targetPending = Number(targetRow?.pendingRequests || 0);
                 return {
                     reply: `${targetName}'s PTO balance is ${targetBalance.toFixed(2)} hours.\nPending PTO requests: ${targetPending}.`,
                     suggestions: ['Show team PTO balances', 'How many PTO requests are pending?', 'Open PTO Management']
                 };
+            }
+
+            if (targetPersonQuery) {
+                if (!targetRow) {
+                    return {
+                        reply: `I could not find PTO balance data for "${targetPersonQuery}" in the current context.`,
+                        suggestions: ['Show team PTO balances', 'What is my PTO balance?', 'Open PTO Management']
+                    };
+                }
             }
 
             if (asksTeam) {
