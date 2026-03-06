@@ -76060,6 +76060,108 @@ console.log('✅ Global functions exported to window object');
             };
         },
 
+        // Get sticky notes data
+        getStickyNotesData() {
+            const normalizeColor = (value) => {
+                const raw = String(value || '').trim().toLowerCase();
+                const allowed = new Set(['yellow', 'pink', 'blue', 'green', 'purple', 'orange']);
+                return allowed.has(raw) ? raw : 'yellow';
+            };
+
+            const normalizeText = (value) => String(value == null ? '' : value).replace(/\r\n/g, '\n');
+
+            const mapSavedNote = (note) => ({
+                id: note?.id ?? note?.Id ?? null,
+                dbId: note?.dbId ?? note?.DbId ?? null,
+                text: normalizeText(note?.text ?? note?.Text ?? ''),
+                color: normalizeColor(note?.color ?? note?.Color ?? 'yellow'),
+                x: Number(note?.x ?? note?.PositionX ?? 0) || 0,
+                y: Number(note?.y ?? note?.PositionY ?? 0) || 0
+            });
+
+            let storageKey = 'stickyNotes';
+            try {
+                if (typeof getStickyNotesStorageKey === 'function') {
+                    const computed = getStickyNotesStorageKey();
+                    if (computed) storageKey = computed;
+                }
+            } catch (_) {}
+
+            let savedNotes = this.safeParse(storageKey, []);
+            if ((!Array.isArray(savedNotes) || !savedNotes.length) && storageKey !== 'stickyNotes') {
+                savedNotes = this.safeParse('stickyNotes', []);
+            }
+            if (!Array.isArray(savedNotes)) savedNotes = [];
+
+            let liveNotes = [];
+            try {
+                if (Array.isArray(stickyNotes) && stickyNotes.length) {
+                    liveNotes = stickyNotes.map((note) => ({
+                        id: note?.id ?? null,
+                        dbId: note?.dbId ?? null,
+                        text: normalizeText(note?.element?.querySelector('.sticky-note-content-item')?.value ?? note?.text ?? ''),
+                        color: normalizeColor(note?.color),
+                        x: Number(note?.x ?? note?.element?.style?.left ?? 0) || 0,
+                        y: Number(note?.y ?? note?.element?.style?.top ?? 0) || 0
+                    }));
+                }
+            } catch (_) {
+                liveNotes = [];
+            }
+
+            const normalizedSaved = savedNotes.map(mapSavedNote);
+            const sourceNotes = liveNotes.length ? liveNotes : normalizedSaved;
+
+            const notes = sourceNotes.map((note) => ({
+                id: note.id,
+                dbId: note.dbId,
+                color: normalizeColor(note.color),
+                text: normalizeText(note.text),
+                textPreview: normalizeText(note.text).trim().slice(0, 120),
+                hasText: normalizeText(note.text).trim().length > 0,
+                x: Number(note.x || 0),
+                y: Number(note.y || 0)
+            }));
+
+            const colorCounts = { yellow: 0, pink: 0, blue: 0, green: 0, purple: 0, orange: 0 };
+            notes.forEach((note) => {
+                colorCounts[note.color] = (colorCounts[note.color] || 0) + 1;
+            });
+
+            const recycleKey = (() => {
+                try {
+                    if (typeof getStickyRecycleBinStorageKey === 'function') {
+                        const computed = getStickyRecycleBinStorageKey();
+                        if (computed) return computed;
+                    }
+                } catch (_) {}
+                return 'deletedStickyNotes';
+            })();
+
+            const recycleBin = this.safeParse(recycleKey, []);
+            const recycleBinCount = Array.isArray(recycleBin)
+                ? recycleBin.length
+                : (Array.isArray(stickyRecycleBin) ? stickyRecycleBin.length : 0);
+
+            return {
+                summary: {
+                    totalNotes: notes.length,
+                    notesWithText: notes.filter((note) => note.hasText).length,
+                    emptyNotes: notes.filter((note) => !note.hasText).length,
+                    recycleBinCount: Number(recycleBinCount || 0),
+                    colorCounts,
+                    storageKey,
+                    dataSourceHints: {
+                        sourcePriority: 'Use live stickyNotes board state when available, otherwise user-scoped sticky local storage.',
+                        textRule: 'When asked for sticky note text by color, return only matching color notes.',
+                        guardrail: 'deterministic_local_sticky_notes',
+                        guardrailVersion: '2026-03-06.1'
+                    }
+                },
+                notes: notes.slice(0, 300)
+            };
+        },
+
         // Get equipment data
         getEquipmentData() {
             const equipment = this.safeParse('equipment', []);
@@ -76216,6 +76318,7 @@ console.log('✅ Global functions exported to window object');
                 staffData: this.getStaffData(),
                 scheduleData: this.getScheduleData(),
                 attendanceData: this.getAttendanceData(),
+                stickyNotesData: this.getStickyNotesData(),
                 equipmentData: this.getEquipmentData(),
                 instrumentsData: this.getInstrumentsData(),
                 suppliesData: this.getSuppliesData(),
@@ -77066,6 +77169,107 @@ console.log('✅ Global functions exported to window object');
         const previousUserText = previousUserMessages.length > 1
             ? previousUserMessages[previousUserMessages.length - 2]
             : '';
+
+        const sticky = context?.stickyNotesData || {};
+        const stickySummary = sticky?.summary || {};
+        const stickyNotesList = Array.isArray(sticky?.notes) ? sticky.notes : [];
+
+        const asksSticky = /\bsticky\s*note\b|\bsticky\s*notes\b|\bsticky\b/.test(text);
+        const stickyFollowUp = /\bwhat\s+about\b|\bhow\s+many\b|\bwhat\s+is\s+the\s+text\b|\btext\b/.test(text)
+            && /\bsticky\b/.test(previousUserText);
+        const asksStickyCount = /\bhow\s+many\b|\bcount\b|\bnumber\s+of\b|\btotal\b/.test(text);
+        const asksStickyText = /\btext\b|\bcontent\b|\bwhat(?:'s|\s+is)\s+on\b|\bwritten\b|\bsays\b/.test(text);
+        const asksStickyColors = /\bcolor\b|\bcolou?r\b|\bwhich\s+colors\b|\bwhat\s+colors\b/.test(text);
+
+        const stickyColorMap = {
+            yellow: /\byellow\b/i,
+            pink: /\bpink\b/i,
+            blue: /\bblue\b/i,
+            green: /\bgreen\b/i,
+            purple: /\bpurple\b|\bviolet\b/i,
+            orange: /\borange\b/i
+        };
+
+        const askedStickyColor = Object.keys(stickyColorMap).find((color) => stickyColorMap[color].test(message || '')) || null;
+
+        if (asksSticky || stickyFollowUp) {
+            const totalStickyNotes = Number(stickySummary?.totalNotes || stickyNotesList.length || 0);
+            const colorCounts = stickySummary?.colorCounts || {};
+            const coloredNotes = askedStickyColor
+                ? stickyNotesList.filter((note) => String(note?.color || '').toLowerCase() === askedStickyColor)
+                : [];
+
+            if (!totalStickyNotes) {
+                return {
+                    reply: 'You currently have 0 sticky notes.',
+                    suggestions: ['Create a sticky note', 'How many sticky notes do I have?', 'Show sticky note colors']
+                };
+            }
+
+            if (askedStickyColor && asksStickyText) {
+                if (!coloredNotes.length) {
+                    return {
+                        reply: `There are no ${askedStickyColor} sticky notes right now.`,
+                        suggestions: ['How many sticky notes do I have?', 'Show sticky note colors', 'Create a sticky note']
+                    };
+                }
+
+                const lines = coloredNotes.slice(0, 10).map((note, index) => {
+                    const noteText = String(note?.text || '').trim();
+                    return `- ${askedStickyColor} note ${index + 1}: ${noteText || '(empty note)'}`;
+                });
+
+                return {
+                    reply: `${coloredNotes.length} ${askedStickyColor} sticky note${coloredNotes.length === 1 ? '' : 's'} found:\n${lines.join('\n')}`,
+                    suggestions: ['How many sticky notes do I have?', 'Show sticky note colors', `How many ${askedStickyColor} sticky notes do I have?`]
+                };
+            }
+
+            if (askedStickyColor && asksStickyCount) {
+                const count = Number(colorCounts?.[askedStickyColor] || coloredNotes.length || 0);
+                return {
+                    reply: `You currently have ${count} ${askedStickyColor} sticky note${count === 1 ? '' : 's'}.`,
+                    suggestions: ['How many sticky notes do I have?', `What is the text on my ${askedStickyColor} sticky notes?`, 'Show sticky note colors']
+                };
+            }
+
+            if (asksStickyColors || (asksStickyCount && !askedStickyColor)) {
+                const order = ['yellow', 'pink', 'blue', 'green', 'purple', 'orange'];
+                const breakdown = order
+                    .map((color) => ({ color, count: Number(colorCounts?.[color] || 0) }))
+                    .filter((row) => row.count > 0)
+                    .map((row) => `- ${row.color}: ${row.count}`);
+
+                if (!breakdown.length) {
+                    return {
+                        reply: `You currently have ${totalStickyNotes} sticky note${totalStickyNotes === 1 ? '' : 's'}, but no color breakdown is available yet.`,
+                        suggestions: ['How many sticky notes do I have?', 'Create a sticky note']
+                    };
+                }
+
+                return {
+                    reply: `You currently have ${totalStickyNotes} sticky note${totalStickyNotes === 1 ? '' : 's'}.\nColor breakdown:\n${breakdown.join('\n')}`,
+                    suggestions: ['What is the text on my yellow sticky notes?', 'How many yellow sticky notes do I have?', 'Open Sticky Notes']
+                };
+            }
+
+            if (asksStickyText && !askedStickyColor) {
+                const lines = stickyNotesList.slice(0, 10).map((note, index) => {
+                    const noteText = String(note?.text || '').trim();
+                    const color = String(note?.color || 'yellow');
+                    return `- Note ${index + 1} (${color}): ${noteText || '(empty note)'}`;
+                });
+                return {
+                    reply: `Here are your latest sticky notes:\n${lines.join('\n')}`,
+                    suggestions: ['Show sticky note colors', 'How many sticky notes do I have?', 'What is the text on my yellow sticky notes?']
+                };
+            }
+
+            return {
+                reply: `You currently have ${totalStickyNotes} sticky note${totalStickyNotes === 1 ? '' : 's'}.`,
+                suggestions: ['Show sticky note colors', 'What is the text on my yellow sticky notes?', 'Open Sticky Notes']
+            };
+        }
 
         const isPtoText = (value) => /\bpto\b|paid\s*time\s*off|time\s*off/i.test(String(value || ''));
         const asksPtoFollowup = /\bwhat\s+about\b|\bhow\s+about\b/i.test(text) && isPtoText(previousUserText);
