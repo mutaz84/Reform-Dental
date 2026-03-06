@@ -75824,29 +75824,13 @@ console.log('✅ Global functions exported to window object');
         return `${list.length}|${String(last?.timestamp || '')}|${String(last?.role || '')}|${String(last?.content || '').slice(0, 120)}`;
     }
 
-    function getCopilotConversationTimestampMs(session) {
-        const id = String(session?.id || '');
-        const tsFromId = Number.parseInt(id.split('_')[0], 10);
-        if (Number.isInteger(tsFromId) && tsFromId > 0) return tsFromId;
-
-        const updatedAtMs = new Date(session?.updatedAt || 0).getTime();
-        if (Number.isFinite(updatedAtMs) && updatedAtMs > 0) return updatedAtMs;
-
-        return Date.now();
-    }
-
-    function shouldRetainLocalConversationDuringServerSync(session, activeId, serverIdSet) {
+    function shouldRetainLocalConversationDuringServerSync(session, serverIdSet) {
         if (!session || !session.id) return false;
         const id = String(session.id || '').trim();
         if (!id || serverIdSet.has(id)) return false;
-        if (String(activeId || '') === id) return true;
 
-        const hasMessages = Array.isArray(session.messages) && session.messages.length > 0;
-        if (!hasMessages) return false;
-
-        // Keep only very recent local-only sessions to avoid reviving stale deleted history.
-        const ageMs = Date.now() - getCopilotConversationTimestampMs(session);
-        return ageMs >= 0 && ageMs <= (10 * 60 * 1000);
+        // Only preserve sessions we know are pending an API sync in this runtime.
+        return copilotPendingSyncConversationIds.has(id);
     }
 
     async function fetchCopilotConversationsFromApi(userId) {
@@ -75945,6 +75929,7 @@ console.log('✅ Global functions exported to window object');
 
     let copilotSyncTimer = null;
     let copilotPendingSyncSession = null;
+    let copilotPendingSyncConversationIds = new Set();
 
     function scheduleCopilotPostSyncRefresh(delayMs = COPILOT_POST_SYNC_REFRESH_MS) {
         if (copilotPostSyncTimer) {
@@ -75961,6 +75946,10 @@ console.log('✅ Global functions exported to window object');
     function queueCopilotConversationSync(sessionSnapshot, delayMs = 350) {
         const normalized = normalizeConversationSession(sessionSnapshot);
         if (!normalized || !normalized.id) return;
+        const pendingId = String(normalized.id || '').trim();
+        if (pendingId) {
+            copilotPendingSyncConversationIds.add(pendingId);
+        }
         copilotPendingSyncSession = {
             ...normalized,
             messages: trimConversationHistory(normalized.messages || [])
@@ -75975,7 +75964,10 @@ console.log('✅ Global functions exported to window object');
             copilotPendingSyncSession = null;
             if (!session || !session.id) return;
             const saved = await upsertCopilotConversationToApi(session);
-            if (saved) scheduleCopilotPostSyncRefresh();
+            if (saved) {
+                copilotPendingSyncConversationIds.delete(String(session.id || '').trim());
+                scheduleCopilotPostSyncRefresh();
+            }
         }, Math.max(0, Number(delayMs || 0)));
     }
 
@@ -76075,6 +76067,7 @@ console.log('✅ Global functions exported to window object');
         if (!ids.length) return false;
 
         const idSet = new Set(ids);
+        idSet.forEach((id) => copilotPendingSyncConversationIds.delete(id));
         copilotState.conversationSessions = trimConversationSessions(
             (copilotState.conversationSessions || []).filter((session) => !idSet.has(String(session?.id || '')))
         );
@@ -76156,6 +76149,7 @@ console.log('✅ Global functions exported to window object');
 
         copilotState.conversationSessions = [];
         copilotState.selectedHistoryConversationIds = [];
+        copilotPendingSyncConversationIds.clear();
         setCopilotHistorySelectionMode(false);
         startNewCopilotConversation();
 
@@ -76414,9 +76408,8 @@ console.log('✅ Global functions exported to window object');
             if (Array.isArray(apiSessions)) {
                 // API is authoritative; keep only fresh local-only sessions that may not have synced yet.
                 const serverIdSet = new Set(apiSessions.map((row) => String(row?.id || '').trim()).filter(Boolean));
-                const activeId = String(copilotState.activeConversationId || '').trim();
                 const unsyncedLocalSessions = sessions.filter((session) =>
-                    shouldRetainLocalConversationDuringServerSync(session, activeId, serverIdSet)
+                    shouldRetainLocalConversationDuringServerSync(session, serverIdSet)
                 );
                 sessions = trimConversationSessions([
                     ...apiSessions,
@@ -76494,9 +76487,8 @@ console.log('✅ Global functions exported to window object');
             const currentListSig = getConversationListSignature(currentSessions);
 
             const serverIdSet = new Set(apiSessions.map((row) => String(row?.id || '').trim()).filter(Boolean));
-            const activeIdBeforeRefresh = String(copilotState.activeConversationId || '').trim();
             const unsyncedLocalSessions = currentSessions.filter((session) =>
-                shouldRetainLocalConversationDuringServerSync(session, activeIdBeforeRefresh, serverIdSet)
+                shouldRetainLocalConversationDuringServerSync(session, serverIdSet)
             );
 
             // Keep server list authoritative while preserving very recent local sessions pending sync.
