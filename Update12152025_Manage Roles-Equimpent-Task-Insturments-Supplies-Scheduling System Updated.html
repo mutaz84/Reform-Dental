@@ -77153,6 +77153,22 @@ console.log('✅ Global functions exported to window object');
             return bestScore >= 4 ? best : null;
         };
 
+        const resolveEmployeeFromConversation = (currentText) => {
+            const hasPronounReference = /\bhe\b|\bhim\b|\bhis\b|\bshe\b|\bher\b|\btheir\b|\bthem\b/i.test(String(currentText || ''));
+            if (!hasPronounReference) return null;
+
+            // Scan recent user prompts first (excluding current one), then assistant replies.
+            const recent = historyList.slice(-10).reverse();
+            for (const item of recent) {
+                if (!item || !item.content) continue;
+                const role = String(item.role || '').toLowerCase();
+                if (role !== 'user' && role !== 'assistant') continue;
+                const candidate = resolveEmployeeBalanceByMention(item.content);
+                if (candidate) return candidate;
+            }
+            return null;
+        };
+
         if (asksPto) {
             const myBalance = Number(currentUser?.ptoBalanceHours || 0);
             const myPending = Number(currentUser?.ptoPendingCount || 0);
@@ -77160,7 +77176,7 @@ console.log('✅ Global functions exported to window object');
 
             const targetRow = targetPersonQuery
                 ? resolveEmployeeBalanceByQuery(targetPersonQuery)
-                : resolveEmployeeBalanceByMention(message);
+                : (resolveEmployeeBalanceByMention(message) || resolveEmployeeFromConversation(message));
 
             if (targetRow && !asksTeam) {
                 const targetName = String(targetRow?.name || targetRow?.username || targetPersonQuery || '').trim() || 'Employee';
