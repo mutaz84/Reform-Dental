@@ -77048,11 +77048,22 @@ console.log('✅ Global functions exported to window object');
 
     // ===== MAIN COPILOT API =====
 
-    function buildDeterministicAttendanceReply(message, context) {
+    function buildDeterministicAttendanceReply(message, context, history = []) {
         const text = String(message || '').trim().toLowerCase();
         if (!text) return null;
 
-        const asksPto = /\bpto\b|paid\s*time\s*off|time\s*off/i.test(text);
+        const historyList = Array.isArray(history) ? history : [];
+        const previousUserMessages = historyList
+            .filter((item) => item && item.role === 'user')
+            .map((item) => String(item.content || '').trim().toLowerCase())
+            .filter(Boolean);
+        const previousUserText = previousUserMessages.length > 1
+            ? previousUserMessages[previousUserMessages.length - 2]
+            : '';
+
+        const isPtoText = (value) => /\bpto\b|paid\s*time\s*off|time\s*off/i.test(String(value || ''));
+        const asksPtoFollowup = /\bwhat\s+about\b|\bhow\s+about\b/i.test(text) && isPtoText(previousUserText);
+        const asksPto = isPtoText(text) || asksPtoFollowup;
         const asksBalance = /\bbalance\b|available|remaining|left/i.test(text);
         const asksPending = /\bpending\b/i.test(text);
         const asksApproved = /\bapproved\b/i.test(text);
@@ -77071,10 +77082,62 @@ console.log('✅ Global functions exported to window object');
         const statusCount = ptoSummary?.statusCount || {};
         const employeeBalances = Array.isArray(ptoSummary?.employeeBalances) ? ptoSummary.employeeBalances : [];
 
+        const normalizeKey = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+        const extractTargetPersonQuery = (value) => {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            const pattern = /(?:for|about)\s+([a-z][a-z\s.'-]{1,60})\??$/i;
+            const match = raw.match(pattern);
+            if (!match || !match[1]) return '';
+            return String(match[1] || '').trim();
+        };
+        const targetPersonQuery = extractTargetPersonQuery(message);
+        const resolveEmployeeBalanceByQuery = (query) => {
+            const target = normalizeKey(query);
+            if (!target) return null;
+
+            let best = null;
+            let bestScore = -1;
+            employeeBalances.forEach((row) => {
+                const name = normalizeKey(row?.name);
+                const username = normalizeKey(row?.username);
+                const candidates = [name, username].filter(Boolean);
+                if (!candidates.length) return;
+
+                let score = -1;
+                if (candidates.some((candidate) => candidate === target)) score = 5;
+                else if (candidates.some((candidate) => candidate.startsWith(target) || target.startsWith(candidate))) score = 4;
+                else if (candidates.some((candidate) => candidate.includes(target) || target.includes(candidate))) score = 3;
+                if (score > bestScore) {
+                    best = row;
+                    bestScore = score;
+                }
+            });
+            return bestScore >= 3 ? best : null;
+        };
+
         if (asksPto) {
             const myBalance = Number(currentUser?.ptoBalanceHours || 0);
             const myPending = Number(currentUser?.ptoPendingCount || 0);
             const myApproved = Number(currentUser?.ptoApprovedCount || 0);
+
+            if (targetPersonQuery) {
+                const targetRow = resolveEmployeeBalanceByQuery(targetPersonQuery);
+                if (!targetRow) {
+                    return {
+                        reply: `I could not find PTO balance data for "${targetPersonQuery}" in the current context.`,
+                        suggestions: ['Show team PTO balances', 'What is my PTO balance?', 'Open PTO Management']
+                    };
+                }
+
+                const targetName = String(targetRow?.name || targetRow?.username || targetPersonQuery).trim();
+                const targetBalance = Number(targetRow?.availableHours || 0);
+                const targetPending = Number(targetRow?.pendingRequests || 0);
+                return {
+                    reply: `${targetName}'s PTO balance is ${targetBalance.toFixed(2)} hours.\nPending PTO requests: ${targetPending}.`,
+                    suggestions: ['Show team PTO balances', 'How many PTO requests are pending?', 'Open PTO Management']
+                };
+            }
 
             if (asksTeam) {
                 const topRows = employeeBalances
@@ -77192,7 +77255,7 @@ console.log('✅ Global functions exported to window object');
             const context = ContextEngine.buildFullContext();
 
             // Deterministic guardrail for live attendance questions.
-            const localReply = buildDeterministicAttendanceReply(message, context);
+            const localReply = buildDeterministicAttendanceReply(message, context, copilotState.conversationHistory);
             if (localReply && localReply.reply) {
                 CopilotUI.hideTyping();
                 CopilotUI.addMessage('assistant', localReply.reply);
