@@ -15192,6 +15192,66 @@
         50% { opacity: 0.3; }
     }
 
+    .copilot-history-panel {
+        border-bottom: 1px solid var(--border-color, #e5e7eb);
+        background: var(--bg-primary, #ffffff);
+        max-height: 230px;
+        display: flex;
+        flex-direction: column;
+    }
+    .copilot-history-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        font-size: 0.78rem;
+        color: var(--text-secondary, #6b7280);
+        background: var(--bg-secondary, #f8f9fa);
+        border-bottom: 1px solid var(--border-color, #e5e7eb);
+    }
+    .copilot-history-new {
+        border: 1px solid rgba(139, 92, 246, 0.35);
+        background: #ffffff;
+        color: #7c3aed;
+        border-radius: 999px;
+        padding: 2px 10px;
+        cursor: pointer;
+        font-size: 0.72rem;
+    }
+    .copilot-history-list {
+        overflow-y: auto;
+        padding: 6px;
+    }
+    .copilot-history-item {
+        border: 1px solid var(--border-color, #e5e7eb);
+        border-radius: 10px;
+        padding: 8px 10px;
+        margin-bottom: 6px;
+        cursor: pointer;
+        background: #ffffff;
+    }
+    .copilot-history-item.active {
+        border-color: rgba(124, 58, 237, 0.5);
+        box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.12);
+    }
+    .copilot-history-item-title {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--text-primary, #111827);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .copilot-history-item-meta {
+        margin-top: 3px;
+        font-size: 0.7rem;
+        color: var(--text-tertiary, #9ca3af);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
     /* Copilot Messages Area */
     .copilot-messages {
         flex: 1;
@@ -67780,6 +67840,9 @@ document.addEventListener('keydown', function(e) {
             </div>
         </div>
         <div class="copilot-header-actions">
+            <button onclick="window.ReformCopilot.toggleHistory()" title="Chat history">
+                <i class="fas fa-clock-rotate-left"></i>
+            </button>
             <button onclick="window.ReformCopilot.clearChat()" title="New conversation">
                 <i class="fas fa-rotate-right"></i>
             </button>
@@ -67794,6 +67857,13 @@ document.addEventListener('keydown', function(e) {
     <div class="copilot-status" id="copilotStatus">
         <span class="copilot-status-dot" id="copilotStatusDot"></span>
         <span id="copilotStatusText">Ready</span>
+    </div>
+    <div class="copilot-history-panel" id="copilotHistoryPanel" style="display: none;">
+        <div class="copilot-history-head">
+            <strong>Saved Conversations</strong>
+            <button class="copilot-history-new" onclick="window.ReformCopilot.startNewConversation()">New</button>
+        </div>
+        <div class="copilot-history-list" id="copilotHistoryList"></div>
     </div>
     <div class="copilot-messages" id="copilotMessages">
         <!-- Welcome screen shown initially -->
@@ -75445,12 +75515,15 @@ console.log('✅ Global functions exported to window object');
         isOpen: false,
         isProcessing: false,
         conversationHistory: [],
+        conversationSessions: [],
+        activeConversationId: '',
         uploadedDocuments: [],
         isConnected: false,
         hasShownWelcome: true
     };
 
     const COPILOT_HISTORY_LIMIT = 250;
+    const COPILOT_CONVERSATION_LIMIT = 60;
     const COPILOT_DOC_LIMIT = 20;
     const COPILOT_DOC_TEXT_LIMIT = 20000;
     const COPILOT_DOC_EXCERPT_LIMIT = 1200;
@@ -75484,6 +75557,14 @@ console.log('✅ Global functions exported to window object');
         return `reformDentalCopilotHistory:${getCopilotUserContext().userKey}`;
     }
 
+    function getCopilotConversationsStorageKey() {
+        return `reformDentalCopilotConversations:${getCopilotUserContext().userKey}`;
+    }
+
+    function getCopilotActiveConversationStorageKey() {
+        return `reformDentalCopilotActiveConversation:${getCopilotUserContext().userKey}`;
+    }
+
     function getCopilotDocsStorageKey() {
         return `reformDentalCopilotDocs:${getCopilotUserContext().userKey}`;
     }
@@ -75498,6 +75579,51 @@ console.log('✅ Global functions exported to window object');
                 content: String(entry.content || ''),
                 timestamp: entry.timestamp || entry.ts || new Date().toISOString()
             }));
+    }
+
+    function buildConversationTitleFromHistory(history) {
+        const list = trimConversationHistory(history);
+        const firstUser = list.find((entry) => entry.role === 'user' && String(entry.content || '').trim());
+        const firstAny = list.find((entry) => String(entry.content || '').trim());
+        const seed = String((firstUser || firstAny || {}).content || '').replace(/\s+/g, ' ').trim();
+        if (!seed) return 'New conversation';
+        return seed.length > 58 ? `${seed.slice(0, 58)}...` : seed;
+    }
+
+    function normalizeConversationSession(item) {
+        if (!item) return null;
+        const id = String(item.id || `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
+        const messages = trimConversationHistory(item.messages || item.history || []);
+        const createdAt = String(item.createdAt || item.created || new Date().toISOString());
+        const updatedAt = String(item.updatedAt || item.updated || createdAt || new Date().toISOString());
+        const title = String(item.title || buildConversationTitleFromHistory(messages) || 'New conversation');
+        return {
+            id,
+            title,
+            createdAt,
+            updatedAt,
+            messages
+        };
+    }
+
+    function trimConversationSessions(sessions) {
+        if (!Array.isArray(sessions)) return [];
+        const byId = new Map();
+        sessions
+            .map(normalizeConversationSession)
+            .filter(Boolean)
+            .forEach((session) => byId.set(session.id, session));
+
+        return Array.from(byId.values())
+            .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime())
+            .slice(0, COPILOT_CONVERSATION_LIMIT);
+    }
+
+    function saveCopilotConversations() {
+        try {
+            copilotState.conversationSessions = trimConversationSessions(copilotState.conversationSessions);
+            localStorage.setItem(getCopilotConversationsStorageKey(), JSON.stringify(copilotState.conversationSessions));
+        } catch (_) {}
     }
 
     function saveCopilotHistory() {
@@ -75517,6 +75643,197 @@ console.log('✅ Global functions exported to window object');
         }
     }
 
+    function getRelativeTimeLabel(value) {
+        const date = new Date(value || 0);
+        if (Number.isNaN(date.getTime())) return '';
+        const now = Date.now();
+        const deltaSec = Math.floor((now - date.getTime()) / 1000);
+        if (deltaSec < 60) return 'just now';
+        if (deltaSec < 3600) return `${Math.floor(deltaSec / 60)}m ago`;
+        if (deltaSec < 86400) return `${Math.floor(deltaSec / 3600)}h ago`;
+        if (deltaSec < 604800) return `${Math.floor(deltaSec / 86400)}d ago`;
+        return date.toLocaleDateString();
+    }
+
+    function renderCopilotConversationList() {
+        const listEl = getEl('copilotHistoryList');
+        if (!listEl) return;
+
+        const sessions = trimConversationSessions(copilotState.conversationSessions);
+        copilotState.conversationSessions = sessions;
+
+        if (!sessions.length) {
+            listEl.innerHTML = '<div class="copilot-history-item-title" style="padding:8px 6px; color: var(--text-tertiary, #9ca3af);">No saved conversations yet.</div>';
+            return;
+        }
+
+        listEl.innerHTML = '';
+        sessions.forEach((session) => {
+            const item = document.createElement('div');
+            item.className = `copilot-history-item${session.id === copilotState.activeConversationId ? ' active' : ''}`;
+            item.innerHTML = `
+                <div class="copilot-history-item-title">${CopilotUI.escapeHtml(String(session.title || 'New conversation'))}</div>
+                <div class="copilot-history-item-meta">
+                    <span>${getRelativeTimeLabel(session.updatedAt)}</span>
+                    <span>${session.messages.length} message${session.messages.length === 1 ? '' : 's'}</span>
+                </div>
+            `;
+            item.addEventListener('click', () => {
+                openCopilotConversation(session.id);
+            });
+            listEl.appendChild(item);
+        });
+    }
+
+    function persistActiveConversation() {
+        try {
+            localStorage.setItem(getCopilotActiveConversationStorageKey(), String(copilotState.activeConversationId || ''));
+        } catch (_) {}
+    }
+
+    function syncActiveConversationSession() {
+        const activeId = String(copilotState.activeConversationId || '').trim();
+        if (!activeId) return;
+
+        const history = trimConversationHistory(copilotState.conversationHistory);
+        const idx = copilotState.conversationSessions.findIndex((row) => String(row?.id) === activeId);
+        const nowIso = new Date().toISOString();
+        const title = buildConversationTitleFromHistory(history);
+
+        if (idx === -1) {
+            copilotState.conversationSessions.unshift({
+                id: activeId,
+                title,
+                createdAt: nowIso,
+                updatedAt: nowIso,
+                messages: history
+            });
+        } else {
+            const current = copilotState.conversationSessions[idx] || {};
+            copilotState.conversationSessions[idx] = {
+                ...current,
+                id: activeId,
+                title,
+                createdAt: String(current.createdAt || nowIso),
+                updatedAt: nowIso,
+                messages: history
+            };
+        }
+
+        copilotState.conversationSessions = trimConversationSessions(copilotState.conversationSessions);
+        saveCopilotConversations();
+        saveCopilotHistory();
+        renderCopilotConversationList();
+    }
+
+    function hydrateCopilotMessagesFromHistory(limit = 25) {
+        const messagesEl = getEl('copilotMessages');
+        const welcome = getEl('copilotWelcome');
+        if (!messagesEl) return;
+
+        const history = trimConversationHistory(copilotState.conversationHistory);
+        if (!history.length) {
+            if (welcome) welcome.style.display = '';
+            return;
+        }
+
+        messagesEl.innerHTML = '';
+        if (welcome) welcome.style.display = 'none';
+        history.slice(-limit).forEach((entry) => {
+            CopilotUI.addMessage(entry.role === 'assistant' ? 'assistant' : 'user', entry.content);
+        });
+    }
+
+    function openCopilotConversation(conversationId) {
+        const targetId = String(conversationId || '').trim();
+        if (!targetId) return false;
+
+        const session = copilotState.conversationSessions.find((row) => String(row?.id) === targetId);
+        if (!session) return false;
+
+        copilotState.activeConversationId = targetId;
+        copilotState.conversationHistory = trimConversationHistory(session.messages || []);
+        persistActiveConversation();
+        saveCopilotHistory();
+        hydrateCopilotMessagesFromHistory();
+        renderCopilotConversationList();
+        toggleCopilotHistory(false);
+        return true;
+    }
+
+    function startNewCopilotConversation() {
+        const nowIso = new Date().toISOString();
+        const id = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+        const nextSession = {
+            id,
+            title: 'New conversation',
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            messages: []
+        };
+
+        copilotState.activeConversationId = id;
+        copilotState.conversationHistory = [];
+        copilotState.conversationSessions = trimConversationSessions([nextSession, ...(copilotState.conversationSessions || [])]);
+        persistActiveConversation();
+        saveCopilotConversations();
+        saveCopilotHistory();
+        renderCopilotConversationList();
+        hydrateCopilotMessagesFromHistory();
+        toggleCopilotHistory(false);
+    }
+
+    function loadCopilotConversations() {
+        let parsedSessions = [];
+        try {
+            const raw = localStorage.getItem(getCopilotConversationsStorageKey());
+            parsedSessions = raw ? JSON.parse(raw) : [];
+        } catch (_) {
+            parsedSessions = [];
+        }
+
+        let sessions = trimConversationSessions(parsedSessions);
+        if (!sessions.length) {
+            loadCopilotHistory();
+            const legacy = trimConversationHistory(copilotState.conversationHistory);
+            const nowIso = new Date().toISOString();
+            sessions = [{
+                id: `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+                title: buildConversationTitleFromHistory(legacy),
+                createdAt: nowIso,
+                updatedAt: nowIso,
+                messages: legacy
+            }];
+        }
+
+        copilotState.conversationSessions = sessions;
+        let activeId = '';
+        try {
+            activeId = String(localStorage.getItem(getCopilotActiveConversationStorageKey()) || '').trim();
+        } catch (_) {
+            activeId = '';
+        }
+
+        const activeSession = sessions.find((row) => String(row?.id) === activeId) || sessions[0];
+        copilotState.activeConversationId = String(activeSession?.id || '');
+        copilotState.conversationHistory = trimConversationHistory(activeSession?.messages || []);
+
+        persistActiveConversation();
+        saveCopilotConversations();
+        saveCopilotHistory();
+        renderCopilotConversationList();
+    }
+
+    function toggleCopilotHistory(forceOpen) {
+        const panel = getEl('copilotHistoryPanel');
+        if (!panel) return;
+        const shouldOpen = typeof forceOpen === 'boolean'
+            ? forceOpen
+            : String(panel.style.display || '').toLowerCase() === 'none';
+        panel.style.display = shouldOpen ? 'flex' : 'none';
+        if (shouldOpen) renderCopilotConversationList();
+    }
+
     function pushConversationMessage(role, content) {
         const entry = {
             role,
@@ -75525,7 +75842,7 @@ console.log('✅ Global functions exported to window object');
         };
         copilotState.conversationHistory.push(entry);
         copilotState.conversationHistory = trimConversationHistory(copilotState.conversationHistory);
-        saveCopilotHistory();
+        syncActiveConversationSession();
     }
 
     function normalizeCopilotDocItem(item) {
@@ -75563,24 +75880,6 @@ console.log('✅ Global functions exported to window object');
         } catch (_) {
             copilotState.uploadedDocuments = [];
         }
-    }
-
-    function hydrateCopilotMessagesFromHistory(limit = 25) {
-        const messagesEl = getEl('copilotMessages');
-        const welcome = getEl('copilotWelcome');
-        if (!messagesEl) return;
-
-        const history = trimConversationHistory(copilotState.conversationHistory);
-        if (!history.length) {
-            if (welcome) welcome.style.display = '';
-            return;
-        }
-
-        messagesEl.innerHTML = '';
-        if (welcome) welcome.style.display = 'none';
-        history.slice(-limit).forEach((entry) => {
-            CopilotUI.addMessage(entry.role === 'assistant' ? 'assistant' : 'user', entry.content);
-        });
     }
 
     function readFileAsText(file) {
@@ -77350,38 +77649,7 @@ console.log('✅ Global functions exported to window object');
         },
 
         clearChat() {
-            copilotState.conversationHistory = [];
-            saveCopilotHistory();
-            const messagesEl = getEl('copilotMessages');
-            messagesEl.innerHTML = '';
-            const welcome = getEl('copilotWelcome');
-            if (welcome) {
-                messagesEl.appendChild(welcome);
-                welcome.style.display = '';
-            } else {
-                // Recreate welcome if it was removed
-                messagesEl.innerHTML = `
-                    <div class="copilot-welcome" id="copilotWelcome">
-                        <div class="copilot-welcome-icon"><i class="fas fa-brain"></i></div>
-                        <h3>Hi! I'm DentaBrain</h3>
-                        <p>I can answer questions about your dental practice, check schedules, manage inventory, and take actions in the app.</p>
-                        <div class="copilot-welcome-examples">
-                            <div class="copilot-welcome-example" onclick="window.ReformCopilot.sendMessage('How many employees are working today?')">
-                                <i class="fas fa-users"></i> How many employees are working today?
-                            </div>
-                            <div class="copilot-welcome-example" onclick="window.ReformCopilot.sendMessage('What supplies are running low?')">
-                                <i class="fas fa-box-open"></i> What supplies are running low?
-                            </div>
-                            <div class="copilot-welcome-example" onclick="window.ReformCopilot.sendMessage('Show me today\\'s schedule')">
-                                <i class="fas fa-calendar-day"></i> Show me today's schedule
-                            </div>
-                            <div class="copilot-welcome-example" onclick="window.ReformCopilot.sendMessage('Navigate to equipment page')">
-                                <i class="fas fa-cog"></i> Navigate to equipment page
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
+            startNewCopilotConversation();
             getEl('copilotSuggestions').style.display = 'none';
         },
 
@@ -77434,6 +77702,20 @@ console.log('✅ Global functions exported to window object');
         const asksDocSummary = /\bsummarize\b|\bsummary\b|\bwhat\s+does\b|\bwhat\s+is\s+in\b|\btell\s+me\s+about\b/i.test(text);
 
         if (asksHistory) {
+            const asksThreadList = /\blist\b|\ball\b|\bthreads?\b|\bconversations?\b/.test(text);
+            const savedSessions = trimConversationSessions(copilotState.conversationSessions || []);
+
+            if (asksThreadList && savedSessions.length) {
+                const rows = savedSessions.slice(0, 20).map((session, idx) => {
+                    const when = getRelativeTimeLabel(session.updatedAt);
+                    return `- ${idx + 1}. ${session.title} (${session.messages.length} msg${session.messages.length === 1 ? '' : 's'}, ${when})`;
+                });
+                return {
+                    reply: `Saved conversations:\n${rows.join('\n')}`,
+                    suggestions: ['Show chat history', 'Start new conversation', 'List my uploaded documents']
+                };
+            }
+
             const filtered = historyList
                 .filter((entry) => entry && (entry.role === 'user' || entry.role === 'assistant') && String(entry.content || '').trim())
                 .filter((entry, index, arr) => !(entry.role === 'user' && index === arr.length - 1 && String(entry.content || '').trim().toLowerCase() === text))
@@ -83231,6 +83513,9 @@ console.log('✅ Global functions exported to window object');
         sendMessage: sendMessage,
         sendFromInput: sendFromInput,
         clearChat: () => CopilotUI.clearChat(),
+        toggleHistory: () => toggleCopilotHistory(),
+        openConversation: openCopilotConversation,
+        startNewConversation: startNewCopilotConversation,
         openDocumentPicker: openCopilotDocumentPicker,
         handleDocumentUpload: handleCopilotDocumentUpload,
         getContext: () => ContextEngine.buildFullContext(),
@@ -83248,7 +83533,7 @@ console.log('✅ Global functions exported to window object');
 
     // Auto-check connection on load
     document.addEventListener('DOMContentLoaded', () => {
-        loadCopilotHistory();
+        loadCopilotConversations();
         loadCopilotDocuments();
         hydrateCopilotMessagesFromHistory();
         setTimeout(() => CopilotUI.checkConnection(), 2000);
