@@ -390,6 +390,25 @@ ELSE
     PRINT 'ChatMessages table already exists';
 GO
 
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ChatMessageAttachments' AND xtype='U')
+BEGIN
+    CREATE TABLE ChatMessageAttachments (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        MessageId INT NOT NULL,
+        FileName NVARCHAR(255) NOT NULL,
+        ContentType NVARCHAR(200) NOT NULL,
+        FileSize INT NOT NULL DEFAULT 0,
+        FileData NVARCHAR(MAX) NOT NULL,
+        CreatedDate DATETIME DEFAULT GETUTCDATE(),
+        CONSTRAINT FK_ChatMessageAttachments_Message FOREIGN KEY (MessageId) REFERENCES ChatMessages(Id) ON DELETE CASCADE
+    );
+    CREATE INDEX IX_ChatMessageAttachments_MessageId ON ChatMessageAttachments(MessageId);
+    PRINT 'Created ChatMessageAttachments table';
+END
+ELSE
+    PRINT 'ChatMessageAttachments table already exists';
+GO
+
 -- =============================================
 -- 11. STICKY NOTES TABLE
 -- =============================================

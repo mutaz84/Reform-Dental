@@ -55648,6 +55648,8 @@ window.addEventListener('load', function() {
         window.chatPollingInterval = null;
         window.lastMessageTimestamp = null;
         window.chatUsersCache = [];
+        window.chatPendingAttachments = [];
+        window.chatAttachmentDownloadCache = {};
         
         function openChat() {
             const panel = document.getElementById('chatPanel');
@@ -55681,6 +55683,7 @@ window.addEventListener('load', function() {
             }
             stopChatPolling();
             window.currentChatUserId = null;
+            clearChatAttachmentSelection();
             hideNewChatPanel();
         }
         
@@ -55774,6 +55777,7 @@ window.addEventListener('load', function() {
         function closeChatConversation() {
             console.log('🔙 Closing conversation');
             window.currentChatUserId = null;
+            clearChatAttachmentSelection();
             resetChatArea();
         }
         
@@ -55970,11 +55974,15 @@ window.addEventListener('load', function() {
             
             messagesArea.innerHTML = messages.map(msg => {
                 const isOwn = msg.senderId === currentUser.username || msg.sender === currentUser.name;
+                const attachments = Array.isArray(msg.attachments) ? msg.attachments : (Array.isArray(msg.Attachments) ? msg.Attachments : []);
+                const textBody = String(msg.content || msg.message || '').trim();
+                const attachmentsHtml = renderChatAttachmentListHtml(attachments, msg.id || msg.timestamp || `local-${Math.random().toString(36).slice(2, 9)}`);
                 return `
                     <div style="display: flex; ${isOwn ? 'justify-content: flex-end' : 'justify-content: flex-start'};">
                         <div style="max-width: 70%; padding: 0.75rem 1rem; background: ${isOwn ? 'var(--accent-primary)' : 'var(--bg-secondary)'}; color: ${isOwn ? 'white' : 'var(--text-primary)'}; border-radius: ${isOwn ? '12px 12px 0 12px' : '12px 12px 12px 0'};">
                             ${isGroup && !isOwn ? `<div style="font-size: 0.7rem; font-weight: 600; margin-bottom: 0.25rem; opacity: 0.8;">${msg.sender || 'Unknown'}</div>` : ''}
-                            <div>${msg.content || msg.message}</div>
+                            ${textBody ? `<div>${escapeHtml(textBody)}</div>` : ''}
+                            ${attachmentsHtml}
                             <div style="font-size: 0.65rem; opacity: 0.7; margin-top: 0.25rem; text-align: right;">
                                 ${formatChatTime(msg.timestamp || msg.createdAt)}
                             </div>
@@ -56609,10 +56617,15 @@ window.addEventListener('load', function() {
                 
                 container.innerHTML = messages.map(msg => {
                     const isMe = msg.SenderId === userId;
+                    const attachments = Array.isArray(msg.Attachments) ? msg.Attachments : [];
+                    const rawMessage = String(msg.Message || '').trim();
+                    const displayMessage = rawMessage === '[Attachment]' ? '' : rawMessage;
+                    const attachmentsHtml = renderChatAttachmentListHtml(attachments, msg.Id || `api-${Math.random().toString(36).slice(2, 9)}`);
                     return `
                         <div style="display: flex; justify-content: ${isMe ? 'flex-end' : 'flex-start'}; margin-bottom: 0.5rem;">
                             <div style="max-width: 70%; padding: 0.75rem 1rem; background: ${isMe ? 'var(--accent-primary)' : 'var(--bg-secondary)'}; color: ${isMe ? 'white' : 'var(--text-primary)'}; border-radius: 18px; border-bottom-${isMe ? 'right' : 'left'}-radius: 4px;">
-                                <div style="word-wrap: break-word;">${escapeHtml(msg.Message)}</div>
+                                ${displayMessage ? `<div style="word-wrap: break-word;">${escapeHtml(displayMessage)}</div>` : ''}
+                                ${attachmentsHtml}
                                 <div style="font-size: 0.65rem; opacity: 0.7; margin-top: 0.25rem; text-align: ${isMe ? 'right' : 'left'};">
                                     ${formatChatTime(msg.SentAt)}
                                     ${isMe && msg.IsRead ? ' <i class="fas fa-check-double"></i>' : isMe ? ' <i class="fas fa-check"></i>' : ''}
@@ -56635,9 +56648,21 @@ window.addEventListener('load', function() {
             event.preventDefault();
             
             const input = document.getElementById('messageInput');
-            const message = input.value.trim();
-            
-            if (!message || !window.currentChatUserId) return;
+            const message = String(input?.value || '').trim();
+            const pendingAttachments = Array.isArray(window.chatPendingAttachments) ? window.chatPendingAttachments : [];
+
+            if ((!message && !pendingAttachments.length) || !window.currentChatUserId) return;
+
+            let attachmentsPayload = [];
+            if (pendingAttachments.length) {
+                try {
+                    attachmentsPayload = await buildChatAttachmentPayload();
+                } catch (error) {
+                    console.error('Error preparing attachments:', error);
+                    showNotification('Failed to read one or more attachments', 'error');
+                    return;
+                }
+            }
             
             const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
             
@@ -56656,11 +56681,13 @@ window.addEventListener('load', function() {
                         sender: currentUser.name || currentUser.username || 'You',
                         senderId: currentUser.username,
                         content: message,
+                        attachments: attachmentsPayload,
                         timestamp: new Date().toISOString()
                     });
                     
                     localStorage.setItem('groupChats', JSON.stringify(groupChats));
                     input.value = '';
+                    clearChatAttachmentSelection();
                     
                     // Reload messages
                     displayMessages(groupChats[groupIndex].messages, true);
@@ -56682,11 +56709,13 @@ window.addEventListener('load', function() {
                     announcements[annIndex].replies.push({
                         author: currentUser.name || currentUser.username || 'You',
                         content: message,
+                        attachments: attachmentsPayload,
                         timestamp: new Date().toISOString()
                     });
                     
                     localStorage.setItem('announcements', JSON.stringify(announcements));
                     input.value = '';
+                    clearChatAttachmentSelection();
                     
                     // Reload announcement
                     selectAnnouncement(window.currentChatUserId);
@@ -56706,12 +56735,14 @@ window.addEventListener('load', function() {
                     body: JSON.stringify({
                         senderId: userId,
                         receiverId: window.currentChatUserId,
-                        message: message
+                        message: message,
+                        attachments: attachmentsPayload
                     })
                 });
                 
                 if (response.ok) {
                     input.value = '';
+                    clearChatAttachmentSelection();
                     await loadMessages(window.currentChatUserId);
                     loadConversations();
                 } else {
@@ -57004,6 +57035,121 @@ window.addEventListener('load', function() {
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function formatChatFileSize(bytes) {
+            const size = Math.max(0, Number(bytes || 0));
+            if (size < 1024) return `${size} B`;
+            if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+            return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+        }
+
+        function renderChatAttachmentPreview() {
+            const preview = document.getElementById('chatAttachmentPreview');
+            if (!preview) return;
+
+            const files = Array.isArray(window.chatPendingAttachments) ? window.chatPendingAttachments : [];
+            if (!files.length) {
+                preview.style.display = 'none';
+                preview.innerHTML = '';
+                return;
+            }
+
+            const labels = files
+                .map((f, index) => `${index + 1}. ${escapeHtml(f.name || 'attachment')} (${formatChatFileSize(f.size || 0)})`)
+                .join('<br>');
+
+            preview.style.display = 'block';
+            preview.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem;">
+                    <div><strong>${files.length}</strong> attachment${files.length === 1 ? '' : 's'} selected<br>${labels}</div>
+                    <button type="button" onclick="clearChatAttachmentSelection()" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;">Clear</button>
+                </div>
+            `;
+        }
+
+        function clearChatAttachmentSelection() {
+            window.chatPendingAttachments = [];
+            const input = document.getElementById('chatAttachmentInput');
+            if (input) input.value = '';
+            renderChatAttachmentPreview();
+        }
+
+        function handleChatAttachmentSelection(event) {
+            const selected = Array.from(event?.target?.files || []);
+            if (!selected.length) return;
+
+            const maxFiles = 5;
+            const maxBytes = 4 * 1024 * 1024;
+            const current = Array.isArray(window.chatPendingAttachments) ? window.chatPendingAttachments : [];
+            const next = [...current, ...selected].slice(0, maxFiles);
+            const filtered = next.filter((file) => Number(file?.size || 0) <= maxBytes);
+
+            if (filtered.length < next.length && typeof showNotification === 'function') {
+                showNotification('Some files were skipped (max 4 MB each).', 'warning');
+            }
+
+            window.chatPendingAttachments = filtered;
+            renderChatAttachmentPreview();
+        }
+
+        async function readChatFileAsDataUrl(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ''));
+                reader.onerror = () => reject(new Error('Failed to read file'));
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function buildChatAttachmentPayload() {
+            const files = Array.isArray(window.chatPendingAttachments) ? window.chatPendingAttachments : [];
+            const payload = [];
+            for (const file of files) {
+                const fileData = await readChatFileAsDataUrl(file);
+                payload.push({
+                    fileName: String(file?.name || 'attachment'),
+                    contentType: String(file?.type || 'application/octet-stream'),
+                    fileSize: Number(file?.size || 0) || 0,
+                    fileData
+                });
+            }
+            return payload;
+        }
+
+        function renderChatAttachmentListHtml(attachments, messageKey) {
+            const list = Array.isArray(attachments) ? attachments : [];
+            if (!list.length) return '';
+
+            const items = list.map((att, index) => {
+                const cacheKey = `${String(messageKey || 'msg')}:${index}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`;
+                window.chatAttachmentDownloadCache[cacheKey] = att;
+                const fileName = escapeHtml(String(att?.fileName || 'attachment'));
+                const fileSize = formatChatFileSize(att?.fileSize || 0);
+                const hasData = String(att?.fileData || '').trim().length > 0;
+                if (!hasData) {
+                    return `<div style="display:block; margin-top:0.35rem; padding:0.35rem 0.5rem; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.22); border-radius:8px; color:inherit;"><i class="fas fa-paperclip"></i> ${fileName} <span style="opacity:0.75;">(${fileSize})</span></div>`;
+                }
+                return `<button type="button" onclick="openChatAttachment('${cacheKey}')" style="display:block; width:100%; text-align:left; margin-top:0.35rem; padding:0.35rem 0.5rem; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.22); border-radius:8px; color:inherit; cursor:pointer;"><i class="fas fa-paperclip"></i> ${fileName} <span style="opacity:0.75;">(${fileSize})</span></button>`;
+            }).join('');
+
+            return `<div style="margin-top:0.3rem;">${items}</div>`;
+        }
+
+        function openChatAttachment(cacheKey) {
+            const item = window.chatAttachmentDownloadCache?.[cacheKey];
+            if (!item) return;
+
+            const href = String(item.fileData || '').trim();
+            if (!href) {
+                if (typeof showNotification === 'function') showNotification('Attachment data missing', 'error');
+                return;
+            }
+
+            const link = document.createElement('a');
+            link.href = href;
+            link.download = String(item.fileName || 'attachment');
+            link.click();
         }
         
         // Start background badge updates when logged in
@@ -67861,7 +68007,12 @@ document.addEventListener('keydown', function(e) {
     <div class="copilot-history-panel" id="copilotHistoryPanel" style="display: none;">
         <div class="copilot-history-head">
             <strong>Saved Conversations</strong>
-            <button class="copilot-history-new" onclick="window.ReformCopilot.startNewConversation()">New</button>
+            <div style="display:flex; gap:0.35rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+                <button class="copilot-history-new" onclick="window.ReformCopilot.toggleHistorySelectionMode()" id="copilotHistorySelectBtn">Select</button>
+                <button class="copilot-history-new" onclick="window.ReformCopilot.deleteSelectedHistory()" id="copilotHistoryDeleteSelectedBtn" disabled>Delete Selected</button>
+                <button class="copilot-history-new" onclick="window.ReformCopilot.clearAllHistory()">Clear All</button>
+                <button class="copilot-history-new" onclick="window.ReformCopilot.startNewConversation()">New</button>
+            </div>
         </div>
         <div class="copilot-history-list" id="copilotHistoryList"></div>
     </div>
@@ -67977,11 +68128,16 @@ document.addEventListener('keydown', function(e) {
                 <!-- Message Input -->
                 <div id="messageInputArea" style="display: none; padding: 1rem 1.5rem; background: var(--card-bg); border-top: 1px solid var(--border-color);">
                     <form onsubmit="sendMessage(event)" style="display: flex; gap: 0.75rem;">
+                        <input type="file" id="chatAttachmentInput" multiple style="display:none;" onchange="handleChatAttachmentSelection(event)">
+                        <button type="button" onclick="document.getElementById('chatAttachmentInput').click()" title="Attach files" style="width: 44px; height: 44px; background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                            <i class="fas fa-paperclip"></i>
+                        </button>
                         <input type="text" id="messageInput" placeholder="Type a message..." style="flex: 1; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 24px; background: var(--bg-secondary); color: var(--text-primary); font-size: 0.95rem;" autocomplete="off">
                         <button type="submit" style="width: 44px; height: 44px; background: var(--accent-primary); color: white; border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
                             <i class="fas fa-paper-plane"></i>
                         </button>
                     </form>
+                    <div id="chatAttachmentPreview" style="display:none; margin-top:0.5rem; font-size:0.8rem; color:var(--text-secondary);"></div>
                 </div>
             </div>
             
@@ -75520,7 +75676,9 @@ console.log('✅ Global functions exported to window object');
         activeConversationId: '',
         uploadedDocuments: [],
         isConnected: false,
-        hasShownWelcome: true
+        hasShownWelcome: true,
+        historySelectionMode: false,
+        selectedHistoryConversationIds: []
     };
 
     const COPILOT_HISTORY_LIMIT = 250;
@@ -75694,6 +75852,50 @@ console.log('✅ Global functions exported to window object');
         }
     }
 
+    async function deleteCopilotConversationFromApi(userId, conversationId) {
+        if (!Number.isInteger(userId) || !conversationId) return false;
+        try {
+            const response = await fetch(buildCopilotHistoryApiUrl('copilotConversation', { userId, conversationId }), {
+                method: 'DELETE'
+            });
+            return response.ok;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    async function deleteCopilotConversationsFromApi(userId, conversationIds) {
+        if (!Number.isInteger(userId)) return false;
+        const ids = Array.isArray(conversationIds)
+            ? conversationIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : [];
+        if (!ids.length) return true;
+        try {
+            const response = await fetch(buildCopilotHistoryApiUrl('copilotConversations', { userId }), {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, conversationIds: ids })
+            });
+            return response.ok;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    async function clearAllCopilotConversationsFromApi(userId) {
+        if (!Number.isInteger(userId)) return false;
+        try {
+            const response = await fetch(buildCopilotHistoryApiUrl('copilotConversations', { userId, clearAll: 'true' }), {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, clearAll: true })
+            });
+            return response.ok;
+        } catch (_) {
+            return false;
+        }
+    }
+
     let copilotSyncTimer = null;
     let copilotPendingSyncSession = null;
 
@@ -75779,6 +75981,145 @@ console.log('✅ Global functions exported to window object');
         return date.toLocaleDateString();
     }
 
+    function isCopilotConversationSelected(conversationId) {
+        const id = String(conversationId || '').trim();
+        if (!id) return false;
+        return Array.isArray(copilotState.selectedHistoryConversationIds)
+            && copilotState.selectedHistoryConversationIds.includes(id);
+    }
+
+    function updateCopilotHistorySelectionUi() {
+        const selectBtn = getEl('copilotHistorySelectBtn');
+        const deleteBtn = getEl('copilotHistoryDeleteSelectedBtn');
+        const selectedCount = Array.isArray(copilotState.selectedHistoryConversationIds)
+            ? copilotState.selectedHistoryConversationIds.length
+            : 0;
+
+        if (selectBtn) {
+            selectBtn.textContent = copilotState.historySelectionMode ? 'Cancel' : 'Select';
+        }
+
+        if (deleteBtn) {
+            deleteBtn.disabled = !copilotState.historySelectionMode || selectedCount < 1;
+            deleteBtn.textContent = selectedCount > 0
+                ? `Delete Selected (${selectedCount})`
+                : 'Delete Selected';
+        }
+    }
+
+    function setCopilotHistorySelectionMode(enabled) {
+        const nextValue = !!enabled;
+        copilotState.historySelectionMode = nextValue;
+        if (!nextValue) {
+            copilotState.selectedHistoryConversationIds = [];
+        }
+        updateCopilotHistorySelectionUi();
+        renderCopilotConversationList();
+    }
+
+    function toggleCopilotHistorySelectionMode() {
+        setCopilotHistorySelectionMode(!copilotState.historySelectionMode);
+    }
+
+    function removeCopilotConversationsLocally(conversationIds) {
+        const ids = Array.isArray(conversationIds)
+            ? conversationIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : [];
+        if (!ids.length) return false;
+
+        const idSet = new Set(ids);
+        copilotState.conversationSessions = trimConversationSessions(
+            (copilotState.conversationSessions || []).filter((session) => !idSet.has(String(session?.id || '')))
+        );
+
+        copilotState.selectedHistoryConversationIds = (copilotState.selectedHistoryConversationIds || [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => id && !idSet.has(id));
+
+        const activeId = String(copilotState.activeConversationId || '').trim();
+        if (!copilotState.conversationSessions.length) {
+            startNewCopilotConversation();
+            return true;
+        }
+
+        if (!activeId || idSet.has(activeId)) {
+            const fallback = copilotState.conversationSessions[0];
+            copilotState.activeConversationId = String(fallback?.id || '');
+            copilotState.conversationHistory = trimConversationHistory(fallback?.messages || []);
+            persistActiveConversation();
+            saveCopilotHistory();
+            hydrateCopilotMessagesFromHistory();
+        }
+
+        saveCopilotConversations();
+        renderCopilotConversationList();
+        updateCopilotHistorySelectionUi();
+        return true;
+    }
+
+    async function deleteCopilotConversationById(conversationId, options = {}) {
+        const id = String(conversationId || '').trim();
+        if (!id) return false;
+
+        const skipConfirm = options && options.skipConfirm === true;
+        if (!skipConfirm && !confirm('Delete this conversation from your history?')) {
+            return false;
+        }
+
+        const removed = removeCopilotConversationsLocally([id]);
+        if (!removed) return false;
+
+        const userId = getCopilotUserContext().userId;
+        if (Number.isInteger(userId)) {
+            deleteCopilotConversationFromApi(userId, id).then((ok) => {
+                if (ok) scheduleCopilotPostSyncRefresh(200);
+            }).catch(() => {});
+        }
+
+        return true;
+    }
+
+    async function deleteSelectedCopilotHistory() {
+        const selected = Array.isArray(copilotState.selectedHistoryConversationIds)
+            ? copilotState.selectedHistoryConversationIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : [];
+        if (!selected.length) return false;
+
+        const count = selected.length;
+        if (!confirm(`Delete ${count} selected conversation${count === 1 ? '' : 's'}?`)) {
+            return false;
+        }
+
+        removeCopilotConversationsLocally(selected);
+
+        const userId = getCopilotUserContext().userId;
+        if (Number.isInteger(userId)) {
+            const deleted = await deleteCopilotConversationsFromApi(userId, selected);
+            if (deleted) scheduleCopilotPostSyncRefresh(200);
+        }
+
+        setCopilotHistorySelectionMode(false);
+        return true;
+    }
+
+    async function clearAllCopilotHistory() {
+        if (!confirm('Clear all saved Copilot conversation history?')) {
+            return false;
+        }
+
+        copilotState.conversationSessions = [];
+        copilotState.selectedHistoryConversationIds = [];
+        setCopilotHistorySelectionMode(false);
+        startNewCopilotConversation();
+
+        const userId = getCopilotUserContext().userId;
+        if (Number.isInteger(userId)) {
+            const cleared = await clearAllCopilotConversationsFromApi(userId);
+            if (cleared) scheduleCopilotPostSyncRefresh(200);
+        }
+        return true;
+    }
+
     function renderCopilotConversationList() {
         const listEl = getEl('copilotHistoryList');
         if (!listEl) return;
@@ -75793,21 +76134,76 @@ console.log('✅ Global functions exported to window object');
 
         listEl.innerHTML = '';
         sessions.forEach((session) => {
+            const sessionId = String(session.id || '');
             const item = document.createElement('div');
-            item.className = `copilot-history-item${session.id === copilotState.activeConversationId ? ' active' : ''}`;
+            const selected = isCopilotConversationSelected(sessionId);
+            item.className = `copilot-history-item${sessionId === copilotState.activeConversationId ? ' active' : ''}${selected ? ' active' : ''}`;
             const count = Number(session.messageCount || (session.messages || []).length || 0);
+            const selectionPrefix = copilotState.historySelectionMode
+                ? `<input type="checkbox" class="copilot-history-checkbox" data-conversation-id="${CopilotUI.escapeHtml(sessionId)}" ${selected ? 'checked' : ''} style="margin-right:0.4rem;">`
+                : '';
             item.innerHTML = `
-                <div class="copilot-history-item-title">${CopilotUI.escapeHtml(String(session.title || 'New conversation'))}</div>
+                <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:0.45rem;">
+                    <div class="copilot-history-item-title" style="flex:1; display:flex; align-items:flex-start; gap:0.35rem;">
+                        ${selectionPrefix}
+                        <span>${CopilotUI.escapeHtml(String(session.title || 'New conversation'))}</span>
+                    </div>
+                    <button type="button" class="copilot-history-delete" data-conversation-id="${CopilotUI.escapeHtml(sessionId)}" title="Delete conversation" style="background:none; border:none; color:var(--text-tertiary, #9ca3af); cursor:pointer; padding:0.15rem;"><i class="fas fa-trash"></i></button>
+                </div>
                 <div class="copilot-history-item-meta">
                     <span>${getRelativeTimeLabel(session.updatedAt)}</span>
                     <span>${count} message${count === 1 ? '' : 's'}</span>
                 </div>
             `;
+
+            const deleteBtn = item.querySelector('.copilot-history-delete');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    deleteCopilotConversationById(sessionId);
+                });
+            }
+
+            const checkbox = item.querySelector('.copilot-history-checkbox');
+            if (checkbox) {
+                checkbox.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                });
+                checkbox.addEventListener('change', (event) => {
+                    const checked = !!event?.target?.checked;
+                    if (checked) {
+                        if (!isCopilotConversationSelected(sessionId)) {
+                            copilotState.selectedHistoryConversationIds.push(sessionId);
+                        }
+                    } else {
+                        copilotState.selectedHistoryConversationIds = (copilotState.selectedHistoryConversationIds || [])
+                            .map((id) => String(id || '').trim())
+                            .filter((id) => id && id !== sessionId);
+                    }
+                    updateCopilotHistorySelectionUi();
+                });
+            }
+
             item.addEventListener('click', () => {
-                openCopilotConversation(session.id);
+                if (copilotState.historySelectionMode) {
+                    if (isCopilotConversationSelected(sessionId)) {
+                        copilotState.selectedHistoryConversationIds = (copilotState.selectedHistoryConversationIds || [])
+                            .map((id) => String(id || '').trim())
+                            .filter((id) => id && id !== sessionId);
+                    } else {
+                        copilotState.selectedHistoryConversationIds.push(sessionId);
+                    }
+                    updateCopilotHistorySelectionUi();
+                    renderCopilotConversationList();
+                    return;
+                }
+                openCopilotConversation(sessionId);
             });
             listEl.appendChild(item);
         });
+
+        updateCopilotHistorySelectionUi();
     }
 
     function persistActiveConversation() {
@@ -76104,7 +76500,10 @@ console.log('✅ Global functions exported to window object');
             ? forceOpen
             : String(panel.style.display || '').toLowerCase() === 'none';
         panel.style.display = shouldOpen ? 'flex' : 'none';
-        if (shouldOpen) renderCopilotConversationList();
+        if (shouldOpen) {
+            renderCopilotConversationList();
+            updateCopilotHistorySelectionUi();
+        }
     }
 
     function pushConversationMessage(role, content) {
@@ -83790,6 +84189,10 @@ console.log('✅ Global functions exported to window object');
         sendFromInput: sendFromInput,
         clearChat: () => CopilotUI.clearChat(),
         toggleHistory: () => toggleCopilotHistory(),
+        toggleHistorySelectionMode: () => toggleCopilotHistorySelectionMode(),
+        deleteSelectedHistory: () => deleteSelectedCopilotHistory(),
+        clearAllHistory: () => clearAllCopilotHistory(),
+        deleteConversationFromHistory: (conversationId) => deleteCopilotConversationById(conversationId),
         openConversation: openCopilotConversation,
         startNewConversation: startNewCopilotConversation,
         openDocumentPicker: openCopilotDocumentPicker,

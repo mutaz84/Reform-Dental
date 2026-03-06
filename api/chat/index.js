@@ -47,6 +47,54 @@ function trimCopilotMessages(messages) {
         .slice(-250);
 }
 
+function sanitizeFileName(value) {
+    const raw = String(value || 'attachment').trim() || 'attachment';
+    return raw.replace(/[\r\n\t]+/g, ' ').slice(0, 255);
+}
+
+function trimChatAttachments(attachments) {
+    if (!Array.isArray(attachments)) return [];
+    return attachments
+        .map((item) => ({
+            fileName: sanitizeFileName(item?.fileName || item?.name),
+            contentType: String(item?.contentType || item?.type || 'application/octet-stream').slice(0, 200),
+            fileSize: Math.max(0, Number.parseInt(item?.fileSize, 10) || 0),
+            fileData: String(item?.fileData || item?.data || '').trim()
+        }))
+        .filter((item) => item.fileData && item.fileData.length <= (8 * 1024 * 1024))
+        .slice(0, 5);
+}
+
+async function getChatAttachmentsByMessageIds(messageIds) {
+    const safeIds = (Array.isArray(messageIds) ? messageIds : [])
+        .map((id) => Number.parseInt(id, 10))
+        .filter(Number.isInteger);
+    if (!safeIds.length) return new Map();
+
+    const inClause = safeIds.join(',');
+    const result = await sql.query(`
+        SELECT Id, MessageId, FileName, ContentType, FileSize, FileData, CreatedDate
+        FROM ChatMessageAttachments
+        WHERE MessageId IN (${inClause})
+        ORDER BY Id ASC`);
+
+    const byMessageId = new Map();
+    (result.recordset || []).forEach((row) => {
+        const key = Number.parseInt(row.MessageId, 10);
+        if (!byMessageId.has(key)) byMessageId.set(key, []);
+        byMessageId.get(key).push({
+            id: row.Id,
+            fileName: String(row.FileName || 'attachment'),
+            contentType: String(row.ContentType || 'application/octet-stream'),
+            fileSize: Number.parseInt(row.FileSize, 10) || 0,
+            fileData: String(row.FileData || ''),
+            createdAt: row.CreatedDate
+        });
+    });
+
+    return byMessageId;
+}
+
 async function getCopilotConversationDbId(userId, conversationId) {
     const result = await sql.query`
         SELECT TOP 1 Id
@@ -307,8 +355,15 @@ module.exports = async function (context, req) {
                     WHERE (m.SenderId = ${userId} AND m.ReceiverId = ${otherUserId})
                        OR (m.SenderId = ${otherUserId} AND m.ReceiverId = ${userId})
                     ORDER BY m.SentAt ASC`;
-                
-                context.res = { status: 200, headers, body: result.recordset };
+
+                const rows = result.recordset || [];
+                const attachmentsByMessageId = await getChatAttachmentsByMessageIds(rows.map((row) => row.Id));
+                const payload = rows.map((row) => ({
+                    ...row,
+                    Attachments: attachmentsByMessageId.get(Number.parseInt(row.Id, 10)) || []
+                }));
+
+                context.res = { status: 200, headers, body: payload };
                 return;
             }
             
@@ -357,8 +412,15 @@ module.exports = async function (context, req) {
                     WHERE m.ReceiverId = ${userId} 
                       AND m.SentAt > ${since}
                     ORDER BY m.SentAt ASC`;
-                
-                context.res = { status: 200, headers, body: result.recordset };
+
+                const rows = result.recordset || [];
+                const attachmentsByMessageId = await getChatAttachmentsByMessageIds(rows.map((row) => row.Id));
+                const payload = rows.map((row) => ({
+                    ...row,
+                    Attachments: attachmentsByMessageId.get(Number.parseInt(row.Id, 10)) || []
+                }));
+
+                context.res = { status: 200, headers, body: payload };
                 return;
             }
         }
@@ -385,19 +447,40 @@ module.exports = async function (context, req) {
                 return;
             }
 
-            const { senderId, receiverId, message } = req.body;
-            
-            if (!senderId || !receiverId || !message) {
-                context.res = { status: 400, headers, body: { error: 'senderId, receiverId, and message required' } };
+            const senderId = toInt(req.body?.senderId);
+            const receiverId = toInt(req.body?.receiverId);
+            const message = String(req.body?.message || '').trim();
+            const attachments = trimChatAttachments(req.body?.attachments);
+
+            if (!Number.isInteger(senderId) || !Number.isInteger(receiverId) || (!message && !attachments.length)) {
+                context.res = { status: 400, headers, body: { error: 'senderId, receiverId, and message or attachments required' } };
                 return;
             }
-            
+
+            const messageToStore = message || '[Attachment]';
             const result = await sql.query`
                 INSERT INTO ChatMessages (SenderId, ReceiverId, Message, SentAt, IsRead)
                 OUTPUT INSERTED.*
-                VALUES (${senderId}, ${receiverId}, ${message}, GETDATE(), 0)`;
-            
-            context.res = { status: 201, headers, body: result.recordset[0] };
+                VALUES (${senderId}, ${receiverId}, ${messageToStore}, GETDATE(), 0)`;
+
+            const inserted = result.recordset[0];
+            const messageId = Number.parseInt(inserted?.Id, 10);
+            if (Number.isInteger(messageId) && attachments.length) {
+                for (const item of attachments) {
+                    await sql.query`
+                        INSERT INTO ChatMessageAttachments (MessageId, FileName, ContentType, FileSize, FileData, CreatedDate)
+                        VALUES (${messageId}, ${item.fileName}, ${item.contentType}, ${item.fileSize}, ${item.fileData}, GETDATE())`;
+                }
+            }
+
+            context.res = {
+                status: 201,
+                headers,
+                body: {
+                    ...inserted,
+                    Attachments: attachments
+                }
+            };
             return;
         }
 
@@ -430,6 +513,43 @@ module.exports = async function (context, req) {
         }
 
         // DELETE - Delete a message
+        if (method === 'DELETE' && action === 'copilotConversations') {
+            const userId = toInt(req.query.userId || req.body?.userId);
+            if (!Number.isInteger(userId)) {
+                context.res = { status: 400, headers, body: { error: 'userId required' } };
+                return;
+            }
+
+            const clearAll = String(req.query.clearAll || req.body?.clearAll || '').toLowerCase() === 'true';
+            const conversationIds = Array.isArray(req.body?.conversationIds)
+                ? req.body.conversationIds.map((id) => String(id || '').trim()).filter(Boolean)
+                : [];
+
+            if (clearAll) {
+                await sql.query`
+                    UPDATE CopilotConversations
+                    SET IsDeleted = 1,
+                        ModifiedDate = SYSUTCDATETIME()
+                    WHERE UserId = ${userId}`;
+
+                context.res = { status: 200, headers, body: { success: true, deleted: 'all' } };
+                return;
+            }
+
+            let deletedCount = 0;
+            for (const conversationId of conversationIds) {
+                const result = await sql.query`
+                    UPDATE CopilotConversations
+                    SET IsDeleted = 1,
+                        ModifiedDate = SYSUTCDATETIME()
+                    WHERE UserId = ${userId} AND ConversationId = ${conversationId}`;
+                deletedCount += Number(result.rowsAffected?.[0] || 0);
+            }
+
+            context.res = { status: 200, headers, body: { success: true, deletedCount } };
+            return;
+        }
+
         if (method === 'DELETE' && action === 'copilotConversation') {
             const userId = toInt(req.query.userId);
             const conversationId = String(req.query.conversationId || '').trim();

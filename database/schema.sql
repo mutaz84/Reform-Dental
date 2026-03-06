@@ -375,6 +375,36 @@ CREATE TABLE Vendors (
 );
 
 -- =============================================
+-- 14. CHAT MESSAGES TABLES
+-- =============================================
+CREATE TABLE ChatMessages (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    SenderId INT NOT NULL FOREIGN KEY REFERENCES Users(Id),
+    ReceiverId INT NULL FOREIGN KEY REFERENCES Users(Id),
+    Message NVARCHAR(MAX) NOT NULL,
+    IsRead BIT DEFAULT 0,
+    MessageType NVARCHAR(50) DEFAULT 'text',
+    SentAt DATETIME2 DEFAULT GETUTCDATE(),
+    ReadAt DATETIME2 NULL,
+    CreatedDate DATETIME2 DEFAULT GETUTCDATE()
+);
+
+CREATE INDEX IX_ChatMessages_Receiver_Read ON ChatMessages(ReceiverId, IsRead, SentAt DESC);
+CREATE INDEX IX_ChatMessages_Pair_Time ON ChatMessages(SenderId, ReceiverId, SentAt DESC);
+
+CREATE TABLE ChatMessageAttachments (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    MessageId INT NOT NULL FOREIGN KEY REFERENCES ChatMessages(Id) ON DELETE CASCADE,
+    FileName NVARCHAR(255) NOT NULL,
+    ContentType NVARCHAR(200) NOT NULL,
+    FileSize INT NOT NULL DEFAULT 0,
+    FileData NVARCHAR(MAX) NOT NULL,
+    CreatedDate DATETIME2 DEFAULT GETUTCDATE()
+);
+
+CREATE INDEX IX_ChatMessageAttachments_MessageId ON ChatMessageAttachments(MessageId);
+
+-- =============================================
 -- 14. COPILOT CONVERSATIONS TABLES
 -- =============================================
 CREATE TABLE CopilotConversations (
