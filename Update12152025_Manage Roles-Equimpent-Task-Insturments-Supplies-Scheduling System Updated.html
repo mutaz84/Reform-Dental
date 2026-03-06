@@ -55760,9 +55760,11 @@ window.addEventListener('load', function() {
             const chatHeader = document.getElementById('chatAreaHeader');
             const messageInput = document.getElementById('messageInputArea');
             const messagesArea = document.getElementById('messagesArea');
+            const deleteBtn = document.getElementById('chatDeleteConversationBtn');
             
             if (chatHeader) chatHeader.style.display = 'none';
             if (messageInput) messageInput.style.display = 'none';
+            if (deleteBtn) deleteBtn.style.display = 'none';
             if (messagesArea) {
                 messagesArea.innerHTML = `
                     <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary);">
@@ -55779,6 +55781,112 @@ window.addEventListener('load', function() {
             window.currentChatUserId = null;
             clearChatAttachmentSelection();
             resetChatArea();
+        }
+
+        function shouldShowChatDeleteConversationButton() {
+            const type = String(window.currentChatType || '').trim();
+            const chatId = String(window.currentChatUserId || '').trim();
+            if (!type || !chatId) return false;
+
+            if (type === 'direct' || type === 'group') {
+                return true;
+            }
+
+            if (type === 'announcement') {
+                const announcements = safeParseLocalStorageJSON('announcements', [], { expect: 'array' });
+                const ann = announcements.find((row) => String(row?.id || '') === chatId);
+                if (!ann) return false;
+
+                const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
+                const role = String(currentUser?.role || '').toLowerCase();
+                const displayName = String(currentUser?.name || '').trim().toLowerCase();
+                const username = String(currentUser?.username || '').trim().toLowerCase();
+                const author = String(ann?.author || '').trim().toLowerCase();
+
+                return role === 'admin' || role === 'manager' || (author && (author === displayName || author === username));
+            }
+
+            return false;
+        }
+
+        function refreshChatDeleteConversationButton() {
+            const btn = document.getElementById('chatDeleteConversationBtn');
+            if (!btn) return;
+            btn.style.display = shouldShowChatDeleteConversationButton() ? 'inline-flex' : 'none';
+        }
+
+        async function deleteCurrentChatConversation() {
+            const type = String(window.currentChatType || '').trim();
+            const chatId = String(window.currentChatUserId || '').trim();
+            if (!type || !chatId) return;
+
+            const confirmLabel = type === 'announcement'
+                ? 'Delete this entire announcement thread?'
+                : 'Delete this entire chat conversation?';
+            if (!confirm(confirmLabel)) return;
+
+            try {
+                if (type === 'direct') {
+                    const userId = await getCurrentUserId();
+                    const otherUserId = Number.parseInt(chatId, 10);
+                    if (!userId || !Number.isInteger(otherUserId)) {
+                        throw new Error('Invalid conversation context');
+                    }
+
+                    const response = await fetch(`/api/chat?action=conversation&userId=${userId}&otherUserId=${otherUserId}`, {
+                        method: 'DELETE'
+                    });
+                    if (!response.ok) {
+                        throw new Error(`Delete failed: ${response.status}`);
+                    }
+
+                    window.currentChatUserId = null;
+                    clearChatAttachmentSelection();
+                    resetChatArea();
+                    await loadConversations();
+                    await updateUnreadBadge();
+                    if (typeof showNotification === 'function') {
+                        showNotification('Conversation deleted', 'success');
+                    }
+                    return;
+                }
+
+                if (type === 'group') {
+                    const groups = safeParseLocalStorageJSON('groupChats', [], { expect: 'array' });
+                    const nextGroups = groups.filter((g) => String(g?.id || '') !== chatId);
+                    if (nextGroups.length === groups.length) return;
+
+                    localStorage.setItem('groupChats', JSON.stringify(nextGroups));
+                    window.currentChatUserId = null;
+                    clearChatAttachmentSelection();
+                    resetChatArea();
+                    await loadGroupChats();
+                    if (typeof showNotification === 'function') {
+                        showNotification('Group chat deleted', 'success');
+                    }
+                    return;
+                }
+
+                if (type === 'announcement') {
+                    const announcements = safeParseLocalStorageJSON('announcements', [], { expect: 'array' });
+                    const nextAnnouncements = announcements.filter((a) => String(a?.id || '') !== chatId);
+                    if (nextAnnouncements.length === announcements.length) return;
+
+                    localStorage.setItem('announcements', JSON.stringify(nextAnnouncements));
+                    window.currentChatUserId = null;
+                    clearChatAttachmentSelection();
+                    resetChatArea();
+                    await loadAnnouncements();
+                    if (typeof showNotification === 'function') {
+                        showNotification('Announcement thread deleted', 'success');
+                    }
+                }
+            } catch (error) {
+                console.error('Error deleting conversation:', error);
+                if (typeof showNotification === 'function') {
+                    showNotification('Failed to delete conversation', 'error');
+                }
+            }
         }
         
         // Load group chats
@@ -55887,6 +55995,7 @@ window.addEventListener('load', function() {
             }
             if (nameEl) nameEl.textContent = group.name;
             if (statusEl) statusEl.textContent = `${group.members?.length || 0} members`;
+            refreshChatDeleteConversationButton();
             
             // Load group messages
             const messages = group.messages || [];
@@ -55934,6 +56043,7 @@ window.addEventListener('load', function() {
             }
             if (nameEl) nameEl.textContent = ann.title;
             if (statusEl) statusEl.textContent = `By ${ann.author} • ${formatChatTime(ann.createdAt)}${ann.recipients ? ` • Sent to ${ann.recipients.length} employees` : ''}`;
+            refreshChatDeleteConversationButton();
             
             // Display announcement content
             if (messagesArea) {
@@ -56540,6 +56650,7 @@ window.addEventListener('load', function() {
                     if (statusEl) statusEl.textContent = user.IsOnline ? 'Online' : 'Offline';
                 }
             }
+            refreshChatDeleteConversationButton();
             
             // Highlight selected conversation in the list
             document.querySelectorAll('#conversationsList > div[data-userid]').forEach(el => {
@@ -68176,6 +68287,9 @@ document.addEventListener('keydown', function(e) {
                             <div id="chatUserName" style="font-weight: 600; color: var(--text-primary);"></div>
                             <div id="chatUserStatus" style="font-size: 0.75rem; color: var(--text-tertiary);"></div>
                         </div>
+                        <button id="chatDeleteConversationBtn" onclick="deleteCurrentChatConversation()" style="display:none; background: none; border: none; cursor: pointer; color: #ef4444; font-size: 1rem; padding: 0.4rem;" title="Delete whole chat">
+                            <i class="fas fa-trash"></i>
+                        </button>
                         <button onclick="closeChatConversation()" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: 1.25rem; padding: 0.5rem;" title="Close">
                             <i class="fas fa-times"></i>
                         </button>

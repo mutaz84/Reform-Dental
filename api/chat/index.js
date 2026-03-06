@@ -568,6 +568,30 @@ module.exports = async function (context, req) {
             return;
         }
 
+        if (method === 'DELETE' && action === 'conversation') {
+            const userId = toInt(req.query.userId || req.body?.userId);
+            const otherUserId = toInt(req.query.otherUserId || req.body?.otherUserId);
+            if (!Number.isInteger(userId) || !Number.isInteger(otherUserId)) {
+                context.res = { status: 400, headers, body: { error: 'userId and otherUserId required' } };
+                return;
+            }
+
+            const result = await sql.query`
+                DELETE FROM ChatMessages
+                WHERE (SenderId = ${userId} AND ReceiverId = ${otherUserId})
+                   OR (SenderId = ${otherUserId} AND ReceiverId = ${userId})`;
+
+            context.res = {
+                status: 200,
+                headers,
+                body: {
+                    success: true,
+                    deletedCount: Number(result.rowsAffected?.[0] || 0)
+                }
+            };
+            return;
+        }
+
         if (method === 'DELETE' && messageId) {
             const requesterId = toInt(req.query.userId || req.body?.userId);
             const targetMessageId = toInt(messageId);
