@@ -75671,18 +75671,24 @@ console.log('✅ Global functions exported to window object');
     }
 
     let copilotSyncTimer = null;
+    let copilotPendingSyncSession = null;
 
-    function queueCopilotConversationSync(delayMs = 350) {
+    function queueCopilotConversationSync(sessionSnapshot, delayMs = 350) {
+        const normalized = normalizeConversationSession(sessionSnapshot);
+        if (!normalized || !normalized.id) return;
+        copilotPendingSyncSession = {
+            ...normalized,
+            messages: trimConversationHistory(normalized.messages || [])
+        };
         if (copilotSyncTimer) {
             clearTimeout(copilotSyncTimer);
             copilotSyncTimer = null;
         }
         copilotSyncTimer = setTimeout(async () => {
             copilotSyncTimer = null;
-            const activeId = String(copilotState.activeConversationId || '').trim();
-            if (!activeId) return;
-            const session = copilotState.conversationSessions.find((row) => String(row?.id) === activeId);
-            if (!session) return;
+            const session = copilotPendingSyncSession;
+            copilotPendingSyncSession = null;
+            if (!session || !session.id) return;
             await upsertCopilotConversationToApi(session);
         }, Math.max(0, Number(delayMs || 0)));
     }
@@ -75806,22 +75812,45 @@ console.log('✅ Global functions exported to window object');
         saveCopilotConversations();
         saveCopilotHistory();
         renderCopilotConversationList();
-        queueCopilotConversationSync();
+        const latestSession = copilotState.conversationSessions.find((row) => String(row?.id) === activeId);
+        if (latestSession) queueCopilotConversationSync(latestSession);
+    }
+
+    function getCopilotWelcomeMarkup() {
+        return `
+        <div class="copilot-welcome" id="copilotWelcome">
+            <div class="copilot-welcome-icon"><i class="fas fa-brain"></i></div>
+            <h3>Hello! I'm DentaBrain</h3>
+            <p>I can help you navigate, answer questions, and manage your dental practice.</p>
+            <div class="copilot-welcome-examples">
+                <div class="copilot-welcome-example" onclick="window.ReformCopilot.sendMessage('How many employees are working today?')">
+                    <i class="fas fa-users"></i> How many employees are working today?
+                </div>
+                <div class="copilot-welcome-example" onclick="window.ReformCopilot.sendMessage('What supplies are running low?')">
+                    <i class="fas fa-boxes"></i> What supplies are running low?
+                </div>
+                <div class="copilot-welcome-example" onclick="window.ReformCopilot.sendMessage('Show me today\'s schedule')">
+                    <i class="fas fa-calendar"></i> Show me today's schedule
+                </div>
+                <div class="copilot-welcome-example" onclick="window.ReformCopilot.sendMessage('Navigate to equipment page')">
+                    <i class="fas fa-tools"></i> Navigate to equipment page
+                </div>
+            </div>
+        </div>`;
     }
 
     function hydrateCopilotMessagesFromHistory(limit = 25) {
         const messagesEl = getEl('copilotMessages');
-        const welcome = getEl('copilotWelcome');
         if (!messagesEl) return;
 
         const history = trimConversationHistory(copilotState.conversationHistory);
+        messagesEl.innerHTML = '';
+
         if (!history.length) {
-            if (welcome) welcome.style.display = '';
+            messagesEl.innerHTML = getCopilotWelcomeMarkup();
             return;
         }
 
-        messagesEl.innerHTML = '';
-        if (welcome) welcome.style.display = 'none';
         history.slice(-limit).forEach((entry) => {
             CopilotUI.addMessage(entry.role === 'assistant' ? 'assistant' : 'user', entry.content);
         });
@@ -75879,6 +75908,8 @@ console.log('✅ Global functions exported to window object');
         saveCopilotConversations();
         saveCopilotHistory();
         renderCopilotConversationList();
+        const suggestions = getEl('copilotSuggestions');
+        if (suggestions) suggestions.style.display = 'none';
         hydrateCopilotMessagesFromHistory();
         toggleCopilotHistory(false);
     }
