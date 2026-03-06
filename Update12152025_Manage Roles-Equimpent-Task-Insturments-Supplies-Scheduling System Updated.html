@@ -75528,7 +75528,7 @@ console.log('✅ Global functions exported to window object');
     const COPILOT_DOC_LIMIT = 20;
     const COPILOT_DOC_TEXT_LIMIT = 20000;
     const COPILOT_DOC_EXCERPT_LIMIT = 1200;
-    const COPILOT_AUTO_REFRESH_MS = 2000;
+    const COPILOT_AUTO_REFRESH_MS = 4500;
     const COPILOT_POST_SYNC_REFRESH_MS = 700;
 
     let copilotAutoRefreshTimer = null;
@@ -75626,10 +75626,30 @@ console.log('✅ Global functions exported to window object');
         return `${COPILOT_HISTORY_API_URL}?${query.toString()}`;
     }
 
+    function getConversationListSignature(sessions) {
+        const list = Array.isArray(sessions) ? sessions : [];
+        return list
+            .map((row) => {
+                const id = String(row?.id || '');
+                const updatedAt = String(row?.updatedAt || '');
+                const count = Number(row?.messageCount || (Array.isArray(row?.messages) ? row.messages.length : 0) || 0);
+                return `${id}:${updatedAt}:${count}`;
+            })
+            .join('|');
+    }
+
+    function getHistorySignature(history) {
+        const list = trimConversationHistory(history);
+        const last = list[list.length - 1] || null;
+        return `${list.length}|${String(last?.timestamp || '')}|${String(last?.role || '')}|${String(last?.content || '').slice(0, 120)}`;
+    }
+
     async function fetchCopilotConversationsFromApi(userId) {
         if (!Number.isInteger(userId)) return null;
         try {
-            const response = await fetch(buildCopilotHistoryApiUrl('copilotConversations', { userId }));
+            const response = await fetch(buildCopilotHistoryApiUrl('copilotConversations', { userId, _: Date.now() }), {
+                cache: 'no-store'
+            });
             if (!response.ok) return null;
             const data = await response.json();
             return Array.isArray(data) ? data : [];
@@ -75641,7 +75661,9 @@ console.log('✅ Global functions exported to window object');
     async function fetchCopilotConversationFromApi(userId, conversationId) {
         if (!Number.isInteger(userId) || !conversationId) return null;
         try {
-            const response = await fetch(buildCopilotHistoryApiUrl('copilotConversation', { userId, conversationId }));
+            const response = await fetch(buildCopilotHistoryApiUrl('copilotConversation', { userId, conversationId, _: Date.now() }), {
+                cache: 'no-store'
+            });
             if (!response.ok) return null;
             const data = await response.json();
             return data && typeof data === 'object' ? data : null;
@@ -75998,7 +76020,62 @@ console.log('✅ Global functions exported to window object');
         if (copilotRefreshInFlight || copilotState.isProcessing) return;
         copilotRefreshInFlight = true;
         try {
-            await loadCopilotConversations();
+            const userId = getCopilotUserContext().userId;
+            if (!Number.isInteger(userId)) return;
+
+            const apiSessions = await fetchCopilotConversationsFromApi(userId);
+            if (!Array.isArray(apiSessions)) return;
+
+            const currentSessions = trimConversationSessions(copilotState.conversationSessions || []);
+            const currentListSig = getConversationListSignature(currentSessions);
+
+            const mergedSessions = trimConversationSessions([
+                ...apiSessions,
+                ...currentSessions
+            ]);
+            const nextListSig = getConversationListSignature(mergedSessions);
+
+            let activeId = String(copilotState.activeConversationId || '').trim();
+            const hadActive = mergedSessions.some((row) => String(row?.id) === activeId);
+            if (!activeId || !hadActive) {
+                activeId = String(mergedSessions[0]?.id || '');
+            }
+
+            let activeSession = mergedSessions.find((row) => String(row?.id) === activeId) || null;
+            if (activeSession && (!Array.isArray(activeSession.messages) || !activeSession.messages.length)) {
+                const remote = await fetchCopilotConversationFromApi(userId, activeId);
+                const normalized = normalizeConversationSession(remote);
+                if (normalized) {
+                    const idx = mergedSessions.findIndex((row) => String(row?.id) === String(normalized.id));
+                    if (idx >= 0) mergedSessions[idx] = { ...mergedSessions[idx], ...normalized };
+                    activeSession = mergedSessions[idx] || activeSession;
+                }
+            }
+
+            const nextHistory = trimConversationHistory(activeSession?.messages || []);
+            const currentHistorySig = getHistorySignature(copilotState.conversationHistory || []);
+            const nextHistorySig = getHistorySignature(nextHistory);
+
+            const listChanged = nextListSig !== currentListSig;
+            const activeChanged = String(copilotState.activeConversationId || '') !== String(activeId || '');
+            const historyChanged = nextHistorySig !== currentHistorySig;
+
+            if (!listChanged && !activeChanged && !historyChanged) return;
+
+            copilotState.conversationSessions = mergedSessions;
+            copilotState.activeConversationId = activeId;
+            copilotState.conversationHistory = nextHistory;
+
+            persistActiveConversation();
+            saveCopilotConversations();
+            saveCopilotHistory();
+
+            if (listChanged || activeChanged) {
+                renderCopilotConversationList();
+            }
+            if (historyChanged || activeChanged) {
+                hydrateCopilotMessagesFromHistory();
+            }
         } catch (_) {
             // Keep polling resilient; fall back to current local state silently.
         } finally {
