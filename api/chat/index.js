@@ -569,7 +569,22 @@ module.exports = async function (context, req) {
         }
 
         if (method === 'DELETE' && messageId) {
-            await sql.query`DELETE FROM ChatMessages WHERE Id = ${messageId}`;
+            const requesterId = toInt(req.query.userId || req.body?.userId);
+            const targetMessageId = toInt(messageId);
+            if (!Number.isInteger(requesterId) || !Number.isInteger(targetMessageId)) {
+                context.res = { status: 400, headers, body: { error: 'Valid userId and messageId required' } };
+                return;
+            }
+
+            const result = await sql.query`
+                DELETE FROM ChatMessages
+                WHERE Id = ${targetMessageId} AND SenderId = ${requesterId}`;
+
+            if (Number(result.rowsAffected?.[0] || 0) < 1) {
+                context.res = { status: 404, headers, body: { error: 'Message not found or not owned by user' } };
+                return;
+            }
+
             context.res = { status: 200, headers, body: { success: true } };
             return;
         }

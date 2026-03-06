@@ -55977,9 +55977,11 @@ window.addEventListener('load', function() {
                 const attachments = Array.isArray(msg.attachments) ? msg.attachments : (Array.isArray(msg.Attachments) ? msg.Attachments : []);
                 const textBody = String(msg.content || msg.message || '').trim();
                 const attachmentsHtml = renderChatAttachmentListHtml(attachments, msg.id || msg.timestamp || `local-${Math.random().toString(36).slice(2, 9)}`);
+                const canDeleteLocal = isGroup && isOwn && msg && msg.id !== undefined && msg.id !== null;
                 return `
                     <div style="display: flex; ${isOwn ? 'justify-content: flex-end' : 'justify-content: flex-start'};">
-                        <div style="max-width: 70%; padding: 0.75rem 1rem; background: ${isOwn ? 'var(--accent-primary)' : 'var(--bg-secondary)'}; color: ${isOwn ? 'white' : 'var(--text-primary)'}; border-radius: ${isOwn ? '12px 12px 0 12px' : '12px 12px 12px 0'};">
+                        <div style="max-width: 70%; padding: 0.75rem 1rem; background: ${isOwn ? 'var(--accent-primary)' : 'var(--bg-secondary)'}; color: ${isOwn ? 'white' : 'var(--text-primary)'}; border-radius: ${isOwn ? '12px 12px 0 12px' : '12px 12px 12px 0'}; position: relative;">
+                            ${canDeleteLocal ? `<button type="button" title="Delete message" onclick="deleteGroupMessageById('${String(window.currentChatUserId || '').replace(/'/g, "\\'")}', '${String(msg.id).replace(/'/g, "\\'")}')" style="position:absolute; top:0.3rem; right:0.3rem; background:transparent; border:none; color:inherit; opacity:0.75; cursor:pointer; padding:0.15rem;"><i class="fas fa-trash"></i></button>` : ''}
                             ${isGroup && !isOwn ? `<div style="font-size: 0.7rem; font-weight: 600; margin-bottom: 0.25rem; opacity: 0.8;">${msg.sender || 'Unknown'}</div>` : ''}
                             ${textBody ? `<div>${escapeHtml(textBody)}</div>` : ''}
                             ${attachmentsHtml}
@@ -56621,9 +56623,11 @@ window.addEventListener('load', function() {
                     const rawMessage = String(msg.Message || '').trim();
                     const displayMessage = rawMessage === '[Attachment]' ? '' : rawMessage;
                     const attachmentsHtml = renderChatAttachmentListHtml(attachments, msg.Id || `api-${Math.random().toString(36).slice(2, 9)}`);
+                    const canDelete = isMe && Number.isInteger(Number(msg.Id));
                     return `
                         <div style="display: flex; justify-content: ${isMe ? 'flex-end' : 'flex-start'}; margin-bottom: 0.5rem;">
-                            <div style="max-width: 70%; padding: 0.75rem 1rem; background: ${isMe ? 'var(--accent-primary)' : 'var(--bg-secondary)'}; color: ${isMe ? 'white' : 'var(--text-primary)'}; border-radius: 18px; border-bottom-${isMe ? 'right' : 'left'}-radius: 4px;">
+                            <div style="max-width: 70%; padding: 0.75rem 1rem; background: ${isMe ? 'var(--accent-primary)' : 'var(--bg-secondary)'}; color: ${isMe ? 'white' : 'var(--text-primary)'}; border-radius: 18px; border-bottom-${isMe ? 'right' : 'left'}-radius: 4px; position: relative;">
+                                ${canDelete ? `<button type="button" title="Delete message" onclick="deleteDirectMessageById(${Number(msg.Id)})" style="position:absolute; top:0.3rem; right:0.3rem; background:transparent; border:none; color:inherit; opacity:0.75; cursor:pointer; padding:0.15rem;"><i class="fas fa-trash"></i></button>` : ''}
                                 ${displayMessage ? `<div style="word-wrap: break-word;">${escapeHtml(displayMessage)}</div>` : ''}
                                 ${attachmentsHtml}
                                 <div style="font-size: 0.65rem; opacity: 0.7; margin-top: 0.25rem; text-align: ${isMe ? 'right' : 'left'};">
@@ -56641,6 +56645,67 @@ window.addEventListener('load', function() {
             } catch (error) {
                 console.error('Error loading messages:', error);
                 container.innerHTML = '<div style="text-align: center; padding: 2rem; color: #ef4444;"><i class="fas fa-exclamation-circle"></i> Failed to load messages</div>';
+            }
+        }
+
+        async function deleteDirectMessageById(messageId) {
+            const normalizedId = Number.parseInt(String(messageId || ''), 10);
+            if (!Number.isInteger(normalizedId) || normalizedId <= 0) return;
+            if (!confirm('Delete this message?')) return;
+
+            try {
+                const userId = await getCurrentUserId();
+                if (!userId) return;
+
+                const response = await fetch(`/api/chat/${normalizedId}?userId=${userId}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Delete failed: ${response.status}`);
+                }
+
+                if (window.currentChatType === 'direct' && window.currentChatUserId) {
+                    await loadMessages(window.currentChatUserId);
+                    await loadConversations();
+                }
+                if (typeof showNotification === 'function') {
+                    showNotification('Message deleted', 'success');
+                }
+            } catch (error) {
+                console.error('Error deleting direct message:', error);
+                if (typeof showNotification === 'function') {
+                    showNotification('Failed to delete message', 'error');
+                }
+            }
+        }
+
+        function deleteGroupMessageById(groupId, messageId) {
+            const groupKey = String(groupId || '').trim();
+            const messageKey = String(messageId || '').trim();
+            if (!groupKey || !messageKey) return;
+            if (!confirm('Delete this message?')) return;
+
+            const groups = safeParseLocalStorageJSON('groupChats', []);
+            const groupIndex = groups.findIndex((g) => String(g?.id || '') === groupKey);
+            if (groupIndex < 0) return;
+
+            const group = groups[groupIndex] || {};
+            const existing = Array.isArray(group.messages) ? group.messages : [];
+            const nextMessages = existing.filter((msg) => String(msg?.id || '') !== messageKey);
+            if (nextMessages.length === existing.length) return;
+
+            groups[groupIndex] = {
+                ...group,
+                messages: nextMessages
+            };
+            localStorage.setItem('groupChats', JSON.stringify(groups));
+
+            if (window.currentChatType === 'group' && String(window.currentChatUserId || '') === groupKey) {
+                displayMessages(nextMessages, true);
+            }
+            if (typeof showNotification === 'function') {
+                showNotification('Message deleted', 'success');
             }
         }
         
