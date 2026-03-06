@@ -77175,10 +77175,8 @@ console.log('✅ Global functions exported to window object');
         const stickyNotesList = Array.isArray(sticky?.notes) ? sticky.notes : [];
 
         const asksSticky = /\bsticky\s*note\b|\bsticky\s*notes\b|\bsticky\b/.test(text);
-        const stickyFollowUp = /\bwhat\s+about\b|\bhow\s+many\b|\bwhat\s+is\s+the\s+text\b|\btext\b/.test(text)
-            && /\bsticky\b/.test(previousUserText);
         const asksStickyCount = /\bhow\s+many\b|\bcount\b|\bnumber\s+of\b|\btotal\b/.test(text);
-        const asksStickyText = /\btext\b|\bcontent\b|\bwhat(?:'s|\s+is)\s+on\b|\bwritten\b|\bsays\b/.test(text);
+        const asksStickyText = /\btext\b|\bcontent\b|\bwhat(?:'s|\s+is)\s+on\b|\bwritten\b|\bsays\b|\bsay\b/.test(text);
         const asksStickyColors = /\bcolor\b|\bcolou?r\b|\bwhich\s+colors\b|\bwhat\s+colors\b/.test(text);
 
         const stickyColorMap = {
@@ -77191,6 +77189,15 @@ console.log('✅ Global functions exported to window object');
         };
 
         const askedStickyColor = Object.keys(stickyColorMap).find((color) => stickyColorMap[color].test(message || '')) || null;
+        const previousWasStickyContext = /\bsticky\b|\byellow\b|\bpink\b|\bblue\b|\bgreen\b|\bpurple\b|\borange\b/.test(previousUserText);
+        const stickyFollowUp = (
+            /\bwhat\s+about\b|\bhow\s+many\b|\bwhat\s+is\s+the\s+text\b|\btext\b|\bcontent\b|\bsay\b|\bsays\b|\bwhat\b/.test(text)
+            && previousWasStickyContext
+        ) || (
+            !!askedStickyColor
+            && /\bone\b|\bnote\b|\bnotes\b|\bsay\b|\bsays\b|\bwhat\b/.test(text)
+        );
+        const likelyColorTextRequest = !!askedStickyColor && !asksStickyCount && /\bwhat\b|\bsay\b|\bsays\b|\btext\b|\bcontent\b/.test(text);
 
         if (asksSticky || stickyFollowUp) {
             const totalStickyNotes = Number(stickySummary?.totalNotes || stickyNotesList.length || 0);
@@ -77206,7 +77213,7 @@ console.log('✅ Global functions exported to window object');
                 };
             }
 
-            if (askedStickyColor && asksStickyText) {
+            if (askedStickyColor && (asksStickyText || likelyColorTextRequest)) {
                 if (!coloredNotes.length) {
                     return {
                         reply: `There are no ${askedStickyColor} sticky notes right now.`,
