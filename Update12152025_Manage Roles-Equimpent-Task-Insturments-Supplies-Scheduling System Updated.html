@@ -75824,6 +75824,31 @@ console.log('✅ Global functions exported to window object');
         return `${list.length}|${String(last?.timestamp || '')}|${String(last?.role || '')}|${String(last?.content || '').slice(0, 120)}`;
     }
 
+    function getCopilotConversationTimestampMs(session) {
+        const id = String(session?.id || '');
+        const tsFromId = Number.parseInt(id.split('_')[0], 10);
+        if (Number.isInteger(tsFromId) && tsFromId > 0) return tsFromId;
+
+        const updatedAtMs = new Date(session?.updatedAt || 0).getTime();
+        if (Number.isFinite(updatedAtMs) && updatedAtMs > 0) return updatedAtMs;
+
+        return Date.now();
+    }
+
+    function shouldRetainLocalConversationDuringServerSync(session, activeId, serverIdSet) {
+        if (!session || !session.id) return false;
+        const id = String(session.id || '').trim();
+        if (!id || serverIdSet.has(id)) return false;
+        if (String(activeId || '') === id) return true;
+
+        const hasMessages = Array.isArray(session.messages) && session.messages.length > 0;
+        if (!hasMessages) return false;
+
+        // Keep only very recent local-only sessions to avoid reviving stale deleted history.
+        const ageMs = Date.now() - getCopilotConversationTimestampMs(session);
+        return ageMs >= 0 && ageMs <= (10 * 60 * 1000);
+    }
+
     async function fetchCopilotConversationsFromApi(userId) {
         if (!Number.isInteger(userId)) return null;
         try {
@@ -76367,6 +76392,9 @@ console.log('✅ Global functions exported to window object');
         if (suggestions) suggestions.style.display = 'none';
         hydrateCopilotMessagesFromHistory();
         toggleCopilotHistory(false);
+
+        // Persist new sessions immediately so refresh from another device cannot drop them.
+        queueCopilotConversationSync(nextSession, 100);
     }
 
     async function loadCopilotConversations() {
@@ -76384,8 +76412,16 @@ console.log('✅ Global functions exported to window object');
         if (Number.isInteger(userId)) {
             apiSessions = await fetchCopilotConversationsFromApi(userId);
             if (Array.isArray(apiSessions)) {
-                // API is authoritative when available to avoid reintroducing deleted history from local cache.
-                sessions = trimConversationSessions(apiSessions);
+                // API is authoritative; keep only fresh local-only sessions that may not have synced yet.
+                const serverIdSet = new Set(apiSessions.map((row) => String(row?.id || '').trim()).filter(Boolean));
+                const activeId = String(copilotState.activeConversationId || '').trim();
+                const unsyncedLocalSessions = sessions.filter((session) =>
+                    shouldRetainLocalConversationDuringServerSync(session, activeId, serverIdSet)
+                );
+                sessions = trimConversationSessions([
+                    ...apiSessions,
+                    ...unsyncedLocalSessions
+                ]);
             }
         }
 
@@ -76457,8 +76493,17 @@ console.log('✅ Global functions exported to window object');
             const currentSessions = trimConversationSessions(copilotState.conversationSessions || []);
             const currentListSig = getConversationListSignature(currentSessions);
 
-            // Keep server list authoritative so deletions sync across devices.
-            const nextSessions = trimConversationSessions(apiSessions);
+            const serverIdSet = new Set(apiSessions.map((row) => String(row?.id || '').trim()).filter(Boolean));
+            const activeIdBeforeRefresh = String(copilotState.activeConversationId || '').trim();
+            const unsyncedLocalSessions = currentSessions.filter((session) =>
+                shouldRetainLocalConversationDuringServerSync(session, activeIdBeforeRefresh, serverIdSet)
+            );
+
+            // Keep server list authoritative while preserving very recent local sessions pending sync.
+            const nextSessions = trimConversationSessions([
+                ...apiSessions,
+                ...unsyncedLocalSessions
+            ]);
             const nextListSig = getConversationListSignature(nextSessions);
 
             let activeId = String(copilotState.activeConversationId || '').trim();
