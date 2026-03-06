@@ -76380,27 +76380,37 @@ console.log('✅ Global functions exported to window object');
 
         let sessions = trimConversationSessions(parsedSessions);
         const userId = getCopilotUserContext().userId;
+        let apiSessions = null;
         if (Number.isInteger(userId)) {
-            const apiSessions = await fetchCopilotConversationsFromApi(userId);
+            apiSessions = await fetchCopilotConversationsFromApi(userId);
             if (Array.isArray(apiSessions)) {
-                sessions = trimConversationSessions([
-                    ...sessions,
-                    ...apiSessions
-                ]);
+                // API is authoritative when available to avoid reintroducing deleted history from local cache.
+                sessions = trimConversationSessions(apiSessions);
             }
         }
 
         if (!sessions.length) {
-            loadCopilotHistory();
-            const legacy = trimConversationHistory(copilotState.conversationHistory);
             const nowIso = new Date().toISOString();
-            sessions = [{
-                id: `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-                title: buildConversationTitleFromHistory(legacy),
-                createdAt: nowIso,
-                updatedAt: nowIso,
-                messages: legacy
-            }];
+            if (Array.isArray(apiSessions)) {
+                // Server returned an empty list: start clean instead of reviving legacy local history.
+                sessions = [{
+                    id: `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+                    title: 'New conversation',
+                    createdAt: nowIso,
+                    updatedAt: nowIso,
+                    messages: []
+                }];
+            } else {
+                loadCopilotHistory();
+                const legacy = trimConversationHistory(copilotState.conversationHistory);
+                sessions = [{
+                    id: `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+                    title: buildConversationTitleFromHistory(legacy),
+                    createdAt: nowIso,
+                    updatedAt: nowIso,
+                    messages: legacy
+                }];
+            }
         }
 
         copilotState.conversationSessions = sessions;
@@ -76447,26 +76457,24 @@ console.log('✅ Global functions exported to window object');
             const currentSessions = trimConversationSessions(copilotState.conversationSessions || []);
             const currentListSig = getConversationListSignature(currentSessions);
 
-            const mergedSessions = trimConversationSessions([
-                ...currentSessions,
-                ...apiSessions
-            ]);
-            const nextListSig = getConversationListSignature(mergedSessions);
+            // Keep server list authoritative so deletions sync across devices.
+            const nextSessions = trimConversationSessions(apiSessions);
+            const nextListSig = getConversationListSignature(nextSessions);
 
             let activeId = String(copilotState.activeConversationId || '').trim();
-            const hadActive = mergedSessions.some((row) => String(row?.id) === activeId);
+            const hadActive = nextSessions.some((row) => String(row?.id) === activeId);
             if (!activeId || !hadActive) {
-                activeId = String(mergedSessions[0]?.id || '');
+                activeId = String(nextSessions[0]?.id || '');
             }
 
-            let activeSession = mergedSessions.find((row) => String(row?.id) === activeId) || null;
+            let activeSession = nextSessions.find((row) => String(row?.id) === activeId) || null;
             if (activeSession && (!Array.isArray(activeSession.messages) || !activeSession.messages.length)) {
                 const remote = await fetchCopilotConversationFromApi(userId, activeId);
                 const normalized = normalizeConversationSession(remote);
                 if (normalized) {
-                    const idx = mergedSessions.findIndex((row) => String(row?.id) === String(normalized.id));
-                    if (idx >= 0) mergedSessions[idx] = { ...mergedSessions[idx], ...normalized };
-                    activeSession = mergedSessions[idx] || activeSession;
+                    const idx = nextSessions.findIndex((row) => String(row?.id) === String(normalized.id));
+                    if (idx >= 0) nextSessions[idx] = { ...nextSessions[idx], ...normalized };
+                    activeSession = nextSessions[idx] || activeSession;
                 }
             }
 
@@ -76480,7 +76488,7 @@ console.log('✅ Global functions exported to window object');
 
             if (!listChanged && !activeChanged && !historyChanged) return;
 
-            copilotState.conversationSessions = mergedSessions;
+            copilotState.conversationSessions = nextSessions;
             copilotState.activeConversationId = activeId;
             copilotState.conversationHistory = nextHistory;
 
