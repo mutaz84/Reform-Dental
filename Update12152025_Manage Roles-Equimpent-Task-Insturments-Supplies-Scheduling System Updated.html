@@ -75696,14 +75696,32 @@ console.log('✅ Global functions exported to window object');
     // ===== DOM REFERENCES =====
     function getEl(id) { return document.getElementById(id); }
 
+    function parseCopilotUserIdCandidate(value) {
+        if (value === null || value === undefined) return null;
+
+        const numeric = Number.parseInt(String(value).trim(), 10);
+        if (Number.isInteger(numeric) && numeric > 0) return numeric;
+
+        const prefixedMatch = String(value).match(/(?:^|\b)db:(\d+)\b/i);
+        if (prefixedMatch && prefixedMatch[1]) {
+            const prefixed = Number.parseInt(prefixedMatch[1], 10);
+            if (Number.isInteger(prefixed) && prefixed > 0) return prefixed;
+        }
+
+        return null;
+    }
+
     function getCopilotUserContext() {
         try {
             const raw = localStorage.getItem('currentUser');
             const user = raw ? JSON.parse(raw) : null;
-            const userIdCandidate = user?.dbId ?? user?.Id ?? user?.id;
-            const userId = userIdCandidate !== undefined && userIdCandidate !== null && userIdCandidate !== ''
-                ? parseInt(userIdCandidate, 10)
-                : null;
+            const userId =
+                parseCopilotUserIdCandidate(user?.dbId) ||
+                parseCopilotUserIdCandidate(user?.Id) ||
+                parseCopilotUserIdCandidate(user?.id) ||
+                parseCopilotUserIdCandidate(window.currentDbUserId) ||
+                parseCopilotUserIdCandidate(window.currentChatUserId) ||
+                parseCopilotUserIdCandidate(window.chatUserIdCache);
             const userKey = (
                 (Number.isInteger(userId) ? `db:${userId}` : null) ||
                 user?.username ||
@@ -75717,8 +75735,12 @@ console.log('✅ Global functions exported to window object');
                 userKey: String(userKey || 'anonymous')
             };
         } catch (_) {
+            const fallbackUserId =
+                parseCopilotUserIdCandidate(window.currentDbUserId) ||
+                parseCopilotUserIdCandidate(window.currentChatUserId) ||
+                parseCopilotUserIdCandidate(window.chatUserIdCache);
             return {
-                userId: null,
+                userId: Number.isInteger(fallbackUserId) ? fallbackUserId : null,
                 userKey: localStorage.getItem('loggedInUser') || localStorage.getItem('userName') || 'anonymous'
             };
         }
