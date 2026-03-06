@@ -77022,6 +77022,12 @@ console.log('✅ Global functions exported to window object');
         const text = String(message || '').trim().toLowerCase();
         if (!text) return null;
 
+        const asksPto = /\bpto\b|paid\s*time\s*off|time\s*off/i.test(text);
+        const asksBalance = /\bbalance\b|available|remaining|left/i.test(text);
+        const asksPending = /\bpending\b/i.test(text);
+        const asksApproved = /\bapproved\b/i.test(text);
+        const asksTeam = /\bteam\b|everyone|all\s+employees|each\s+employee/i.test(text);
+
         const asksScheduled = /\bschedule|scheduled|on\s+schedule\b/i.test(text);
         const asksClockedIn = /\bclock\s*-?\s*in|clocked\s*-?\s*in\b/i.test(text);
         const asksWorking = /\bworking\b/i.test(text);
@@ -77029,11 +77035,69 @@ console.log('✅ Global functions exported to window object');
         const asksHowMany = /\bhow\s+many|count|number\s+of\b/i.test(text);
         const asksWho = /\bwho\b/i.test(text);
 
+        const attendance = context?.attendanceData || {};
+        const currentUser = attendance?.currentUser || {};
+        const ptoSummary = attendance?.ptoSummary || {};
+        const statusCount = ptoSummary?.statusCount || {};
+        const employeeBalances = Array.isArray(ptoSummary?.employeeBalances) ? ptoSummary.employeeBalances : [];
+
+        if (asksPto) {
+            const myBalance = Number(currentUser?.ptoBalanceHours || 0);
+            const myPending = Number(currentUser?.ptoPendingCount || 0);
+            const myApproved = Number(currentUser?.ptoApprovedCount || 0);
+
+            if (asksTeam) {
+                const topRows = employeeBalances
+                    .slice()
+                    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')))
+                    .slice(0, 25)
+                    .map((row) => {
+                        const name = String(row?.name || row?.username || '-').trim();
+                        const hrs = Number(row?.availableHours || 0).toFixed(2);
+                        const pending = Number(row?.pendingRequests || 0);
+                        return `- ${name}: ${hrs} h (pending: ${pending})`;
+                    });
+
+                if (!topRows.length) {
+                    return {
+                        reply: 'I could not find team PTO balances right now.',
+                        suggestions: ['What is my PTO balance?', 'How many PTO requests are pending?', 'Open PTO Management']
+                    };
+                }
+
+                return {
+                    reply: `Team PTO balances:\n${topRows.join('\n')}`,
+                    suggestions: ['How many PTO requests are pending?', 'What is my PTO balance?', 'Open PTO Management']
+                };
+            }
+
+            if (asksPending || asksApproved || asksHowMany) {
+                const pending = Number(statusCount?.pending || 0);
+                const approved = Number(statusCount?.approved || 0);
+                const denied = Number(statusCount?.denied || 0) + Number(statusCount?.rejected || 0);
+                return {
+                    reply: `PTO request summary:\n- Pending: ${pending}\n- Approved: ${approved}\n- Denied/Rejected: ${denied}\n\nYour PTO:\n- Balance: ${myBalance.toFixed(2)} h\n- Pending: ${myPending}\n- Approved: ${myApproved}`,
+                    suggestions: ['What is my PTO balance?', 'Show team PTO balances', 'Open PTO Management']
+                };
+            }
+
+            if (asksBalance || /\bmy\b|mine|for\s*me/i.test(text) || text === 'pto' || text === 'time off') {
+                return {
+                    reply: `Your PTO balance is ${myBalance.toFixed(2)} hours.\nPending PTO requests: ${myPending}.\nApproved PTO requests: ${myApproved}.`,
+                    suggestions: ['How many PTO requests are pending?', 'Show team PTO balances', 'Open PTO Management']
+                };
+            }
+
+            return {
+                reply: `PTO request summary:\n- Pending: ${Number(statusCount?.pending || 0)}\n- Approved: ${Number(statusCount?.approved || 0)}\n\nYour PTO balance: ${myBalance.toFixed(2)} h`,
+                suggestions: ['What is my PTO balance?', 'How many PTO requests are pending?', 'Show team PTO balances']
+            };
+        }
+
         // Only short-circuit for real-time attendance intents (not schedule intents).
         const isRealtimeAttendanceIntent = !asksScheduled && (asksClockedIn || (asksWorking && asksToday));
         if (!isRealtimeAttendanceIntent) return null;
 
-        const attendance = context?.attendanceData || {};
         const todayCounts = attendance?.today?.counts || {};
         const todayBreakdown = attendance?.today?.scheduledVsClockedIn || {};
         const teamStatus = Array.isArray(attendance?.teamStatus) ? attendance.teamStatus : [];
