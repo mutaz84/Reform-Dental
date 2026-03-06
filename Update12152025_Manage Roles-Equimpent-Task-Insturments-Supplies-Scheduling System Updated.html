@@ -67821,6 +67821,10 @@ document.addEventListener('keydown', function(e) {
     <div class="copilot-input-area">
         <input type="text" class="copilot-input" id="copilotInput" placeholder="Ask me anything about your practice..."
                onkeydown="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); window.ReformCopilot.sendFromInput(); }">
+        <input type="file" id="copilotDocumentInput" multiple accept=".txt,.md,.markdown,.csv,.json,.log,.xml,.html,.htm,.pdf,.doc,.docx" style="display: none;" onchange="window.ReformCopilot.handleDocumentUpload(event)">
+        <button class="copilot-send-btn" id="copilotUploadBtn" onclick="window.ReformCopilot.openDocumentPicker()" title="Upload document" style="margin-right: 0.35rem;">
+            <i class="fas fa-paperclip"></i>
+        </button>
         <button class="copilot-send-btn" id="copilotSendBtn" onclick="window.ReformCopilot.sendFromInput()">
             <i class="fas fa-paper-plane"></i>
         </button>
@@ -75441,12 +75445,237 @@ console.log('✅ Global functions exported to window object');
         isOpen: false,
         isProcessing: false,
         conversationHistory: [],
+        uploadedDocuments: [],
         isConnected: false,
         hasShownWelcome: true
     };
 
+    const COPILOT_HISTORY_LIMIT = 250;
+    const COPILOT_DOC_LIMIT = 20;
+    const COPILOT_DOC_TEXT_LIMIT = 20000;
+    const COPILOT_DOC_EXCERPT_LIMIT = 1200;
+
     // ===== DOM REFERENCES =====
     function getEl(id) { return document.getElementById(id); }
+
+    function getCopilotUserContext() {
+        try {
+            const raw = localStorage.getItem('currentUser');
+            const user = raw ? JSON.parse(raw) : null;
+            const userIdCandidate = user?.dbId ?? user?.Id ?? user?.id;
+            const userId = userIdCandidate !== undefined && userIdCandidate !== null && userIdCandidate !== ''
+                ? parseInt(userIdCandidate, 10)
+                : null;
+            const userKey = (
+                (Number.isInteger(userId) ? `db:${userId}` : null) ||
+                user?.username ||
+                user?.email ||
+                localStorage.getItem('loggedInUser') ||
+                localStorage.getItem('userName') ||
+                'anonymous'
+            );
+            return { userKey: String(userKey || 'anonymous') };
+        } catch (_) {
+            return { userKey: localStorage.getItem('loggedInUser') || localStorage.getItem('userName') || 'anonymous' };
+        }
+    }
+
+    function getCopilotHistoryStorageKey() {
+        return `reformDentalCopilotHistory:${getCopilotUserContext().userKey}`;
+    }
+
+    function getCopilotDocsStorageKey() {
+        return `reformDentalCopilotDocs:${getCopilotUserContext().userKey}`;
+    }
+
+    function trimConversationHistory(history) {
+        if (!Array.isArray(history)) return [];
+        return history
+            .filter((entry) => entry && (entry.role === 'user' || entry.role === 'assistant') && String(entry.content || '').trim())
+            .slice(-COPILOT_HISTORY_LIMIT)
+            .map((entry) => ({
+                role: entry.role,
+                content: String(entry.content || ''),
+                timestamp: entry.timestamp || entry.ts || new Date().toISOString()
+            }));
+    }
+
+    function saveCopilotHistory() {
+        try {
+            const payload = trimConversationHistory(copilotState.conversationHistory);
+            localStorage.setItem(getCopilotHistoryStorageKey(), JSON.stringify(payload));
+        } catch (_) {}
+    }
+
+    function loadCopilotHistory() {
+        try {
+            const raw = localStorage.getItem(getCopilotHistoryStorageKey());
+            const parsed = raw ? JSON.parse(raw) : [];
+            copilotState.conversationHistory = trimConversationHistory(parsed);
+        } catch (_) {
+            copilotState.conversationHistory = [];
+        }
+    }
+
+    function pushConversationMessage(role, content) {
+        const entry = {
+            role,
+            content: String(content || ''),
+            timestamp: new Date().toISOString()
+        };
+        copilotState.conversationHistory.push(entry);
+        copilotState.conversationHistory = trimConversationHistory(copilotState.conversationHistory);
+        saveCopilotHistory();
+    }
+
+    function normalizeCopilotDocItem(item) {
+        if (!item) return null;
+        const text = String(item.text || item.extractedText || '');
+        return {
+            id: String(item.id || `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`),
+            name: String(item.name || 'Untitled document'),
+            type: String(item.type || ''),
+            size: Number(item.size || 0) || 0,
+            uploadedAt: String(item.uploadedAt || new Date().toISOString()),
+            text: text.slice(0, COPILOT_DOC_TEXT_LIMIT),
+            textExtractable: item.textExtractable !== false
+        };
+    }
+
+    function saveCopilotDocuments() {
+        try {
+            const normalized = (Array.isArray(copilotState.uploadedDocuments) ? copilotState.uploadedDocuments : [])
+                .map(normalizeCopilotDocItem)
+                .filter(Boolean)
+                .slice(-COPILOT_DOC_LIMIT);
+            copilotState.uploadedDocuments = normalized;
+            localStorage.setItem(getCopilotDocsStorageKey(), JSON.stringify(normalized));
+        } catch (_) {}
+    }
+
+    function loadCopilotDocuments() {
+        try {
+            const raw = localStorage.getItem(getCopilotDocsStorageKey());
+            const parsed = raw ? JSON.parse(raw) : [];
+            copilotState.uploadedDocuments = Array.isArray(parsed)
+                ? parsed.map(normalizeCopilotDocItem).filter(Boolean).slice(-COPILOT_DOC_LIMIT)
+                : [];
+        } catch (_) {
+            copilotState.uploadedDocuments = [];
+        }
+    }
+
+    function hydrateCopilotMessagesFromHistory(limit = 25) {
+        const messagesEl = getEl('copilotMessages');
+        const welcome = getEl('copilotWelcome');
+        if (!messagesEl) return;
+
+        const history = trimConversationHistory(copilotState.conversationHistory);
+        if (!history.length) {
+            if (welcome) welcome.style.display = '';
+            return;
+        }
+
+        messagesEl.innerHTML = '';
+        if (welcome) welcome.style.display = 'none';
+        history.slice(-limit).forEach((entry) => {
+            CopilotUI.addMessage(entry.role === 'assistant' ? 'assistant' : 'user', entry.content);
+        });
+    }
+
+    function readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(new Error('Unable to read file text'));
+            reader.readAsText(file);
+        });
+    }
+
+    async function parseCopilotDocument(file) {
+        const name = String(file?.name || 'document');
+        const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+        const textExtensions = new Set(['txt', 'md', 'markdown', 'csv', 'json', 'log', 'xml', 'html', 'htm']);
+        const canExtractText = textExtensions.has(ext) || String(file?.type || '').startsWith('text/');
+
+        let extractedText = '';
+        let textExtractable = canExtractText;
+
+        if (canExtractText) {
+            try {
+                extractedText = (await readFileAsText(file)).slice(0, COPILOT_DOC_TEXT_LIMIT);
+            } catch (_) {
+                extractedText = '';
+                textExtractable = false;
+            }
+        } else {
+            textExtractable = false;
+        }
+
+        return {
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+            name,
+            type: String(file?.type || ext || 'unknown'),
+            size: Number(file?.size || 0) || 0,
+            uploadedAt: new Date().toISOString(),
+            text: extractedText,
+            textExtractable
+        };
+    }
+
+    function openCopilotDocumentPicker() {
+        const input = getEl('copilotDocumentInput');
+        if (input) input.click();
+    }
+
+    async function handleCopilotDocumentUpload(event) {
+        const input = event?.target;
+        const files = Array.from(input?.files || []);
+        if (!files.length) return;
+
+        const uploaded = [];
+        const skipped = [];
+
+        for (const file of files) {
+            try {
+                const parsed = await parseCopilotDocument(file);
+                uploaded.push(parsed);
+            } catch (_) {
+                skipped.push(String(file?.name || 'unknown file'));
+            }
+        }
+
+        if (!uploaded.length) {
+            CopilotUI.addMessage('assistant', 'I could not process the selected documents.');
+            if (input) input.value = '';
+            return;
+        }
+
+        const existing = Array.isArray(copilotState.uploadedDocuments) ? copilotState.uploadedDocuments : [];
+        const dedupeMap = new Map();
+        existing.forEach((doc) => {
+            const key = `${String(doc.name || '').toLowerCase()}|${Number(doc.size || 0)}`;
+            dedupeMap.set(key, normalizeCopilotDocItem(doc));
+        });
+        uploaded.forEach((doc) => {
+            const key = `${String(doc.name || '').toLowerCase()}|${Number(doc.size || 0)}`;
+            dedupeMap.set(key, normalizeCopilotDocItem(doc));
+        });
+
+        copilotState.uploadedDocuments = Array.from(dedupeMap.values()).slice(-COPILOT_DOC_LIMIT);
+        saveCopilotDocuments();
+
+        const extractableCount = uploaded.filter((doc) => doc.textExtractable && String(doc.text || '').trim()).length;
+        const names = uploaded.slice(0, 5).map((doc) => `- ${doc.name}`).join('\n');
+        const skippedLine = skipped.length ? `\nSkipped: ${skipped.join(', ')}` : '';
+        const response = `Uploaded ${uploaded.length} document${uploaded.length === 1 ? '' : 's'}:\n${names}\n\nText extraction available for ${extractableCount} of ${uploaded.length} upload(s). For PDF/DOC/DOCX, I currently store metadata and can still track the file list.${skippedLine}`;
+
+        CopilotUI.addMessage('assistant', response);
+        pushConversationMessage('assistant', response);
+        CopilotUI.showSuggestions(['List my uploaded documents', 'Summarize my uploaded documents', 'Search my documents for PTO']);
+
+        if (input) input.value = '';
+    }
 
     // ===== CONTEXT ENGINE =====
     // Collects live data from the app's localStorage to send with each query
@@ -75473,6 +75702,31 @@ console.log('✅ Global functions exported to window object');
             return {
                 userName: localStorage.getItem('userName') || localStorage.getItem('loggedInUser') || 'Unknown',
                 userRole: localStorage.getItem('userRole') || document.documentElement.getAttribute('data-role') || 'Unknown'
+            };
+        },
+
+        getCopilotDocumentsData() {
+            const docs = Array.isArray(copilotState.uploadedDocuments) ? copilotState.uploadedDocuments : [];
+            return {
+                summary: {
+                    totalDocuments: docs.length,
+                    extractableDocuments: docs.filter((doc) => doc.textExtractable && String(doc.text || '').trim()).length,
+                    lastUploadedAt: docs.length ? docs[docs.length - 1].uploadedAt : null,
+                    dataSourceHints: {
+                        sourcePriority: 'Use uploaded Copilot documents for document questions before guessing.',
+                        guardrail: 'deterministic_local_copilot_documents',
+                        guardrailVersion: '2026-03-06.1'
+                    }
+                },
+                documents: docs.slice(-12).map((doc) => ({
+                    id: doc.id,
+                    name: doc.name,
+                    type: doc.type,
+                    size: doc.size,
+                    uploadedAt: doc.uploadedAt,
+                    textExtractable: !!doc.textExtractable,
+                    excerpt: String(doc.text || '').trim().slice(0, COPILOT_DOC_EXCERPT_LIMIT)
+                }))
             };
         },
 
@@ -76319,6 +76573,7 @@ console.log('✅ Global functions exported to window object');
                 scheduleData: this.getScheduleData(),
                 attendanceData: this.getAttendanceData(),
                 stickyNotesData: this.getStickyNotesData(),
+                documentsData: this.getCopilotDocumentsData(),
                 equipmentData: this.getEquipmentData(),
                 instrumentsData: this.getInstrumentsData(),
                 suppliesData: this.getSuppliesData(),
@@ -77096,6 +77351,7 @@ console.log('✅ Global functions exported to window object');
 
         clearChat() {
             copilotState.conversationHistory = [];
+            saveCopilotHistory();
             const messagesEl = getEl('copilotMessages');
             messagesEl.innerHTML = '';
             const welcome = getEl('copilotWelcome');
@@ -77169,6 +77425,142 @@ console.log('✅ Global functions exported to window object');
         const previousUserText = previousUserMessages.length > 1
             ? previousUserMessages[previousUserMessages.length - 2]
             : '';
+
+        const docs = Array.isArray(copilotState.uploadedDocuments) ? copilotState.uploadedDocuments : [];
+        const asksHistory = /\b(chat\s*history|conversation\s*history|recent\s*chats|recent\s*conversation|show\s+history|what\s+did\s+we\s+discuss|previous\s+messages|last\s+chat)\b/i.test(text);
+        const asksDocs = /\bdocument\b|\bdocuments\b|\bdoc\b|\bfile\b|\bfiles\b|\bupload\b|\buploaded\b|\battachment\b|\battachments\b/i.test(text);
+        const asksDocList = /\blist\b.*\b(document|file)s?\b|\bwhat\s+(documents|files)\b|\bshow\s+(documents|files)\b|\buploaded\s+(documents|files)\b/i.test(text);
+        const asksDocCount = /\bhow\s+many\b.*\b(document|file)s?\b|\bnumber\s+of\s+(documents|files)\b/i.test(text);
+        const asksDocSummary = /\bsummarize\b|\bsummary\b|\bwhat\s+does\b|\bwhat\s+is\s+in\b|\btell\s+me\s+about\b/i.test(text);
+
+        if (asksHistory) {
+            const filtered = historyList
+                .filter((entry) => entry && (entry.role === 'user' || entry.role === 'assistant') && String(entry.content || '').trim())
+                .filter((entry, index, arr) => !(entry.role === 'user' && index === arr.length - 1 && String(entry.content || '').trim().toLowerCase() === text))
+                .slice(-12);
+
+            if (!filtered.length) {
+                return {
+                    reply: 'I do not have any previous chat history yet for this account.',
+                    suggestions: ['Ask me about sticky notes', 'Show attendance overview', 'List my uploaded documents']
+                };
+            }
+
+            const formatWhen = (value) => {
+                const parsed = new Date(value || 0);
+                if (Number.isNaN(parsed.getTime())) return '';
+                return parsed.toLocaleString();
+            };
+
+            const lines = filtered.map((entry) => {
+                const who = entry.role === 'assistant' ? 'Copilot' : 'You';
+                const when = formatWhen(entry.timestamp);
+                const content = String(entry.content || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+                return `- ${who}${when ? ` (${when})` : ''}: ${content}`;
+            });
+
+            return {
+                reply: `Here is your recent chat history:\n${lines.join('\n')}`,
+                suggestions: ['Summarize our recent chat', 'List my uploaded documents', 'Clear chat']
+            };
+        }
+
+        if (asksDocs) {
+            if (!docs.length) {
+                if (/\bupload\b|\badd\b|\battach\b/i.test(text)) {
+                    return {
+                        reply: 'Use the paperclip button in DentaBrain to upload documents. I can extract text from TXT/MD/CSV/JSON/HTML files right now.',
+                        suggestions: ['List my uploaded documents', 'How many documents are uploaded?', 'Show chat history']
+                    };
+                }
+                return {
+                    reply: 'No documents are uploaded yet. Use the paperclip button in DentaBrain to add files.',
+                    suggestions: ['How do I upload a document?', 'Show chat history', 'Ask attendance question']
+                };
+            }
+
+            if (asksDocCount) {
+                return {
+                    reply: `You currently have ${docs.length} uploaded document${docs.length === 1 ? '' : 's'}.`,
+                    suggestions: ['List my uploaded documents', 'Summarize my uploaded documents', 'Search my documents for PTO']
+                };
+            }
+
+            if (asksDocList) {
+                const lines = docs.slice(-15).reverse().map((doc) => {
+                    const sizeKb = Math.max(1, Math.round((Number(doc.size || 0) / 1024)));
+                    const extractTag = doc.textExtractable && String(doc.text || '').trim() ? 'text ready' : 'metadata only';
+                    return `- ${doc.name} (${sizeKb} KB, ${extractTag})`;
+                });
+                return {
+                    reply: `Uploaded documents:\n${lines.join('\n')}`,
+                    suggestions: ['How many documents are uploaded?', 'Summarize my uploaded documents', 'Search my documents for schedule']
+                };
+            }
+
+            const resolveDocByName = (value) => {
+                const query = String(value || '').toLowerCase();
+                if (!query) return null;
+                const candidates = docs.slice().reverse();
+                return candidates.find((doc) => query.includes(String(doc.name || '').toLowerCase())) || null;
+            };
+
+            const tokenized = String(message || '')
+                .toLowerCase()
+                .replace(/[^a-z0-9\s]/g, ' ')
+                .split(/\s+/)
+                .filter(Boolean)
+                .filter((word) => !new Set(['document', 'documents', 'file', 'files', 'upload', 'uploaded', 'about', 'what', 'does', 'tell', 'show', 'me', 'the', 'my', 'in', 'for', 'on', 'is', 'are', 'a', 'an', 'to', 'of']).has(word))
+                .filter((word) => word.length >= 3);
+
+            const explicitDoc = resolveDocByName(message);
+            if (explicitDoc && asksDocSummary) {
+                const excerpt = String(explicitDoc.text || '').trim().slice(0, COPILOT_DOC_EXCERPT_LIMIT);
+                if (!excerpt) {
+                    return {
+                        reply: `${explicitDoc.name} is uploaded, but text extraction is not available for that file type yet.`,
+                        suggestions: ['List my uploaded documents', 'Upload a TXT or MD version', 'Search my documents for PTO']
+                    };
+                }
+                return {
+                    reply: `Summary from ${explicitDoc.name}:\n${excerpt}`,
+                    suggestions: ['List my uploaded documents', 'Search my documents for PTO', 'Show chat history']
+                };
+            }
+
+            if (tokenized.length) {
+                const searchable = docs
+                    .filter((doc) => doc.textExtractable && String(doc.text || '').trim())
+                    .map((doc) => ({ ...doc, lc: String(doc.text || '').toLowerCase() }));
+
+                let best = null;
+                let bestScore = 0;
+                searchable.forEach((doc) => {
+                    const score = tokenized.reduce((sum, token) => sum + (doc.lc.includes(token) ? 1 : 0), 0);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        best = doc;
+                    }
+                });
+
+                if (best && bestScore > 0) {
+                    const firstToken = tokenized.find((token) => best.lc.includes(token)) || tokenized[0];
+                    const idx = best.lc.indexOf(firstToken);
+                    const start = Math.max(0, idx - 180);
+                    const end = Math.min(best.text.length, idx + 420);
+                    const snippet = String(best.text || '').slice(start, end).trim();
+                    return {
+                        reply: `I found this in ${best.name}:\n${snippet}`,
+                        suggestions: ['List my uploaded documents', 'Summarize my uploaded documents', 'Show chat history']
+                    };
+                }
+            }
+
+            return {
+                reply: 'I could not find a matching snippet in uploaded documents yet. Try naming the file or asking with more specific keywords.',
+                suggestions: ['List my uploaded documents', 'Summarize my uploaded documents', 'How many documents are uploaded?']
+            };
+        }
 
         const sticky = context?.stickyNotesData || {};
         const stickySummary = sticky?.summary || {};
@@ -77517,7 +77909,7 @@ console.log('✅ Global functions exported to window object');
 
         // Show user message
         CopilotUI.addMessage('user', message);
-        copilotState.conversationHistory.push({ role: 'user', content: message });
+        pushConversationMessage('user', message);
 
         // Clear input
         getEl('copilotInput').value = '';
@@ -77534,7 +77926,7 @@ console.log('✅ Global functions exported to window object');
             if (localReply && localReply.reply) {
                 CopilotUI.hideTyping();
                 CopilotUI.addMessage('assistant', localReply.reply);
-                copilotState.conversationHistory.push({ role: 'assistant', content: localReply.reply });
+                pushConversationMessage('assistant', localReply.reply);
                 CopilotUI.showSuggestions(localReply.suggestions || []);
                 copilotState.isProcessing = false;
                 getEl('copilotSendBtn').disabled = false;
@@ -77565,7 +77957,7 @@ console.log('✅ Global functions exported to window object');
 
             // Show AI response
             CopilotUI.addMessage('assistant', data.reply);
-            copilotState.conversationHistory.push({ role: 'assistant', content: data.reply });
+            pushConversationMessage('assistant', data.reply);
 
             // Execute any actions
             if (data.actions && data.actions.length) {
@@ -82839,6 +83231,8 @@ console.log('✅ Global functions exported to window object');
         sendMessage: sendMessage,
         sendFromInput: sendFromInput,
         clearChat: () => CopilotUI.clearChat(),
+        openDocumentPicker: openCopilotDocumentPicker,
+        handleDocumentUpload: handleCopilotDocumentUpload,
         getContext: () => ContextEngine.buildFullContext(),
         checkConnection: () => CopilotUI.checkConnection()
     };
@@ -82854,6 +83248,9 @@ console.log('✅ Global functions exported to window object');
 
     // Auto-check connection on load
     document.addEventListener('DOMContentLoaded', () => {
+        loadCopilotHistory();
+        loadCopilotDocuments();
+        hydrateCopilotMessagesFromHistory();
         setTimeout(() => CopilotUI.checkConnection(), 2000);
     });
 
