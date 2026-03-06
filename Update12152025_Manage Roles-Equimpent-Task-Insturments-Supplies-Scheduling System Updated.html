@@ -75500,10 +75500,84 @@ console.log('✅ Global functions exported to window object');
 
         // Get schedule data
         getScheduleData() {
-            const shifts = this.safeParse('scheduleShifts', []);
+            const storageShifts = this.safeParse('scheduleShifts', []);
+            const shifts = Array.isArray(window.myScheduleShifts) && window.myScheduleShifts.length
+                ? window.myScheduleShifts
+                : storageShifts;
             const events = this.safeParse('calendarEvents', []);
             const schedules = this.safeParse('employeeSchedules', {});
             const today = new Date().toISOString().split('T')[0];
+            const todayDate = new Date();
+            const todayDow = todayDate.toLocaleDateString('en-US', { weekday: 'short' });
+
+            const normalizeISODate = (value) => {
+                if (!value) return '';
+                const raw = String(value).trim();
+                const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+                const parsed = new Date(raw);
+                if (Number.isNaN(parsed.getTime())) return '';
+                return parsed.toISOString().split('T')[0];
+            };
+
+            const isShiftScheduledToday = (shift) => {
+                if (!shift || typeof shift !== 'object') return false;
+
+                const explicitDate = normalizeISODate(shift.date || shift.start);
+                if (explicitDate) return explicitDate === today;
+
+                const rawDays = Array.isArray(shift.days)
+                    ? shift.days
+                    : String(shift.days || shift.daysOfWeek || '')
+                        .split(',')
+                        .map((d) => d.trim())
+                        .filter(Boolean);
+                if (!rawDays.length) return false;
+
+                const hasTodayDay = rawDays.some((d) => {
+                    const value = String(d || '').trim().toLowerCase();
+                    return value === todayDow.toLowerCase() || value.startsWith(todayDow.toLowerCase());
+                });
+                if (!hasTodayDay) return false;
+
+                const startDate = normalizeISODate(shift.startDate);
+                const endDate = normalizeISODate(shift.endDate || shift.untilDate);
+                if (startDate && today < startDate) return false;
+                if (endDate && today > endDate) return false;
+                return true;
+            };
+
+            const splitNames = (raw) => String(raw || '')
+                .split(',')
+                .map((name) => name.trim())
+                .filter(Boolean);
+
+            const derivePeopleFromShifts = (todaysShiftList) => {
+                const people = {};
+                todaysShiftList.forEach((shift) => {
+                    const names = [
+                        shift.employee,
+                        shift.provider,
+                        shift.name,
+                        ...splitNames(shift.assistant)
+                    ].map((name) => String(name || '').trim()).filter(Boolean);
+
+                    names.forEach((name) => {
+                        const key = name.toLowerCase();
+                        if (!people[key]) {
+                            people[key] = {
+                                employee: name,
+                                shift: shift.role || shift.type || 'Scheduled',
+                                start: shift.startTime || shift.start || null,
+                                end: shift.endTime || shift.end || null,
+                                clinic: shift.clinic || '',
+                                room: shift.room || ''
+                            };
+                        }
+                    });
+                });
+                return Object.values(people);
+            };
 
             const todaysEvents = events.filter(e => {
                 if (!e.start) return false;
@@ -75511,17 +75585,15 @@ console.log('✅ Global functions exported to window object');
                 return eventDate === today;
             });
 
-            const todaysShifts = shifts.filter(s => {
-                if (!s.date && !s.start) return false;
-                const shiftDate = s.date || (s.start ? s.start.split('T')[0] : '');
-                return shiftDate === today;
-            });
+            const todaysShifts = shifts.filter(isShiftScheduledToday);
+            const todaysScheduledPeople = derivePeopleFromShifts(todaysShifts);
 
             return {
                 totalShifts: shifts.length,
                 totalEvents: events.length,
                 todaysEvents: todaysEvents.length,
                 todaysShifts: todaysShifts.length,
+                todaysScheduledEmployees: todaysScheduledPeople.length,
                 todayDetail: todaysEvents.slice(0, 20).map(e => ({
                     title: e.title,
                     start: e.start,
@@ -75530,12 +75602,14 @@ console.log('✅ Global functions exported to window object');
                     provider: e.provider || e.employee,
                     type: e.type || e.eventType
                 })),
-                scheduledEmployees: Object.keys(schedules).length,
-                scheduleSummary: todaysShifts.slice(0, 20).map(s => ({
-                    employee: s.employee || s.title,
-                    shift: s.shift || s.type,
-                    start: s.start || s.startTime,
-                    end: s.end || s.endTime
+                scheduledEmployees: Math.max(Object.keys(schedules).length, todaysScheduledPeople.length),
+                scheduleSummary: todaysScheduledPeople.slice(0, 20).map(s => ({
+                    employee: s.employee,
+                    shift: s.shift,
+                    start: s.start,
+                    end: s.end,
+                    clinic: s.clinic,
+                    room: s.room
                 }))
             };
         },
