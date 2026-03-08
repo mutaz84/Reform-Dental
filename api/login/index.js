@@ -159,8 +159,6 @@ module.exports = async function (context, req) {
                 }
             }
         };
-
-        await pool.close();
     } catch (err) {
         context.log.error('Login error:', err);
         context.res = { status: 500, headers, body: { error: 'Server error', details: err.message } };

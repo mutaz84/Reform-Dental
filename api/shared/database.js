@@ -85,14 +85,29 @@ function bindInput(request, key, value) {
 }
 
 async function execute(query, params = {}) {
-    const pool = await getPool();
-    const request = pool.request();
+    const runQuery = async () => {
+        const pool = await getPool();
+        const request = pool.request();
 
-    Object.entries(params || {}).forEach(([key, value]) => {
-        bindInput(request, key, value);
-    });
+        Object.entries(params || {}).forEach(([key, value]) => {
+            bindInput(request, key, value);
+        });
 
-    return request.query(query);
+        return request.query(query);
+    };
+
+    try {
+        return await runQuery();
+    } catch (error) {
+        const message = String(error?.message || '').toLowerCase();
+        const shouldRetry = message.includes('connection is closed') || message.includes('connection not yet open');
+        if (!shouldRetry) {
+            throw error;
+        }
+
+        await resetPool();
+        return runQuery();
+    }
 }
 
 async function resetPool() {
