@@ -78,6 +78,70 @@ module.exports = async function (context, req) {
         const clinicNames = clinics.map((c) => c.Name).filter(Boolean);
         const officeLocation = clinicNames.length === 1 ? clinicNames[0] : '';
 
+        // Register login session in SQL so Admin Manage Logins reflects cross-device activity.
+        try {
+            const incomingSessionId = String(req.body?.sessionId || '').trim();
+            const sessionId = incomingSessionId || `api-${user.Id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+            const displayName = `${String(user.FirstName || '').trim()} ${String(user.LastName || '').trim()}`.trim() || String(user.Username || '').trim();
+            const normalizedUsername = String(user.Username || username || '').trim().toLowerCase();
+            const source = String(req.body?.source || 'login-api').trim().slice(0, 60) || 'login-api';
+
+            await pool.request()
+                .input('sessionId', sql.NVarChar(120), sessionId)
+                .input('userId', sql.Int, user.Id)
+                .input('username', sql.NVarChar(120), normalizedUsername)
+                .input('displayName', sql.NVarChar(200), displayName)
+                .input('userRole', sql.NVarChar(60), String(user.Role || '').trim().toLowerCase())
+                .input('source', sql.NVarChar(60), source)
+                .query(`
+                    IF OBJECT_ID('dbo.UserLoginSessions', 'U') IS NOT NULL
+                    BEGIN
+                        IF EXISTS (SELECT 1 FROM dbo.UserLoginSessions WHERE SessionId = @sessionId)
+                        BEGIN
+                            UPDATE dbo.UserLoginSessions
+                            SET UserId = @userId,
+                                Username = @username,
+                                DisplayName = @displayName,
+                                UserRole = @userRole,
+                                Source = @source,
+                                LastSeenAt = SYSUTCDATETIME(),
+                                IsActive = 1,
+                                LogoutAt = NULL,
+                                LogoutReason = NULL,
+                                ForcedLogoutAt = NULL,
+                                ForcedBy = NULL,
+                                ModifiedDate = SYSUTCDATETIME()
+                            WHERE SessionId = @sessionId;
+                        END
+                        ELSE
+                        BEGIN
+                            INSERT INTO dbo.UserLoginSessions (
+                                SessionId, UserId, Username, DisplayName, UserRole, Source,
+                                LoginAt, LastSeenAt, IsActive, CreatedDate, ModifiedDate
+                            )
+                            VALUES (
+                                @sessionId, @userId, @username, @displayName, @userRole, @source,
+                                SYSUTCDATETIME(), SYSUTCDATETIME(), 1, SYSUTCDATETIME(), SYSUTCDATETIME()
+                            );
+                        END
+                    END
+
+                    IF OBJECT_ID('dbo.UserLoginAudit', 'U') IS NOT NULL
+                    BEGIN
+                        INSERT INTO dbo.UserLoginAudit (
+                            SessionId, UserId, Username, DisplayName, UserRole,
+                            EventType, EventSource, EventAt
+                        )
+                        VALUES (
+                            @sessionId, @userId, @username, @displayName, @userRole,
+                            'login', @source, SYSUTCDATETIME()
+                        );
+                    END
+                `);
+        } catch (sessionError) {
+            context.log.warn('Login session tracking write failed:', sessionError.message);
+        }
+
         context.res = {
             status: 200,
             headers,
