@@ -12,6 +12,9 @@ function buildResponse(status, body = null, headers = {}) {
             ...DEFAULT_HEADERS,
             ...headers
         },
+        // Use `body` for broad Azure Functions runtime compatibility.
+        body,
+        // Keep `jsonBody` for any callers/runtimes that expect it.
         jsonBody: body
     };
 }
