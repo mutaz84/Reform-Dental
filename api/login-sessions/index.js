@@ -371,6 +371,72 @@ async function forceLogoutUser(body = {}) {
     };
 }
 
+async function forceLogoutSession(body = {}) {
+    const sessionId = toSafeString(body.sessionId, 120);
+    const forcedBy = toSafeString(body.forcedBy, 120) || 'admin';
+
+    if (!sessionId) {
+        return {
+            status: 400,
+            body: { error: 'sessionId is required.' }
+        };
+    }
+
+    const sessionResult = await execute(
+        `SELECT TOP 1 SessionId, UserId, Username, DisplayName, UserRole, IsActive
+         FROM UserLoginSessions
+         WHERE SessionId = @sessionId`,
+        { sessionId }
+    );
+
+    const session = (sessionResult.recordset || [])[0] || null;
+    if (!session) {
+        return {
+            status: 404,
+            body: { error: 'Session not found.' }
+        };
+    }
+
+    await execute(
+        `UPDATE UserLoginSessions
+         SET IsActive = 0,
+             LastSeenAt = SYSUTCDATETIME(),
+             LogoutAt = SYSUTCDATETIME(),
+             LogoutReason = 'forced_logout',
+             ForcedLogoutAt = SYSUTCDATETIME(),
+             ForcedBy = @forcedBy,
+             ModifiedDate = SYSUTCDATETIME()
+         WHERE SessionId = @sessionId`,
+        {
+            sessionId,
+            forcedBy
+        }
+    );
+
+    await writeAuditEvent({
+        sessionId: session.SessionId,
+        userId: session.UserId,
+        username: session.Username,
+        displayName: session.DisplayName,
+        userRole: session.UserRole,
+        eventType: 'forced_logout',
+        eventSource: 'login-sessions-api',
+        forcedBy,
+        note: session.IsActive === false ? 'session already inactive before force' : null
+    });
+
+    return {
+        status: 200,
+        body: {
+            success: true,
+            forcedCount: session.IsActive === false ? 0 : 1,
+            sessionId: session.SessionId,
+            username: session.Username,
+            forcedBy
+        }
+    };
+}
+
 async function clearHistory() {
     await execute('DELETE FROM UserLoginAudit');
     return {
@@ -412,6 +478,8 @@ module.exports = async function (context, req) {
                 result = await upsertSession(body);
             } else if (action === 'logoutSession' || action === 'logout') {
                 result = await logoutSession(body);
+            } else if (action === 'forceLogoutSession') {
+                result = await forceLogoutSession(body);
             } else if (action === 'forceLogoutUser') {
                 result = await forceLogoutUser(body);
             } else if (action === 'clearHistory') {
