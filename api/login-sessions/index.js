@@ -28,6 +28,30 @@ function toHistoryLimit(raw) {
     return Math.min(n, MAX_HISTORY_LIMIT);
 }
 
+async function getLoginTableAvailability() {
+    const result = await execute(
+        `SELECT
+            CASE WHEN OBJECT_ID('dbo.UserLoginSessions', 'U') IS NOT NULL THEN 1 ELSE 0 END AS HasSessions,
+            CASE WHEN OBJECT_ID('dbo.UserLoginAudit', 'U') IS NOT NULL THEN 1 ELSE 0 END AS HasAudit`
+    );
+
+    const row = (result.recordset || [])[0] || {};
+    return {
+        hasSessions: Number(row.HasSessions) === 1,
+        hasAudit: Number(row.HasAudit) === 1
+    };
+}
+
+function buildMissingTablesError(tables = {}) {
+    const missing = [];
+    if (!tables.hasSessions) missing.push('UserLoginSessions');
+    if (!tables.hasAudit) missing.push('UserLoginAudit');
+    return {
+        error: `Login session tables are not configured: ${missing.join(', ')}`,
+        details: 'Run database/login-audit-sessions.sql in the active SQL database.'
+    };
+}
+
 async function writeAuditEvent(payload = {}) {
     const username = normalizeUsername(payload.username || payload.usernameRaw);
     if (!username) return;
@@ -55,51 +79,55 @@ async function writeAuditEvent(payload = {}) {
     );
 }
 
-async function getSnapshot(params = {}) {
+async function getSnapshot(params = {}, tables = { hasSessions: true, hasAudit: true }) {
     const historyLimit = toHistoryLimit(params.historyLimit);
     const sessionId = toSafeString(params.sessionId, 120);
 
-    const onlineResult = await execute(
-        `SELECT
-            SessionId,
-            Username,
-            DisplayName,
-            UserRole,
-            LoginAt,
-            LastSeenAt,
-            ForcedLogoutAt,
-            ForcedBy
-        FROM UserLoginSessions
-        WHERE IsActive = 1
-          AND LastSeenAt >= DATEADD(MINUTE, -@onlineWindowMin, SYSUTCDATETIME())
-        ORDER BY LastSeenAt DESC`,
-        {
-            onlineWindowMin: ONLINE_WINDOW_MINUTES
-        }
-    );
+    const onlineResult = tables.hasSessions
+        ? await execute(
+            `SELECT
+                SessionId,
+                Username,
+                DisplayName,
+                UserRole,
+                LoginAt,
+                LastSeenAt,
+                ForcedLogoutAt,
+                ForcedBy
+            FROM UserLoginSessions
+            WHERE IsActive = 1
+              AND LastSeenAt >= DATEADD(MINUTE, -@onlineWindowMin, SYSUTCDATETIME())
+            ORDER BY LastSeenAt DESC`,
+            {
+                onlineWindowMin: ONLINE_WINDOW_MINUTES
+            }
+        )
+        : { recordset: [] };
 
-    const historyResult = await execute(
-        `SELECT TOP (@historyLimit)
-            SessionId,
-            Username,
-            DisplayName,
-            UserRole,
-            EventType,
-            EventSource,
-            EventAt,
-            ForcedBy,
-            Note
-        FROM UserLoginAudit
-        ORDER BY EventAt DESC`,
-        {
-            historyLimit
-        }
-    );
+    const historyResult = tables.hasAudit
+        ? await execute(
+            `SELECT TOP (@historyLimit)
+                SessionId,
+                Username,
+                DisplayName,
+                UserRole,
+                EventType,
+                EventSource,
+                EventAt,
+                ForcedBy,
+                Note
+            FROM UserLoginAudit
+            ORDER BY EventAt DESC`,
+            {
+                historyLimit
+            }
+        )
+        : { recordset: [] };
 
     let shouldForceLogout = false;
     let forcedBy = null;
 
-    if (sessionId) {
+    if (sessionId && tables.hasSessions) {
         const forceResult = await execute(
             `SELECT TOP 1 ForcedLogoutAt, ForcedBy, LogoutReason, IsActive
              FROM UserLoginSessions
@@ -119,7 +147,8 @@ async function getSnapshot(params = {}) {
         onlineUsers: onlineResult.recordset || [],
         history: historyResult.recordset || [],
         shouldForceLogout,
-        forcedBy
+        forcedBy,
+        apiDegraded: !(tables.hasSessions && tables.hasAudit)
     };
 }
 
@@ -452,8 +481,10 @@ module.exports = async function (context, req) {
             return;
         }
 
+        const tables = await getLoginTableAvailability();
+
         if (req.method === 'GET') {
-            const snapshot = await getSnapshot(req.query || {});
+            const snapshot = await getSnapshot(req.query || {}, tables);
             context.res = successResponse(snapshot, 200);
             return;
         }
@@ -472,6 +503,12 @@ module.exports = async function (context, req) {
         if (req.method === 'POST') {
             const body = req.body || {};
             const action = String(body.action || 'upsertSession').trim();
+
+            if (!tables.hasSessions || !tables.hasAudit) {
+                const missing = buildMissingTablesError(tables);
+                context.res = errorResponse(missing.error, 503, missing.details);
+                return;
+            }
 
             let result;
             if (action === 'upsertSession' || action === 'heartbeat') {
