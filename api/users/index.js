@@ -162,7 +162,7 @@ module.exports = async function (context, req) {
             if (id) {
                 const where = ['u.Id = @id'];
                 if (hasUserIsActive) {
-                    where.push('u.IsActive = 1');
+                    where.push('ISNULL(u.IsActive, 1) = 1');
                 }
 
                 const result = await pool.request()
@@ -193,7 +193,7 @@ module.exports = async function (context, req) {
                     };
                 }
             } else {
-                const whereClause = hasUserIsActive ? 'WHERE u.IsActive = 1' : '';
+                const whereClause = hasUserIsActive ? 'WHERE ISNULL(u.IsActive, 1) = 1' : '';
                 const orderBy = hasColumn(userColumns, 'FirstName') ? 'ORDER BY u.FirstName' : 'ORDER BY u.Id';
 
                 const result = await pool.request()
