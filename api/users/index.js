@@ -352,6 +352,8 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'POST') {
             const body = req.body;
+            const userColumns = await getTableColumns(pool, 'Users');
+            const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
             const permissionsValue = toJsonString(body.permissions || body.Permissions);
             const documentsValue = toJsonString(body.documents || body.Documents);
@@ -406,13 +408,13 @@ module.exports = async function (context, req) {
                     .input('isOnline', sql.Bit, toBooleanBit(body.isOnline || body.IsOnline))
                     .input('lastSeen', sql.DateTime2, body.lastSeen || body.LastSeen || null)
                     .input('roleId', sql.Int, toNullableNumber(body.roleId || body.RoleId))
-                    .query(`INSERT INTO Users (Username, PasswordHash, FirstName, MiddleName, LastName, Gender, DateOfBirth,
+                        .query(`INSERT INTO Users (Username, PasswordHash, FirstName, MiddleName, LastName, Gender, DateOfBirth,
                             PersonalEmail, WorkEmail, HomePhone, CellPhone, Address, City, State, ZipCode,
                             JobTitle, StaffType, EmployeeType, Department, EmployeeStatus, Role, HireDate,
                             HourlyRate, Salary, Color, ProfileImage, Permissions, SSN, Title,
                             EmergencyContactName, EmergencyContactRelationship, EmergencyContactPhone,
                             EmergencyContactEmail, NextReviewDate, OfficeLocation, DirectSupervisor,
-                            SeparationDate, SeparationReason, PhotoFileName, Documents, HRInfo,
+                            SeparationDate, SeparationReason, PhotoFileName, Documents${hasUsersHrInfoColumn ? ', HRInfo' : ''},
                             FailedLoginAttempts, IsOnline, LastSeen, RoleId)
                             OUTPUT INSERTED.Id
                             VALUES (@username, @passwordHash, @firstName, @middleName, @lastName, @gender, @dateOfBirth,
@@ -421,7 +423,7 @@ module.exports = async function (context, req) {
                             @hourlyRate, @salary, @color, @profileImage, @permissions, @ssn, @title,
                             @emergencyContactName, @emergencyContactRelationship, @emergencyContactPhone,
                             @emergencyContactEmail, @nextReviewDate, @officeLocation, @directSupervisor,
-                            @separationDate, @separationReason, @photoFileName, @documents, @hrInfo,
+                            @separationDate, @separationReason, @photoFileName, @documents${hasUsersHrInfoColumn ? ', @hrInfo' : ''},
                             @failedLoginAttempts, @isOnline, @lastSeen, @roleId)`);
 
                 const userId = result.recordset[0].Id;
@@ -446,6 +448,7 @@ module.exports = async function (context, req) {
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
             const userColumns = await getTableColumns(pool, 'Users');
+            const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
             const permissionsValue = toJsonString(body.permissions || body.Permissions);
             const documentsValue = toJsonString(body.documents || body.Documents);
@@ -518,7 +521,7 @@ module.exports = async function (context, req) {
                             NextReviewDate=@nextReviewDate, OfficeLocation=@officeLocation,
                             DirectSupervisor=@directSupervisor, SeparationDate=@separationDate,
                             SeparationReason=@separationReason, PhotoFileName=@photoFileName,
-                            Documents=@documents, HRInfo=@hrInfo, FailedLoginAttempts=@failedLoginAttempts,
+                            Documents=@documents${hasUsersHrInfoColumn ? ', HRInfo=@hrInfo' : ''}, FailedLoginAttempts=@failedLoginAttempts,
                             IsActive=COALESCE(@isActive, IsActive, 1), IsOnline=@isOnline, LastSeen=@lastSeen, RoleId=@roleId,
                             ModifiedDate=GETUTCDATE() WHERE Id=@id`);
 
