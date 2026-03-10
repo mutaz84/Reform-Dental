@@ -364,6 +364,7 @@ module.exports = async function (context, req) {
                     .input('documents', sql.NVarChar(sql.MAX), documentsValue)
                     .input('hrInfo', sql.NVarChar(sql.MAX), hrInfoValue)
                     .input('failedLoginAttempts', sql.Int, toNullableNumber(body.failedLoginAttempts || body.FailedLoginAttempts) ?? 0)
+                    .input('isActive', sql.Bit, body.isActive === undefined && body.IsActive === undefined ? null : toBooleanBit(body.isActive || body.IsActive))
                     .input('isOnline', sql.Bit, toBooleanBit(body.isOnline || body.IsOnline))
                     .input('lastSeen', sql.DateTime2, body.lastSeen || body.LastSeen || null)
                     .input('roleId', sql.Int, toNullableNumber(body.roleId || body.RoleId))
@@ -381,7 +382,7 @@ module.exports = async function (context, req) {
                             DirectSupervisor=@directSupervisor, SeparationDate=@separationDate,
                             SeparationReason=@separationReason, PhotoFileName=@photoFileName,
                             Documents=@documents, HRInfo=@hrInfo, FailedLoginAttempts=@failedLoginAttempts,
-                            IsOnline=@isOnline, LastSeen=@lastSeen, RoleId=@roleId,
+                            IsActive=COALESCE(@isActive, IsActive, 1), IsOnline=@isOnline, LastSeen=@lastSeen, RoleId=@roleId,
                             ModifiedDate=GETUTCDATE() WHERE Id=@id`);
 
                 const affectedRows = Array.isArray(updateResult.rowsAffected)
