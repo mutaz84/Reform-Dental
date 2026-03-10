@@ -144,7 +144,7 @@ module.exports = async function (context, req) {
                 'IsActive', 'IsOnline', 'LastSeen', 'RoleId', 'SSN', 'Title', 'EmergencyContactName',
                 'EmergencyContactRelationship', 'EmergencyContactPhone', 'EmergencyContactEmail', 'NextReviewDate',
                 'OfficeLocation', 'DirectSupervisor', 'SeparationDate', 'SeparationReason', 'PhotoFileName',
-                'Documents', 'FailedLoginAttempts'
+                'Documents', 'HRInfo', 'FailedLoginAttempts'
             ].filter((name) => hasColumn(userColumns, name));
 
             if (!preferredColumns.some((c) => c.toLowerCase() === 'id')) {
@@ -220,6 +220,7 @@ module.exports = async function (context, req) {
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
             const permissionsValue = toJsonString(body.permissions || body.Permissions);
             const documentsValue = toJsonString(body.documents || body.Documents);
+            const hrInfoValue = toJsonString(body.hrInfo || body.HRInfo);
 
             const transaction = new sql.Transaction(pool);
             await transaction.begin();
@@ -265,6 +266,7 @@ module.exports = async function (context, req) {
                     .input('separationReason', sql.NVarChar, toNullableString(body.separationReason || body.SeparationReason))
                     .input('photoFileName', sql.NVarChar, toNullableString(body.photoFileName || body.PhotoFileName))
                     .input('documents', sql.NVarChar(sql.MAX), documentsValue)
+                    .input('hrInfo', sql.NVarChar(sql.MAX), hrInfoValue)
                     .input('failedLoginAttempts', sql.Int, toNullableNumber(body.failedLoginAttempts || body.FailedLoginAttempts) ?? 0)
                     .input('isOnline', sql.Bit, toBooleanBit(body.isOnline || body.IsOnline))
                     .input('lastSeen', sql.DateTime2, body.lastSeen || body.LastSeen || null)
@@ -275,7 +277,7 @@ module.exports = async function (context, req) {
                             HourlyRate, Salary, Color, ProfileImage, Permissions, SSN, Title,
                             EmergencyContactName, EmergencyContactRelationship, EmergencyContactPhone,
                             EmergencyContactEmail, NextReviewDate, OfficeLocation, DirectSupervisor,
-                            SeparationDate, SeparationReason, PhotoFileName, Documents,
+                            SeparationDate, SeparationReason, PhotoFileName, Documents, HRInfo,
                             FailedLoginAttempts, IsOnline, LastSeen, RoleId)
                             OUTPUT INSERTED.Id
                             VALUES (@username, @passwordHash, @firstName, @middleName, @lastName, @gender, @dateOfBirth,
@@ -284,7 +286,7 @@ module.exports = async function (context, req) {
                             @hourlyRate, @salary, @color, @profileImage, @permissions, @ssn, @title,
                             @emergencyContactName, @emergencyContactRelationship, @emergencyContactPhone,
                             @emergencyContactEmail, @nextReviewDate, @officeLocation, @directSupervisor,
-                            @separationDate, @separationReason, @photoFileName, @documents,
+                            @separationDate, @separationReason, @photoFileName, @documents, @hrInfo,
                             @failedLoginAttempts, @isOnline, @lastSeen, @roleId)`);
 
                 const userId = result.recordset[0].Id;
@@ -309,6 +311,7 @@ module.exports = async function (context, req) {
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
             const permissionsValue = toJsonString(body.permissions || body.Permissions);
             const documentsValue = toJsonString(body.documents || body.Documents);
+            const hrInfoValue = toJsonString(body.hrInfo || body.HRInfo);
             const shouldUpdateClinics = Object.prototype.hasOwnProperty.call(body || {}, 'clinicIds') ||
                 Object.prototype.hasOwnProperty.call(body || {}, 'ClinicIds') ||
                 Object.prototype.hasOwnProperty.call(body || {}, 'clinicId') ||
@@ -358,6 +361,7 @@ module.exports = async function (context, req) {
                     .input('separationReason', sql.NVarChar, toNullableString(body.separationReason || body.SeparationReason))
                     .input('photoFileName', sql.NVarChar, toNullableString(body.photoFileName || body.PhotoFileName))
                     .input('documents', sql.NVarChar(sql.MAX), documentsValue)
+                    .input('hrInfo', sql.NVarChar(sql.MAX), hrInfoValue)
                     .input('failedLoginAttempts', sql.Int, toNullableNumber(body.failedLoginAttempts || body.FailedLoginAttempts) ?? 0)
                     .input('isOnline', sql.Bit, toBooleanBit(body.isOnline || body.IsOnline))
                     .input('lastSeen', sql.DateTime2, body.lastSeen || body.LastSeen || null)
@@ -375,7 +379,7 @@ module.exports = async function (context, req) {
                             NextReviewDate=@nextReviewDate, OfficeLocation=@officeLocation,
                             DirectSupervisor=@directSupervisor, SeparationDate=@separationDate,
                             SeparationReason=@separationReason, PhotoFileName=@photoFileName,
-                            Documents=@documents, FailedLoginAttempts=@failedLoginAttempts,
+                            Documents=@documents, HRInfo=@hrInfo, FailedLoginAttempts=@failedLoginAttempts,
                             IsOnline=@isOnline, LastSeen=@lastSeen, RoleId=@roleId,
                             ModifiedDate=GETUTCDATE() WHERE Id=@id`);
 
