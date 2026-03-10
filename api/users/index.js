@@ -76,6 +76,132 @@ function toJsonString(value) {
     }
 }
 
+function parseJsonSafe(value, fallback = null) {
+    if (value == null) return fallback;
+    if (typeof value === 'object') return value;
+    if (typeof value !== 'string') return fallback;
+    try {
+        return JSON.parse(value);
+    } catch (_) {
+        return fallback;
+    }
+}
+
+function toBitInt(value) {
+    return value === true || value === 1 || value === '1' || String(value || '').toLowerCase() === 'true' ? 1 : 0;
+}
+
+async function upsertNormalizedHrInfoAndBenefits(transaction, userId, hrInfoRaw) {
+    if (!hrInfoRaw) return;
+
+    const userHrInfoColumns = await getTableColumns(transaction, 'UserHRInfo');
+    const hasUserHrInfo = userHrInfoColumns.size > 0 && hasColumn(userHrInfoColumns, 'UserId');
+    if (!hasUserHrInfo) return;
+
+    const hrDataColumn = hasColumn(userHrInfoColumns, 'HRDataJson') ? 'HRDataJson' : (hasColumn(userHrInfoColumns, 'HRData') ? 'HRData' : null);
+    if (!hrDataColumn) return;
+
+    const hrInfoObj = typeof hrInfoRaw === 'string' ? (parseJsonSafe(hrInfoRaw, {}) || {}) : (hrInfoRaw || {});
+    const hrDataJson = toJsonString(hrInfoObj) || '{}';
+
+    await new sql.Request(transaction)
+        .input('userId', sql.Int, Number(userId))
+        .input('hrDataJson', sql.NVarChar(sql.MAX), hrDataJson)
+        .query(`
+            MERGE UserHRInfo AS target
+            USING (SELECT @userId AS UserId, @hrDataJson AS HRDataJson) AS source
+            ON target.UserId = source.UserId
+            WHEN MATCHED THEN
+                UPDATE SET ${hrDataColumn} = source.HRDataJson, LastUpdated = SYSUTCDATETIME(), UpdatedAt = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN
+                INSERT (UserId, ${hrDataColumn}, LastUpdated, CreatedAt, UpdatedAt)
+                VALUES (source.UserId, source.HRDataJson, SYSUTCDATETIME(), SYSUTCDATETIME(), SYSUTCDATETIME());
+        `);
+
+    const userHrBenefitsColumns = await getTableColumns(transaction, 'UserHRBenefits');
+    const hasUserHrBenefits = userHrBenefitsColumns.size > 0 && hasColumn(userHrBenefitsColumns, 'UserHRInfoId') && hasColumn(userHrBenefitsColumns, 'BenefitKey');
+    if (!hasUserHrBenefits) return;
+
+    const infoRow = await new sql.Request(transaction)
+        .input('userId', sql.Int, Number(userId))
+        .query('SELECT TOP 1 Id FROM UserHRInfo WHERE UserId = @userId');
+    const userHrInfoId = Number(infoRow.recordset?.[0]?.Id || 0);
+    if (!(userHrInfoId > 0)) return;
+
+    const rawBenefits = hrInfoObj && typeof hrInfoObj === 'object' ? hrInfoObj.benefits : null;
+    const benefits = rawBenefits && typeof rawBenefits === 'object' ? rawBenefits : {};
+
+    await new sql.Request(transaction)
+        .input('userHrInfoId', sql.Int, userHrInfoId)
+        .query('DELETE FROM UserHRBenefits WHERE UserHRInfoId = @userHrInfoId');
+
+    for (const [benefitKeyRaw, enabledRaw] of Object.entries(benefits)) {
+        const benefitKey = String(benefitKeyRaw || '').trim();
+        if (!benefitKey) continue;
+        const benefitName = benefitKey.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        await new sql.Request(transaction)
+            .input('userHrInfoId', sql.Int, userHrInfoId)
+            .input('benefitKey', sql.NVarChar(150), benefitKey)
+            .input('benefitName', sql.NVarChar(200), benefitName)
+            .input('isEnabled', sql.Bit, toBitInt(enabledRaw))
+            .query(`
+                INSERT INTO UserHRBenefits (UserHRInfoId, BenefitKey, BenefitName, IsEnabled, CreatedAt, UpdatedAt)
+                VALUES (@userHrInfoId, @benefitKey, @benefitName, @isEnabled, SYSUTCDATETIME(), SYSUTCDATETIME())
+            `);
+    }
+}
+
+async function hydrateBenefitsForUsers(pool, rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+
+    const userIds = Array.from(new Set(rows.map((r) => Number(r?.Id || 0)).filter((n) => Number.isInteger(n) && n > 0)));
+    if (!userIds.length) return rows;
+
+    const userHrBenefitsColumns = await getTableColumns(pool, 'UserHRBenefits');
+    const userHrInfoColumns = await getTableColumns(pool, 'UserHRInfo');
+    const canQueryBenefits =
+        userHrBenefitsColumns.size > 0 &&
+        userHrInfoColumns.size > 0 &&
+        hasColumn(userHrBenefitsColumns, 'UserHRInfoId') &&
+        hasColumn(userHrBenefitsColumns, 'BenefitKey') &&
+        hasColumn(userHrBenefitsColumns, 'IsEnabled') &&
+        hasColumn(userHrInfoColumns, 'Id') &&
+        hasColumn(userHrInfoColumns, 'UserId');
+
+    if (!canQueryBenefits) return rows;
+
+    const benefitsResult = await pool.request().query(`
+        SELECT uhr.UserId, b.BenefitKey, b.IsEnabled
+        FROM UserHRBenefits b
+        JOIN UserHRInfo uhr ON uhr.Id = b.UserHRInfoId
+        WHERE uhr.UserId IN (${userIds.join(',')})
+    `);
+
+    const map = new Map();
+    (benefitsResult.recordset || []).forEach((r) => {
+        const uid = Number(r?.UserId || 0);
+        const key = String(r?.BenefitKey || '').trim();
+        if (!(uid > 0) || !key) return;
+        if (!map.has(uid)) map.set(uid, {});
+        map.get(uid)[key] = !!r?.IsEnabled;
+    });
+
+    rows.forEach((row) => {
+        const uid = Number(row?.Id || 0);
+        const hrInfo = parseJsonSafe(row?.HRInfo, {}) || {};
+        const benefits = map.get(uid);
+        if (benefits) {
+            hrInfo.benefits = {
+                ...(hrInfo.benefits && typeof hrInfo.benefits === 'object' ? hrInfo.benefits : {}),
+                ...benefits
+            };
+        }
+        row.HRInfo = hrInfo;
+    });
+
+    return rows;
+}
+
 module.exports = async function (context, req) {
     // Handle CORS
     const headers = {
@@ -112,15 +238,6 @@ module.exports = async function (context, req) {
             return Array.from(new Set(ids));
         };
 
-        const parseJsonSafe = (s, fallback) => {
-            try {
-                if (typeof s !== 'string') return fallback;
-                return JSON.parse(s);
-            } catch (_) {
-                return fallback;
-            }
-        };
-
         if (req.method === 'GET') {
             const userColumns = await getTableColumns(pool, 'Users');
             if (userColumns.size === 0) {
@@ -135,6 +252,9 @@ module.exports = async function (context, req) {
             const hasUserClinics = userClinicColumns.size > 0 && hasColumn(userClinicColumns, 'UserId') && hasColumn(userClinicColumns, 'ClinicId');
             const hasClinicsForJoin = clinicColumns.size > 0 && hasColumn(clinicColumns, 'Id') && hasColumn(clinicColumns, 'Name');
             const hasClinicIsActive = hasColumn(clinicColumns, 'IsActive');
+            const userHrInfoColumns = await getTableColumns(pool, 'UserHRInfo');
+            const hasUserHrInfoJoin = userHrInfoColumns.size > 0 && hasColumn(userHrInfoColumns, 'UserId');
+            const hrDataColumn = hasColumn(userHrInfoColumns, 'HRDataJson') ? 'HRDataJson' : (hasColumn(userHrInfoColumns, 'HRData') ? 'HRData' : null);
 
             const preferredColumns = [
                 'Id', 'Username', 'PasswordHash', 'FirstName', 'MiddleName', 'LastName', 'Gender', 'DateOfBirth',
@@ -158,6 +278,12 @@ module.exports = async function (context, req) {
             const clinicsJson = (hasUserClinics && hasClinicsForJoin)
                 ? `, ISNULL((SELECT c.Id AS Id, c.Name AS Name FROM UserClinics uc JOIN Clinics c ON c.Id = uc.ClinicId WHERE uc.UserId = u.Id ${hasClinicIsActive ? 'AND c.IsActive = 1' : ''} FOR JSON PATH), '[]') AS ClinicsJson`
                 : `, '[]' AS ClinicsJson`;
+            const hrDataSelect = (hasUserHrInfoJoin && hrDataColumn)
+                ? `, uhr.${hrDataColumn} AS UserHRDataJson`
+                : '';
+            const hrJoin = (hasUserHrInfoJoin && hrDataColumn)
+                ? 'LEFT JOIN UserHRInfo uhr ON uhr.UserId = u.Id'
+                : '';
 
             if (id) {
                 const where = ['u.Id = @id'];
@@ -167,7 +293,7 @@ module.exports = async function (context, req) {
 
                 const result = await pool.request()
                     .input('id', sql.Int, id)
-                    .query(`SELECT ${baseSelect}${clinicIdsJson}${clinicsJson} FROM Users u WHERE ${where.join(' AND ')}`);
+                    .query(`SELECT ${baseSelect}${clinicIdsJson}${clinicsJson}${hrDataSelect} FROM Users u ${hrJoin} WHERE ${where.join(' AND ')}`);
 
                 if (result.recordset.length === 0) {
                     context.res = { status: 404, headers, body: { error: 'User not found' } };
@@ -181,12 +307,17 @@ module.exports = async function (context, req) {
 
                     delete row.ClinicIdsJson;
                     delete row.ClinicsJson;
+                    if (row.UserHRDataJson != null) row.HRInfo = row.UserHRDataJson;
+                    delete row.UserHRDataJson;
+
+                    const hydrated = await hydrateBenefitsForUsers(pool, [row]);
+                    const hydratedRow = hydrated[0] || row;
 
                     context.res = {
                         status: 200,
                         headers,
                         body: {
-                            ...row,
+                            ...hydratedRow,
                             ClinicIds: clinicIds,
                             Clinics: Array.isArray(clinics) ? clinics : []
                         }
@@ -197,7 +328,7 @@ module.exports = async function (context, req) {
                 const orderBy = hasColumn(userColumns, 'FirstName') ? 'ORDER BY u.FirstName' : 'ORDER BY u.Id';
 
                 const result = await pool.request()
-                    .query(`SELECT ${baseSelect}${clinicIdsJson}${clinicsJson} FROM Users u ${whereClause} ${orderBy}`);
+                    .query(`SELECT ${baseSelect}${clinicIdsJson}${clinicsJson}${hrDataSelect} FROM Users u ${hrJoin} ${whereClause} ${orderBy}`);
 
                 const users = (result.recordset || []).map((row) => {
                     const clinicIdObjs = parseJsonSafe(row.ClinicIdsJson, []);
@@ -205,7 +336,9 @@ module.exports = async function (context, req) {
                     const clinicIds = Array.isArray(clinicIdObjs)
                         ? clinicIdObjs.map((o) => o && o.Id).map((n) => Number.parseInt(String(n), 10)).filter((n) => Number.isInteger(n) && n > 0)
                         : [];
+                    if (row.UserHRDataJson != null) row.HRInfo = row.UserHRDataJson;
                     const { ClinicIdsJson, ClinicsJson, ...rest } = row;
+                    delete rest.UserHRDataJson;
                     return {
                         ...rest,
                         ClinicIds: clinicIds,
@@ -213,7 +346,9 @@ module.exports = async function (context, req) {
                     };
                 });
 
-                context.res = { status: 200, headers, body: users };
+                const hydratedUsers = await hydrateBenefitsForUsers(pool, users);
+
+                context.res = { status: 200, headers, body: hydratedUsers };
             }
         } else if (req.method === 'POST') {
             const body = req.body;
@@ -290,6 +425,8 @@ module.exports = async function (context, req) {
                             @failedLoginAttempts, @isOnline, @lastSeen, @roleId)`);
 
                 const userId = result.recordset[0].Id;
+
+                await upsertNormalizedHrInfoAndBenefits(transaction, userId, hrInfoValue);
 
                 if (clinicIds.length) {
                     for (const clinicId of clinicIds) {
@@ -408,6 +545,8 @@ module.exports = async function (context, req) {
                     }
                 }
 
+                await upsertNormalizedHrInfoAndBenefits(transaction, id, hrInfoValue);
+
                 await transaction.commit();
 
                 const selectColumns = ['Id'];
@@ -425,6 +564,24 @@ module.exports = async function (context, req) {
                     }
                 } catch (_) {
                     // Keep update successful even if refresh read fails.
+                }
+
+                try {
+                    const normalizedHrCols = await getTableColumns(pool, 'UserHRInfo');
+                    const normalizedHrCol = hasColumn(normalizedHrCols, 'HRDataJson') ? 'HRDataJson' : (hasColumn(normalizedHrCols, 'HRData') ? 'HRData' : null);
+                    if (normalizedHrCol) {
+                        const normalizedHr = await pool.request()
+                            .input('id', sql.Int, id)
+                            .query(`SELECT TOP 1 ${normalizedHrCol} AS HRInfo FROM UserHRInfo WHERE UserId = @id`);
+                        const normalizedHrValue = normalizedHr.recordset?.[0]?.HRInfo;
+                        if (normalizedHrValue != null) {
+                            updatedUser.HRInfo = normalizedHrValue;
+                        }
+                        const enriched = await hydrateBenefitsForUsers(pool, [updatedUser]);
+                        updatedUser = enriched[0] || updatedUser;
+                    }
+                } catch (_) {
+                    // Keep update successful even if normalized HR read fails.
                 }
 
                 context.res = { status: 200, headers, body: { message: 'User updated', user: updatedUser } };
