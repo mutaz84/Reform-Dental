@@ -22,9 +22,9 @@ app.http('getUsers', {
                        CreatedDate, ModifiedDate, SSN, Title, EmergencyContactName,
                        EmergencyContactRelationship, EmergencyContactPhone, EmergencyContactEmail,
                        NextReviewDate, OfficeLocation, DirectSupervisor, SeparationDate,
-                       SeparationReason, PhotoFileName, Documents, FailedLoginAttempts,
+                       SeparationReason, PhotoFileName, Documents, HRInfo, FailedLoginAttempts,
                        IsOnline, LastSeen, RoleId
-                FROM Users WHERE IsActive = 1
+                FROM Users WHERE ISNULL(IsActive, 1) = 1
                 ORDER BY FirstName, LastName
             `);
             return successResponse(result.recordset);
@@ -54,9 +54,9 @@ app.http('getUserById', {
                        CreatedDate, ModifiedDate, SSN, Title, EmergencyContactName,
                        EmergencyContactRelationship, EmergencyContactPhone, EmergencyContactEmail,
                        NextReviewDate, OfficeLocation, DirectSupervisor, SeparationDate,
-                       SeparationReason, PhotoFileName, Documents, FailedLoginAttempts,
+                       SeparationReason, PhotoFileName, Documents, HRInfo, FailedLoginAttempts,
                        IsOnline, LastSeen, RoleId
-                FROM Users WHERE Id = @id AND IsActive = 1
+                FROM Users WHERE Id = @id AND ISNULL(IsActive, 1) = 1
             `, { id });
             
             if (result.recordset.length === 0) {
@@ -89,6 +89,11 @@ app.http('createUser', {
             const documentsValue = body.documents == null
                 ? null
                 : (typeof body.documents === 'string' ? body.documents : JSON.stringify(body.documents));
+            const hrInfoValue = body.hrInfo == null && body.HRInfo == null
+                ? null
+                : (typeof (body.hrInfo ?? body.HRInfo) === 'string'
+                    ? (body.hrInfo ?? body.HRInfo)
+                    : JSON.stringify(body.hrInfo ?? body.HRInfo));
             
             const result = await execute(`
                 INSERT INTO Users (Username, PasswordHash, FirstName, MiddleName, LastName, Gender, DateOfBirth,
@@ -106,7 +111,7 @@ app.http('createUser', {
                     @hireDate, @hourlyRate, @salary, @color, @profileImage, @permissions,
                     @ssn, @title, @emergencyContactName, @emergencyContactRelationship,
                     @emergencyContactPhone, @emergencyContactEmail, @nextReviewDate, @officeLocation,
-                    @directSupervisor, @separationDate, @separationReason, @photoFileName, @documents,
+                        @directSupervisor, @separationDate, @separationReason, @photoFileName, @documents, @hrInfo,
                     @failedLoginAttempts, @isOnline, @lastSeen, @roleId)
             `, {
                 username: body.username,
@@ -149,6 +154,7 @@ app.http('createUser', {
                 separationReason: body.separationReason || body.SeparationReason || null,
                 photoFileName: body.photoFileName || body.PhotoFileName || null,
                 documents: documentsValue,
+                hrInfo: hrInfoValue,
                 failedLoginAttempts: body.failedLoginAttempts ?? body.FailedLoginAttempts ?? 0,
                 isOnline: body.isOnline === true || body.IsOnline === true,
                 lastSeen: body.lastSeen || body.LastSeen || null,
@@ -184,6 +190,11 @@ app.http('updateUser', {
             const documentsValue = body.documents == null
                 ? null
                 : (typeof body.documents === 'string' ? body.documents : JSON.stringify(body.documents));
+            const hrInfoValue = body.hrInfo == null && body.HRInfo == null
+                ? null
+                : (typeof (body.hrInfo ?? body.HRInfo) === 'string'
+                    ? (body.hrInfo ?? body.HRInfo)
+                    : JSON.stringify(body.hrInfo ?? body.HRInfo));
             
             await execute(`
                 UPDATE Users SET
@@ -202,7 +213,7 @@ app.http('updateUser', {
                     EmergencyContactEmail = @emergencyContactEmail, NextReviewDate = @nextReviewDate,
                     OfficeLocation = @officeLocation, DirectSupervisor = @directSupervisor,
                     SeparationDate = @separationDate, SeparationReason = @separationReason,
-                    PhotoFileName = @photoFileName, Documents = @documents,
+                    PhotoFileName = @photoFileName, Documents = @documents, HRInfo = @hrInfo,
                     FailedLoginAttempts = @failedLoginAttempts, IsOnline = @isOnline,
                     LastSeen = @lastSeen, RoleId = @roleId,
                     ModifiedDate = GETUTCDATE()
@@ -247,13 +258,19 @@ app.http('updateUser', {
                 separationReason: body.separationReason || body.SeparationReason || null,
                 photoFileName: body.photoFileName || body.PhotoFileName || null,
                 documents: documentsValue,
+                hrInfo: hrInfoValue,
                 failedLoginAttempts: body.failedLoginAttempts ?? body.FailedLoginAttempts ?? 0,
                 isOnline: body.isOnline === true || body.IsOnline === true,
                 lastSeen: body.lastSeen || body.LastSeen || null,
                 roleId: body.roleId || body.RoleId || null
             });
-            
-            return successResponse({ message: 'User updated successfully' });
+
+            const updated = await execute(`
+                SELECT Id, Username, HRInfo, ModifiedDate
+                FROM Users WHERE Id = @id
+            `, { id });
+
+            return successResponse({ message: 'User updated successfully', user: updated.recordset?.[0] || { Id: Number(id) } });
         } catch (err) {
             context.error('Error updating user:', err);
             return errorResponse('Failed to update user', 500);
