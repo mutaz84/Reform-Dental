@@ -447,6 +447,32 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
+
+            if (body && (body.hrInfoOnly === true || body.HRInfoOnly === true)) {
+                const transaction = new sql.Transaction(pool);
+                await transaction.begin();
+                try {
+                    await upsertNormalizedHrInfoAndBenefits(transaction, id, body.hrInfo ?? body.HRInfo ?? null);
+                    await transaction.commit();
+                    context.res = {
+                        status: 200,
+                        headers,
+                        body: {
+                            message: 'HR info updated',
+                            user: {
+                                Id: Number(id),
+                                HRInfo: body.hrInfo ?? body.HRInfo ?? null
+                            }
+                        }
+                    };
+                    await pool.close();
+                    return;
+                } catch (e) {
+                    await transaction.rollback();
+                    throw e;
+                }
+            }
+
             const userColumns = await getTableColumns(pool, 'Users');
             const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);

@@ -314,6 +314,21 @@ app.http('updateUser', {
         
         try {
             const body = await request.json();
+
+            if (body && (body.hrInfoOnly === true || body.HRInfoOnly === true)) {
+                await upsertUserHrInfoAndBenefits(Number(id), body);
+
+                const updatedHr = await execute(`
+                    SELECT u.Id, u.Username, uhr.HRDataJson AS HRInfo, u.ModifiedDate
+                    FROM Users u
+                    LEFT JOIN UserHRInfo uhr ON uhr.UserId = u.Id
+                    WHERE u.Id = @id
+                `, { id });
+
+                const hydratedHr = await attachBenefitsToUsers(updatedHr.recordset || []);
+                return successResponse({ message: 'HR info updated', user: hydratedHr[0] || { Id: Number(id) } });
+            }
+
             const permissionsValue = body.permissions == null
                 ? null
                 : (typeof body.permissions === 'string' ? body.permissions : JSON.stringify(body.permissions));
