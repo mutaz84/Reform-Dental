@@ -308,6 +308,7 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
+            const userColumns = await getTableColumns(pool, 'Users');
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
             const permissionsValue = toJsonString(body.permissions || body.Permissions);
             const documentsValue = toJsonString(body.documents || body.Documents);
@@ -407,7 +408,25 @@ module.exports = async function (context, req) {
                 }
 
                 await transaction.commit();
-                context.res = { status: 200, headers, body: { message: 'User updated' } };
+
+                const selectColumns = ['Id'];
+                if (hasColumn(userColumns, 'Username')) selectColumns.push('Username');
+                if (hasColumn(userColumns, 'HRInfo')) selectColumns.push('HRInfo');
+                if (hasColumn(userColumns, 'ModifiedDate')) selectColumns.push('ModifiedDate');
+
+                let updatedUser = { Id: Number(id) };
+                try {
+                    const refreshed = await pool.request()
+                        .input('id', sql.Int, id)
+                        .query(`SELECT ${selectColumns.join(', ')} FROM Users WHERE Id = @id`);
+                    if (refreshed.recordset && refreshed.recordset[0]) {
+                        updatedUser = refreshed.recordset[0];
+                    }
+                } catch (_) {
+                    // Keep update successful even if refresh read fails.
+                }
+
+                context.res = { status: 200, headers, body: { message: 'User updated', user: updatedUser } };
             } catch (e) {
                 await transaction.rollback();
                 throw e;
