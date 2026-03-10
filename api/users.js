@@ -22,9 +22,11 @@ app.http('getUsers', {
                        CreatedDate, ModifiedDate, SSN, Title, EmergencyContactName,
                        EmergencyContactRelationship, EmergencyContactPhone, EmergencyContactEmail,
                        NextReviewDate, OfficeLocation, DirectSupervisor, SeparationDate,
-                       SeparationReason, PhotoFileName, Documents, HRInfo, FailedLoginAttempts,
+                       SeparationReason, PhotoFileName, Documents, uhr.HRData AS HRInfo, FailedLoginAttempts,
                        IsOnline, LastSeen, RoleId
-                FROM Users WHERE ISNULL(IsActive, 1) = 1
+                FROM Users u
+                LEFT JOIN UserHRInfo uhr ON uhr.UserId = u.Id
+                WHERE ISNULL(u.IsActive, 1) = 1
                 ORDER BY FirstName, LastName
             `);
             return successResponse(result.recordset);
@@ -54,9 +56,11 @@ app.http('getUserById', {
                        CreatedDate, ModifiedDate, SSN, Title, EmergencyContactName,
                        EmergencyContactRelationship, EmergencyContactPhone, EmergencyContactEmail,
                        NextReviewDate, OfficeLocation, DirectSupervisor, SeparationDate,
-                       SeparationReason, PhotoFileName, Documents, HRInfo, FailedLoginAttempts,
+                       SeparationReason, PhotoFileName, Documents, uhr.HRData AS HRInfo, FailedLoginAttempts,
                        IsOnline, LastSeen, RoleId
-                FROM Users WHERE Id = @id AND ISNULL(IsActive, 1) = 1
+                FROM Users u
+                LEFT JOIN UserHRInfo uhr ON uhr.UserId = u.Id
+                WHERE u.Id = @id AND ISNULL(u.IsActive, 1) = 1
             `, { id });
             
             if (result.recordset.length === 0) {
@@ -111,7 +115,7 @@ app.http('createUser', {
                     @hireDate, @hourlyRate, @salary, @color, @profileImage, @permissions,
                     @ssn, @title, @emergencyContactName, @emergencyContactRelationship,
                     @emergencyContactPhone, @emergencyContactEmail, @nextReviewDate, @officeLocation,
-                        @directSupervisor, @separationDate, @separationReason, @photoFileName, @documents, @hrInfo,
+                        @directSupervisor, @separationDate, @separationReason, @photoFileName, @documents,
                     @failedLoginAttempts, @isOnline, @lastSeen, @roleId)
             `, {
                 username: body.username,
@@ -154,14 +158,30 @@ app.http('createUser', {
                 separationReason: body.separationReason || body.SeparationReason || null,
                 photoFileName: body.photoFileName || body.PhotoFileName || null,
                 documents: documentsValue,
-                hrInfo: hrInfoValue,
                 failedLoginAttempts: body.failedLoginAttempts ?? body.FailedLoginAttempts ?? 0,
                 isOnline: body.isOnline === true || body.IsOnline === true,
                 lastSeen: body.lastSeen || body.LastSeen || null,
                 roleId: body.roleId || body.RoleId || null
             });
+
+            const createdUserId = result.recordset[0].Id;
+            if (body.hrInfo !== undefined || body.HRInfo !== undefined) {
+                await execute(`
+                    MERGE UserHRInfo AS target
+                    USING (SELECT @userId AS UserId, @hrData AS HRData) AS source
+                    ON target.UserId = source.UserId
+                    WHEN MATCHED THEN
+                        UPDATE SET HRData = source.HRData, LastUpdated = SYSUTCDATETIME()
+                    WHEN NOT MATCHED THEN
+                        INSERT (UserId, HRData, LastUpdated)
+                        VALUES (source.UserId, source.HRData, SYSUTCDATETIME());
+                `, {
+                    userId: createdUserId,
+                    hrData: hrInfoValue
+                });
+            }
             
-            return successResponse({ id: result.recordset[0].Id }, 201);
+            return successResponse({ id: createdUserId }, 201);
         } catch (err) {
             context.error('Error creating user:', err);
             if (err.message.includes('UNIQUE')) {
@@ -213,7 +233,7 @@ app.http('updateUser', {
                     EmergencyContactEmail = @emergencyContactEmail, NextReviewDate = @nextReviewDate,
                     OfficeLocation = @officeLocation, DirectSupervisor = @directSupervisor,
                     SeparationDate = @separationDate, SeparationReason = @separationReason,
-                    PhotoFileName = @photoFileName, Documents = @documents, HRInfo = @hrInfo,
+                    PhotoFileName = @photoFileName, Documents = @documents,
                     FailedLoginAttempts = @failedLoginAttempts, IsOnline = @isOnline,
                     LastSeen = @lastSeen, RoleId = @roleId,
                     ModifiedDate = GETUTCDATE()
@@ -258,16 +278,33 @@ app.http('updateUser', {
                 separationReason: body.separationReason || body.SeparationReason || null,
                 photoFileName: body.photoFileName || body.PhotoFileName || null,
                 documents: documentsValue,
-                hrInfo: hrInfoValue,
                 failedLoginAttempts: body.failedLoginAttempts ?? body.FailedLoginAttempts ?? 0,
                 isOnline: body.isOnline === true || body.IsOnline === true,
                 lastSeen: body.lastSeen || body.LastSeen || null,
                 roleId: body.roleId || body.RoleId || null
             });
 
+            if (body.hrInfo !== undefined || body.HRInfo !== undefined) {
+                await execute(`
+                    MERGE UserHRInfo AS target
+                    USING (SELECT @userId AS UserId, @hrData AS HRData) AS source
+                    ON target.UserId = source.UserId
+                    WHEN MATCHED THEN
+                        UPDATE SET HRData = source.HRData, LastUpdated = SYSUTCDATETIME()
+                    WHEN NOT MATCHED THEN
+                        INSERT (UserId, HRData, LastUpdated)
+                        VALUES (source.UserId, source.HRData, SYSUTCDATETIME());
+                `, {
+                    userId: Number(id),
+                    hrData: hrInfoValue
+                });
+            }
+
             const updated = await execute(`
-                SELECT Id, Username, HRInfo, ModifiedDate
-                FROM Users WHERE Id = @id
+                SELECT u.Id, u.Username, uhr.HRData AS HRInfo, u.ModifiedDate
+                FROM Users u
+                LEFT JOIN UserHRInfo uhr ON uhr.UserId = u.Id
+                WHERE u.Id = @id
             `, { id });
 
             return successResponse({ message: 'User updated successfully', user: updated.recordset?.[0] || { Id: Number(id) } });
