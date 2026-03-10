@@ -315,7 +315,11 @@ app.http('updateUser', {
         try {
             const body = await request.json();
 
-            if (body && (body.hrInfoOnly === true || body.HRInfoOnly === true)) {
+            if (body && (
+                body.hrInfoOnly === true || body.HRInfoOnly === true ||
+                String(body.hrInfoOnly || '').toLowerCase() === 'true' ||
+                String(body.HRInfoOnly || '').toLowerCase() === 'true'
+            )) {
                 await upsertUserHrInfoAndBenefits(Number(id), body);
 
                 const updatedHr = await execute(`
@@ -344,7 +348,7 @@ app.http('updateUser', {
                     HomePhone = @homePhone, CellPhone = @cellPhone,
                     Address = @address, City = @city, State = @state, ZipCode = @zipCode,
                     JobTitle = @jobTitle, StaffType = @staffType, EmployeeType = @employeeType,
-                    Department = @department, EmployeeStatus = @employeeStatus, Role = @role,
+                    Department = @department, EmployeeStatus = @employeeStatus, Role = COALESCE(@role, Role),
                     HireDate = @hireDate, HourlyRate = @hourlyRate, Salary = @salary,
                     Color = @color, ProfileImage = @profileImage, Permissions = @permissions,
                     SSN = @ssn, Title = @title, EmergencyContactName = @emergencyContactName,
