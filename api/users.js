@@ -5,6 +5,133 @@ const { successResponse, errorResponse, handleOptions } = require('./shared/resp
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
+function safeParseJsonObject(value) {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    if (typeof value !== 'string') return null;
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function toBit(value) {
+    if (value === true || value === 1) return 1;
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' ? 1 : 0;
+}
+
+function getHrInfoObjectFromBody(body) {
+    if (!body) return {};
+    const candidate = body.hrInfo ?? body.HRInfo;
+    if (candidate == null) return {};
+    if (typeof candidate === 'object') return candidate;
+    if (typeof candidate === 'string') return safeParseJsonObject(candidate) || {};
+    return {};
+}
+
+function getBenefitsFromHrInfo(hrInfoObj) {
+    const result = {};
+    const raw = hrInfoObj && typeof hrInfoObj === 'object' ? hrInfoObj.benefits : null;
+    if (!raw || typeof raw !== 'object') return result;
+    Object.entries(raw).forEach(([key, value]) => {
+        const normalizedKey = String(key || '').trim();
+        if (!normalizedKey) return;
+        result[normalizedKey] = toBit(value);
+    });
+    return result;
+}
+
+function humanizeBenefitKey(key) {
+    return String(key || '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+        .trim();
+}
+
+async function attachBenefitsToUsers(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+
+    const userIds = rows
+        .map((r) => Number(r?.Id || 0))
+        .filter((id) => Number.isInteger(id) && id > 0);
+    if (!userIds.length) return rows;
+
+    const inList = Array.from(new Set(userIds)).join(',');
+    const benefitsResult = await execute(`
+        SELECT uhr.UserId, b.BenefitKey, b.IsEnabled
+        FROM UserHRBenefits b
+        JOIN UserHRInfo uhr ON uhr.Id = b.UserHRInfoId
+        WHERE uhr.UserId IN (${inList})
+    `);
+
+    const benefitsByUserId = new Map();
+    (benefitsResult.recordset || []).forEach((row) => {
+        const userId = Number(row?.UserId || 0);
+        const key = String(row?.BenefitKey || '').trim();
+        if (!(userId > 0) || !key) return;
+        if (!benefitsByUserId.has(userId)) benefitsByUserId.set(userId, {});
+        benefitsByUserId.get(userId)[key] = !!row?.IsEnabled;
+    });
+
+    rows.forEach((row) => {
+        const userId = Number(row?.Id || 0);
+        const hrInfo = safeParseJsonObject(row?.HRInfo) || {};
+        const tableBenefits = benefitsByUserId.get(userId) || null;
+        if (tableBenefits) {
+            hrInfo.benefits = {
+                ...(hrInfo.benefits && typeof hrInfo.benefits === 'object' ? hrInfo.benefits : {}),
+                ...tableBenefits
+            };
+        }
+        row.HRInfo = hrInfo;
+    });
+
+    return rows;
+}
+
+async function upsertUserHrInfoAndBenefits(userId, body) {
+    if (!body || (body.hrInfo === undefined && body.HRInfo === undefined)) return;
+
+    const hrInfoObj = getHrInfoObjectFromBody(body);
+    const hrData = JSON.stringify(hrInfoObj || {});
+
+    await execute(`
+        MERGE UserHRInfo AS target
+        USING (SELECT @userId AS UserId, @hrData AS HRData) AS source
+        ON target.UserId = source.UserId
+        WHEN MATCHED THEN
+            UPDATE SET HRData = source.HRData, LastUpdated = SYSUTCDATETIME(), UpdatedAt = SYSUTCDATETIME()
+        WHEN NOT MATCHED THEN
+            INSERT (UserId, HRData, LastUpdated, CreatedAt, UpdatedAt)
+            VALUES (source.UserId, source.HRData, SYSUTCDATETIME(), SYSUTCDATETIME(), SYSUTCDATETIME());
+    `, {
+        userId: Number(userId),
+        hrData
+    });
+
+    const hrInfoIdResult = await execute('SELECT TOP 1 Id FROM UserHRInfo WHERE UserId = @userId', { userId: Number(userId) });
+    const userHrInfoId = Number(hrInfoIdResult.recordset?.[0]?.Id || 0);
+    if (!(userHrInfoId > 0)) return;
+
+    await execute('DELETE FROM UserHRBenefits WHERE UserHRInfoId = @userHrInfoId', { userHrInfoId });
+
+    const benefits = getBenefitsFromHrInfo(hrInfoObj);
+    for (const [benefitKey, bitValue] of Object.entries(benefits)) {
+        await execute(`
+            INSERT INTO UserHRBenefits (UserHRInfoId, BenefitKey, BenefitName, IsEnabled, UpdatedAt, CreatedAt)
+            VALUES (@userHrInfoId, @benefitKey, @benefitName, @isEnabled, SYSUTCDATETIME(), SYSUTCDATETIME())
+        `, {
+            userHrInfoId,
+            benefitKey,
+            benefitName: humanizeBenefitKey(benefitKey),
+            isEnabled: bitValue
+        });
+    }
+}
+
 // GET all users
 app.http('getUsers', {
     methods: ['GET', 'OPTIONS'],
@@ -29,7 +156,8 @@ app.http('getUsers', {
                 WHERE ISNULL(u.IsActive, 1) = 1
                 ORDER BY FirstName, LastName
             `);
-            return successResponse(result.recordset);
+            const users = await attachBenefitsToUsers(result.recordset || []);
+            return successResponse(users);
         } catch (err) {
             context.error('Error fetching users:', err);
             return errorResponse('Failed to fetch users', 500);
@@ -66,7 +194,8 @@ app.http('getUserById', {
             if (result.recordset.length === 0) {
                 return errorResponse('User not found', 404);
             }
-            return successResponse(result.recordset[0]);
+            const users = await attachBenefitsToUsers([result.recordset[0]]);
+            return successResponse(users[0]);
         } catch (err) {
             context.error('Error fetching user:', err);
             return errorResponse('Failed to fetch user', 500);
@@ -93,11 +222,6 @@ app.http('createUser', {
             const documentsValue = body.documents == null
                 ? null
                 : (typeof body.documents === 'string' ? body.documents : JSON.stringify(body.documents));
-            const hrInfoValue = body.hrInfo == null && body.HRInfo == null
-                ? null
-                : (typeof (body.hrInfo ?? body.HRInfo) === 'string'
-                    ? (body.hrInfo ?? body.HRInfo)
-                    : JSON.stringify(body.hrInfo ?? body.HRInfo));
             
             const result = await execute(`
                 INSERT INTO Users (Username, PasswordHash, FirstName, MiddleName, LastName, Gender, DateOfBirth,
@@ -165,21 +289,7 @@ app.http('createUser', {
             });
 
             const createdUserId = result.recordset[0].Id;
-            if (body.hrInfo !== undefined || body.HRInfo !== undefined) {
-                await execute(`
-                    MERGE UserHRInfo AS target
-                    USING (SELECT @userId AS UserId, @hrData AS HRData) AS source
-                    ON target.UserId = source.UserId
-                    WHEN MATCHED THEN
-                        UPDATE SET HRData = source.HRData, LastUpdated = SYSUTCDATETIME()
-                    WHEN NOT MATCHED THEN
-                        INSERT (UserId, HRData, LastUpdated)
-                        VALUES (source.UserId, source.HRData, SYSUTCDATETIME());
-                `, {
-                    userId: createdUserId,
-                    hrData: hrInfoValue
-                });
-            }
+            await upsertUserHrInfoAndBenefits(createdUserId, body);
             
             return successResponse({ id: createdUserId }, 201);
         } catch (err) {
@@ -210,11 +320,6 @@ app.http('updateUser', {
             const documentsValue = body.documents == null
                 ? null
                 : (typeof body.documents === 'string' ? body.documents : JSON.stringify(body.documents));
-            const hrInfoValue = body.hrInfo == null && body.HRInfo == null
-                ? null
-                : (typeof (body.hrInfo ?? body.HRInfo) === 'string'
-                    ? (body.hrInfo ?? body.HRInfo)
-                    : JSON.stringify(body.hrInfo ?? body.HRInfo));
             
             await execute(`
                 UPDATE Users SET
@@ -284,21 +389,7 @@ app.http('updateUser', {
                 roleId: body.roleId || body.RoleId || null
             });
 
-            if (body.hrInfo !== undefined || body.HRInfo !== undefined) {
-                await execute(`
-                    MERGE UserHRInfo AS target
-                    USING (SELECT @userId AS UserId, @hrData AS HRData) AS source
-                    ON target.UserId = source.UserId
-                    WHEN MATCHED THEN
-                        UPDATE SET HRData = source.HRData, LastUpdated = SYSUTCDATETIME()
-                    WHEN NOT MATCHED THEN
-                        INSERT (UserId, HRData, LastUpdated)
-                        VALUES (source.UserId, source.HRData, SYSUTCDATETIME());
-                `, {
-                    userId: Number(id),
-                    hrData: hrInfoValue
-                });
-            }
+            await upsertUserHrInfoAndBenefits(Number(id), body);
 
             const updated = await execute(`
                 SELECT u.Id, u.Username, uhr.HRData AS HRInfo, u.ModifiedDate
@@ -307,7 +398,8 @@ app.http('updateUser', {
                 WHERE u.Id = @id
             `, { id });
 
-            return successResponse({ message: 'User updated successfully', user: updated.recordset?.[0] || { Id: Number(id) } });
+            const hydrated = await attachBenefitsToUsers(updated.recordset || []);
+            return successResponse({ message: 'User updated successfully', user: hydrated[0] || { Id: Number(id) } });
         } catch (err) {
             context.error('Error updating user:', err);
             return errorResponse('Failed to update user', 500);
