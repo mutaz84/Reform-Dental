@@ -351,7 +351,7 @@ module.exports = async function (context, req) {
                 context.res = { status: 200, headers, body: hydratedUsers };
             }
         } else if (req.method === 'POST') {
-            const body = (typeof req.body === 'string') ? (parseJsonSafe(req.body, {}) || {}) : (req.body || {});
+            const body = req.body;
             const userColumns = await getTableColumns(pool, 'Users');
             const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
@@ -446,7 +446,7 @@ module.exports = async function (context, req) {
                 throw e;
             }
         } else if (req.method === 'PUT' && id) {
-            const body = (typeof req.body === 'string') ? (parseJsonSafe(req.body, {}) || {}) : (req.body || {});
+            const body = req.body;
 
             if (body && (
                 body.hrInfoOnly === true || body.HRInfoOnly === true ||
