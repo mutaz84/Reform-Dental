@@ -100,13 +100,13 @@ async function upsertUserHrInfoAndBenefits(userId, body) {
 
     await execute(`
         MERGE UserHRInfo AS target
-        USING (SELECT @userId AS UserId, @hrData AS HRData) AS source
+        USING (SELECT @userId AS UserId, @hrData AS HRDataJson) AS source
         ON target.UserId = source.UserId
         WHEN MATCHED THEN
-            UPDATE SET HRData = source.HRData, LastUpdated = SYSUTCDATETIME(), UpdatedAt = SYSUTCDATETIME()
+            UPDATE SET HRDataJson = source.HRDataJson, LastUpdated = SYSUTCDATETIME(), UpdatedAt = SYSUTCDATETIME()
         WHEN NOT MATCHED THEN
-            INSERT (UserId, HRData, LastUpdated, CreatedAt, UpdatedAt)
-            VALUES (source.UserId, source.HRData, SYSUTCDATETIME(), SYSUTCDATETIME(), SYSUTCDATETIME());
+            INSERT (UserId, HRDataJson, LastUpdated, CreatedAt, UpdatedAt)
+            VALUES (source.UserId, source.HRDataJson, SYSUTCDATETIME(), SYSUTCDATETIME(), SYSUTCDATETIME());
     `, {
         userId: Number(userId),
         hrData
@@ -149,7 +149,7 @@ app.http('getUsers', {
                        CreatedDate, ModifiedDate, SSN, Title, EmergencyContactName,
                        EmergencyContactRelationship, EmergencyContactPhone, EmergencyContactEmail,
                        NextReviewDate, OfficeLocation, DirectSupervisor, SeparationDate,
-                       SeparationReason, PhotoFileName, Documents, uhr.HRData AS HRInfo, FailedLoginAttempts,
+                      SeparationReason, PhotoFileName, Documents, uhr.HRDataJson AS HRInfo, FailedLoginAttempts,
                        IsOnline, LastSeen, RoleId
                 FROM Users u
                 LEFT JOIN UserHRInfo uhr ON uhr.UserId = u.Id
@@ -184,7 +184,7 @@ app.http('getUserById', {
                        CreatedDate, ModifiedDate, SSN, Title, EmergencyContactName,
                        EmergencyContactRelationship, EmergencyContactPhone, EmergencyContactEmail,
                        NextReviewDate, OfficeLocation, DirectSupervisor, SeparationDate,
-                       SeparationReason, PhotoFileName, Documents, uhr.HRData AS HRInfo, FailedLoginAttempts,
+                      SeparationReason, PhotoFileName, Documents, uhr.HRDataJson AS HRInfo, FailedLoginAttempts,
                        IsOnline, LastSeen, RoleId
                 FROM Users u
                 LEFT JOIN UserHRInfo uhr ON uhr.UserId = u.Id
@@ -392,7 +392,7 @@ app.http('updateUser', {
             await upsertUserHrInfoAndBenefits(Number(id), body);
 
             const updated = await execute(`
-                SELECT u.Id, u.Username, uhr.HRData AS HRInfo, u.ModifiedDate
+                SELECT u.Id, u.Username, uhr.HRDataJson AS HRInfo, u.ModifiedDate
                 FROM Users u
                 LEFT JOIN UserHRInfo uhr ON uhr.UserId = u.Id
                 WHERE u.Id = @id
