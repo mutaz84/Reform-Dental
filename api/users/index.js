@@ -491,6 +491,64 @@ module.exports = async function (context, req) {
                 }
             }
 
+            if (body && (
+                body.deactivateOnly === true || body.DeactivateOnly === true ||
+                String(body.deactivateOnly || '').toLowerCase() === 'true' ||
+                String(body.DeactivateOnly || '').toLowerCase() === 'true'
+            )) {
+                const userColumns = await getTableColumns(pool, 'Users');
+                const setParts = [];
+
+                if (hasColumn(userColumns, 'IsActive')) {
+                    const hasIsActiveValue = !(body.isActive === undefined && body.IsActive === undefined);
+                    if (hasIsActiveValue) {
+                        setParts.push('IsActive = @isActive');
+                    }
+                }
+
+                if (hasColumn(userColumns, 'IsOnline')) {
+                    const hasIsOnlineValue = !(body.isOnline === undefined && body.IsOnline === undefined);
+                    if (hasIsOnlineValue) {
+                        setParts.push('IsOnline = @isOnline');
+                    }
+                }
+
+                if (hasColumn(userColumns, 'ModifiedDate')) {
+                    setParts.push('ModifiedDate = GETUTCDATE()');
+                }
+
+                if (setParts.length === 0) {
+                    context.res = {
+                        status: 400,
+                        headers,
+                        body: { error: 'No supported deactivation fields found on Users table.' }
+                    };
+                    await pool.close();
+                    return;
+                }
+
+                const request = pool.request().input('id', sql.Int, id);
+                if (setParts.some((part) => part.includes('@isActive'))) {
+                    request.input('isActive', sql.Bit, toBooleanBit(body.isActive ?? body.IsActive));
+                }
+                if (setParts.some((part) => part.includes('@isOnline'))) {
+                    request.input('isOnline', sql.Bit, toBooleanBit(body.isOnline ?? body.IsOnline));
+                }
+
+                const deactivateResult = await request.query(`UPDATE Users SET ${setParts.join(', ')} WHERE Id = @id`);
+                const affectedRows = Array.isArray(deactivateResult.rowsAffected)
+                    ? deactivateResult.rowsAffected.reduce((sum, n) => sum + Number(n || 0), 0)
+                    : 0;
+
+                if (affectedRows === 0) {
+                    context.res = { status: 404, headers, body: { error: 'User not found or not updated' } };
+                } else {
+                    context.res = { status: 200, headers, body: { message: 'User deactivated', user: { Id: Number(id) } } };
+                }
+                await pool.close();
+                return;
+            }
+
             const userColumns = await getTableColumns(pool, 'Users');
             const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
