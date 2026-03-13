@@ -404,6 +404,7 @@ module.exports = async function (context, req) {
             const normalized = String(raw).trim().toLowerCase();
             return normalized === '1' || normalized === 'true' || normalized === 'yes';
         })();
+        const hrProbeUserId = Number(req?.query?.hrProbeUserId ?? req?.query?.HrProbeUserId ?? 0);
 
         const parseClinicIds = (value) => {
             if (!value) return [];
@@ -440,6 +441,49 @@ module.exports = async function (context, req) {
                 const usersCountResult = await pool.request().query("SELECT COUNT(1) AS Cnt FROM dbo.Users");
                 const usersRows = Number(usersCountResult.recordset?.[0]?.Cnt || 0);
 
+                let hrProbe = null;
+                if (Number.isInteger(hrProbeUserId) && hrProbeUserId > 0) {
+                    const probePayload = {
+                        employmentType: 'Probe',
+                        activeStatus: 'Active',
+                        payType: 'Salary',
+                        salary: '1',
+                        hourlyRate: '',
+                        expectedHours: '',
+                        benefitStartDate: '',
+                        benefitEndDate: '',
+                        notes: 'diagnostic-probe',
+                        benefits: {},
+                        lastUpdated: new Date().toISOString()
+                    };
+
+                    const probeTx = new sql.Transaction(pool);
+                    await probeTx.begin();
+                    try {
+                        await upsertNormalizedHrInfoAndBenefits(probeTx, hrProbeUserId, probePayload);
+                        const probeCountResult = await new sql.Request(probeTx)
+                            .input('userId', sql.Int, hrProbeUserId)
+                            .query('SELECT COUNT(1) AS Cnt FROM dbo.UserHRInfo WHERE UserId = @userId');
+                        const probeCount = Number(probeCountResult.recordset?.[0]?.Cnt || 0);
+
+                        hrProbe = {
+                            userId: hrProbeUserId,
+                            ok: probeCount > 0,
+                            rowsForUserInTx: probeCount,
+                            rolledBack: true
+                        };
+                        await probeTx.rollback();
+                    } catch (probeError) {
+                        await probeTx.rollback();
+                        hrProbe = {
+                            userId: hrProbeUserId,
+                            ok: false,
+                            error: String(probeError?.message || probeError || 'Unknown HR probe error'),
+                            rolledBack: true
+                        };
+                    }
+                }
+
                 context.res = {
                     status: 200,
                     headers,
@@ -458,6 +502,7 @@ module.exports = async function (context, req) {
                             users: { exists: true, rows: usersRows },
                             userHrInfo: { exists: userHrInfoObjId > 0, rows: userHrInfoRows }
                         },
+                        hrProbe,
                         apiTimeUtc: new Date().toISOString()
                     }
                 };
