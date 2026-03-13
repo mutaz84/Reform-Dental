@@ -191,72 +191,77 @@ async function upsertNormalizedHrInfoAndBenefits(transaction, userId, hrInfoRaw)
     const hrInfoObj = typeof hrInfoRaw === 'string' ? (parseJsonSafe(hrInfoRaw, {}) || {}) : (hrInfoRaw || {});
     const hrDataJson = toJsonString(hrInfoObj) || '{}';
 
-    await new sql.Request(transaction)
-        .input('userId', sql.Int, Number(userId))
-        .input('hrDataJson', sql.NVarChar(sql.MAX), hrDataJson)
-        .query(`
-            IF OBJECT_ID('dbo.UserHRInfo', 'U') IS NOT NULL
+    const targetUserId = Number(userId);
+    const candidateHrColumns = ['HRDataJson', 'HRData', 'HRInfo'];
+    const queryTemplates = [
+        (col) => `
+            IF OBJECT_ID('dbo.UserHRInfo', 'U') IS NULL
             BEGIN
-                DECLARE @hrCol SYSNAME = CASE
-                    WHEN COL_LENGTH('dbo.UserHRInfo', 'HRDataJson') IS NOT NULL THEN 'HRDataJson'
-                    WHEN COL_LENGTH('dbo.UserHRInfo', 'HRData') IS NOT NULL THEN 'HRData'
-                    WHEN COL_LENGTH('dbo.UserHRInfo', 'HRInfo') IS NOT NULL THEN 'HRInfo'
-                    ELSE NULL
-                END;
+                RAISERROR('UserHRInfo table not found.', 16, 1);
+            END;
 
-                IF @hrCol IS NOT NULL
-                BEGIN
-                    DECLARE @setClause NVARCHAR(MAX) = QUOTENAME(@hrCol) + N' = @pHr';
-                    DECLARE @insertCols NVARCHAR(MAX) = N'UserId, ' + QUOTENAME(@hrCol);
-                    DECLARE @insertVals NVARCHAR(MAX) = N'@pUserId, @pHr';
+            UPDATE dbo.UserHRInfo
+            SET [${col}] = @hrDataJson
+            WHERE UserId = @userId;
 
-                    IF COL_LENGTH('dbo.UserHRInfo', 'LastUpdated') IS NOT NULL
-                    BEGIN
-                        SET @setClause = @setClause + N', LastUpdated = SYSUTCDATETIME()';
-                        SET @insertCols = @insertCols + N', LastUpdated';
-                        SET @insertVals = @insertVals + N', SYSUTCDATETIME()';
-                    END;
-                    IF COL_LENGTH('dbo.UserHRInfo', 'UpdatedAt') IS NOT NULL
-                    BEGIN
-                        SET @setClause = @setClause + N', UpdatedAt = SYSUTCDATETIME()';
-                        SET @insertCols = @insertCols + N', UpdatedAt';
-                        SET @insertVals = @insertVals + N', SYSUTCDATETIME()';
-                    END;
-                    IF COL_LENGTH('dbo.UserHRInfo', 'CreatedAt') IS NOT NULL
-                    BEGIN
-                        SET @insertCols = @insertCols + N', CreatedAt';
-                        SET @insertVals = @insertVals + N', SYSUTCDATETIME()';
-                    END;
+            IF @@ROWCOUNT = 0
+            BEGIN
+                INSERT INTO dbo.UserHRInfo (UserId, [${col}])
+                VALUES (@userId, @hrDataJson);
+            END;
+        `,
+        (col) => `
+            IF OBJECT_ID('dbo.UserHRInfo', 'U') IS NULL
+            BEGIN
+                RAISERROR('UserHRInfo table not found.', 16, 1);
+            END;
 
-                    DECLARE @sql NVARCHAR(MAX) = N'
-                        UPDATE dbo.UserHRInfo
-                        SET ' + @setClause + N'
-                        WHERE UserId = @pUserId;
+            UPDATE dbo.UserHRInfo
+            SET [${col}] = @hrDataJson,
+                LastUpdated = SYSUTCDATETIME(),
+                UpdatedAt = SYSUTCDATETIME()
+            WHERE UserId = @userId;
 
-                        IF @@ROWCOUNT = 0
-                        BEGIN
-                            INSERT INTO dbo.UserHRInfo (' + @insertCols + N')
-                            VALUES (' + @insertVals + N');
-                        END;';
+            IF @@ROWCOUNT = 0
+            BEGIN
+                INSERT INTO dbo.UserHRInfo (UserId, [${col}], LastUpdated, CreatedAt, UpdatedAt)
+                VALUES (@userId, @hrDataJson, SYSUTCDATETIME(), SYSUTCDATETIME(), SYSUTCDATETIME());
+            END;
+        `
+    ];
 
-                    EXEC sp_executesql
-                        @sql,
-                        N'@pUserId INT, @pHr NVARCHAR(MAX)',
-                        @pUserId = @userId,
-                        @pHr = @hrDataJson;
-                END;
-            END
-        `);
+    let persistedToUserHrInfo = false;
+    let lastPersistError = null;
 
-    const userHrInfoColumns = await getTableColumns(transaction, 'UserHRInfo');
-    const hasUserHrInfo = userHrInfoColumns.size > 0 && hasColumn(userHrInfoColumns, 'UserId');
-    if (!hasUserHrInfo) return;
+    for (const columnName of candidateHrColumns) {
+        for (const buildQuery of queryTemplates) {
+            try {
+                await new sql.Request(transaction)
+                    .input('userId', sql.Int, targetUserId)
+                    .input('hrDataJson', sql.NVarChar(sql.MAX), hrDataJson)
+                    .query(buildQuery(columnName));
 
-    const verifyRow = await new sql.Request(transaction)
-        .input('userId', sql.Int, Number(userId))
-        .query('SELECT TOP 1 Id FROM UserHRInfo WHERE UserId = @userId');
-    if (!verifyRow.recordset || !verifyRow.recordset[0]) {
-        throw new Error('UserHRInfo upsert verification failed: row was not created.');
+                const verifyRow = await new sql.Request(transaction)
+                    .input('userId', sql.Int, targetUserId)
+                    .query('SELECT TOP 1 Id FROM dbo.UserHRInfo WHERE UserId = @userId');
+
+                if (verifyRow.recordset && verifyRow.recordset[0]) {
+                    persistedToUserHrInfo = true;
+                    break;
+                }
+            } catch (persistError) {
+                lastPersistError = persistError;
+            }
+        }
+
+        if (persistedToUserHrInfo) {
+            break;
+        }
+    }
+
+    if (!persistedToUserHrInfo) {
+        const details = String(lastPersistError?.message || lastPersistError || '').trim();
+        throw new Error(`UserHRInfo upsert verification failed: row was not created.${details ? ` Last error: ${details}` : ''}`);
     }
 
     const userHrBenefitsColumns = await getTableColumns(transaction, 'UserHRBenefits');
