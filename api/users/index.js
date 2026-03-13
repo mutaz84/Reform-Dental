@@ -98,6 +98,30 @@ function toBitInt(value) {
     return value === true || value === 1 || value === '1' || String(value || '').toLowerCase() === 'true' ? 1 : 0;
 }
 
+function normalizeConstrainedString(value, allowedValues, fallbackValue = null) {
+    const normalized = toNullableString(value);
+    if (normalized == null) return fallbackValue;
+
+    const match = (allowedValues || []).find((candidate) => String(candidate).toLowerCase() === String(normalized).toLowerCase());
+    return match || fallbackValue;
+}
+
+function normalizeStaffType(value, fallbackValue = null) {
+    return normalizeConstrainedString(value, ['clinical', 'non-clinical'], fallbackValue);
+}
+
+function normalizeEmployeeType(value, fallbackValue = null) {
+    return normalizeConstrainedString(value, ['provider', 'assistant'], fallbackValue);
+}
+
+function normalizeEmployeeStatus(value, fallbackValue = null) {
+    return normalizeConstrainedString(value, ['Active', 'Inactive', 'On Leave', 'Terminated'], fallbackValue);
+}
+
+function normalizeRoleValue(value, fallbackValue = null) {
+    return normalizeConstrainedString(value, ['user', 'manager', 'admin'], fallbackValue);
+}
+
 function hasOwn(obj, key) {
     return Object.prototype.hasOwnProperty.call(obj || {}, key);
 }
@@ -456,11 +480,11 @@ module.exports = async function (context, req) {
                     .input('state', sql.NVarChar, toNullableString(body.state || body.State))
                     .input('zipCode', sql.NVarChar, toNullableString(body.zipCode || body.ZipCode))
                     .input('jobTitle', sql.NVarChar, toNullableString(body.jobTitle || body.JobTitle))
-                    .input('staffType', sql.NVarChar, body.staffType || 'non-clinical')
-                    .input('employeeType', sql.NVarChar, body.employeeType || 'full-time')
+                    .input('staffType', sql.NVarChar, normalizeStaffType(body.staffType || body.StaffType, 'non-clinical'))
+                    .input('employeeType', sql.NVarChar, normalizeEmployeeType(body.employeeType || body.EmployeeType, 'assistant'))
                     .input('department', sql.NVarChar, toNullableString(body.department || body.Department))
-                    .input('employeeStatus', sql.NVarChar, body.employeeStatus || 'active')
-                    .input('role', sql.NVarChar, body.role || 'user')
+                    .input('employeeStatus', sql.NVarChar, normalizeEmployeeStatus(body.employeeStatus || body.EmployeeStatus, 'Active'))
+                    .input('role', sql.NVarChar, normalizeRoleValue(body.role || body.Role, 'user'))
                     .input('hireDate', sql.Date, toNullableDate(body.hireDate || body.HireDate))
                     .input('hourlyRate', sql.Decimal(10,2), toNullableNumber(body.hourlyRate || body.HourlyRate))
                     .input('salary', sql.Decimal(12,2), toNullableNumber(body.salary || body.Salary))
@@ -649,11 +673,11 @@ module.exports = async function (context, req) {
                     .input('state', sql.NVarChar, toNullableString(body.state || body.State))
                     .input('zipCode', sql.NVarChar, toNullableString(body.zipCode || body.ZipCode))
                     .input('jobTitle', sql.NVarChar, toNullableString(body.jobTitle || body.JobTitle))
-                    .input('staffType', sql.NVarChar, toNullableString(body.staffType || body.StaffType))
-                    .input('employeeType', sql.NVarChar, toNullableString(body.employeeType || body.EmployeeType))
+                    .input('staffType', sql.NVarChar, normalizeStaffType(body.staffType || body.StaffType, null))
+                    .input('employeeType', sql.NVarChar, normalizeEmployeeType(body.employeeType || body.EmployeeType, null))
                     .input('department', sql.NVarChar, toNullableString(body.department || body.Department))
-                    .input('employeeStatus', sql.NVarChar, toNullableString(body.employeeStatus || body.EmployeeStatus))
-                    .input('role', sql.NVarChar, toNullableString(body.role || body.Role))
+                    .input('employeeStatus', sql.NVarChar, normalizeEmployeeStatus(body.employeeStatus || body.EmployeeStatus, null))
+                    .input('role', sql.NVarChar, normalizeRoleValue(body.role || body.Role, null))
                     .input('hireDate', sql.Date, toNullableDate(body.hireDate || body.HireDate))
                     .input('hourlyRate', sql.Decimal(10,2), toNullableNumber(body.hourlyRate || body.HourlyRate))
                     .input('salary', sql.Decimal(12,2), toNullableNumber(body.salary || body.Salary))
