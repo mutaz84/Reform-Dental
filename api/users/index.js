@@ -707,8 +707,35 @@ module.exports = async function (context, req) {
                             Username = COALESCE(@username, Username),
                             Gender=@gender, DateOfBirth=@dateOfBirth, PersonalEmail=@personalEmail, WorkEmail=@workEmail,
                             HomePhone=@homePhone, CellPhone=@cellPhone, Address=@address, City=@city, State=@state, ZipCode=@zipCode,
-                            JobTitle=@jobTitle, StaffType=COALESCE(@staffType, StaffType), EmployeeType=COALESCE(@employeeType, EmployeeType), Department=@department,
-                            EmployeeStatus=COALESCE(@employeeStatus, EmployeeStatus), Role=COALESCE(@role, Role), HireDate=@hireDate, HourlyRate=@hourlyRate, Salary=@salary,
+                            JobTitle=@jobTitle,
+                            StaffType = COALESCE(@staffType,
+                                CASE
+                                    WHEN StaffType IN ('clinical', 'non-clinical') THEN StaffType
+                                    ELSE 'non-clinical'
+                                END
+                            ),
+                            EmployeeType = COALESCE(@employeeType,
+                                CASE
+                                    WHEN EmployeeType IN ('provider', 'assistant') THEN EmployeeType
+                                    WHEN LOWER(ISNULL(JobTitle, '')) LIKE '%dentist%' OR LOWER(ISNULL(JobTitle, '')) LIKE '%doctor%' THEN 'provider'
+                                    WHEN LOWER(ISNULL(StaffType, '')) = 'clinical' THEN 'provider'
+                                    ELSE 'assistant'
+                                END
+                            ),
+                            Department=@department,
+                            EmployeeStatus = COALESCE(@employeeStatus,
+                                CASE
+                                    WHEN EmployeeStatus IN ('Active', 'Inactive', 'On Leave', 'Terminated') THEN EmployeeStatus
+                                    ELSE 'Active'
+                                END
+                            ),
+                            Role = COALESCE(@role,
+                                CASE
+                                    WHEN Role IN ('user', 'manager', 'admin') THEN Role
+                                    ELSE 'user'
+                                END
+                            ),
+                            HireDate=@hireDate, HourlyRate=@hourlyRate, Salary=@salary,
                             Color=@color, ProfileImage=@profileImage, Permissions=@permissions,
                             SSN=@ssn, Title=@title, EmergencyContactName=@emergencyContactName,
                             EmergencyContactRelationship=@emergencyContactRelationship,
