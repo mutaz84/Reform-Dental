@@ -192,8 +192,16 @@ async function upsertNormalizedHrInfoAndBenefits(transaction, userId, hrInfoRaw)
     const hasUserHrInfo = userHrInfoColumns.size > 0 && hasColumn(userHrInfoColumns, 'UserId');
     if (!hasUserHrInfo) return;
 
-    const hrDataColumn = hasColumn(userHrInfoColumns, 'HRDataJson') ? 'HRDataJson' : (hasColumn(userHrInfoColumns, 'HRData') ? 'HRData' : null);
+    const hrDataColumn = hasColumn(userHrInfoColumns, 'HRDataJson')
+        ? 'HRDataJson'
+        : (hasColumn(userHrInfoColumns, 'HRData')
+            ? 'HRData'
+            : (hasColumn(userHrInfoColumns, 'HRInfo') ? 'HRInfo' : null));
     if (!hrDataColumn) return;
+
+    const hasLastUpdated = hasColumn(userHrInfoColumns, 'LastUpdated');
+    const hasCreatedAt = hasColumn(userHrInfoColumns, 'CreatedAt');
+    const hasUpdatedAt = hasColumn(userHrInfoColumns, 'UpdatedAt');
 
     const hrInfoObj = typeof hrInfoRaw === 'string' ? (parseJsonSafe(hrInfoRaw, {}) || {}) : (hrInfoRaw || {});
     const hrDataJson = toJsonString(hrInfoObj) || '{}';
@@ -206,15 +214,37 @@ async function upsertNormalizedHrInfoAndBenefits(transaction, userId, hrInfoRaw)
             USING (SELECT @userId AS UserId, @hrDataJson AS HRDataJson) AS source
             ON target.UserId = source.UserId
             WHEN MATCHED THEN
-                UPDATE SET ${hrDataColumn} = source.HRDataJson, LastUpdated = SYSUTCDATETIME(), UpdatedAt = SYSUTCDATETIME()
+                UPDATE SET ${[
+                    `${hrDataColumn} = source.HRDataJson`,
+                    hasLastUpdated ? 'LastUpdated = SYSUTCDATETIME()' : null,
+                    hasUpdatedAt ? 'UpdatedAt = SYSUTCDATETIME()' : null
+                ].filter(Boolean).join(', ')}
             WHEN NOT MATCHED THEN
-                INSERT (UserId, ${hrDataColumn}, LastUpdated, CreatedAt, UpdatedAt)
-                VALUES (source.UserId, source.HRDataJson, SYSUTCDATETIME(), SYSUTCDATETIME(), SYSUTCDATETIME());
+                INSERT (${[
+                    'UserId',
+                    hrDataColumn,
+                    hasLastUpdated ? 'LastUpdated' : null,
+                    hasCreatedAt ? 'CreatedAt' : null,
+                    hasUpdatedAt ? 'UpdatedAt' : null
+                ].filter(Boolean).join(', ')})
+                VALUES (${[
+                    'source.UserId',
+                    'source.HRDataJson',
+                    hasLastUpdated ? 'SYSUTCDATETIME()' : null,
+                    hasCreatedAt ? 'SYSUTCDATETIME()' : null,
+                    hasUpdatedAt ? 'SYSUTCDATETIME()' : null
+                ].filter(Boolean).join(', ')});
         `);
 
     const userHrBenefitsColumns = await getTableColumns(transaction, 'UserHRBenefits');
     const hasUserHrBenefits = userHrBenefitsColumns.size > 0 && hasColumn(userHrBenefitsColumns, 'UserHRInfoId') && hasColumn(userHrBenefitsColumns, 'BenefitKey');
     if (!hasUserHrBenefits) return;
+
+    const hasBenefitName = hasColumn(userHrBenefitsColumns, 'BenefitName');
+    const hasIsEnabled = hasColumn(userHrBenefitsColumns, 'IsEnabled');
+    if (!hasIsEnabled) return;
+    const hasBenefitsCreatedAt = hasColumn(userHrBenefitsColumns, 'CreatedAt');
+    const hasBenefitsUpdatedAt = hasColumn(userHrBenefitsColumns, 'UpdatedAt');
 
     const infoRow = await new sql.Request(transaction)
         .input('userId', sql.Int, Number(userId))
@@ -233,14 +263,33 @@ async function upsertNormalizedHrInfoAndBenefits(transaction, userId, hrInfoRaw)
         const benefitKey = String(benefitKeyRaw || '').trim();
         if (!benefitKey) continue;
         const benefitName = benefitKey.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+        const insertColumns = [
+            'UserHRInfoId',
+            'BenefitKey',
+            hasBenefitName ? 'BenefitName' : null,
+            'IsEnabled',
+            hasBenefitsCreatedAt ? 'CreatedAt' : null,
+            hasBenefitsUpdatedAt ? 'UpdatedAt' : null
+        ].filter(Boolean);
+
+        const insertValues = [
+            '@userHrInfoId',
+            '@benefitKey',
+            hasBenefitName ? '@benefitName' : null,
+            '@isEnabled',
+            hasBenefitsCreatedAt ? 'SYSUTCDATETIME()' : null,
+            hasBenefitsUpdatedAt ? 'SYSUTCDATETIME()' : null
+        ].filter(Boolean);
+
         await new sql.Request(transaction)
             .input('userHrInfoId', sql.Int, userHrInfoId)
             .input('benefitKey', sql.NVarChar(150), benefitKey)
             .input('benefitName', sql.NVarChar(200), benefitName)
             .input('isEnabled', sql.Bit, toBitInt(enabledRaw))
             .query(`
-                INSERT INTO UserHRBenefits (UserHRInfoId, BenefitKey, BenefitName, IsEnabled, CreatedAt, UpdatedAt)
-                VALUES (@userHrInfoId, @benefitKey, @benefitName, @isEnabled, SYSUTCDATETIME(), SYSUTCDATETIME())
+                INSERT INTO UserHRBenefits (${insertColumns.join(', ')})
+                VALUES (${insertValues.join(', ')})
             `);
     }
 }
@@ -355,7 +404,11 @@ module.exports = async function (context, req) {
             const hasClinicIsActive = hasColumn(clinicColumns, 'IsActive');
             const userHrInfoColumns = await getTableColumns(pool, 'UserHRInfo');
             const hasUserHrInfoJoin = userHrInfoColumns.size > 0 && hasColumn(userHrInfoColumns, 'UserId');
-            const hrDataColumn = hasColumn(userHrInfoColumns, 'HRDataJson') ? 'HRDataJson' : (hasColumn(userHrInfoColumns, 'HRData') ? 'HRData' : null);
+            const hrDataColumn = hasColumn(userHrInfoColumns, 'HRDataJson')
+                ? 'HRDataJson'
+                : (hasColumn(userHrInfoColumns, 'HRData')
+                    ? 'HRData'
+                    : (hasColumn(userHrInfoColumns, 'HRInfo') ? 'HRInfo' : null));
 
             const preferredColumns = [
                 'Id', 'Username', 'PasswordHash', 'FirstName', 'MiddleName', 'LastName', 'Gender', 'DateOfBirth',
@@ -797,7 +850,11 @@ module.exports = async function (context, req) {
 
                 try {
                     const normalizedHrCols = await getTableColumns(pool, 'UserHRInfo');
-                    const normalizedHrCol = hasColumn(normalizedHrCols, 'HRDataJson') ? 'HRDataJson' : (hasColumn(normalizedHrCols, 'HRData') ? 'HRData' : null);
+                    const normalizedHrCol = hasColumn(normalizedHrCols, 'HRDataJson')
+                        ? 'HRDataJson'
+                        : (hasColumn(normalizedHrCols, 'HRData')
+                            ? 'HRData'
+                            : (hasColumn(normalizedHrCols, 'HRInfo') ? 'HRInfo' : null));
                     if (normalizedHrCol) {
                         const normalizedHr = await pool.request()
                             .input('id', sql.Int, id)
