@@ -397,14 +397,6 @@ module.exports = async function (context, req) {
             const normalized = String(raw).trim().toLowerCase();
             return normalized === '1' || normalized === 'true' || normalized === 'yes';
         })();
-        const diagnosticsRequested = (() => {
-            const raw = req?.query?.diag ?? req?.query?.Diag ?? req?.query?.debug ?? req?.query?.Debug;
-            if (raw === undefined || raw === null || raw === '') return false;
-            if (typeof raw === 'boolean') return raw;
-            const normalized = String(raw).trim().toLowerCase();
-            return normalized === '1' || normalized === 'true' || normalized === 'yes';
-        })();
-        const hrProbeUserId = Number(req?.query?.hrProbeUserId ?? req?.query?.HrProbeUserId ?? 0);
 
         const parseClinicIds = (value) => {
             if (!value) return [];
@@ -425,91 +417,6 @@ module.exports = async function (context, req) {
         };
 
         if (req.method === 'GET') {
-            if (diagnosticsRequested) {
-                const dbInfoResult = await pool.request().query('SELECT DB_NAME() AS CurrentDatabase, @@SERVERNAME AS ServerName');
-                const dbInfo = dbInfoResult.recordset?.[0] || {};
-
-                const userHrInfoExistsResult = await pool.request().query("SELECT OBJECT_ID('dbo.UserHRInfo','U') AS ObjId");
-                const userHrInfoObjId = Number(userHrInfoExistsResult.recordset?.[0]?.ObjId || 0);
-
-                let userHrInfoRows = null;
-                if (userHrInfoObjId > 0) {
-                    const rowCountResult = await pool.request().query('SELECT COUNT(1) AS Cnt FROM dbo.UserHRInfo');
-                    userHrInfoRows = Number(rowCountResult.recordset?.[0]?.Cnt || 0);
-                }
-
-                const usersCountResult = await pool.request().query("SELECT COUNT(1) AS Cnt FROM dbo.Users");
-                const usersRows = Number(usersCountResult.recordset?.[0]?.Cnt || 0);
-
-                let hrProbe = null;
-                if (Number.isInteger(hrProbeUserId) && hrProbeUserId > 0) {
-                    const probePayload = {
-                        employmentType: 'Probe',
-                        activeStatus: 'Active',
-                        payType: 'Salary',
-                        salary: '1',
-                        hourlyRate: '',
-                        expectedHours: '',
-                        benefitStartDate: '',
-                        benefitEndDate: '',
-                        notes: 'diagnostic-probe',
-                        benefits: {},
-                        lastUpdated: new Date().toISOString()
-                    };
-
-                    const probeTx = new sql.Transaction(pool);
-                    await probeTx.begin();
-                    try {
-                        await upsertNormalizedHrInfoAndBenefits(probeTx, hrProbeUserId, probePayload);
-                        const probeCountResult = await new sql.Request(probeTx)
-                            .input('userId', sql.Int, hrProbeUserId)
-                            .query('SELECT COUNT(1) AS Cnt FROM dbo.UserHRInfo WHERE UserId = @userId');
-                        const probeCount = Number(probeCountResult.recordset?.[0]?.Cnt || 0);
-
-                        hrProbe = {
-                            userId: hrProbeUserId,
-                            ok: probeCount > 0,
-                            rowsForUserInTx: probeCount,
-                            rolledBack: true
-                        };
-                        await probeTx.rollback();
-                    } catch (probeError) {
-                        await probeTx.rollback();
-                        hrProbe = {
-                            userId: hrProbeUserId,
-                            ok: false,
-                            error: String(probeError?.message || probeError || 'Unknown HR probe error'),
-                            rolledBack: true
-                        };
-                    }
-                }
-
-                context.res = {
-                    status: 200,
-                    headers,
-                    body: {
-                        diagnostics: true,
-                        runtime: {
-                            websiteSiteName: process.env.WEBSITE_SITE_NAME || null,
-                            websiteHostName: process.env.WEBSITE_HOSTNAME || null,
-                            functionsExtensionVersion: process.env.FUNCTIONS_EXTENSION_VERSION || null
-                        },
-                        database: {
-                            name: dbInfo.CurrentDatabase || null,
-                            server: dbInfo.ServerName || null
-                        },
-                        tables: {
-                            users: { exists: true, rows: usersRows },
-                            userHrInfo: { exists: userHrInfoObjId > 0, rows: userHrInfoRows }
-                        },
-                        hrProbe,
-                        apiTimeUtc: new Date().toISOString()
-                    }
-                };
-                await pool.close();
-                return;
-            }
-
             const userColumns = await getTableColumns(pool, 'Users');
             if (userColumns.size === 0) {
                 context.res = { status: 500, headers, body: { error: 'Users table not found.' } };
