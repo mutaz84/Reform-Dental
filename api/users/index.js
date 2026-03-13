@@ -378,7 +378,7 @@ module.exports = async function (context, req) {
             try {
                 const result = await new sql.Request(transaction)
                     .input('username', sql.NVarChar, body.username)
-                    .input('passwordHash', sql.NVarChar, body.password || 'changeme')
+                    .input('passwordHash', sql.NVarChar, body.password || body.passwordHash || body.PasswordHash || 'changeme')
                     .input('firstName', sql.NVarChar, toNullableString(body.firstName || body.FirstName))
                     .input('middleName', sql.NVarChar, toNullableString(body.middleName || body.MiddleName))
                     .input('lastName', sql.NVarChar, toNullableString(body.lastName || body.LastName))
@@ -419,6 +419,7 @@ module.exports = async function (context, req) {
                     .input('documents', sql.NVarChar(sql.MAX), documentsValue)
                     .input('hrInfo', sql.NVarChar(sql.MAX), hrInfoValue)
                     .input('failedLoginAttempts', sql.Int, toNullableNumber(body.failedLoginAttempts || body.FailedLoginAttempts) ?? 0)
+                    .input('isActive', sql.Bit, body.isActive === undefined && body.IsActive === undefined ? 1 : toBooleanBit(body.isActive ?? body.IsActive))
                     .input('isOnline', sql.Bit, toBooleanBit(body.isOnline || body.IsOnline))
                     .input('lastSeen', sql.DateTime2, body.lastSeen || body.LastSeen || null)
                     .input('roleId', sql.Int, toNullableNumber(body.roleId || body.RoleId))
@@ -429,7 +430,7 @@ module.exports = async function (context, req) {
                             EmergencyContactName, EmergencyContactRelationship, EmergencyContactPhone,
                             EmergencyContactEmail, NextReviewDate, OfficeLocation, DirectSupervisor,
                             SeparationDate, SeparationReason, PhotoFileName, Documents${hasUsersHrInfoColumn ? ', HRInfo' : ''},
-                            FailedLoginAttempts, IsOnline, LastSeen, RoleId)
+                            FailedLoginAttempts, IsActive, IsOnline, LastSeen, RoleId)
                             OUTPUT INSERTED.Id
                             VALUES (@username, @passwordHash, @firstName, @middleName, @lastName, @gender, @dateOfBirth,
                             @personalEmail, @workEmail, @homePhone, @cellPhone, @address, @city, @state, @zipCode,
@@ -438,7 +439,7 @@ module.exports = async function (context, req) {
                             @emergencyContactName, @emergencyContactRelationship, @emergencyContactPhone,
                             @emergencyContactEmail, @nextReviewDate, @officeLocation, @directSupervisor,
                             @separationDate, @separationReason, @photoFileName, @documents${hasUsersHrInfoColumn ? ', @hrInfo' : ''},
-                            @failedLoginAttempts, @isOnline, @lastSeen, @roleId)`);
+                            @failedLoginAttempts, @isActive, @isOnline, @lastSeen, @roleId)`);
 
                 const userId = result.recordset[0].Id;
 
