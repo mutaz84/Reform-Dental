@@ -210,17 +210,17 @@ async function upsertNormalizedHrInfoAndBenefits(transaction, userId, hrInfoRaw)
         .input('userId', sql.Int, Number(userId))
         .input('hrDataJson', sql.NVarChar(sql.MAX), hrDataJson)
         .query(`
-            MERGE UserHRInfo AS target
-            USING (SELECT @userId AS UserId, @hrDataJson AS HRDataJson) AS source
-            ON target.UserId = source.UserId
-            WHEN MATCHED THEN
-                UPDATE SET ${[
-                    `${hrDataColumn} = source.HRDataJson`,
-                    hasLastUpdated ? 'LastUpdated = SYSUTCDATETIME()' : null,
-                    hasUpdatedAt ? 'UpdatedAt = SYSUTCDATETIME()' : null
-                ].filter(Boolean).join(', ')}
-            WHEN NOT MATCHED THEN
-                INSERT (${[
+            UPDATE UserHRInfo
+            SET ${[
+                `${hrDataColumn} = @hrDataJson`,
+                hasLastUpdated ? 'LastUpdated = SYSUTCDATETIME()' : null,
+                hasUpdatedAt ? 'UpdatedAt = SYSUTCDATETIME()' : null
+            ].filter(Boolean).join(', ')}
+            WHERE UserId = @userId;
+
+            IF @@ROWCOUNT = 0
+            BEGIN
+                INSERT INTO UserHRInfo (${[
                     'UserId',
                     hrDataColumn,
                     hasLastUpdated ? 'LastUpdated' : null,
@@ -228,13 +228,21 @@ async function upsertNormalizedHrInfoAndBenefits(transaction, userId, hrInfoRaw)
                     hasUpdatedAt ? 'UpdatedAt' : null
                 ].filter(Boolean).join(', ')})
                 VALUES (${[
-                    'source.UserId',
-                    'source.HRDataJson',
+                    '@userId',
+                    '@hrDataJson',
                     hasLastUpdated ? 'SYSUTCDATETIME()' : null,
                     hasCreatedAt ? 'SYSUTCDATETIME()' : null,
                     hasUpdatedAt ? 'SYSUTCDATETIME()' : null
                 ].filter(Boolean).join(', ')});
+            END
         `);
+
+    const verifyRow = await new sql.Request(transaction)
+        .input('userId', sql.Int, Number(userId))
+        .query('SELECT TOP 1 Id FROM UserHRInfo WHERE UserId = @userId');
+    if (!verifyRow.recordset || !verifyRow.recordset[0]) {
+        throw new Error('UserHRInfo upsert verification failed: row was not created.');
+    }
 
     const userHrBenefitsColumns = await getTableColumns(transaction, 'UserHRBenefits');
     const hasUserHrBenefits = userHrBenefitsColumns.size > 0 && hasColumn(userHrBenefitsColumns, 'UserHRInfoId') && hasColumn(userHrBenefitsColumns, 'BenefitKey');
@@ -602,16 +610,27 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'PUT' && id) {
             const body = parseRequestBody(req.body);
+            const userColumns = await getTableColumns(pool, 'Users');
+            const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
 
             if (body && (
                 body.hrInfoOnly === true || body.HRInfoOnly === true ||
                 String(body.hrInfoOnly || '').toLowerCase() === 'true' ||
                 String(body.HRInfoOnly || '').toLowerCase() === 'true'
             )) {
+                const hrInfoValueForUsers = toJsonString(body.hrInfo ?? body.HRInfo ?? null);
                 const transaction = new sql.Transaction(pool);
                 await transaction.begin();
                 try {
                     await upsertNormalizedHrInfoAndBenefits(transaction, id, body.hrInfo ?? body.HRInfo ?? null);
+
+                    if (hasUsersHrInfoColumn && hrInfoValueForUsers != null) {
+                        await new sql.Request(transaction)
+                            .input('id', sql.Int, id)
+                            .input('hrInfo', sql.NVarChar(sql.MAX), hrInfoValueForUsers)
+                            .query(`UPDATE Users SET HRInfo = @hrInfo${hasColumn(userColumns, 'ModifiedDate') ? ', ModifiedDate = GETUTCDATE()' : ''} WHERE Id = @id`);
+                    }
+
                     await transaction.commit();
                     context.res = {
                         status: 200,
@@ -694,8 +713,6 @@ module.exports = async function (context, req) {
                 return;
             }
 
-            const userColumns = await getTableColumns(pool, 'Users');
-            const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
             const permissionsValue = toJsonString(body.permissions || body.Permissions);
             const documentsValue = toJsonString(body.documents || body.Documents);
