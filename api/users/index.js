@@ -392,6 +392,13 @@ module.exports = async function (context, req) {
             const normalized = String(raw).trim().toLowerCase();
             return normalized === '1' || normalized === 'true' || normalized === 'yes';
         })();
+        const diagnosticsRequested = (() => {
+            const raw = req?.query?.diag ?? req?.query?.Diag ?? req?.query?.debug ?? req?.query?.Debug;
+            if (raw === undefined || raw === null || raw === '') return false;
+            if (typeof raw === 'boolean') return raw;
+            const normalized = String(raw).trim().toLowerCase();
+            return normalized === '1' || normalized === 'true' || normalized === 'yes';
+        })();
 
         const parseClinicIds = (value) => {
             if (!value) return [];
@@ -412,6 +419,42 @@ module.exports = async function (context, req) {
         };
 
         if (req.method === 'GET') {
+            if (diagnosticsRequested) {
+                const dbInfoResult = await pool.request().query('SELECT DB_NAME() AS CurrentDatabase, @@SERVERNAME AS ServerName');
+                const dbInfo = dbInfoResult.recordset?.[0] || {};
+
+                const userHrInfoExistsResult = await pool.request().query("SELECT OBJECT_ID('dbo.UserHRInfo','U') AS ObjId");
+                const userHrInfoObjId = Number(userHrInfoExistsResult.recordset?.[0]?.ObjId || 0);
+
+                let userHrInfoRows = null;
+                if (userHrInfoObjId > 0) {
+                    const rowCountResult = await pool.request().query('SELECT COUNT(1) AS Cnt FROM dbo.UserHRInfo');
+                    userHrInfoRows = Number(rowCountResult.recordset?.[0]?.Cnt || 0);
+                }
+
+                const usersCountResult = await pool.request().query("SELECT COUNT(1) AS Cnt FROM dbo.Users");
+                const usersRows = Number(usersCountResult.recordset?.[0]?.Cnt || 0);
+
+                context.res = {
+                    status: 200,
+                    headers,
+                    body: {
+                        diagnostics: true,
+                        database: {
+                            name: dbInfo.CurrentDatabase || null,
+                            server: dbInfo.ServerName || null
+                        },
+                        tables: {
+                            users: { exists: true, rows: usersRows },
+                            userHrInfo: { exists: userHrInfoObjId > 0, rows: userHrInfoRows }
+                        },
+                        apiTimeUtc: new Date().toISOString()
+                    }
+                };
+                await pool.close();
+                return;
+            }
+
             const userColumns = await getTableColumns(pool, 'Users');
             if (userColumns.size === 0) {
                 context.res = { status: 500, headers, body: { error: 'Users table not found.' } };
