@@ -445,6 +445,11 @@ module.exports = async function (context, req) {
                     headers,
                     body: {
                         diagnostics: true,
+                        runtime: {
+                            websiteSiteName: process.env.WEBSITE_SITE_NAME || null,
+                            websiteHostName: process.env.WEBSITE_HOSTNAME || null,
+                            functionsExtensionVersion: process.env.FUNCTIONS_EXTENSION_VERSION || null
+                        },
                         database: {
                             name: dbInfo.CurrentDatabase || null,
                             server: dbInfo.ServerName || null
