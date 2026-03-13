@@ -188,21 +188,6 @@ async function syncUserSchedulesLifecycle(connectionOrTx, userId, lifecycleState
 async function upsertNormalizedHrInfoAndBenefits(transaction, userId, hrInfoRaw) {
     if (!hrInfoRaw) return;
 
-    const userHrInfoColumns = await getTableColumns(transaction, 'UserHRInfo');
-    const hasUserHrInfo = userHrInfoColumns.size > 0 && hasColumn(userHrInfoColumns, 'UserId');
-    if (!hasUserHrInfo) return;
-
-    const hrDataColumn = hasColumn(userHrInfoColumns, 'HRDataJson')
-        ? 'HRDataJson'
-        : (hasColumn(userHrInfoColumns, 'HRData')
-            ? 'HRData'
-            : (hasColumn(userHrInfoColumns, 'HRInfo') ? 'HRInfo' : null));
-    if (!hrDataColumn) return;
-
-    const hasLastUpdated = hasColumn(userHrInfoColumns, 'LastUpdated');
-    const hasCreatedAt = hasColumn(userHrInfoColumns, 'CreatedAt');
-    const hasUpdatedAt = hasColumn(userHrInfoColumns, 'UpdatedAt');
-
     const hrInfoObj = typeof hrInfoRaw === 'string' ? (parseJsonSafe(hrInfoRaw, {}) || {}) : (hrInfoRaw || {});
     const hrDataJson = toJsonString(hrInfoObj) || '{}';
 
@@ -210,32 +195,62 @@ async function upsertNormalizedHrInfoAndBenefits(transaction, userId, hrInfoRaw)
         .input('userId', sql.Int, Number(userId))
         .input('hrDataJson', sql.NVarChar(sql.MAX), hrDataJson)
         .query(`
-            UPDATE UserHRInfo
-            SET ${[
-                `${hrDataColumn} = @hrDataJson`,
-                hasLastUpdated ? 'LastUpdated = SYSUTCDATETIME()' : null,
-                hasUpdatedAt ? 'UpdatedAt = SYSUTCDATETIME()' : null
-            ].filter(Boolean).join(', ')}
-            WHERE UserId = @userId;
-
-            IF @@ROWCOUNT = 0
+            IF OBJECT_ID('dbo.UserHRInfo', 'U') IS NOT NULL
             BEGIN
-                INSERT INTO UserHRInfo (${[
-                    'UserId',
-                    hrDataColumn,
-                    hasLastUpdated ? 'LastUpdated' : null,
-                    hasCreatedAt ? 'CreatedAt' : null,
-                    hasUpdatedAt ? 'UpdatedAt' : null
-                ].filter(Boolean).join(', ')})
-                VALUES (${[
-                    '@userId',
-                    '@hrDataJson',
-                    hasLastUpdated ? 'SYSUTCDATETIME()' : null,
-                    hasCreatedAt ? 'SYSUTCDATETIME()' : null,
-                    hasUpdatedAt ? 'SYSUTCDATETIME()' : null
-                ].filter(Boolean).join(', ')});
+                DECLARE @hrCol SYSNAME = CASE
+                    WHEN COL_LENGTH('dbo.UserHRInfo', 'HRDataJson') IS NOT NULL THEN 'HRDataJson'
+                    WHEN COL_LENGTH('dbo.UserHRInfo', 'HRData') IS NOT NULL THEN 'HRData'
+                    WHEN COL_LENGTH('dbo.UserHRInfo', 'HRInfo') IS NOT NULL THEN 'HRInfo'
+                    ELSE NULL
+                END;
+
+                IF @hrCol IS NOT NULL
+                BEGIN
+                    DECLARE @setClause NVARCHAR(MAX) = QUOTENAME(@hrCol) + N' = @pHr';
+                    DECLARE @insertCols NVARCHAR(MAX) = N'UserId, ' + QUOTENAME(@hrCol);
+                    DECLARE @insertVals NVARCHAR(MAX) = N'@pUserId, @pHr';
+
+                    IF COL_LENGTH('dbo.UserHRInfo', 'LastUpdated') IS NOT NULL
+                    BEGIN
+                        SET @setClause = @setClause + N', LastUpdated = SYSUTCDATETIME()';
+                        SET @insertCols = @insertCols + N', LastUpdated';
+                        SET @insertVals = @insertVals + N', SYSUTCDATETIME()';
+                    END;
+                    IF COL_LENGTH('dbo.UserHRInfo', 'UpdatedAt') IS NOT NULL
+                    BEGIN
+                        SET @setClause = @setClause + N', UpdatedAt = SYSUTCDATETIME()';
+                        SET @insertCols = @insertCols + N', UpdatedAt';
+                        SET @insertVals = @insertVals + N', SYSUTCDATETIME()';
+                    END;
+                    IF COL_LENGTH('dbo.UserHRInfo', 'CreatedAt') IS NOT NULL
+                    BEGIN
+                        SET @insertCols = @insertCols + N', CreatedAt';
+                        SET @insertVals = @insertVals + N', SYSUTCDATETIME()';
+                    END;
+
+                    DECLARE @sql NVARCHAR(MAX) = N'
+                        UPDATE dbo.UserHRInfo
+                        SET ' + @setClause + N'
+                        WHERE UserId = @pUserId;
+
+                        IF @@ROWCOUNT = 0
+                        BEGIN
+                            INSERT INTO dbo.UserHRInfo (' + @insertCols + N')
+                            VALUES (' + @insertVals + N');
+                        END;';
+
+                    EXEC sp_executesql
+                        @sql,
+                        N'@pUserId INT, @pHr NVARCHAR(MAX)',
+                        @pUserId = @userId,
+                        @pHr = @hrDataJson;
+                END;
             END
         `);
+
+    const userHrInfoColumns = await getTableColumns(transaction, 'UserHRInfo');
+    const hasUserHrInfo = userHrInfoColumns.size > 0 && hasColumn(userHrInfoColumns, 'UserId');
+    if (!hasUserHrInfo) return;
 
     const verifyRow = await new sql.Request(transaction)
         .input('userId', sql.Int, Number(userId))
