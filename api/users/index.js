@@ -623,10 +623,10 @@ module.exports = async function (context, req) {
             const permissionsValue = toJsonString(body.permissions || body.Permissions);
             const documentsValue = toJsonString(body.documents || body.Documents);
             const hrInfoValue = toJsonString(body.hrInfo || body.HRInfo);
-            const shouldUpdateClinics = Object.prototype.hasOwnProperty.call(body || {}, 'clinicIds') ||
-                Object.prototype.hasOwnProperty.call(body || {}, 'ClinicIds') ||
-                Object.prototype.hasOwnProperty.call(body || {}, 'clinicId') ||
-                Object.prototype.hasOwnProperty.call(body || {}, 'ClinicId');
+            const hasClinicFields = hasOwn(body, 'clinicIds') || hasOwn(body, 'ClinicIds') || hasOwn(body, 'clinicId') || hasOwn(body, 'ClinicId');
+            const clearClinicsRequested = toBooleanBit(body.clearClinics ?? body.ClearClinics);
+            // Only mutate UserClinics when clinics are explicitly supplied or caller explicitly requests clearing.
+            const shouldUpdateClinics = clearClinicsRequested || (hasClinicFields && clinicIds.length > 0);
             const lifecycleState = resolveScheduleLifecycleState(body);
 
             const transaction = new sql.Transaction(pool);
