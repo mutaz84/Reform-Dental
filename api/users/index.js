@@ -98,6 +98,69 @@ function toBitInt(value) {
     return value === true || value === 1 || value === '1' || String(value || '').toLowerCase() === 'true' ? 1 : 0;
 }
 
+function hasOwn(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
+function isInactiveEmployeeStatus(statusValue) {
+    const normalized = String(statusValue || '').trim().toLowerCase();
+    return normalized === 'inactive' || normalized === 'terminated' || normalized === 'on leave' || normalized === 'leave';
+}
+
+function resolveScheduleLifecycleState(body) {
+    const hasIsActive = hasOwn(body, 'isActive') || hasOwn(body, 'IsActive');
+    const hasEmployeeStatus = hasOwn(body, 'employeeStatus') || hasOwn(body, 'EmployeeStatus');
+
+    if (!hasIsActive && !hasEmployeeStatus) {
+        return null;
+    }
+
+    const isActiveValue = hasIsActive ? toBooleanBit(body.isActive ?? body.IsActive) : null;
+    const employeeStatusValue = hasEmployeeStatus ? (body.employeeStatus ?? body.EmployeeStatus) : null;
+
+    if (hasIsActive && isActiveValue === false) {
+        return { isActive: false, includeAssistantAssignments: true };
+    }
+
+    if (hasEmployeeStatus && isInactiveEmployeeStatus(employeeStatusValue)) {
+        return { isActive: false, includeAssistantAssignments: true };
+    }
+
+    if ((hasIsActive && isActiveValue === true) || hasEmployeeStatus) {
+        return { isActive: true, includeAssistantAssignments: false };
+    }
+
+    return null;
+}
+
+async function syncUserSchedulesLifecycle(connectionOrTx, userId, lifecycleState) {
+    if (!(Number(userId) > 0) || !lifecycleState) return;
+
+    const scheduleColumns = await getTableColumns(connectionOrTx, 'Schedules');
+    const hasSchedules =
+        scheduleColumns.size > 0 &&
+        hasColumn(scheduleColumns, 'UserId') &&
+        hasColumn(scheduleColumns, 'IsActive');
+
+    if (!hasSchedules) return;
+
+    const canUseAssistant = hasColumn(scheduleColumns, 'AssistantId');
+    const includeAssistantAssignments = lifecycleState.includeAssistantAssignments === true && canUseAssistant;
+    const setParts = ['IsActive = @scheduleIsActive'];
+    if (hasColumn(scheduleColumns, 'ModifiedDate')) {
+        setParts.push('ModifiedDate = GETUTCDATE()');
+    }
+
+    const where = includeAssistantAssignments
+        ? '(UserId = @userId OR AssistantId = @userId)'
+        : 'UserId = @userId';
+
+    await new sql.Request(connectionOrTx)
+        .input('userId', sql.Int, Number(userId))
+        .input('scheduleIsActive', sql.Bit, lifecycleState.isActive ? 1 : 0)
+        .query(`UPDATE Schedules SET ${setParts.join(', ')} WHERE ${where}`);
+}
+
 async function upsertNormalizedHrInfoAndBenefits(transaction, userId, hrInfoRaw) {
     if (!hrInfoRaw) return;
 
@@ -544,6 +607,10 @@ module.exports = async function (context, req) {
                 if (affectedRows === 0) {
                     context.res = { status: 404, headers, body: { error: 'User not found or not updated' } };
                 } else {
+                    const lifecycleState = resolveScheduleLifecycleState(body);
+                    if (lifecycleState) {
+                        await syncUserSchedulesLifecycle(pool, id, lifecycleState);
+                    }
                     context.res = { status: 200, headers, body: { message: 'User deactivated', user: { Id: Number(id) } } };
                 }
                 await pool.close();
@@ -560,6 +627,7 @@ module.exports = async function (context, req) {
                 Object.prototype.hasOwnProperty.call(body || {}, 'ClinicIds') ||
                 Object.prototype.hasOwnProperty.call(body || {}, 'clinicId') ||
                 Object.prototype.hasOwnProperty.call(body || {}, 'ClinicId');
+            const lifecycleState = resolveScheduleLifecycleState(body);
 
             const transaction = new sql.Transaction(pool);
             await transaction.begin();
@@ -653,6 +721,10 @@ module.exports = async function (context, req) {
 
                 await upsertNormalizedHrInfoAndBenefits(transaction, id, hrInfoValue);
 
+                if (lifecycleState) {
+                    await syncUserSchedulesLifecycle(transaction, id, lifecycleState);
+                }
+
                 await transaction.commit();
 
                 const selectColumns = ['Id'];
@@ -719,6 +791,7 @@ module.exports = async function (context, req) {
                 if (affectedRows === 0) {
                     context.res = { status: 404, headers, body: { error: 'User not found' } };
                 } else {
+                    await syncUserSchedulesLifecycle(pool, id, { isActive: false, includeAssistantAssignments: true });
                     context.res = { status: 200, headers, body: { message: 'User deactivated' } };
                 }
             } else {

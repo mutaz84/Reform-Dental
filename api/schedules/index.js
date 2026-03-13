@@ -40,6 +40,15 @@ module.exports = async function (context, req) {
             return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
         };
 
+        const isActiveUserId = async (candidateUserId) => {
+            const parsedId = parseIntOrNull(candidateUserId);
+            if (!parsedId) return false;
+            const check = await pool.request()
+                .input('userId', sql.Int, parsedId)
+                .query('SELECT TOP 1 Id FROM Users WHERE Id = @userId AND ISNULL(IsActive, 1) = 1');
+            return !!(check.recordset && check.recordset[0] && check.recordset[0].Id);
+        };
+
         const normalizeName = (value) => String(value || '')
             .toLowerCase()
             .replace(/\b(dr|doctor|dds|dmd)\.?\s*/g, '')
@@ -61,7 +70,7 @@ module.exports = async function (context, req) {
                             LEFT JOIN Clinics c ON s.ClinicId = c.Id
                             LEFT JOIN Rooms r ON s.RoomId = r.Id
                             LEFT JOIN Users au ON s.AssistantId = au.Id
-                            WHERE s.Id = @id AND s.IsActive = 1`);
+                            WHERE s.Id = @id AND s.IsActive = 1 AND ISNULL(u.IsActive, 1) = 1`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 const result = await pool.request()
@@ -71,7 +80,7 @@ module.exports = async function (context, req) {
                             LEFT JOIN Clinics c ON s.ClinicId = c.Id 
                             LEFT JOIN Rooms r ON s.RoomId = r.Id 
                             LEFT JOIN Users au ON s.AssistantId = au.Id
-                            WHERE s.IsActive = 1 
+                            WHERE s.IsActive = 1 AND ISNULL(u.IsActive, 1) = 1 
                             ORDER BY s.StartDate, s.StartTime`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
@@ -162,6 +171,26 @@ module.exports = async function (context, req) {
                 return;
             }
 
+            if (!(await isActiveUserId(userId))) {
+                context.res = {
+                    status: 400,
+                    headers,
+                    body: { error: 'Selected provider is inactive or missing.' }
+                };
+                await pool.close();
+                return;
+            }
+
+            if (assistantId && !(await isActiveUserId(assistantId))) {
+                context.res = {
+                    status: 400,
+                    headers,
+                    body: { error: 'Selected assistant is inactive or missing.' }
+                };
+                await pool.close();
+                return;
+            }
+
             const result = await pool.request()
                 .input('userId', sql.Int, userId)
                 .input('clinicId', sql.Int, clinicId)
@@ -246,6 +275,26 @@ module.exports = async function (context, req) {
                 if (matchedAssistant) {
                     assistantId = matchedAssistant.Id;
                 }
+            }
+
+            if (userId && !(await isActiveUserId(userId))) {
+                context.res = {
+                    status: 400,
+                    headers,
+                    body: { error: 'Selected provider is inactive or missing.' }
+                };
+                await pool.close();
+                return;
+            }
+
+            if (assistantId && !(await isActiveUserId(assistantId))) {
+                context.res = {
+                    status: 400,
+                    headers,
+                    body: { error: 'Selected assistant is inactive or missing.' }
+                };
+                await pool.close();
+                return;
             }
 
             await pool.request()
