@@ -87,6 +87,13 @@ function parseJsonSafe(value, fallback = null) {
     }
 }
 
+function parseRequestBody(body) {
+    if (body == null) return {};
+    if (typeof body === 'string') return parseJsonSafe(body, {}) || {};
+    if (typeof body === 'object') return body;
+    return {};
+}
+
 function toBitInt(value) {
     return value === true || value === 1 || value === '1' || String(value || '').toLowerCase() === 'true' ? 1 : 0;
 }
@@ -219,6 +226,13 @@ module.exports = async function (context, req) {
     try {
         const pool = await sql.connect(getConfig());
         const id = req.params.id;
+        const includeInactive = (() => {
+            const raw = req?.query?.includeInactive ?? req?.query?.IncludeInactive;
+            if (raw === undefined || raw === null || raw === '') return false;
+            if (typeof raw === 'boolean') return raw;
+            const normalized = String(raw).trim().toLowerCase();
+            return normalized === '1' || normalized === 'true' || normalized === 'yes';
+        })();
 
         const parseClinicIds = (value) => {
             if (!value) return [];
@@ -287,7 +301,7 @@ module.exports = async function (context, req) {
 
             if (id) {
                 const where = ['u.Id = @id'];
-                if (hasUserIsActive) {
+                if (hasUserIsActive && !includeInactive) {
                     where.push('ISNULL(u.IsActive, 1) = 1');
                 }
 
@@ -324,7 +338,7 @@ module.exports = async function (context, req) {
                     };
                 }
             } else {
-                const whereClause = hasUserIsActive ? 'WHERE ISNULL(u.IsActive, 1) = 1' : '';
+                const whereClause = (hasUserIsActive && !includeInactive) ? 'WHERE ISNULL(u.IsActive, 1) = 1' : '';
                 const orderBy = hasColumn(userColumns, 'FirstName') ? 'ORDER BY u.FirstName' : 'ORDER BY u.Id';
 
                 const result = await pool.request()
@@ -351,7 +365,7 @@ module.exports = async function (context, req) {
                 context.res = { status: 200, headers, body: hydratedUsers };
             }
         } else if (req.method === 'POST') {
-            const body = req.body;
+            const body = parseRequestBody(req.body);
             const userColumns = await getTableColumns(pool, 'Users');
             const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
@@ -446,7 +460,7 @@ module.exports = async function (context, req) {
                 throw e;
             }
         } else if (req.method === 'PUT' && id) {
-            const body = req.body;
+            const body = parseRequestBody(req.body);
 
             if (body && (
                 body.hrInfoOnly === true || body.HRInfoOnly === true ||
@@ -623,11 +637,58 @@ module.exports = async function (context, req) {
                 throw e;
             }
         } else if (req.method === 'DELETE' && id) {
-            // Hard delete - actually remove the user from database
-            await pool.request()
-                .input('id', sql.Int, id)
-                .query('DELETE FROM Users WHERE Id = @id');
-            context.res = { status: 200, headers, body: { message: 'User deleted' } };
+            const userColumns = await getTableColumns(pool, 'Users');
+            const hasUserIsActive = hasColumn(userColumns, 'IsActive');
+
+            if (hasUserIsActive) {
+                const softDeleteSets = ['IsActive = 0'];
+                if (hasColumn(userColumns, 'IsOnline')) {
+                    softDeleteSets.push('IsOnline = 0');
+                }
+                if (hasColumn(userColumns, 'ModifiedDate')) {
+                    softDeleteSets.push('ModifiedDate = GETUTCDATE()');
+                }
+
+                const softDeleteResult = await pool.request()
+                    .input('id', sql.Int, id)
+                    .query(`UPDATE Users SET ${softDeleteSets.join(', ')} WHERE Id = @id`);
+
+                const affectedRows = Array.isArray(softDeleteResult.rowsAffected)
+                    ? softDeleteResult.rowsAffected.reduce((sum, n) => sum + Number(n || 0), 0)
+                    : 0;
+
+                if (affectedRows === 0) {
+                    context.res = { status: 404, headers, body: { error: 'User not found' } };
+                } else {
+                    context.res = { status: 200, headers, body: { message: 'User deactivated' } };
+                }
+            } else {
+                try {
+                    const hardDeleteResult = await pool.request()
+                        .input('id', sql.Int, id)
+                        .query('DELETE FROM Users WHERE Id = @id');
+
+                    const affectedRows = Array.isArray(hardDeleteResult.rowsAffected)
+                        ? hardDeleteResult.rowsAffected.reduce((sum, n) => sum + Number(n || 0), 0)
+                        : 0;
+
+                    if (affectedRows === 0) {
+                        context.res = { status: 404, headers, body: { error: 'User not found' } };
+                    } else {
+                        context.res = { status: 200, headers, body: { message: 'User deleted' } };
+                    }
+                } catch (deleteErr) {
+                    if (Number(deleteErr?.number || 0) === 547) {
+                        context.res = {
+                            status: 409,
+                            headers,
+                            body: { error: 'Cannot delete user because related records exist. Use deactivation instead.' }
+                        };
+                    } else {
+                        throw deleteErr;
+                    }
+                }
+            }
         }
 
         await pool.close();
