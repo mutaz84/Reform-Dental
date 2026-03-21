@@ -167,7 +167,6 @@ module.exports = async function (context, req) {
                         }
                     }
                 };
-                await pool.close();
                 return;
             }
 
@@ -177,7 +176,6 @@ module.exports = async function (context, req) {
                     headers,
                     body: { error: 'Selected provider is inactive or missing.' }
                 };
-                await pool.close();
                 return;
             }
 
@@ -187,7 +185,6 @@ module.exports = async function (context, req) {
                     headers,
                     body: { error: 'Selected assistant is inactive or missing.' }
                 };
-                await pool.close();
                 return;
             }
 
@@ -332,9 +329,16 @@ module.exports = async function (context, req) {
             context.res = { status: 200, headers, body: { message: 'Schedule deleted' } };
         }
 
-        await pool.close();
     } catch (err) {
         context.log.error('Database error:', err);
-        context.res = { status: 500, headers, body: { error: err.message } };
+        context.res = {
+            status: 500,
+            headers,
+            body: {
+                error: err.message,
+                code: err.code || null,
+                name: err.name || null
+            }
+        };
     }
 };
