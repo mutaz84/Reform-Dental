@@ -119,7 +119,16 @@ function normalizeEmployeeStatus(value, fallbackValue = null) {
 }
 
 function normalizeRoleValue(value, fallbackValue = null) {
-    return normalizeConstrainedString(value, ['user', 'manager', 'admin'], fallbackValue);
+    const normalized = String(value || '').trim().toLowerCase();
+    const aliasMap = {
+        owner: 'admin',
+        administrator: 'admin',
+        superadmin: 'admin',
+        employee: 'user',
+        staff: 'user'
+    };
+    const canonical = aliasMap[normalized] || normalized;
+    return normalizeConstrainedString(canonical, ['user', 'manager', 'admin'], fallbackValue);
 }
 
 function hasOwn(obj, key) {

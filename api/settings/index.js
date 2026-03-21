@@ -1,7 +1,7 @@
 const sql = require('mssql');
 
 async function upsertSetting(pool, key, value, useMax = false) {
-    const inputType = useMax ? sql.NVarChar(sql.MAX) : sql.NVarChar;
+    const inputType = useMax ? sql.NVarChar(sql.MAX) : sql.NVarChar(4000);
     await pool.request()
         .input('key', sql.NVarChar, key)
         .input('value', inputType, value)
@@ -32,6 +32,45 @@ function getConfig() {
     return {};
 }
 
+function parseRequestBody(body) {
+    if (body == null) return {};
+    if (typeof body === 'string') {
+        try {
+            const parsed = JSON.parse(body);
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (_) {
+            return {};
+        }
+    }
+    return typeof body === 'object' ? body : {};
+}
+
+function parseSettingValue(value) {
+    if (typeof value !== 'string') return value;
+    const trimmed = value.trim();
+    if (!trimmed) return value;
+    if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) {
+        return value;
+    }
+    try {
+        return JSON.parse(trimmed);
+    } catch (_) {
+        return value;
+    }
+}
+
+function serializeSettingValue(value) {
+    if (value === undefined) return null;
+    if (value === null) return 'null';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return JSON.stringify(value);
+    try {
+        return JSON.stringify(value);
+    } catch (_) {
+        return null;
+    }
+}
+
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
@@ -45,8 +84,9 @@ module.exports = async function (context, req) {
         return;
     }
 
+    let pool;
     try {
-        const pool = await sql.connect(getConfig());
+        pool = await sql.connect(getConfig());
 
         if (req.method === 'GET') {
             // Get all settings
@@ -56,14 +96,23 @@ module.exports = async function (context, req) {
             // Convert to object format
             const settings = {};
             result.recordset.forEach(row => {
-                settings[row.SettingKey] = row.SettingValue;
+                settings[row.SettingKey] = parseSettingValue(row.SettingValue);
             });
             
             context.res = { status: 200, headers, body: settings };
             
         } else if (req.method === 'POST' || req.method === 'PUT') {
             // Save settings
-            const body = req.body;
+            const body = parseRequestBody(req.body);
+            const knownKeys = new Set([
+                'companyName',
+                'tagline',
+                'logoData',
+                'officePlanTitle',
+                'officePlanDescription',
+                'officePlanImageUrl',
+                'officePlanUploadDate'
+            ]);
             
             // Upsert each setting
             if (body.companyName !== undefined) {
@@ -92,13 +141,26 @@ module.exports = async function (context, req) {
             if (body.officePlanUploadDate !== undefined) {
                 await upsertSetting(pool, 'officePlanUploadDate', body.officePlanUploadDate);
             }
+
+            // Persist all additional settings keys to avoid silent drops for new features.
+            for (const [key, value] of Object.entries(body)) {
+                if (knownKeys.has(key)) continue;
+                const serialized = serializeSettingValue(value);
+                if (serialized === null) continue;
+                await upsertSetting(pool, key, serialized, serialized.length > 3500);
+            }
             
             context.res = { status: 200, headers, body: { message: 'Settings saved successfully' } };
         }
 
-        await pool.close();
     } catch (err) {
         context.log.error('Database error:', err);
         context.res = { status: 500, headers, body: { error: err.message } };
+    } finally {
+        if (pool) {
+            try {
+                await pool.close();
+            } catch (_) {}
+        }
     }
 };
