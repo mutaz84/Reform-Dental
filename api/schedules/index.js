@@ -39,6 +39,16 @@ module.exports = async function (context, req) {
             const parsed = Number.parseInt(String(value), 10);
             return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
         };
+        const parseDateOrNull = (value) => {
+            const text = String(value ?? '').trim();
+            if (!text) return null;
+            const parsed = new Date(text);
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+        };
+        const parseTextOrNull = (value) => {
+            const text = String(value ?? '').trim();
+            return text || null;
+        };
 
         const isActiveUserId = async (candidateUserId) => {
             const parsedId = parseIntOrNull(candidateUserId);
@@ -137,6 +147,19 @@ module.exports = async function (context, req) {
                 }
             }
 
+            if (!roomId && (body.roomName || body.room) && !clinicId) {
+                const targetRoom = normalizeName(body.roomName || body.room);
+                const roomResult = await pool.request()
+                    .query(`SELECT Id, Name
+                            FROM Rooms
+                            WHERE IsActive = 1`);
+
+                const matchedRoom = (roomResult.recordset || []).find((room) => normalizeName(room.Name) === targetRoom);
+                if (matchedRoom) {
+                    roomId = matchedRoom.Id;
+                }
+            }
+
             if (!assistantId && (body.assistantName || body.assistant)) {
                 const rawAssistantName = body.assistantName || body.assistant;
                 const targetAssistant = normalizeName(rawAssistantName);
@@ -161,22 +184,7 @@ module.exports = async function (context, req) {
                 assistantId = null;
             }
 
-            if (!userId || !clinicId) {
-                context.res = {
-                    status: 400,
-                    headers,
-                    body: {
-                        error: 'Missing required schedule fields',
-                        details: {
-                            userIdResolved: !!userId,
-                            clinicIdResolved: !!clinicId
-                        }
-                    }
-                };
-                return;
-            }
-
-            if (!(await isActiveUserId(userId))) {
+            if (userId && !(await isActiveUserId(userId))) {
                 context.res = {
                     status: 400,
                     headers,
@@ -199,13 +207,13 @@ module.exports = async function (context, req) {
                 .input('clinicId', sql.Int, clinicId)
                 .input('roomId', sql.Int, roomId || null)
                 .input('assistantId', sql.Int, assistantId || null)
-                .input('startDate', sql.Date, body.startDate)
-                .input('endDate', sql.Date, body.endDate || null)
-                .input('startTime', sql.VarChar, body.startTime)
-                .input('endTime', sql.VarChar, body.endTime)
-                .input('daysOfWeek', sql.NVarChar, body.daysOfWeek)
-                .input('color', sql.NVarChar, body.color)
-                .input('notes', sql.NVarChar, body.notes)
+                .input('startDate', sql.Date, parseDateOrNull(body.startDate))
+                .input('endDate', sql.Date, parseDateOrNull(body.endDate))
+                .input('startTime', sql.VarChar, parseTextOrNull(body.startTime))
+                .input('endTime', sql.VarChar, parseTextOrNull(body.endTime))
+                .input('daysOfWeek', sql.NVarChar, parseTextOrNull(body.daysOfWeek))
+                .input('color', sql.NVarChar, parseTextOrNull(body.color))
+                .input('notes', sql.NVarChar, parseTextOrNull(body.notes))
                 .query(`INSERT INTO Schedules (UserId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes) 
                         OUTPUT INSERTED.Id VALUES (@userId, @clinicId, @roomId, @assistantId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes)`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
@@ -255,6 +263,19 @@ module.exports = async function (context, req) {
                     .query(`SELECT Id, Name
                             FROM Rooms
                             WHERE IsActive = 1 AND ClinicId = @clinicId`);
+
+                const matchedRoom = (roomResult.recordset || []).find((room) => normalizeName(room.Name) === targetRoom);
+                if (matchedRoom) {
+                    roomId = matchedRoom.Id;
+                }
+            }
+
+            if (!roomId && (body.roomName || body.room) && !clinicId) {
+                const targetRoom = normalizeName(body.roomName || body.room);
+                const roomResult = await pool.request()
+                    .query(`SELECT Id, Name
+                            FROM Rooms
+                            WHERE IsActive = 1`);
 
                 const matchedRoom = (roomResult.recordset || []).find((room) => normalizeName(room.Name) === targetRoom);
                 if (matchedRoom) {
@@ -312,16 +333,16 @@ module.exports = async function (context, req) {
                 .input('clinicId', sql.Int, clinicId)
                 .input('roomId', sql.Int, roomId)
                 .input('assistantId', sql.Int, assistantId)
-                .input('startDate', sql.Date, body.startDate)
-                .input('endDate', sql.Date, body.endDate)
-                .input('startTime', sql.VarChar, body.startTime)
-                .input('endTime', sql.VarChar, body.endTime)
-                .input('daysOfWeek', sql.NVarChar, body.daysOfWeek)
-                .input('color', sql.NVarChar, body.color || null)
-                .input('notes', sql.NVarChar, body.notes)
+                .input('startDate', sql.Date, parseDateOrNull(body.startDate))
+                .input('endDate', sql.Date, parseDateOrNull(body.endDate))
+                .input('startTime', sql.VarChar, parseTextOrNull(body.startTime))
+                .input('endTime', sql.VarChar, parseTextOrNull(body.endTime))
+                .input('daysOfWeek', sql.NVarChar, parseTextOrNull(body.daysOfWeek))
+                .input('color', sql.NVarChar, parseTextOrNull(body.color))
+                .input('notes', sql.NVarChar, parseTextOrNull(body.notes))
                 .query(`UPDATE Schedules
-                        SET UserId = COALESCE(@userId, UserId),
-                            ClinicId = COALESCE(@clinicId, ClinicId),
+                        SET UserId = @userId,
+                            ClinicId = @clinicId,
                             RoomId = @roomId,
                             AssistantId = @assistantId,
                             StartDate=@startDate,
@@ -329,7 +350,7 @@ module.exports = async function (context, req) {
                             StartTime=@startTime,
                             EndTime=@endTime,
                             DaysOfWeek=@daysOfWeek,
-                            Color = COALESCE(@color, Color),
+                            Color = @color,
                             Notes=@notes,
                             ModifiedDate=GETUTCDATE()
                         WHERE Id=@id`);
