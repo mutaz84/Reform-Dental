@@ -66,79 +66,15 @@ module.exports = async function (context, req) {
             .replace(/\s+/g, ' ')
             .trim();
 
-        const ensureUnassignedUserId = async () => {
-            const existing = await pool.request().query(`
-                SELECT TOP 1 Id
-                FROM Users
-                WHERE ISNULL(IsActive, 1) = 1
-                  AND (
-                    LOWER(LTRIM(RTRIM(Username))) = 'schedule_unassigned'
-                    OR (LOWER(LTRIM(RTRIM(ISNULL(FirstName, '')))) = 'unassigned' AND LOWER(LTRIM(RTRIM(ISNULL(LastName, '')))) = 'schedule')
-                  )
-                ORDER BY Id
-            `);
-
-            const existingId = parseIntOrNull(existing.recordset?.[0]?.Id);
-            if (existingId) return existingId;
-
-            const created = await pool.request()
-                .input('username', sql.NVarChar(50), 'schedule_unassigned')
-                .input('passwordHash', sql.NVarChar(255), 'system-generated-no-login')
-                .input('firstName', sql.NVarChar(100), 'Unassigned')
-                .input('lastName', sql.NVarChar(100), 'Schedule')
-                .input('role', sql.NVarChar(50), 'user')
-                .query(`
-                    INSERT INTO Users (Username, PasswordHash, FirstName, LastName, Role, IsActive, IsOnline, FailedLoginAttempts, CreatedDate, ModifiedDate)
-                    OUTPUT INSERTED.Id
-                    VALUES (@username, @passwordHash, @firstName, @lastName, @role, 1, 0, 0, SYSUTCDATETIME(), SYSUTCDATETIME())
-                `);
-
-            return parseIntOrNull(created.recordset?.[0]?.Id);
-        };
-
-        const ensureFallbackClinicId = async () => {
-            const activeClinic = await pool.request().query(`
-                SELECT TOP 1 Id
-                FROM Clinics
-                WHERE ISNULL(IsActive, 1) = 1
-                ORDER BY Id
-            `);
-
-            const activeClinicId = parseIntOrNull(activeClinic.recordset?.[0]?.Id);
-            if (activeClinicId) return activeClinicId;
-
-            const existingFallback = await pool.request().query(`
-                SELECT TOP 1 Id
-                FROM Clinics
-                WHERE LOWER(LTRIM(RTRIM(Name))) = 'unassigned clinic'
-                ORDER BY Id
-            `);
-            const fallbackId = parseIntOrNull(existingFallback.recordset?.[0]?.Id);
-            if (fallbackId) return fallbackId;
-
-            const createdClinic = await pool.request()
-                .input('name', sql.NVarChar(200), 'Unassigned Clinic')
-                .query(`
-                    INSERT INTO Clinics (Name, IsActive, CreatedDate, ModifiedDate)
-                    OUTPUT INSERTED.Id
-                    VALUES (@name, 1, SYSUTCDATETIME(), SYSUTCDATETIME())
-                `);
-            return parseIntOrNull(createdClinic.recordset?.[0]?.Id);
-        };
-
-        const todayIsoDate = () => {
-            const now = new Date();
-            const y = now.getUTCFullYear();
-            const m = String(now.getUTCMonth() + 1).padStart(2, '0');
-            const d = String(now.getUTCDate()).padStart(2, '0');
-            return `${y}-${m}-${d}`;
+        const hasMinimumPersistableScheduleFields = ({ userId, clinicId, startDateValue, startTimeValue, endTimeValue }) => {
+            return !!(userId && clinicId && startDateValue && startTimeValue && endTimeValue);
         };
 
         if (req.method === 'GET') {
             if (id) {
                 const result = await pool.request()
                     .input('id', sql.Int, id)
-                    .query(`SELECT s.*, 
+                                        .query(`SELECT s.*, 
                                    u.FirstName + ' ' + u.LastName as EmployeeName,
                                    c.Name as ClinicName,
                                    r.Name as RoomName,
@@ -148,17 +84,30 @@ module.exports = async function (context, req) {
                             LEFT JOIN Clinics c ON s.ClinicId = c.Id
                             LEFT JOIN Rooms r ON s.RoomId = r.Id
                             LEFT JOIN Users au ON s.AssistantId = au.Id
-                            WHERE s.Id = @id AND s.IsActive = 1 AND ISNULL(u.IsActive, 1) = 1`);
+                                                        WHERE s.Id = @id
+                                                            AND s.IsActive = 1
+                                                            AND ISNULL(u.IsActive, 1) = 1
+                                                            AND LOWER(LTRIM(RTRIM(ISNULL(u.Username, '')))) <> 'schedule_unassigned'
+                                                            AND NOT (
+                                                                LOWER(LTRIM(RTRIM(ISNULL(u.FirstName, '')))) = 'unassigned'
+                                                                AND LOWER(LTRIM(RTRIM(ISNULL(u.LastName, '')))) = 'schedule'
+                                                            )`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 const result = await pool.request()
-                    .query(`SELECT s.*, u.FirstName + ' ' + u.LastName as EmployeeName, c.Name as ClinicName, r.Name as RoomName, au.FirstName + ' ' + au.LastName as AssistantName
+                                        .query(`SELECT s.*, u.FirstName + ' ' + u.LastName as EmployeeName, c.Name as ClinicName, r.Name as RoomName, au.FirstName + ' ' + au.LastName as AssistantName
                             FROM Schedules s 
                             LEFT JOIN Users u ON s.UserId = u.Id 
                             LEFT JOIN Clinics c ON s.ClinicId = c.Id 
                             LEFT JOIN Rooms r ON s.RoomId = r.Id 
                             LEFT JOIN Users au ON s.AssistantId = au.Id
-                            WHERE s.IsActive = 1 AND ISNULL(u.IsActive, 1) = 1 
+                                                        WHERE s.IsActive = 1
+                                                            AND ISNULL(u.IsActive, 1) = 1
+                                                            AND LOWER(LTRIM(RTRIM(ISNULL(u.Username, '')))) <> 'schedule_unassigned'
+                                                            AND NOT (
+                                                                LOWER(LTRIM(RTRIM(ISNULL(u.FirstName, '')))) = 'unassigned'
+                                                                AND LOWER(LTRIM(RTRIM(ISNULL(u.LastName, '')))) = 'schedule'
+                                                            )
                             ORDER BY s.StartDate, s.StartTime`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
@@ -252,17 +201,22 @@ module.exports = async function (context, req) {
                 assistantId = null;
             }
 
-            if (!userId) {
-                userId = await ensureUnassignedUserId();
-            }
-            if (!clinicId) {
-                clinicId = await ensureFallbackClinicId();
-            }
-
-            const startDateValue = parseDateOrNull(body.startDate) || parseDateOrNull(todayIsoDate());
+            const startDateValue = parseDateOrNull(body.startDate);
             const endDateValue = parseDateOrNull(body.endDate);
-            const startTimeValue = parseTextOrNull(body.startTime) || '08:00';
-            const endTimeValue = parseTextOrNull(body.endTime) || '16:00';
+            const startTimeValue = parseTextOrNull(body.startTime);
+            const endTimeValue = parseTextOrNull(body.endTime);
+
+            if (!hasMinimumPersistableScheduleFields({ userId, clinicId, startDateValue, startTimeValue, endTimeValue })) {
+                context.res = {
+                    status: 422,
+                    headers,
+                    body: {
+                        code: 'DRAFT_ONLY',
+                        message: 'Schedule is missing required fields for database persistence. Keep as local draft until Provider, Clinic, Date, Start Time, and End Time are set.'
+                    }
+                };
+                return;
+            }
 
             if (userId && !(await isActiveUserId(userId))) {
                 context.res = {
@@ -387,17 +341,23 @@ module.exports = async function (context, req) {
                 assistantId = null;
             }
 
-            if (!userId) {
-                userId = await ensureUnassignedUserId();
-            }
-            if (!clinicId) {
-                clinicId = await ensureFallbackClinicId();
-            }
-
-            const startDateValue = parseDateOrNull(body.startDate) || parseDateOrNull(todayIsoDate());
+            const startDateValue = parseDateOrNull(body.startDate);
             const endDateValue = parseDateOrNull(body.endDate);
-            const startTimeValue = parseTextOrNull(body.startTime) || '08:00';
-            const endTimeValue = parseTextOrNull(body.endTime) || '16:00';
+            const startTimeValue = parseTextOrNull(body.startTime);
+            const endTimeValue = parseTextOrNull(body.endTime);
+
+            if (!hasMinimumPersistableScheduleFields({ userId, clinicId, startDateValue, startTimeValue, endTimeValue })) {
+                context.res = {
+                    status: 422,
+                    headers,
+                    body: {
+                        code: 'DRAFT_ONLY',
+                        message: 'Schedule update is missing required fields for database persistence. Keep as local draft until Provider, Clinic, Date, Start Time, and End Time are set.'
+                    }
+                };
+                await pool.close();
+                return;
+            }
 
             if (userId && !(await isActiveUserId(userId))) {
                 context.res = {
