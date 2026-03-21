@@ -335,10 +335,30 @@ module.exports = async function (context, req) {
                         WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Schedule updated' } };
         } else if (req.method === 'DELETE' && id) {
-            await pool.request()
-                .input('id', sql.Int, id)
-                .query('UPDATE Schedules SET IsActive = 0 WHERE Id = @id');
-            context.res = { status: 200, headers, body: { message: 'Schedule deleted' } };
+            try {
+                const hardDelete = await pool.request()
+                    .input('id', sql.Int, id)
+                    .query('DELETE FROM Schedules WHERE Id = @id');
+
+                const affected = Number(hardDelete?.rowsAffected?.[0] || 0);
+                if (affected > 0) {
+                    context.res = { status: 200, headers, body: { message: 'Schedule deleted' } };
+                } else {
+                    context.res = { status: 404, headers, body: { error: 'Schedule not found' } };
+                }
+            } catch (deleteError) {
+                // If hard delete is blocked by FK constraints, fall back to soft delete.
+                const message = String(deleteError?.message || '').toLowerCase();
+                const fkConflict = message.includes('delete statement conflicted') || message.includes('reference constraint');
+                if (!fkConflict) {
+                    throw deleteError;
+                }
+
+                await pool.request()
+                    .input('id', sql.Int, id)
+                    .query('UPDATE Schedules SET IsActive = 0 WHERE Id = @id');
+                context.res = { status: 200, headers, body: { message: 'Schedule soft-deleted' } };
+            }
         }
 
     } catch (err) {
