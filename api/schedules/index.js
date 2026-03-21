@@ -35,10 +35,25 @@ module.exports = async function (context, req) {
     try {
         const pool = await sql.connect(getConfig());
         const id = req.params.id;
+
         const parseIntOrNull = (value) => {
             const parsed = Number.parseInt(String(value), 10);
             return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
         };
+
+        const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+
+        const parseOptionalIntField = (body, fieldName) => {
+            if (!hasOwn(body, fieldName)) return undefined;
+            return parseIntOrNull(body[fieldName]);
+        };
+
+        const normalizeName = (value) => String(value || '')
+            .toLowerCase()
+            .replace(/\b(dr|doctor|dds|dmd)\.?\s*/g, '')
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
 
         const isActiveUserId = async (candidateUserId) => {
             const parsedId = parseIntOrNull(candidateUserId);
@@ -49,166 +64,175 @@ module.exports = async function (context, req) {
             return !!(check.recordset && check.recordset[0] && check.recordset[0].Id);
         };
 
-        const normalizeName = (value) => String(value || '')
-            .toLowerCase()
-            .replace(/\b(dr|doctor|dds|dmd)\.?\s*/g, '')
-            .replace(/[^a-z0-9\s]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
+        const resolveActiveUserIdByName = async (rawName) => {
+            const target = normalizeName(rawName);
+            if (!target) return null;
+            const result = await pool.request().query(`
+                SELECT Id, Username, FirstName, LastName
+                FROM Users
+                WHERE ISNULL(IsActive, 1) = 1
+            `);
+            const matched = (result.recordset || []).find((user) => {
+                const fullName = `${user.FirstName || ''} ${user.LastName || ''}`.trim();
+                return normalizeName(fullName) === target || normalizeName(user.Username) === target;
+            });
+            return parseIntOrNull(matched?.Id);
+        };
+
+        const resolveClinicIdByName = async (rawClinicName) => {
+            const target = normalizeName(rawClinicName);
+            if (!target) return null;
+            const result = await pool.request().query(`
+                SELECT Id, Name
+                FROM Clinics
+                WHERE ISNULL(IsActive, 1) = 1
+            `);
+            const matched = (result.recordset || []).find((clinic) => normalizeName(clinic.Name) === target);
+            return parseIntOrNull(matched?.Id);
+        };
+
+        const resolveRoomIdByName = async (rawRoomName, clinicId) => {
+            const target = normalizeName(rawRoomName);
+            if (!target) return null;
+            const request = pool.request();
+            let query = `SELECT Id, Name FROM Rooms WHERE ISNULL(IsActive, 1) = 1`;
+            if (parseIntOrNull(clinicId)) {
+                request.input('clinicId', sql.Int, parseIntOrNull(clinicId));
+                query += ' AND ClinicId = @clinicId';
+            }
+            const result = await request.query(query);
+            const matched = (result.recordset || []).find((room) => normalizeName(room.Name) === target);
+            return parseIntOrNull(matched?.Id);
+        };
+
+        const schemaInfo = await pool.request().query(`
+            SELECT
+                CASE WHEN COL_LENGTH('Schedules', 'ProviderId') IS NULL THEN 0 ELSE 1 END AS HasProviderId,
+                CASE WHEN COL_LENGTH('Schedules', 'EmployeeId') IS NULL THEN 0 ELSE 1 END AS HasEmployeeId
+        `);
+        const hasProviderIdColumn = !!Number(schemaInfo.recordset?.[0]?.HasProviderId || 0);
+        const hasEmployeeIdColumn = !!Number(schemaInfo.recordset?.[0]?.HasEmployeeId || 0);
+        const hasProviderEmployeeColumns = hasProviderIdColumn && hasEmployeeIdColumn;
+
+        const baseGetSelect = hasProviderEmployeeColumns
+            ? `SELECT s.*,
+                      u.FirstName + ' ' + u.LastName as EmployeeName,
+                      c.Name as ClinicName,
+                      r.Name as RoomName,
+                      au.FirstName + ' ' + au.LastName as AssistantName,
+                      pu.FirstName + ' ' + pu.LastName as ProviderName,
+                      eu.FirstName + ' ' + eu.LastName as EmployeeOwnerName
+               FROM Schedules s
+               LEFT JOIN Users u ON s.UserId = u.Id
+               LEFT JOIN Users pu ON s.ProviderId = pu.Id
+               LEFT JOIN Users eu ON s.EmployeeId = eu.Id
+               LEFT JOIN Users au ON s.AssistantId = au.Id
+               LEFT JOIN Clinics c ON s.ClinicId = c.Id
+               LEFT JOIN Rooms r ON s.RoomId = r.Id`
+            : `SELECT s.*,
+                      u.FirstName + ' ' + u.LastName as EmployeeName,
+                      c.Name as ClinicName,
+                      r.Name as RoomName,
+                      au.FirstName + ' ' + au.LastName as AssistantName
+               FROM Schedules s
+               LEFT JOIN Users u ON s.UserId = u.Id
+               LEFT JOIN Users au ON s.AssistantId = au.Id
+               LEFT JOIN Clinics c ON s.ClinicId = c.Id
+               LEFT JOIN Rooms r ON s.RoomId = r.Id`;
+
+        const activeAndNotSyntheticWhere = `
+            s.IsActive = 1
+            AND ISNULL(u.IsActive, 1) = 1
+            AND LOWER(LTRIM(RTRIM(ISNULL(u.Username, '')))) <> 'schedule_unassigned'
+            AND NOT (
+                LOWER(LTRIM(RTRIM(ISNULL(u.FirstName, '')))) = 'unassigned'
+                AND LOWER(LTRIM(RTRIM(ISNULL(u.LastName, '')))) = 'schedule'
+            )`;
 
         if (req.method === 'GET') {
             if (id) {
                 const result = await pool.request()
                     .input('id', sql.Int, id)
-                                        .query(`SELECT s.*, 
-                                   u.FirstName + ' ' + u.LastName as EmployeeName,
-                                   c.Name as ClinicName,
-                                   r.Name as RoomName,
-                                   au.FirstName + ' ' + au.LastName as AssistantName
-                            FROM Schedules s
-                            LEFT JOIN Users u ON s.UserId = u.Id
-                            LEFT JOIN Clinics c ON s.ClinicId = c.Id
-                            LEFT JOIN Rooms r ON s.RoomId = r.Id
-                            LEFT JOIN Users au ON s.AssistantId = au.Id
-                                                        WHERE s.Id = @id
-                                                            AND s.IsActive = 1
-                                                            AND ISNULL(u.IsActive, 1) = 1
-                                                            AND LOWER(LTRIM(RTRIM(ISNULL(u.Username, '')))) <> 'schedule_unassigned'
-                                                            AND NOT (
-                                                                    LOWER(LTRIM(RTRIM(ISNULL(u.FirstName, '')))) = 'unassigned'
-                                                                    AND LOWER(LTRIM(RTRIM(ISNULL(u.LastName, '')))) = 'schedule'
-                                                            )`);
+                    .query(`${baseGetSelect} WHERE s.Id = @id AND ${activeAndNotSyntheticWhere}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 const result = await pool.request()
-                                        .query(`SELECT s.*, u.FirstName + ' ' + u.LastName as EmployeeName, c.Name as ClinicName, r.Name as RoomName, au.FirstName + ' ' + au.LastName as AssistantName
-                            FROM Schedules s 
-                            LEFT JOIN Users u ON s.UserId = u.Id 
-                            LEFT JOIN Clinics c ON s.ClinicId = c.Id 
-                            LEFT JOIN Rooms r ON s.RoomId = r.Id 
-                            LEFT JOIN Users au ON s.AssistantId = au.Id
-                                                        WHERE s.IsActive = 1
-                                                            AND ISNULL(u.IsActive, 1) = 1
-                                                            AND LOWER(LTRIM(RTRIM(ISNULL(u.Username, '')))) <> 'schedule_unassigned'
-                                                            AND NOT (
-                                                                    LOWER(LTRIM(RTRIM(ISNULL(u.FirstName, '')))) = 'unassigned'
-                                                                    AND LOWER(LTRIM(RTRIM(ISNULL(u.LastName, '')))) = 'schedule'
-                                                            )
-                            ORDER BY s.StartDate, s.StartTime`);
+                    .query(`${baseGetSelect} WHERE ${activeAndNotSyntheticWhere} ORDER BY s.StartDate, s.StartTime`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
-        } else if (req.method === 'POST') {
-            const body = req.body;
+            return;
+        }
 
-            let userId = parseIntOrNull(body.userId);
+        if (req.method === 'POST') {
+            const body = req.body || {};
+
+            let providerId = parseOptionalIntField(body, 'providerId');
+            let employeeId = parseOptionalIntField(body, 'employeeId');
+            let assistantId = parseOptionalIntField(body, 'assistantId');
+            let legacyUserId = parseOptionalIntField(body, 'userId');
+
+            if (providerId === undefined) providerId = null;
+            if (employeeId === undefined) employeeId = null;
+            if (assistantId === undefined) assistantId = null;
+            if (legacyUserId === undefined) legacyUserId = null;
+
+            if (!providerId) {
+                providerId = await resolveActiveUserIdByName(body.providerName || body.provider);
+            }
+            if (!employeeId) {
+                employeeId = await resolveActiveUserIdByName(body.employeeName || body.employee || body.userName || body.name);
+            }
+            if (!assistantId) {
+                assistantId = await resolveActiveUserIdByName(body.assistantName || body.assistant);
+            }
+            if (!legacyUserId) {
+                legacyUserId = await resolveActiveUserIdByName(body.userName || body.employeeName || body.name || body.employee || body.provider);
+            }
+
             let clinicId = parseIntOrNull(body.clinicId);
+            if (!clinicId) clinicId = await resolveClinicIdByName(body.clinicName || body.clinic);
+
             let roomId = parseIntOrNull(body.roomId);
-            let assistantId = parseIntOrNull(body.assistantId);
+            if (!roomId) roomId = await resolveRoomIdByName(body.roomName || body.room, clinicId);
 
-            if (!userId && (body.userName || body.employeeName || body.name || body.employee || body.provider)) {
-                const rawUserName = body.userName || body.employeeName || body.name || body.employee || body.provider;
-                const targetUser = normalizeName(rawUserName);
-                const userResult = await pool.request()
-                    .query(`SELECT Id, Username, FirstName, LastName
-                            FROM Users
-                            WHERE IsActive = 1`);
+            const ownerUserId = providerId || employeeId || legacyUserId || assistantId || null;
 
-                const matchedUser = (userResult.recordset || []).find((user) => {
-                    const fullName = `${user.FirstName || ''} ${user.LastName || ''}`.trim();
-                    return normalizeName(fullName) === targetUser || normalizeName(user.Username) === targetUser;
-                });
-
-                if (matchedUser) {
-                    userId = matchedUser.Id;
-                }
+            if (!clinicId) {
+                context.res = {
+                    status: 400,
+                    headers,
+                    body: { error: 'Missing required schedule fields', details: { clinicIdResolved: false } }
+                };
+                return;
             }
 
-            if (!clinicId && (body.clinicName || body.clinic)) {
-                const targetClinic = normalizeName(body.clinicName || body.clinic);
-                const clinicResult = await pool.request()
-                    .query(`SELECT Id, Name
-                            FROM Clinics
-                            WHERE IsActive = 1`);
-
-                const matchedClinic = (clinicResult.recordset || []).find((clinic) => normalizeName(clinic.Name) === targetClinic);
-                if (matchedClinic) {
-                    clinicId = matchedClinic.Id;
-                }
-            }
-
-            if (!roomId && (body.roomName || body.room) && clinicId) {
-                const targetRoom = normalizeName(body.roomName || body.room);
-                const roomResult = await pool.request()
-                    .input('clinicId', sql.Int, clinicId)
-                    .query(`SELECT Id, Name
-                            FROM Rooms
-                            WHERE IsActive = 1 AND ClinicId = @clinicId`);
-
-                const matchedRoom = (roomResult.recordset || []).find((room) => normalizeName(room.Name) === targetRoom);
-                if (matchedRoom) {
-                    roomId = matchedRoom.Id;
-                }
-            }
-
-            if (!assistantId && (body.assistantName || body.assistant)) {
-                const rawAssistantName = body.assistantName || body.assistant;
-                const targetAssistant = normalizeName(rawAssistantName);
-                const assistantResult = await pool.request()
-                    .query(`SELECT Id, Username, FirstName, LastName
-                            FROM Users
-                            WHERE IsActive = 1`);
-
-                const matchedAssistant = (assistantResult.recordset || []).find((user) => {
-                    const fullName = `${user.FirstName || ''} ${user.LastName || ''}`.trim();
-                    return normalizeName(fullName) === targetAssistant || normalizeName(user.Username) === targetAssistant;
-                });
-
-                if (matchedAssistant) {
-                    assistantId = matchedAssistant.Id;
-                }
-            }
-
-            // Assistant-only shift support: store assistant as primary schedule owner.
-            if (!userId && assistantId) {
-                userId = assistantId;
-                assistantId = null;
-            }
-
-            if (!userId || !clinicId) {
+            if (!hasProviderEmployeeColumns && !ownerUserId) {
                 context.res = {
                     status: 400,
                     headers,
                     body: {
-                        error: 'Missing required schedule fields',
+                        error: 'Missing required schedule owner fields',
                         details: {
-                            userIdResolved: !!userId,
-                            clinicIdResolved: !!clinicId
+                            message: 'Apply DB migration to support optional providerId/employeeId/assistantId or provide userId/provider/employee.'
                         }
                     }
                 };
                 return;
             }
 
-            if (!(await isActiveUserId(userId))) {
-                context.res = {
-                    status: 400,
-                    headers,
-                    body: { error: 'Selected provider is inactive or missing.' }
-                };
-                return;
+            for (const candidate of [providerId, employeeId, assistantId, ownerUserId]) {
+                if (candidate && !(await isActiveUserId(candidate))) {
+                    context.res = {
+                        status: 400,
+                        headers,
+                        body: { error: 'One or more selected users are inactive or missing.' }
+                    };
+                    return;
+                }
             }
 
-            if (assistantId && !(await isActiveUserId(assistantId))) {
-                context.res = {
-                    status: 400,
-                    headers,
-                    body: { error: 'Selected assistant is inactive or missing.' }
-                };
-                return;
-            }
-
-            const result = await pool.request()
-                .input('userId', sql.Int, userId)
+            const request = pool.request()
+                .input('userId', sql.Int, ownerUserId)
                 .input('clinicId', sql.Int, clinicId)
                 .input('roomId', sql.Int, roomId || null)
                 .input('assistantId', sql.Int, assistantId || null)
@@ -218,110 +242,66 @@ module.exports = async function (context, req) {
                 .input('endTime', sql.VarChar, body.endTime)
                 .input('daysOfWeek', sql.NVarChar, body.daysOfWeek)
                 .input('color', sql.NVarChar, body.color)
-                .input('notes', sql.NVarChar, body.notes)
-                .query(`INSERT INTO Schedules (UserId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes) 
-                        OUTPUT INSERTED.Id VALUES (@userId, @clinicId, @roomId, @assistantId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes)`);
+                .input('notes', sql.NVarChar, body.notes);
+
+            let insertSql = `INSERT INTO Schedules (UserId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes)
+                             OUTPUT INSERTED.Id
+                             VALUES (@userId, @clinicId, @roomId, @assistantId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes)`;
+
+            if (hasProviderEmployeeColumns) {
+                request
+                    .input('providerId', sql.Int, providerId || null)
+                    .input('employeeId', sql.Int, employeeId || null);
+                insertSql = `INSERT INTO Schedules (UserId, ProviderId, EmployeeId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes)
+                             OUTPUT INSERTED.Id
+                             VALUES (@userId, @providerId, @employeeId, @clinicId, @roomId, @assistantId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes)`;
+            }
+
+            const result = await request.query(insertSql);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
-        } else if (req.method === 'PUT' && id) {
-            const body = req.body;
+            return;
+        }
 
-            let userId = parseIntOrNull(body.userId);
+        if (req.method === 'PUT' && id) {
+            const body = req.body || {};
+
+            let providerId = parseOptionalIntField(body, 'providerId');
+            let employeeId = parseOptionalIntField(body, 'employeeId');
+            let assistantId = parseOptionalIntField(body, 'assistantId');
+            let legacyUserId = parseOptionalIntField(body, 'userId');
+
+            if (providerId === undefined) providerId = null;
+            if (employeeId === undefined) employeeId = null;
+            if (assistantId === undefined) assistantId = null;
+            if (legacyUserId === undefined) legacyUserId = null;
+
+            if (!providerId) providerId = await resolveActiveUserIdByName(body.providerName || body.provider);
+            if (!employeeId) employeeId = await resolveActiveUserIdByName(body.employeeName || body.employee || body.userName || body.name);
+            if (!assistantId) assistantId = await resolveActiveUserIdByName(body.assistantName || body.assistant);
+            if (!legacyUserId) legacyUserId = await resolveActiveUserIdByName(body.userName || body.employeeName || body.name || body.employee || body.provider);
+
             let clinicId = parseIntOrNull(body.clinicId);
+            if (!clinicId && (body.clinicName || body.clinic)) clinicId = await resolveClinicIdByName(body.clinicName || body.clinic);
+
             let roomId = parseIntOrNull(body.roomId);
-            let assistantId = parseIntOrNull(body.assistantId);
+            if (!roomId && (body.roomName || body.room)) roomId = await resolveRoomIdByName(body.roomName || body.room, clinicId);
 
-            if (!userId && (body.userName || body.employeeName || body.name || body.employee || body.provider)) {
-                const rawUserName = body.userName || body.employeeName || body.name || body.employee || body.provider;
-                const targetUser = normalizeName(rawUserName);
-                const userResult = await pool.request()
-                    .query(`SELECT Id, Username, FirstName, LastName
-                            FROM Users
-                            WHERE IsActive = 1`);
+            const ownerUserId = providerId || employeeId || legacyUserId || assistantId || null;
 
-                const matchedUser = (userResult.recordset || []).find((user) => {
-                    const fullName = `${user.FirstName || ''} ${user.LastName || ''}`.trim();
-                    return normalizeName(fullName) === targetUser || normalizeName(user.Username) === targetUser;
-                });
-
-                if (matchedUser) {
-                    userId = matchedUser.Id;
+            for (const candidate of [providerId, employeeId, assistantId, ownerUserId]) {
+                if (candidate && !(await isActiveUserId(candidate))) {
+                    context.res = {
+                        status: 400,
+                        headers,
+                        body: { error: 'One or more selected users are inactive or missing.' }
+                    };
+                    return;
                 }
             }
 
-            if (!clinicId && (body.clinicName || body.clinic)) {
-                const targetClinic = normalizeName(body.clinicName || body.clinic);
-                const clinicResult = await pool.request()
-                    .query(`SELECT Id, Name
-                            FROM Clinics
-                            WHERE IsActive = 1`);
-
-                const matchedClinic = (clinicResult.recordset || []).find((clinic) => normalizeName(clinic.Name) === targetClinic);
-                if (matchedClinic) {
-                    clinicId = matchedClinic.Id;
-                }
-            }
-
-            if (!roomId && (body.roomName || body.room) && clinicId) {
-                const targetRoom = normalizeName(body.roomName || body.room);
-                const roomResult = await pool.request()
-                    .input('clinicId', sql.Int, clinicId)
-                    .query(`SELECT Id, Name
-                            FROM Rooms
-                            WHERE IsActive = 1 AND ClinicId = @clinicId`);
-
-                const matchedRoom = (roomResult.recordset || []).find((room) => normalizeName(room.Name) === targetRoom);
-                if (matchedRoom) {
-                    roomId = matchedRoom.Id;
-                }
-            }
-
-            if (!assistantId && (body.assistantName || body.assistant)) {
-                const rawAssistantName = body.assistantName || body.assistant;
-                const targetAssistant = normalizeName(rawAssistantName);
-                const assistantResult = await pool.request()
-                    .query(`SELECT Id, Username, FirstName, LastName
-                            FROM Users
-                            WHERE IsActive = 1`);
-
-                const matchedAssistant = (assistantResult.recordset || []).find((user) => {
-                    const fullName = `${user.FirstName || ''} ${user.LastName || ''}`.trim();
-                    return normalizeName(fullName) === targetAssistant || normalizeName(user.Username) === targetAssistant;
-                });
-
-                if (matchedAssistant) {
-                    assistantId = matchedAssistant.Id;
-                }
-            }
-
-            // Assistant-only shift support for updates as well.
-            if (!userId && assistantId) {
-                userId = assistantId;
-                assistantId = null;
-            }
-
-            if (userId && !(await isActiveUserId(userId))) {
-                context.res = {
-                    status: 400,
-                    headers,
-                    body: { error: 'Selected provider is inactive or missing.' }
-                };
-                await pool.close();
-                return;
-            }
-
-            if (assistantId && !(await isActiveUserId(assistantId))) {
-                context.res = {
-                    status: 400,
-                    headers,
-                    body: { error: 'Selected assistant is inactive or missing.' }
-                };
-                await pool.close();
-                return;
-            }
-
-            await pool.request()
+            const request = pool.request()
                 .input('id', sql.Int, id)
-                .input('userId', sql.Int, userId)
+                .input('userId', sql.Int, ownerUserId)
                 .input('clinicId', sql.Int, clinicId)
                 .input('roomId', sql.Int, roomId)
                 .input('assistantId', sql.Int, assistantId)
@@ -331,23 +311,51 @@ module.exports = async function (context, req) {
                 .input('endTime', sql.VarChar, body.endTime)
                 .input('daysOfWeek', sql.NVarChar, body.daysOfWeek)
                 .input('color', sql.NVarChar, body.color || null)
-                .input('notes', sql.NVarChar, body.notes)
-                .query(`UPDATE Schedules
-                        SET UserId = COALESCE(@userId, UserId),
-                            ClinicId = COALESCE(@clinicId, ClinicId),
-                            RoomId = @roomId,
-                            AssistantId = @assistantId,
-                            StartDate=@startDate,
-                            EndDate=@endDate,
-                            StartTime=@startTime,
-                            EndTime=@endTime,
-                            DaysOfWeek=@daysOfWeek,
-                            Color = COALESCE(@color, Color),
-                            Notes=@notes,
-                            ModifiedDate=GETUTCDATE()
-                        WHERE Id=@id`);
+                .input('notes', sql.NVarChar, body.notes);
+
+            let updateSql = `UPDATE Schedules
+                             SET UserId = @userId,
+                                 ClinicId = COALESCE(@clinicId, ClinicId),
+                                 RoomId = @roomId,
+                                 AssistantId = @assistantId,
+                                 StartDate = @startDate,
+                                 EndDate = @endDate,
+                                 StartTime = @startTime,
+                                 EndTime = @endTime,
+                                 DaysOfWeek = @daysOfWeek,
+                                 Color = COALESCE(@color, Color),
+                                 Notes = @notes,
+                                 ModifiedDate = GETUTCDATE()
+                             WHERE Id = @id`;
+
+            if (hasProviderEmployeeColumns) {
+                request
+                    .input('providerId', sql.Int, providerId)
+                    .input('employeeId', sql.Int, employeeId);
+                updateSql = `UPDATE Schedules
+                             SET UserId = @userId,
+                                 ProviderId = @providerId,
+                                 EmployeeId = @employeeId,
+                                 ClinicId = COALESCE(@clinicId, ClinicId),
+                                 RoomId = @roomId,
+                                 AssistantId = @assistantId,
+                                 StartDate = @startDate,
+                                 EndDate = @endDate,
+                                 StartTime = @startTime,
+                                 EndTime = @endTime,
+                                 DaysOfWeek = @daysOfWeek,
+                                 Color = COALESCE(@color, Color),
+                                 Notes = @notes,
+                                 ModifiedDate = GETUTCDATE()
+                             WHERE Id = @id`;
+            }
+
+            await request.query(updateSql);
             context.res = { status: 200, headers, body: { message: 'Schedule updated' } };
-        } else if (req.method === 'DELETE' && id) {
+            return;
+        }
+
+        if (req.method === 'DELETE' && id) {
             try {
                 const hardDelete = await pool.request()
                     .input('id', sql.Int, id)
@@ -360,18 +368,16 @@ module.exports = async function (context, req) {
                     context.res = { status: 404, headers, body: { error: 'Schedule not found' } };
                 }
             } catch (deleteError) {
-                // If hard delete is blocked by FK constraints, fall back to soft delete.
                 const message = String(deleteError?.message || '').toLowerCase();
                 const fkConflict = message.includes('delete statement conflicted') || message.includes('reference constraint');
-                if (!fkConflict) {
-                    throw deleteError;
-                }
+                if (!fkConflict) throw deleteError;
 
                 await pool.request()
                     .input('id', sql.Int, id)
                     .query('UPDATE Schedules SET IsActive = 0 WHERE Id = @id');
                 context.res = { status: 200, headers, body: { message: 'Schedule soft-deleted' } };
             }
+            return;
         }
 
     } catch (err) {
