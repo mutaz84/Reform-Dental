@@ -66,74 +66,6 @@ module.exports = async function (context, req) {
             .replace(/\s+/g, ' ')
             .trim();
 
-        const ensureUnassignedUserId = async () => {
-            const existing = await pool.request().query(`
-                SELECT TOP 1 Id
-                FROM Users
-                WHERE ISNULL(IsActive, 1) = 1
-                  AND (
-                    LOWER(LTRIM(RTRIM(Username))) = 'schedule_unassigned'
-                    OR (LOWER(LTRIM(RTRIM(ISNULL(FirstName, '')))) = 'unassigned' AND LOWER(LTRIM(RTRIM(ISNULL(LastName, '')))) = 'schedule')
-                  )
-                ORDER BY Id
-            `);
-
-            const existingId = parseIntOrNull(existing.recordset?.[0]?.Id);
-            if (existingId) return existingId;
-
-            const created = await pool.request()
-                .input('username', sql.NVarChar(50), 'schedule_unassigned')
-                .input('passwordHash', sql.NVarChar(255), 'system-generated-no-login')
-                .input('firstName', sql.NVarChar(100), 'Unassigned')
-                .input('lastName', sql.NVarChar(100), 'Schedule')
-                .input('role', sql.NVarChar(50), 'user')
-                .query(`
-                    INSERT INTO Users (Username, PasswordHash, FirstName, LastName, Role, IsActive, IsOnline, FailedLoginAttempts, CreatedDate, ModifiedDate)
-                    OUTPUT INSERTED.Id
-                    VALUES (@username, @passwordHash, @firstName, @lastName, @role, 1, 0, 0, SYSUTCDATETIME(), SYSUTCDATETIME())
-                `);
-
-            return parseIntOrNull(created.recordset?.[0]?.Id);
-        };
-
-        const ensureFallbackClinicId = async () => {
-            const activeClinic = await pool.request().query(`
-                SELECT TOP 1 Id
-                FROM Clinics
-                WHERE ISNULL(IsActive, 1) = 1
-                ORDER BY Id
-            `);
-
-            const activeClinicId = parseIntOrNull(activeClinic.recordset?.[0]?.Id);
-            if (activeClinicId) return activeClinicId;
-
-            const existingFallback = await pool.request().query(`
-                SELECT TOP 1 Id
-                FROM Clinics
-                WHERE LOWER(LTRIM(RTRIM(Name))) = 'unassigned clinic'
-                ORDER BY Id
-            `);
-            const fallbackId = parseIntOrNull(existingFallback.recordset?.[0]?.Id);
-            if (fallbackId) return fallbackId;
-
-            const createdClinic = await pool.request()
-                .input('name', sql.NVarChar(200), 'Unassigned Clinic')
-                .query(`
-                    INSERT INTO Clinics (Name, IsActive, CreatedDate, ModifiedDate)
-                    OUTPUT INSERTED.Id
-                    VALUES (@name, 1, SYSUTCDATETIME(), SYSUTCDATETIME())
-                `);
-            return parseIntOrNull(createdClinic.recordset?.[0]?.Id);
-        };
-
-        const todayIsoDate = () => {
-            const now = new Date();
-            const y = now.getUTCFullYear();
-            const m = String(now.getUTCMonth() + 1).padStart(2, '0');
-            const d = String(now.getUTCDate()).padStart(2, '0');
-            return `${y}-${m}-${d}`;
-        };
-
         if (req.method === 'GET') {
             if (id) {
                 const result = await pool.request()
@@ -252,18 +184,6 @@ module.exports = async function (context, req) {
                 assistantId = null;
             }
 
-            if (!userId) {
-                userId = await ensureUnassignedUserId();
-            }
-            if (!clinicId) {
-                clinicId = await ensureFallbackClinicId();
-            }
-
-            const startDateValue = parseDateOrNull(body.startDate) || parseDateOrNull(todayIsoDate());
-            const endDateValue = parseDateOrNull(body.endDate);
-            const startTimeValue = parseTextOrNull(body.startTime) || '08:00';
-            const endTimeValue = parseTextOrNull(body.endTime) || '16:00';
-
             if (userId && !(await isActiveUserId(userId))) {
                 context.res = {
                     status: 400,
@@ -287,10 +207,10 @@ module.exports = async function (context, req) {
                 .input('clinicId', sql.Int, clinicId)
                 .input('roomId', sql.Int, roomId || null)
                 .input('assistantId', sql.Int, assistantId || null)
-                .input('startDate', sql.Date, startDateValue)
-                .input('endDate', sql.Date, endDateValue)
-                .input('startTime', sql.VarChar, startTimeValue)
-                .input('endTime', sql.VarChar, endTimeValue)
+                .input('startDate', sql.Date, parseDateOrNull(body.startDate))
+                .input('endDate', sql.Date, parseDateOrNull(body.endDate))
+                .input('startTime', sql.VarChar, parseTextOrNull(body.startTime))
+                .input('endTime', sql.VarChar, parseTextOrNull(body.endTime))
                 .input('daysOfWeek', sql.NVarChar, parseTextOrNull(body.daysOfWeek))
                 .input('color', sql.NVarChar, parseTextOrNull(body.color))
                 .input('notes', sql.NVarChar, parseTextOrNull(body.notes))
@@ -387,18 +307,6 @@ module.exports = async function (context, req) {
                 assistantId = null;
             }
 
-            if (!userId) {
-                userId = await ensureUnassignedUserId();
-            }
-            if (!clinicId) {
-                clinicId = await ensureFallbackClinicId();
-            }
-
-            const startDateValue = parseDateOrNull(body.startDate) || parseDateOrNull(todayIsoDate());
-            const endDateValue = parseDateOrNull(body.endDate);
-            const startTimeValue = parseTextOrNull(body.startTime) || '08:00';
-            const endTimeValue = parseTextOrNull(body.endTime) || '16:00';
-
             if (userId && !(await isActiveUserId(userId))) {
                 context.res = {
                     status: 400,
@@ -425,10 +333,10 @@ module.exports = async function (context, req) {
                 .input('clinicId', sql.Int, clinicId)
                 .input('roomId', sql.Int, roomId)
                 .input('assistantId', sql.Int, assistantId)
-                .input('startDate', sql.Date, startDateValue)
-                .input('endDate', sql.Date, endDateValue)
-                .input('startTime', sql.VarChar, startTimeValue)
-                .input('endTime', sql.VarChar, endTimeValue)
+                .input('startDate', sql.Date, parseDateOrNull(body.startDate))
+                .input('endDate', sql.Date, parseDateOrNull(body.endDate))
+                .input('startTime', sql.VarChar, parseTextOrNull(body.startTime))
+                .input('endTime', sql.VarChar, parseTextOrNull(body.endTime))
                 .input('daysOfWeek', sql.NVarChar, parseTextOrNull(body.daysOfWeek))
                 .input('color', sql.NVarChar, parseTextOrNull(body.color))
                 .input('notes', sql.NVarChar, parseTextOrNull(body.notes))
