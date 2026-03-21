@@ -60,7 +60,7 @@ module.exports = async function (context, req) {
             if (id) {
                 const result = await pool.request()
                     .input('id', sql.Int, id)
-                    .query(`SELECT s.*, 
+                                        .query(`SELECT s.*, 
                                    u.FirstName + ' ' + u.LastName as EmployeeName,
                                    c.Name as ClinicName,
                                    r.Name as RoomName,
@@ -70,17 +70,30 @@ module.exports = async function (context, req) {
                             LEFT JOIN Clinics c ON s.ClinicId = c.Id
                             LEFT JOIN Rooms r ON s.RoomId = r.Id
                             LEFT JOIN Users au ON s.AssistantId = au.Id
-                            WHERE s.Id = @id AND s.IsActive = 1 AND ISNULL(u.IsActive, 1) = 1`);
+                                                        WHERE s.Id = @id
+                                                            AND s.IsActive = 1
+                                                            AND ISNULL(u.IsActive, 1) = 1
+                                                            AND LOWER(LTRIM(RTRIM(ISNULL(u.Username, '')))) <> 'schedule_unassigned'
+                                                            AND NOT (
+                                                                    LOWER(LTRIM(RTRIM(ISNULL(u.FirstName, '')))) = 'unassigned'
+                                                                    AND LOWER(LTRIM(RTRIM(ISNULL(u.LastName, '')))) = 'schedule'
+                                                            )`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 const result = await pool.request()
-                    .query(`SELECT s.*, u.FirstName + ' ' + u.LastName as EmployeeName, c.Name as ClinicName, r.Name as RoomName, au.FirstName + ' ' + au.LastName as AssistantName
+                                        .query(`SELECT s.*, u.FirstName + ' ' + u.LastName as EmployeeName, c.Name as ClinicName, r.Name as RoomName, au.FirstName + ' ' + au.LastName as AssistantName
                             FROM Schedules s 
                             LEFT JOIN Users u ON s.UserId = u.Id 
                             LEFT JOIN Clinics c ON s.ClinicId = c.Id 
                             LEFT JOIN Rooms r ON s.RoomId = r.Id 
                             LEFT JOIN Users au ON s.AssistantId = au.Id
-                            WHERE s.IsActive = 1 AND ISNULL(u.IsActive, 1) = 1 
+                                                        WHERE s.IsActive = 1
+                                                            AND ISNULL(u.IsActive, 1) = 1
+                                                            AND LOWER(LTRIM(RTRIM(ISNULL(u.Username, '')))) <> 'schedule_unassigned'
+                                                            AND NOT (
+                                                                    LOWER(LTRIM(RTRIM(ISNULL(u.FirstName, '')))) = 'unassigned'
+                                                                    AND LOWER(LTRIM(RTRIM(ISNULL(u.LastName, '')))) = 'schedule'
+                                                            )
                             ORDER BY s.StartDate, s.StartTime`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
