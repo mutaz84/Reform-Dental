@@ -155,6 +155,12 @@ module.exports = async function (context, req) {
                 }
             }
 
+            // Assistant-only shift support: store assistant as primary schedule owner.
+            if (!userId && assistantId) {
+                userId = assistantId;
+                assistantId = null;
+            }
+
             if (!userId || !clinicId) {
                 context.res = {
                     status: 400,
@@ -272,6 +278,12 @@ module.exports = async function (context, req) {
                 if (matchedAssistant) {
                     assistantId = matchedAssistant.Id;
                 }
+            }
+
+            // Assistant-only shift support for updates as well.
+            if (!userId && assistantId) {
+                userId = assistantId;
+                assistantId = null;
             }
 
             if (userId && !(await isActiveUserId(userId))) {
