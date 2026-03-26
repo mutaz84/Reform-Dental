@@ -151,6 +151,32 @@ app.http('updateSchedule', {
         
         try {
             const body = await request.json();
+
+            if (body.dateOnlyUpdate === true || String(body.updateMode || '').toLowerCase() === 'date-only') {
+                const startDate = String(body.startDate || body.targetDate || '').trim();
+                const endDate = String(body.endDate || body.targetDate || body.startDate || '').trim() || startDate;
+                const daysOfWeek = String(body.daysOfWeek || body.targetDay || '').trim();
+
+                if (!startDate) {
+                    return errorResponse('Missing required date field for date-only update', 400);
+                }
+
+                await execute(`
+                    UPDATE Schedules SET
+                        StartDate = @startDate,
+                        EndDate = @endDate,
+                        DaysOfWeek = COALESCE(@daysOfWeek, DaysOfWeek),
+                        ModifiedDate = GETUTCDATE()
+                    WHERE Id = @id
+                `, {
+                    id,
+                    startDate,
+                    endDate,
+                    daysOfWeek: daysOfWeek || null
+                });
+
+                return successResponse({ message: 'Schedule date updated successfully' });
+            }
             
             await execute(`
                 UPDATE Schedules SET

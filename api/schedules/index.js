@@ -265,6 +265,36 @@ module.exports = async function (context, req) {
         if (req.method === 'PUT' && id) {
             const body = req.body || {};
 
+            if (body.dateOnlyUpdate === true || String(body.updateMode || '').toLowerCase() === 'date-only') {
+                const startDate = String(body.startDate || body.targetDate || '').trim();
+                const endDate = String(body.endDate || body.targetDate || body.startDate || '').trim() || startDate;
+                const daysOfWeek = String(body.daysOfWeek || body.targetDay || '').trim();
+
+                if (!startDate) {
+                    context.res = {
+                        status: 400,
+                        headers,
+                        body: { error: 'Missing required date field for date-only update.' }
+                    };
+                    return;
+                }
+
+                await pool.request()
+                    .input('id', sql.Int, id)
+                    .input('startDate', sql.Date, startDate)
+                    .input('endDate', sql.Date, endDate)
+                    .input('daysOfWeek', sql.NVarChar, daysOfWeek || null)
+                    .query(`UPDATE Schedules
+                            SET StartDate = @startDate,
+                                EndDate = @endDate,
+                                DaysOfWeek = COALESCE(@daysOfWeek, DaysOfWeek),
+                                ModifiedDate = GETUTCDATE()
+                            WHERE Id = @id`);
+
+                context.res = { status: 200, headers, body: { message: 'Schedule date updated' } };
+                return;
+            }
+
             let providerId = parseOptionalIntField(body, 'providerId');
             let employeeId = parseOptionalIntField(body, 'employeeId');
             let assistantId = parseOptionalIntField(body, 'assistantId');
