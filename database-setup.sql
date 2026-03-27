@@ -137,8 +137,13 @@ BEGIN
     CREATE TABLE Schedules (
         Id INT IDENTITY(1,1) PRIMARY KEY,
         UserId INT,
+        ProviderId INT,
+        EmployeeId INT,
         ClinicId INT,
         RoomId INT,
+        AssistantId INT,
+        ShiftBuilderShiftId INT NULL,
+        ShiftBuilderEmployeeRowId INT NULL,
         StartDate DATE NOT NULL,
         EndDate DATE,
         StartTime VARCHAR(10),
@@ -150,9 +155,19 @@ BEGIN
         CreatedDate DATETIME DEFAULT GETUTCDATE(),
         ModifiedDate DATETIME,
         FOREIGN KEY (UserId) REFERENCES Users(Id),
+        FOREIGN KEY (ProviderId) REFERENCES Users(Id),
+        FOREIGN KEY (EmployeeId) REFERENCES Users(Id),
+        FOREIGN KEY (AssistantId) REFERENCES Users(Id),
         FOREIGN KEY (ClinicId) REFERENCES Clinics(Id),
         FOREIGN KEY (RoomId) REFERENCES Rooms(Id)
     );
+    CREATE INDEX IX_Schedules_UserId ON Schedules(UserId);
+    CREATE INDEX IX_Schedules_ProviderId ON Schedules(ProviderId);
+    CREATE INDEX IX_Schedules_EmployeeId ON Schedules(EmployeeId);
+    CREATE INDEX IX_Schedules_ShiftBuilderShiftId ON Schedules(ShiftBuilderShiftId);
+    CREATE INDEX IX_Schedules_ShiftBuilderEmployeeRowId ON Schedules(ShiftBuilderEmployeeRowId);
+    CREATE INDEX IX_Schedules_ClinicId ON Schedules(ClinicId);
+    CREATE INDEX IX_Schedules_StartDate ON Schedules(StartDate);
     PRINT 'Created Schedules table';
 END
 ELSE
@@ -713,6 +728,43 @@ BEGIN
 END
 ELSE
     PRINT 'ShiftBuilderRowItems table already exists';
+GO
+
+-- =============================================
+-- 20.5 SCHEDULES -> SHIFT BUILDER LINK FKs
+-- =============================================
+IF EXISTS (SELECT * FROM sysobjects WHERE name='Schedules' AND xtype='U')
+   AND EXISTS (SELECT * FROM sysobjects WHERE name='ShiftBuilderShifts' AND xtype='U')
+   AND EXISTS (SELECT * FROM sysobjects WHERE name='ShiftBuilderEmployeeRows' AND xtype='U')
+BEGIN
+    IF COL_LENGTH('Schedules', 'ShiftBuilderShiftId') IS NULL
+        ALTER TABLE Schedules ADD ShiftBuilderShiftId INT NULL;
+
+    IF COL_LENGTH('Schedules', 'ShiftBuilderEmployeeRowId') IS NULL
+        ALTER TABLE Schedules ADD ShiftBuilderEmployeeRowId INT NULL;
+
+    IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_Schedules_ShiftBuilderShiftId')
+    BEGIN
+        ALTER TABLE Schedules WITH NOCHECK
+        ADD CONSTRAINT FK_Schedules_ShiftBuilderShiftId
+        FOREIGN KEY (ShiftBuilderShiftId) REFERENCES ShiftBuilderShifts(Id);
+    END
+
+    IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_Schedules_ShiftBuilderEmployeeRowId')
+    BEGIN
+        ALTER TABLE Schedules WITH NOCHECK
+        ADD CONSTRAINT FK_Schedules_ShiftBuilderEmployeeRowId
+        FOREIGN KEY (ShiftBuilderEmployeeRowId) REFERENCES ShiftBuilderEmployeeRows(Id);
+    END
+
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Schedules_ShiftBuilderShiftId' AND object_id = OBJECT_ID('Schedules'))
+        CREATE INDEX IX_Schedules_ShiftBuilderShiftId ON Schedules(ShiftBuilderShiftId);
+
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Schedules_ShiftBuilderEmployeeRowId' AND object_id = OBJECT_ID('Schedules'))
+        CREATE INDEX IX_Schedules_ShiftBuilderEmployeeRowId ON Schedules(ShiftBuilderEmployeeRowId);
+
+    PRINT 'Schedules shift-builder link constraints ensured';
+END
 GO
 
 -- =============================================

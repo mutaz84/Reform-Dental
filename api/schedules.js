@@ -18,7 +18,8 @@ app.http('getSchedules', {
             const endDate = request.query.get('endDate');
             
             let query = `
-                SELECT s.Id, s.UserId, s.ClinicId, s.RoomId, s.AssistantId,
+                  SELECT s.Id, s.UserId, s.ProviderId, s.EmployeeId, s.ClinicId, s.RoomId, s.AssistantId,
+                      s.ShiftBuilderShiftId, s.ShiftBuilderEmployeeRowId,
                        s.StartDate, s.EndDate, s.StartTime, s.EndTime, s.DaysOfWeek,
                        s.Color, s.Notes, s.CreatedDate,
                        u.FirstName + ' ' + ISNULL(u.LastName, '') AS ProviderName,
@@ -76,7 +77,8 @@ app.http('getScheduleById', {
         
         try {
             const result = await execute(`
-                SELECT s.Id, s.UserId, s.ClinicId, s.RoomId, s.AssistantId,
+                  SELECT s.Id, s.UserId, s.ProviderId, s.EmployeeId, s.ClinicId, s.RoomId, s.AssistantId,
+                      s.ShiftBuilderShiftId, s.ShiftBuilderEmployeeRowId,
                        s.StartDate, s.EndDate, s.StartTime, s.EndTime, s.DaysOfWeek,
                        s.Color, s.Notes, s.CreatedDate,
                        u.FirstName + ' ' + ISNULL(u.LastName, '') AS ProviderName,
@@ -114,11 +116,13 @@ app.http('createSchedule', {
             const body = await request.json();
             
             const result = await execute(`
-                INSERT INTO Schedules (UserId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes)
+                INSERT INTO Schedules (UserId, ProviderId, EmployeeId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes, ShiftBuilderShiftId, ShiftBuilderEmployeeRowId)
                 OUTPUT INSERTED.Id
-                VALUES (@userId, @clinicId, @roomId, @assistantId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes)
+                VALUES (@userId, @providerId, @employeeId, @clinicId, @roomId, @assistantId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes, @shiftBuilderShiftId, @shiftBuilderEmployeeRowId)
             `, {
                 userId: body.userId,
+                providerId: body.providerId || null,
+                employeeId: body.employeeId || null,
                 clinicId: body.clinicId,
                 roomId: body.roomId || null,
                 assistantId: body.assistantId || null,
@@ -128,7 +132,9 @@ app.http('createSchedule', {
                 endTime: body.endTime,
                 daysOfWeek: body.daysOfWeek || 'Mon,Tue,Wed,Thu,Fri',
                 color: body.color || '#10b981',
-                notes: body.notes || null
+                notes: body.notes || null,
+                shiftBuilderShiftId: body.shiftBuilderShiftId || null,
+                shiftBuilderEmployeeRowId: body.shiftBuilderEmployeeRowId || null
             });
             
             return successResponse({ id: result.recordset[0].Id }, 201);
@@ -151,6 +157,22 @@ app.http('updateSchedule', {
         
         try {
             const body = await request.json();
+
+            if (body.shiftBuilderLinkOnly === true || String(body.updateMode || '').toLowerCase() === 'shift-builder-link-only') {
+                await execute(`
+                    UPDATE Schedules SET
+                        ShiftBuilderShiftId = @shiftBuilderShiftId,
+                        ShiftBuilderEmployeeRowId = @shiftBuilderEmployeeRowId,
+                        ModifiedDate = GETUTCDATE()
+                    WHERE Id = @id
+                `, {
+                    id,
+                    shiftBuilderShiftId: body.shiftBuilderShiftId || null,
+                    shiftBuilderEmployeeRowId: body.shiftBuilderEmployeeRowId || null
+                });
+
+                return successResponse({ message: 'Schedule shift-builder link updated successfully' });
+            }
 
             if (body.dateOnlyUpdate === true || String(body.updateMode || '').toLowerCase() === 'date-only') {
                 const startDate = String(body.startDate || body.targetDate || '').trim();
@@ -180,14 +202,16 @@ app.http('updateSchedule', {
             
             await execute(`
                 UPDATE Schedules SET
-                    UserId = @userId, ClinicId = @clinicId, RoomId = @roomId, AssistantId = @assistantId,
+                    UserId = @userId, ProviderId = @providerId, EmployeeId = @employeeId, ClinicId = @clinicId, RoomId = @roomId, AssistantId = @assistantId,
                     StartDate = @startDate, EndDate = @endDate, StartTime = @startTime, EndTime = @endTime,
-                    DaysOfWeek = @daysOfWeek, Color = @color, Notes = @notes,
+                    DaysOfWeek = @daysOfWeek, Color = @color, Notes = @notes, ShiftBuilderShiftId = @shiftBuilderShiftId, ShiftBuilderEmployeeRowId = @shiftBuilderEmployeeRowId,
                     ModifiedDate = GETUTCDATE()
                 WHERE Id = @id
             `, {
                 id: id,
                 userId: body.userId,
+                providerId: body.providerId || null,
+                employeeId: body.employeeId || null,
                 clinicId: body.clinicId,
                 roomId: body.roomId || null,
                 assistantId: body.assistantId || null,
@@ -197,7 +221,9 @@ app.http('updateSchedule', {
                 endTime: body.endTime,
                 daysOfWeek: body.daysOfWeek || 'Mon,Tue,Wed,Thu,Fri',
                 color: body.color || '#10b981',
-                notes: body.notes || null
+                notes: body.notes || null,
+                shiftBuilderShiftId: body.shiftBuilderShiftId || null,
+                shiftBuilderEmployeeRowId: body.shiftBuilderEmployeeRowId || null
             });
             
             return successResponse({ message: 'Schedule updated successfully' });

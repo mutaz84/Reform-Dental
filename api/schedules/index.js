@@ -19,6 +19,26 @@ function getConfig() {
     return {};
 }
 
+async function readBody(req) {
+    if (!req) return {};
+    if (typeof req.body === 'object' && req.body !== null) return req.body;
+    if (typeof req.body === 'string') {
+        try {
+            return JSON.parse(req.body);
+        } catch (_) {
+            return {};
+        }
+    }
+    if (typeof req.json === 'function') {
+        try {
+            return await req.json();
+        } catch (_) {
+            return {};
+        }
+    }
+    return {};
+}
+
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
@@ -108,11 +128,16 @@ module.exports = async function (context, req) {
         const schemaInfo = await pool.request().query(`
             SELECT
                 CASE WHEN COL_LENGTH('Schedules', 'ProviderId') IS NULL THEN 0 ELSE 1 END AS HasProviderId,
-                CASE WHEN COL_LENGTH('Schedules', 'EmployeeId') IS NULL THEN 0 ELSE 1 END AS HasEmployeeId
+                CASE WHEN COL_LENGTH('Schedules', 'EmployeeId') IS NULL THEN 0 ELSE 1 END AS HasEmployeeId,
+                CASE WHEN COL_LENGTH('Schedules', 'ShiftBuilderShiftId') IS NULL THEN 0 ELSE 1 END AS HasShiftBuilderShiftId,
+                CASE WHEN COL_LENGTH('Schedules', 'ShiftBuilderEmployeeRowId') IS NULL THEN 0 ELSE 1 END AS HasShiftBuilderEmployeeRowId
         `);
         const hasProviderIdColumn = !!Number(schemaInfo.recordset?.[0]?.HasProviderId || 0);
         const hasEmployeeIdColumn = !!Number(schemaInfo.recordset?.[0]?.HasEmployeeId || 0);
+        const hasShiftBuilderShiftIdColumn = !!Number(schemaInfo.recordset?.[0]?.HasShiftBuilderShiftId || 0);
+        const hasShiftBuilderEmployeeRowIdColumn = !!Number(schemaInfo.recordset?.[0]?.HasShiftBuilderEmployeeRowId || 0);
         const hasProviderEmployeeColumns = hasProviderIdColumn && hasEmployeeIdColumn;
+        const hasShiftBuilderLinkColumns = hasShiftBuilderShiftIdColumn && hasShiftBuilderEmployeeRowIdColumn;
 
         const baseGetSelect = hasProviderEmployeeColumns
             ? `SELECT s.*,
@@ -164,12 +189,14 @@ module.exports = async function (context, req) {
         }
 
         if (req.method === 'POST') {
-            const body = req.body || {};
+            const body = await readBody(req);
 
             let providerId = parseOptionalIntField(body, 'providerId');
             let employeeId = parseOptionalIntField(body, 'employeeId');
             let assistantId = parseOptionalIntField(body, 'assistantId');
             let legacyUserId = parseOptionalIntField(body, 'userId');
+            const shiftBuilderShiftId = parseOptionalIntField(body, 'shiftBuilderShiftId');
+            const shiftBuilderEmployeeRowId = parseOptionalIntField(body, 'shiftBuilderEmployeeRowId');
 
             if (providerId === undefined) providerId = null;
             if (employeeId === undefined) employeeId = null;
@@ -248,13 +275,28 @@ module.exports = async function (context, req) {
                              OUTPUT INSERTED.Id
                              VALUES (@userId, @clinicId, @roomId, @assistantId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes)`;
 
+            if (hasShiftBuilderLinkColumns) {
+                request
+                    .input('shiftBuilderShiftId', sql.Int, shiftBuilderShiftId || null)
+                    .input('shiftBuilderEmployeeRowId', sql.Int, shiftBuilderEmployeeRowId || null);
+                insertSql = `INSERT INTO Schedules (UserId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes, ShiftBuilderShiftId, ShiftBuilderEmployeeRowId)
+                             OUTPUT INSERTED.Id
+                             VALUES (@userId, @clinicId, @roomId, @assistantId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes, @shiftBuilderShiftId, @shiftBuilderEmployeeRowId)`;
+            }
+
             if (hasProviderEmployeeColumns) {
                 request
                     .input('providerId', sql.Int, providerId || null)
                     .input('employeeId', sql.Int, employeeId || null);
-                insertSql = `INSERT INTO Schedules (UserId, ProviderId, EmployeeId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes)
-                             OUTPUT INSERTED.Id
-                             VALUES (@userId, @providerId, @employeeId, @clinicId, @roomId, @assistantId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes)`;
+                if (hasShiftBuilderLinkColumns) {
+                    insertSql = `INSERT INTO Schedules (UserId, ProviderId, EmployeeId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes, ShiftBuilderShiftId, ShiftBuilderEmployeeRowId)
+                                 OUTPUT INSERTED.Id
+                                 VALUES (@userId, @providerId, @employeeId, @clinicId, @roomId, @assistantId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes, @shiftBuilderShiftId, @shiftBuilderEmployeeRowId)`;
+                } else {
+                    insertSql = `INSERT INTO Schedules (UserId, ProviderId, EmployeeId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes)
+                                 OUTPUT INSERTED.Id
+                                 VALUES (@userId, @providerId, @employeeId, @clinicId, @roomId, @assistantId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes)`;
+                }
             }
 
             const result = await request.query(insertSql);
@@ -263,7 +305,22 @@ module.exports = async function (context, req) {
         }
 
         if (req.method === 'PUT' && id) {
-            const body = req.body || {};
+            const body = await readBody(req);
+
+            if ((body.shiftBuilderLinkOnly === true || String(body.updateMode || '').toLowerCase() === 'shift-builder-link-only') && hasShiftBuilderLinkColumns) {
+                await pool.request()
+                    .input('id', sql.Int, id)
+                    .input('shiftBuilderShiftId', sql.Int, parseOptionalIntField(body, 'shiftBuilderShiftId') || null)
+                    .input('shiftBuilderEmployeeRowId', sql.Int, parseOptionalIntField(body, 'shiftBuilderEmployeeRowId') || null)
+                    .query(`UPDATE Schedules
+                            SET ShiftBuilderShiftId = @shiftBuilderShiftId,
+                                ShiftBuilderEmployeeRowId = @shiftBuilderEmployeeRowId,
+                                ModifiedDate = GETUTCDATE()
+                            WHERE Id = @id`);
+
+                context.res = { status: 200, headers, body: { message: 'Schedule shift-builder link updated' } };
+                return;
+            }
 
             if (body.dateOnlyUpdate === true || String(body.updateMode || '').toLowerCase() === 'date-only') {
                 const startDate = String(body.startDate || body.targetDate || '').trim();
@@ -299,6 +356,8 @@ module.exports = async function (context, req) {
             let employeeId = parseOptionalIntField(body, 'employeeId');
             let assistantId = parseOptionalIntField(body, 'assistantId');
             let legacyUserId = parseOptionalIntField(body, 'userId');
+            const shiftBuilderShiftId = parseOptionalIntField(body, 'shiftBuilderShiftId');
+            const shiftBuilderEmployeeRowId = parseOptionalIntField(body, 'shiftBuilderEmployeeRowId');
 
             if (providerId === undefined) providerId = null;
             if (employeeId === undefined) employeeId = null;
@@ -358,14 +417,12 @@ module.exports = async function (context, req) {
                                  ModifiedDate = GETUTCDATE()
                              WHERE Id = @id`;
 
-            if (hasProviderEmployeeColumns) {
+            if (hasShiftBuilderLinkColumns) {
                 request
-                    .input('providerId', sql.Int, providerId)
-                    .input('employeeId', sql.Int, employeeId);
+                    .input('shiftBuilderShiftId', sql.Int, shiftBuilderShiftId || null)
+                    .input('shiftBuilderEmployeeRowId', sql.Int, shiftBuilderEmployeeRowId || null);
                 updateSql = `UPDATE Schedules
                              SET UserId = @userId,
-                                 ProviderId = @providerId,
-                                 EmployeeId = @employeeId,
                                  ClinicId = COALESCE(@clinicId, ClinicId),
                                  RoomId = @roomId,
                                  AssistantId = @assistantId,
@@ -376,8 +433,53 @@ module.exports = async function (context, req) {
                                  DaysOfWeek = @daysOfWeek,
                                  Color = COALESCE(@color, Color),
                                  Notes = @notes,
+                                 ShiftBuilderShiftId = @shiftBuilderShiftId,
+                                 ShiftBuilderEmployeeRowId = @shiftBuilderEmployeeRowId,
                                  ModifiedDate = GETUTCDATE()
                              WHERE Id = @id`;
+            }
+
+            if (hasProviderEmployeeColumns) {
+                request
+                    .input('providerId', sql.Int, providerId)
+                    .input('employeeId', sql.Int, employeeId);
+                if (hasShiftBuilderLinkColumns) {
+                    updateSql = `UPDATE Schedules
+                                 SET UserId = @userId,
+                                     ProviderId = @providerId,
+                                     EmployeeId = @employeeId,
+                                     ClinicId = COALESCE(@clinicId, ClinicId),
+                                     RoomId = @roomId,
+                                     AssistantId = @assistantId,
+                                     StartDate = @startDate,
+                                     EndDate = @endDate,
+                                     StartTime = @startTime,
+                                     EndTime = @endTime,
+                                     DaysOfWeek = @daysOfWeek,
+                                     Color = COALESCE(@color, Color),
+                                     Notes = @notes,
+                                     ShiftBuilderShiftId = @shiftBuilderShiftId,
+                                     ShiftBuilderEmployeeRowId = @shiftBuilderEmployeeRowId,
+                                     ModifiedDate = GETUTCDATE()
+                                 WHERE Id = @id`;
+                } else {
+                    updateSql = `UPDATE Schedules
+                                 SET UserId = @userId,
+                                     ProviderId = @providerId,
+                                     EmployeeId = @employeeId,
+                                     ClinicId = COALESCE(@clinicId, ClinicId),
+                                     RoomId = @roomId,
+                                     AssistantId = @assistantId,
+                                     StartDate = @startDate,
+                                     EndDate = @endDate,
+                                     StartTime = @startTime,
+                                     EndTime = @endTime,
+                                     DaysOfWeek = @daysOfWeek,
+                                     Color = COALESCE(@color, Color),
+                                     Notes = @notes,
+                                     ModifiedDate = GETUTCDATE()
+                                 WHERE Id = @id`;
+                }
             }
 
             await request.query(updateSql);
