@@ -54,6 +54,19 @@ IF COL_LENGTH('dbo.UserHRInfo', 'LastUpdated') IS NULL ALTER TABLE dbo.UserHRInf
 IF COL_LENGTH('dbo.UserHRInfo', 'CreatedAt') IS NULL ALTER TABLE dbo.UserHRInfo ADD CreatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_UserHRInfo_CreatedAt2 DEFAULT SYSUTCDATETIME();
 IF COL_LENGTH('dbo.UserHRInfo', 'UpdatedAt') IS NULL ALTER TABLE dbo.UserHRInfo ADD UpdatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_UserHRInfo_UpdatedAt2 DEFAULT SYSUTCDATETIME();
 
+;WITH d AS (
+    SELECT
+        Id,
+        ROW_NUMBER() OVER (
+            PARTITION BY UserId
+            ORDER BY COALESCE(UpdatedAt, CreatedAt, LastUpdated, SYSUTCDATETIME()) DESC, Id DESC
+        ) AS rn
+    FROM dbo.UserHRInfo
+    WHERE UserId IS NOT NULL
+)
+DELETE FROM d
+WHERE rn > 1;
+
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes
@@ -93,6 +106,18 @@ END;
 IF COL_LENGTH('dbo.UserHRBenefits', 'BenefitName') IS NULL ALTER TABLE dbo.UserHRBenefits ADD BenefitName NVARCHAR(200) NULL;
 IF COL_LENGTH('dbo.UserHRBenefits', 'CreatedAt') IS NULL ALTER TABLE dbo.UserHRBenefits ADD CreatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_UserHRBenefits_CreatedAt2 DEFAULT SYSUTCDATETIME();
 IF COL_LENGTH('dbo.UserHRBenefits', 'UpdatedAt') IS NULL ALTER TABLE dbo.UserHRBenefits ADD UpdatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_UserHRBenefits_UpdatedAt2 DEFAULT SYSUTCDATETIME();
+
+;WITH d AS (
+    SELECT
+        Id,
+        ROW_NUMBER() OVER (
+            PARTITION BY UserHRInfoId, BenefitKey
+            ORDER BY COALESCE(UpdatedAt, CreatedAt, SYSUTCDATETIME()) DESC, Id DESC
+        ) AS rn
+    FROM dbo.UserHRBenefits
+)
+DELETE FROM d
+WHERE rn > 1;
 
 IF NOT EXISTS (
     SELECT 1
@@ -217,8 +242,14 @@ SELECT
     SYSUTCDATETIME(),
     SYSUTCDATETIME()
 FROM dbo.UserHRInfo h
-CROSS APPLY OPENJSON(COALESCE(JSON_QUERY(h.HRDataJson, '$.benefits'), h.BenefitsJson)) j
-WHERE COALESCE(JSON_QUERY(h.HRDataJson, '$.benefits'), h.BenefitsJson) IS NOT NULL;
+CROSS APPLY OPENJSON(
+    CASE
+        WHEN ISJSON(COALESCE(JSON_QUERY(h.HRDataJson, '$.benefits'), h.BenefitsJson)) = 1
+            THEN COALESCE(JSON_QUERY(h.HRDataJson, '$.benefits'), h.BenefitsJson)
+        ELSE NULL
+    END
+) j
+WHERE ISJSON(COALESCE(JSON_QUERY(h.HRDataJson, '$.benefits'), h.BenefitsJson)) = 1;
 
 SELECT TOP 50
     u.Id,
