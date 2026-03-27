@@ -619,6 +619,103 @@ ELSE
 GO
 
 -- =============================================
+-- 18. SHIFT BUILDER SHIFTS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ShiftBuilderShifts' AND xtype='U')
+BEGIN
+    CREATE TABLE ShiftBuilderShifts (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        ShiftDate DATE NULL,
+        Title NVARCHAR(255) NOT NULL DEFAULT 'Open Shift',
+        Status NVARCHAR(40) NOT NULL DEFAULT 'open',
+        UseClinicDefaultTime BIT NOT NULL DEFAULT 1,
+        LinkMainCalendar BIT NOT NULL DEFAULT 1,
+        LinkMySchedule BIT NOT NULL DEFAULT 1,
+        Notes NVARCHAR(MAX) NULL,
+        CreatedByUserId INT NULL,
+        IsActive BIT NOT NULL DEFAULT 1,
+        CreatedDate DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        ModifiedDate DATETIME2 NULL,
+        FOREIGN KEY (CreatedByUserId) REFERENCES Users(Id)
+    );
+
+    CREATE INDEX IX_ShiftBuilderShifts_ShiftDate ON ShiftBuilderShifts(ShiftDate);
+    CREATE INDEX IX_ShiftBuilderShifts_IsActive ON ShiftBuilderShifts(IsActive);
+
+    PRINT 'Created ShiftBuilderShifts table';
+END
+ELSE
+    PRINT 'ShiftBuilderShifts table already exists';
+GO
+
+-- =============================================
+-- 19. SHIFT BUILDER EMPLOYEE ROWS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ShiftBuilderEmployeeRows' AND xtype='U')
+BEGIN
+    CREATE TABLE ShiftBuilderEmployeeRows (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        ShiftId INT NOT NULL,
+        EmployeeId INT NULL,
+        RoleId INT NULL,
+        RoleName NVARCHAR(120) NULL,
+        ProviderId INT NULL,
+        ClinicId INT NULL,
+        RoomId INT NULL,
+        AssistantUserId INT NULL,
+        SortOrder INT NOT NULL DEFAULT 0,
+        Notes NVARCHAR(MAX) NULL,
+        IsActive BIT NOT NULL DEFAULT 1,
+        CreatedDate DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        ModifiedDate DATETIME2 NULL,
+        FOREIGN KEY (ShiftId) REFERENCES ShiftBuilderShifts(Id) ON DELETE CASCADE,
+        FOREIGN KEY (EmployeeId) REFERENCES Users(Id),
+        FOREIGN KEY (ProviderId) REFERENCES Users(Id),
+        FOREIGN KEY (AssistantUserId) REFERENCES Users(Id),
+        FOREIGN KEY (ClinicId) REFERENCES Clinics(Id),
+        FOREIGN KEY (RoomId) REFERENCES Rooms(Id)
+    );
+
+    CREATE INDEX IX_ShiftBuilderEmployeeRows_ShiftId ON ShiftBuilderEmployeeRows(ShiftId);
+    CREATE INDEX IX_ShiftBuilderEmployeeRows_EmployeeId ON ShiftBuilderEmployeeRows(EmployeeId);
+    CREATE INDEX IX_ShiftBuilderEmployeeRows_IsActive ON ShiftBuilderEmployeeRows(IsActive);
+
+    PRINT 'Created ShiftBuilderEmployeeRows table';
+END
+ELSE
+    PRINT 'ShiftBuilderEmployeeRows table already exists';
+GO
+
+-- =============================================
+-- 20. SHIFT BUILDER ROW ITEMS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ShiftBuilderRowItems' AND xtype='U')
+BEGIN
+    CREATE TABLE ShiftBuilderRowItems (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        EmployeeShiftId INT NOT NULL,
+        ItemType NVARCHAR(80) NOT NULL,
+        ItemId INT NULL,
+        ItemName NVARCHAR(255) NULL,
+        PayloadJson NVARCHAR(MAX) NULL,
+        SortOrder INT NOT NULL DEFAULT 0,
+        IsActive BIT NOT NULL DEFAULT 1,
+        CreatedDate DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        ModifiedDate DATETIME2 NULL,
+        FOREIGN KEY (EmployeeShiftId) REFERENCES ShiftBuilderEmployeeRows(Id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IX_ShiftBuilderRowItems_EmployeeShiftId ON ShiftBuilderRowItems(EmployeeShiftId);
+    CREATE INDEX IX_ShiftBuilderRowItems_ItemType ON ShiftBuilderRowItems(ItemType);
+    CREATE INDEX IX_ShiftBuilderRowItems_IsActive ON ShiftBuilderRowItems(IsActive);
+
+    PRINT 'Created ShiftBuilderRowItems table';
+END
+ELSE
+    PRINT 'ShiftBuilderRowItems table already exists';
+GO
+
+-- =============================================
 -- VERIFY ALL TABLES
 -- =============================================
 SELECT 
@@ -627,7 +724,7 @@ SELECT
 FROM sys.tables t
 WHERE t.name IN ('Clinics', 'Rooms', 'Users', 'Vendors', 'Equipment', 'Instruments', 
                  'Supplies', 'Schedules', 'Tasks', 'Duties', 'Settings', 'Events', 'ChatMessages', 'StickyNotes',
-                 'StationaryTemplates',
+                 'StationaryTemplates', 'ShiftBuilderShifts', 'ShiftBuilderEmployeeRows', 'ShiftBuilderRowItems',
                  'Requests', 'RequestComments', 'RequestAttachments', 'RequestRoutingLog', 'RequestNotifications', 'Categories')
 ORDER BY t.name;
 
