@@ -114,6 +114,62 @@ app.http('createSchedule', {
         
         try {
             const body = await request.json();
+
+            const normalizeDateOnly = (value) => {
+                const raw = String(value || '').trim();
+                if (!raw) return '';
+                const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+                if (match && match[1]) return match[1];
+                const parsed = new Date(raw);
+                if (Number.isNaN(parsed.getTime())) return '';
+                return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+            };
+
+            const normalizeTimeOnly = (value) => {
+                const raw = String(value || '').trim();
+                if (!raw) return '';
+
+                const hhmm = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+                if (hhmm) {
+                    const h = Math.max(0, Math.min(23, Number.parseInt(hhmm[1], 10) || 0));
+                    const m = Math.max(0, Math.min(59, Number.parseInt(hhmm[2], 10) || 0));
+                    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                }
+
+                const ampm = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+                if (ampm) {
+                    let h = Number.parseInt(ampm[1], 10) || 0;
+                    const m = Math.max(0, Math.min(59, Number.parseInt(ampm[2], 10) || 0));
+                    const marker = String(ampm[3] || '').toUpperCase();
+                    if (marker === 'PM' && h !== 12) h += 12;
+                    if (marker === 'AM' && h === 12) h = 0;
+                    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                }
+
+                return '';
+            };
+
+            const parseRange = (value) => {
+                const raw = String(value || '').trim();
+                if (!raw) return { start: '', end: '' };
+                const parts = raw.split(' - ').map((part) => String(part || '').trim());
+                if (parts.length !== 2) return { start: '', end: '' };
+                return {
+                    start: normalizeTimeOnly(parts[0]),
+                    end: normalizeTimeOnly(parts[1])
+                };
+            };
+
+            const dateStart = normalizeDateOnly(body.startDate || body.dateKey || body.date || body.targetDate || body.shiftDate);
+            const dateEnd = normalizeDateOnly(body.endDate) || dateStart;
+            const inferredRange = parseRange(body.timeName || body.timeRange || body.time);
+            const timeStart = normalizeTimeOnly(body.startTime) || inferredRange.start || '08:00';
+            const timeEnd = normalizeTimeOnly(body.endTime) || inferredRange.end || '16:00';
+            const effectiveDays = String(body.daysOfWeek || '').trim() || (dateStart ? new Date(`${dateStart}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : 'Mon');
+
+            if (!dateStart) {
+                return errorResponse('Missing required schedule date field', 400);
+            }
             
             const result = await execute(`
                 INSERT INTO Schedules (UserId, ProviderId, EmployeeId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes, ShiftBuilderShiftId, ShiftBuilderEmployeeRowId)
@@ -126,11 +182,11 @@ app.http('createSchedule', {
                 clinicId: body.clinicId,
                 roomId: body.roomId || null,
                 assistantId: body.assistantId || null,
-                startDate: body.startDate,
-                endDate: body.endDate || null,
-                startTime: body.startTime,
-                endTime: body.endTime,
-                daysOfWeek: body.daysOfWeek || 'Mon,Tue,Wed,Thu,Fri',
+                startDate: dateStart,
+                endDate: dateEnd || null,
+                startTime: timeStart,
+                endTime: timeEnd,
+                daysOfWeek: effectiveDays,
                 color: body.color || '#10b981',
                 notes: body.notes || null,
                 shiftBuilderShiftId: body.shiftBuilderShiftId || null,

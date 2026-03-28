@@ -258,16 +258,77 @@ module.exports = async function (context, req) {
                 }
             }
 
+            const normalizeDateOnly = (value) => {
+                const raw = String(value || '').trim();
+                if (!raw) return '';
+                const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+                if (match && match[1]) return match[1];
+                const parsed = new Date(raw);
+                if (Number.isNaN(parsed.getTime())) return '';
+                return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+            };
+
+            const normalizeTimeOnly = (value) => {
+                const raw = String(value || '').trim();
+                if (!raw) return '';
+
+                const hhmm = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+                if (hhmm) {
+                    const h = Math.max(0, Math.min(23, Number.parseInt(hhmm[1], 10) || 0));
+                    const m = Math.max(0, Math.min(59, Number.parseInt(hhmm[2], 10) || 0));
+                    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                }
+
+                const ampm = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+                if (ampm) {
+                    let h = Number.parseInt(ampm[1], 10) || 0;
+                    const m = Math.max(0, Math.min(59, Number.parseInt(ampm[2], 10) || 0));
+                    const marker = String(ampm[3] || '').toUpperCase();
+                    if (marker === 'PM' && h !== 12) h += 12;
+                    if (marker === 'AM' && h === 12) h = 0;
+                    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                }
+
+                return '';
+            };
+
+            const parseRange = (value) => {
+                const raw = String(value || '').trim();
+                if (!raw) return { start: '', end: '' };
+                const parts = raw.split(' - ').map((part) => String(part || '').trim());
+                if (parts.length !== 2) return { start: '', end: '' };
+                return {
+                    start: normalizeTimeOnly(parts[0]),
+                    end: normalizeTimeOnly(parts[1])
+                };
+            };
+
+            const dateStart = normalizeDateOnly(body.startDate || body.dateKey || body.date || body.targetDate || body.shiftDate);
+            const dateEnd = normalizeDateOnly(body.endDate) || dateStart;
+            if (!dateStart) {
+                context.res = {
+                    status: 400,
+                    headers,
+                    body: { error: 'Missing required schedule date field.' }
+                };
+                return;
+            }
+
+            const inferredRange = parseRange(body.timeName || body.timeRange || body.time);
+            const timeStart = normalizeTimeOnly(body.startTime) || inferredRange.start || '08:00';
+            const timeEnd = normalizeTimeOnly(body.endTime) || inferredRange.end || '16:00';
+            const effectiveDays = String(body.daysOfWeek || '').trim() || new Date(`${dateStart}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' });
+
             const request = pool.request()
                 .input('userId', sql.Int, ownerUserId)
                 .input('clinicId', sql.Int, clinicId)
                 .input('roomId', sql.Int, roomId || null)
                 .input('assistantId', sql.Int, assistantId || null)
-                .input('startDate', sql.Date, body.startDate)
-                .input('endDate', sql.Date, body.endDate || null)
-                .input('startTime', sql.VarChar, body.startTime)
-                .input('endTime', sql.VarChar, body.endTime)
-                .input('daysOfWeek', sql.NVarChar, body.daysOfWeek)
+                .input('startDate', sql.Date, dateStart)
+                .input('endDate', sql.Date, dateEnd || null)
+                .input('startTime', sql.VarChar, timeStart)
+                .input('endTime', sql.VarChar, timeEnd)
+                .input('daysOfWeek', sql.NVarChar, effectiveDays)
                 .input('color', sql.NVarChar, body.color)
                 .input('notes', sql.NVarChar, body.notes);
 
