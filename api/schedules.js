@@ -165,7 +165,7 @@ app.http('createSchedule', {
                 providerId = await resolveActiveUserIdByName(body.providerName || body.provider);
             }
             if (!employeeId) {
-                employeeId = await resolveActiveUserIdByName(body.employeeName || body.employee || body.userName || body.name);
+                employeeId = await resolveActiveUserIdByName(body.employeeName || body.employee);
             }
             if (!assistantId) {
                 assistantId = await resolveActiveUserIdByName(body.assistantName || body.assistant);
@@ -174,8 +174,8 @@ app.http('createSchedule', {
                 legacyUserId = await resolveActiveUserIdByName(body.userName || body.employeeName || body.name || body.employee || body.provider);
             }
 
-            // Prefer explicit employee owner so inserts keep resource-row placement stable.
-            const effectiveUserId = employeeId || providerId || legacyUserId || assistantId || null;
+            // Keep legacy owner semantics aligned with the main schedules endpoint.
+            const effectiveUserId = providerId || employeeId || legacyUserId || assistantId || null;
             
             const result = await execute(`
                 INSERT INTO Schedules (UserId, ProviderId, EmployeeId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes, ShiftBuilderShiftId, ShiftBuilderEmployeeRowId)
