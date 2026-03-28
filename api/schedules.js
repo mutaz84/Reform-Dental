@@ -3,39 +3,6 @@ const { app } = require('@azure/functions');
 const { execute } = require('./shared/database');
 const { successResponse, errorResponse, handleOptions } = require('./shared/response');
 
-function parseIntOrNull(value) {
-    const parsed = Number.parseInt(String(value), 10);
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function normalizeName(value) {
-    return String(value || '')
-        .toLowerCase()
-        .replace(/\b(dr|doctor|dds|dmd)\.?\s*/g, '')
-        .replace(/[^a-z0-9\s]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-async function resolveActiveUserIdByName(rawName) {
-    const target = normalizeName(rawName);
-    if (!target) return null;
-
-    const usersResult = await execute(`
-        SELECT Id, Username, FirstName, LastName
-        FROM Users
-        WHERE ISNULL(IsActive, 1) = 1
-    `, {});
-
-    const users = Array.isArray(usersResult?.recordset) ? usersResult.recordset : [];
-    const matched = users.find((user) => {
-        const fullName = `${user.FirstName || ''} ${user.LastName || ''}`.trim();
-        return normalizeName(fullName) === target || normalizeName(user.Username) === target;
-    });
-
-    return parseIntOrNull(matched?.Id);
-}
-
 // GET all schedules
 app.http('getSchedules', {
     methods: ['GET', 'OPTIONS'],
@@ -55,17 +22,13 @@ app.http('getSchedules', {
                       s.ShiftBuilderShiftId, s.ShiftBuilderEmployeeRowId,
                        s.StartDate, s.EndDate, s.StartTime, s.EndTime, s.DaysOfWeek,
                        s.Color, s.Notes, s.CreatedDate,
-                       pu.FirstName + ' ' + ISNULL(pu.LastName, '') AS ProviderName,
-                       eu.FirstName + ' ' + ISNULL(eu.LastName, '') AS EmployeeOwnerName,
-                       u.FirstName + ' ' + ISNULL(u.LastName, '') AS EmployeeName,
-                       pu.JobTitle AS ProviderRole,
+                       u.FirstName + ' ' + ISNULL(u.LastName, '') AS ProviderName,
+                       u.JobTitle AS ProviderRole,
                        c.Name AS ClinicName,
                        r.Name AS RoomName,
                        a.FirstName + ' ' + ISNULL(a.LastName, '') AS AssistantName
                 FROM Schedules s
                 LEFT JOIN Users u ON s.UserId = u.Id
-                LEFT JOIN Users pu ON s.ProviderId = pu.Id
-                LEFT JOIN Users eu ON s.EmployeeId = eu.Id
                 LEFT JOIN Clinics c ON s.ClinicId = c.Id
                 LEFT JOIN Rooms r ON s.RoomId = r.Id
                 LEFT JOIN Users a ON s.AssistantId = a.Id
@@ -118,16 +81,12 @@ app.http('getScheduleById', {
                       s.ShiftBuilderShiftId, s.ShiftBuilderEmployeeRowId,
                        s.StartDate, s.EndDate, s.StartTime, s.EndTime, s.DaysOfWeek,
                        s.Color, s.Notes, s.CreatedDate,
-                       pu.FirstName + ' ' + ISNULL(pu.LastName, '') AS ProviderName,
-                       eu.FirstName + ' ' + ISNULL(eu.LastName, '') AS EmployeeOwnerName,
-                       u.FirstName + ' ' + ISNULL(u.LastName, '') AS EmployeeName,
+                       u.FirstName + ' ' + ISNULL(u.LastName, '') AS ProviderName,
                        c.Name AS ClinicName,
                        r.Name AS RoomName,
                        a.FirstName + ' ' + ISNULL(a.LastName, '') AS AssistantName
                 FROM Schedules s
                 LEFT JOIN Users u ON s.UserId = u.Id
-                LEFT JOIN Users pu ON s.ProviderId = pu.Id
-                LEFT JOIN Users eu ON s.EmployeeId = eu.Id
                 LEFT JOIN Clinics c ON s.ClinicId = c.Id
                 LEFT JOIN Rooms r ON s.RoomId = r.Id
                 LEFT JOIN Users a ON s.AssistantId = a.Id
@@ -155,39 +114,18 @@ app.http('createSchedule', {
         
         try {
             const body = await request.json();
-
-            let providerId = parseIntOrNull(body.providerId);
-            let employeeId = parseIntOrNull(body.employeeId);
-            let assistantId = parseIntOrNull(body.assistantId);
-            let legacyUserId = parseIntOrNull(body.userId);
-
-            if (!providerId) {
-                providerId = await resolveActiveUserIdByName(body.providerName || body.provider);
-            }
-            if (!employeeId) {
-                employeeId = await resolveActiveUserIdByName(body.employeeName || body.employee || body.userName || body.name);
-            }
-            if (!assistantId) {
-                assistantId = await resolveActiveUserIdByName(body.assistantName || body.assistant);
-            }
-            if (!legacyUserId) {
-                legacyUserId = await resolveActiveUserIdByName(body.userName || body.employeeName || body.name || body.employee || body.provider);
-            }
-
-            // Prefer explicit employee owner so inserts keep resource-row placement stable.
-            const effectiveUserId = employeeId || providerId || legacyUserId || assistantId || null;
             
             const result = await execute(`
                 INSERT INTO Schedules (UserId, ProviderId, EmployeeId, ClinicId, RoomId, AssistantId, StartDate, EndDate, StartTime, EndTime, DaysOfWeek, Color, Notes, ShiftBuilderShiftId, ShiftBuilderEmployeeRowId)
                 OUTPUT INSERTED.Id
                 VALUES (@userId, @providerId, @employeeId, @clinicId, @roomId, @assistantId, @startDate, @endDate, @startTime, @endTime, @daysOfWeek, @color, @notes, @shiftBuilderShiftId, @shiftBuilderEmployeeRowId)
             `, {
-                userId: effectiveUserId,
-                providerId: providerId,
-                employeeId: employeeId,
+                userId: body.userId,
+                providerId: body.providerId || null,
+                employeeId: body.employeeId || null,
                 clinicId: body.clinicId,
                 roomId: body.roomId || null,
-                assistantId: assistantId,
+                assistantId: body.assistantId || null,
                 startDate: body.startDate,
                 endDate: body.endDate || null,
                 startTime: body.startTime,
