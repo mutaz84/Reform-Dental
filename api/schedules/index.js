@@ -258,90 +258,16 @@ module.exports = async function (context, req) {
                 }
             }
 
-            const normalizeDateOnly = (value) => {
-                const text = String(value || '').trim();
-                if (!text) return '';
-                const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
-                if (match && match[1]) return match[1];
-                const parsed = new Date(text);
-                if (Number.isNaN(parsed.getTime())) return '';
-                const y = parsed.getFullYear();
-                const m = String(parsed.getMonth() + 1).padStart(2, '0');
-                const d = String(parsed.getDate()).padStart(2, '0');
-                return `${y}-${m}-${d}`;
-            };
-
-            const normalizeTimeOnly = (value) => {
-                const text = String(value || '').trim();
-                if (!text) return '';
-
-                const hhmm = text.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-                if (hhmm) {
-                    const h = Math.max(0, Math.min(23, Number.parseInt(hhmm[1], 10) || 0));
-                    const m = Math.max(0, Math.min(59, Number.parseInt(hhmm[2], 10) || 0));
-                    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-                }
-
-                const ampm = text.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-                if (ampm) {
-                    let h = Number.parseInt(ampm[1], 10) || 0;
-                    const m = Math.max(0, Math.min(59, Number.parseInt(ampm[2], 10) || 0));
-                    const meridiem = String(ampm[3] || '').toUpperCase();
-                    if (meridiem === 'PM' && h !== 12) h += 12;
-                    if (meridiem === 'AM' && h === 12) h = 0;
-                    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-                }
-
-                return '';
-            };
-
-            const splitTimeRange = (value) => {
-                const text = String(value || '').trim();
-                if (!text) return { start: '', end: '' };
-                const parts = text.split(' - ').map((part) => String(part || '').trim());
-                if (parts.length !== 2) return { start: '', end: '' };
-                return {
-                    start: normalizeTimeOnly(parts[0]),
-                    end: normalizeTimeOnly(parts[1])
-                };
-            };
-
-            const dayTokenFromDate = (isoDate) => {
-                const text = String(isoDate || '').trim();
-                if (!text) return 'Mon';
-                const parsed = new Date(`${text}T00:00:00`);
-                if (Number.isNaN(parsed.getTime())) return 'Mon';
-                return parsed.toLocaleDateString('en-US', { weekday: 'short' });
-            };
-
-            const inferredDate = normalizeDateOnly(body.startDate || body.dateKey || body.date || body.targetDate || body.shiftDate);
-            const effectiveStartDate = inferredDate || normalizeDateOnly(body.startDate);
-            const effectiveEndDate = normalizeDateOnly(body.endDate) || effectiveStartDate;
-
-            if (!effectiveStartDate) {
-                context.res = {
-                    status: 400,
-                    headers,
-                    body: { error: 'Missing required schedule date field.' }
-                };
-                return;
-            }
-
-            const inferredRange = splitTimeRange(body.timeName || body.timeRange || body.time);
-            const effectiveStartTime = normalizeTimeOnly(body.startTime) || inferredRange.start || '08:00';
-            const effectiveEndTime = normalizeTimeOnly(body.endTime) || inferredRange.end || '16:00';
-            const effectiveDaysOfWeek = String(body.daysOfWeek || '').trim() || dayTokenFromDate(effectiveStartDate);
-
             const request = pool.request()
                 .input('userId', sql.Int, ownerUserId)
                 .input('clinicId', sql.Int, clinicId)
                 .input('roomId', sql.Int, roomId || null)
                 .input('assistantId', sql.Int, assistantId || null)
-                .input('startDate', sql.Date, effectiveStartDate)
-                .input('endDate', sql.Date, effectiveEndDate || null)
-                .input('startTime', sql.VarChar, effectiveStartTime)
-                .input('endTime', sql.VarChar, effectiveEndTime)
-                .input('daysOfWeek', sql.NVarChar, effectiveDaysOfWeek)
+                .input('startDate', sql.Date, body.startDate)
+                .input('endDate', sql.Date, body.endDate || null)
+                .input('startTime', sql.VarChar, body.startTime)
+                .input('endTime', sql.VarChar, body.endTime)
+                .input('daysOfWeek', sql.NVarChar, body.daysOfWeek)
                 .input('color', sql.NVarChar, body.color)
                 .input('notes', sql.NVarChar, body.notes);
 
