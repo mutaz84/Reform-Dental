@@ -137,8 +137,13 @@ BEGIN
     CREATE TABLE Schedules (
         Id INT IDENTITY(1,1) PRIMARY KEY,
         UserId INT,
+        ProviderId INT,
+        EmployeeId INT,
         ClinicId INT,
         RoomId INT,
+        AssistantId INT,
+        ShiftBuilderShiftId INT NULL,
+        ShiftBuilderEmployeeRowId INT NULL,
         StartDate DATE NOT NULL,
         EndDate DATE,
         StartTime VARCHAR(10),
@@ -150,9 +155,19 @@ BEGIN
         CreatedDate DATETIME DEFAULT GETUTCDATE(),
         ModifiedDate DATETIME,
         FOREIGN KEY (UserId) REFERENCES Users(Id),
+        FOREIGN KEY (ProviderId) REFERENCES Users(Id),
+        FOREIGN KEY (EmployeeId) REFERENCES Users(Id),
+        FOREIGN KEY (AssistantId) REFERENCES Users(Id),
         FOREIGN KEY (ClinicId) REFERENCES Clinics(Id),
         FOREIGN KEY (RoomId) REFERENCES Rooms(Id)
     );
+    CREATE INDEX IX_Schedules_UserId ON Schedules(UserId);
+    CREATE INDEX IX_Schedules_ProviderId ON Schedules(ProviderId);
+    CREATE INDEX IX_Schedules_EmployeeId ON Schedules(EmployeeId);
+    CREATE INDEX IX_Schedules_ShiftBuilderShiftId ON Schedules(ShiftBuilderShiftId);
+    CREATE INDEX IX_Schedules_ShiftBuilderEmployeeRowId ON Schedules(ShiftBuilderEmployeeRowId);
+    CREATE INDEX IX_Schedules_ClinicId ON Schedules(ClinicId);
+    CREATE INDEX IX_Schedules_StartDate ON Schedules(StartDate);
     PRINT 'Created Schedules table';
 END
 ELSE
@@ -390,6 +405,69 @@ ELSE
     PRINT 'ChatMessages table already exists';
 GO
 
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ChatMessageAttachments' AND xtype='U')
+BEGIN
+    CREATE TABLE ChatMessageAttachments (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        MessageId INT NOT NULL,
+        FileName NVARCHAR(255) NOT NULL,
+        ContentType NVARCHAR(200) NOT NULL,
+        FileSize INT NOT NULL DEFAULT 0,
+        FileData NVARCHAR(MAX) NOT NULL,
+        CreatedDate DATETIME DEFAULT GETUTCDATE(),
+        CONSTRAINT FK_ChatMessageAttachments_Message FOREIGN KEY (MessageId) REFERENCES ChatMessages(Id) ON DELETE CASCADE
+    );
+    CREATE INDEX IX_ChatMessageAttachments_MessageId ON ChatMessageAttachments(MessageId);
+    PRINT 'Created ChatMessageAttachments table';
+END
+ELSE
+    PRINT 'ChatMessageAttachments table already exists';
+GO
+
+-- =============================================
+-- 11. STICKY NOTES TABLE
+-- =============================================
+-- =============================================
+-- 10.5 COPILOT CONVERSATIONS TABLES
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='CopilotConversations' AND xtype='U')
+BEGIN
+    CREATE TABLE CopilotConversations (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        UserId INT NOT NULL,
+        ConversationId NVARCHAR(100) NOT NULL,
+        Title NVARCHAR(255) NOT NULL,
+        IsDeleted BIT NOT NULL DEFAULT 0,
+        CreatedDate DATETIME2 DEFAULT SYSUTCDATETIME(),
+        ModifiedDate DATETIME2 DEFAULT SYSUTCDATETIME(),
+        FOREIGN KEY (UserId) REFERENCES Users(Id)
+    );
+    CREATE UNIQUE INDEX UX_CopilotConversations_User_Conversation ON CopilotConversations(UserId, ConversationId);
+    CREATE INDEX IX_CopilotConversations_User_ModifiedDate ON CopilotConversations(UserId, ModifiedDate DESC);
+    PRINT 'Created CopilotConversations table';
+END
+ELSE
+    PRINT 'CopilotConversations table already exists';
+GO
+
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='CopilotConversationMessages' AND xtype='U')
+BEGIN
+    CREATE TABLE CopilotConversationMessages (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        ConversationPkId INT NOT NULL,
+        Role NVARCHAR(20) NOT NULL,
+        Content NVARCHAR(MAX) NOT NULL,
+        MessageOrder INT NOT NULL,
+        CreatedDate DATETIME2 DEFAULT SYSUTCDATETIME(),
+        FOREIGN KEY (ConversationPkId) REFERENCES CopilotConversations(Id) ON DELETE CASCADE
+    );
+    CREATE INDEX IX_CopilotConversationMessages_Conversation_Order ON CopilotConversationMessages(ConversationPkId, MessageOrder);
+    PRINT 'Created CopilotConversationMessages table';
+END
+ELSE
+    PRINT 'CopilotConversationMessages table already exists';
+GO
+
 -- =============================================
 -- 11. STICKY NOTES TABLE
 -- =============================================
@@ -526,6 +604,170 @@ ELSE
 GO
 
 -- =============================================
+-- 17. STATIONARY TEMPLATES TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='StationaryTemplates' AND xtype='U')
+BEGIN
+    CREATE TABLE StationaryTemplates (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        TemplateKey NVARCHAR(120) NOT NULL UNIQUE,
+        Name NVARCHAR(255) NOT NULL,
+        HeaderLine1 NVARCHAR(MAX),
+        HeaderLine2 NVARCHAR(MAX),
+        FooterText NVARCHAR(MAX),
+        Elements NVARCHAR(MAX),
+        ClinicId INT,
+        OwnerUsername NVARCHAR(100),
+        IsActive BIT NOT NULL DEFAULT 1,
+        CreatedDate DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        ModifiedDate DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        FOREIGN KEY (ClinicId) REFERENCES Clinics(Id)
+    );
+
+    CREATE INDEX IX_StationaryTemplates_ClinicId ON StationaryTemplates(ClinicId);
+    CREATE INDEX IX_StationaryTemplates_OwnerUsername ON StationaryTemplates(OwnerUsername);
+
+    PRINT 'Created StationaryTemplates table';
+END
+ELSE
+    PRINT 'StationaryTemplates table already exists';
+GO
+
+-- =============================================
+-- 18. SHIFT BUILDER SHIFTS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ShiftBuilderShifts' AND xtype='U')
+BEGIN
+    CREATE TABLE ShiftBuilderShifts (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        ShiftDate DATE NULL,
+        Title NVARCHAR(255) NOT NULL DEFAULT 'Open Shift',
+        Status NVARCHAR(40) NOT NULL DEFAULT 'open',
+        UseClinicDefaultTime BIT NOT NULL DEFAULT 1,
+        LinkMainCalendar BIT NOT NULL DEFAULT 1,
+        LinkMySchedule BIT NOT NULL DEFAULT 1,
+        Notes NVARCHAR(MAX) NULL,
+        CreatedByUserId INT NULL,
+        IsActive BIT NOT NULL DEFAULT 1,
+        CreatedDate DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        ModifiedDate DATETIME2 NULL,
+        FOREIGN KEY (CreatedByUserId) REFERENCES Users(Id)
+    );
+
+    CREATE INDEX IX_ShiftBuilderShifts_ShiftDate ON ShiftBuilderShifts(ShiftDate);
+    CREATE INDEX IX_ShiftBuilderShifts_IsActive ON ShiftBuilderShifts(IsActive);
+
+    PRINT 'Created ShiftBuilderShifts table';
+END
+ELSE
+    PRINT 'ShiftBuilderShifts table already exists';
+GO
+
+-- =============================================
+-- 19. SHIFT BUILDER EMPLOYEE ROWS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ShiftBuilderEmployeeRows' AND xtype='U')
+BEGIN
+    CREATE TABLE ShiftBuilderEmployeeRows (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        ShiftId INT NOT NULL,
+        EmployeeId INT NULL,
+        RoleId INT NULL,
+        RoleName NVARCHAR(120) NULL,
+        ProviderId INT NULL,
+        ClinicId INT NULL,
+        RoomId INT NULL,
+        AssistantUserId INT NULL,
+        SortOrder INT NOT NULL DEFAULT 0,
+        Notes NVARCHAR(MAX) NULL,
+        IsActive BIT NOT NULL DEFAULT 1,
+        CreatedDate DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        ModifiedDate DATETIME2 NULL,
+        FOREIGN KEY (ShiftId) REFERENCES ShiftBuilderShifts(Id) ON DELETE CASCADE,
+        FOREIGN KEY (EmployeeId) REFERENCES Users(Id),
+        FOREIGN KEY (ProviderId) REFERENCES Users(Id),
+        FOREIGN KEY (AssistantUserId) REFERENCES Users(Id),
+        FOREIGN KEY (ClinicId) REFERENCES Clinics(Id),
+        FOREIGN KEY (RoomId) REFERENCES Rooms(Id)
+    );
+
+    CREATE INDEX IX_ShiftBuilderEmployeeRows_ShiftId ON ShiftBuilderEmployeeRows(ShiftId);
+    CREATE INDEX IX_ShiftBuilderEmployeeRows_EmployeeId ON ShiftBuilderEmployeeRows(EmployeeId);
+    CREATE INDEX IX_ShiftBuilderEmployeeRows_IsActive ON ShiftBuilderEmployeeRows(IsActive);
+
+    PRINT 'Created ShiftBuilderEmployeeRows table';
+END
+ELSE
+    PRINT 'ShiftBuilderEmployeeRows table already exists';
+GO
+
+-- =============================================
+-- 20. SHIFT BUILDER ROW ITEMS TABLE
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ShiftBuilderRowItems' AND xtype='U')
+BEGIN
+    CREATE TABLE ShiftBuilderRowItems (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        EmployeeShiftId INT NOT NULL,
+        ItemType NVARCHAR(80) NOT NULL,
+        ItemId INT NULL,
+        ItemName NVARCHAR(255) NULL,
+        PayloadJson NVARCHAR(MAX) NULL,
+        SortOrder INT NOT NULL DEFAULT 0,
+        IsActive BIT NOT NULL DEFAULT 1,
+        CreatedDate DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        ModifiedDate DATETIME2 NULL,
+        FOREIGN KEY (EmployeeShiftId) REFERENCES ShiftBuilderEmployeeRows(Id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IX_ShiftBuilderRowItems_EmployeeShiftId ON ShiftBuilderRowItems(EmployeeShiftId);
+    CREATE INDEX IX_ShiftBuilderRowItems_ItemType ON ShiftBuilderRowItems(ItemType);
+    CREATE INDEX IX_ShiftBuilderRowItems_IsActive ON ShiftBuilderRowItems(IsActive);
+
+    PRINT 'Created ShiftBuilderRowItems table';
+END
+ELSE
+    PRINT 'ShiftBuilderRowItems table already exists';
+GO
+
+-- =============================================
+-- 20.5 SCHEDULES -> SHIFT BUILDER LINK FKs
+-- =============================================
+IF EXISTS (SELECT * FROM sysobjects WHERE name='Schedules' AND xtype='U')
+   AND EXISTS (SELECT * FROM sysobjects WHERE name='ShiftBuilderShifts' AND xtype='U')
+   AND EXISTS (SELECT * FROM sysobjects WHERE name='ShiftBuilderEmployeeRows' AND xtype='U')
+BEGIN
+    IF COL_LENGTH('Schedules', 'ShiftBuilderShiftId') IS NULL
+        ALTER TABLE Schedules ADD ShiftBuilderShiftId INT NULL;
+
+    IF COL_LENGTH('Schedules', 'ShiftBuilderEmployeeRowId') IS NULL
+        ALTER TABLE Schedules ADD ShiftBuilderEmployeeRowId INT NULL;
+
+    IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_Schedules_ShiftBuilderShiftId')
+    BEGIN
+        ALTER TABLE Schedules WITH NOCHECK
+        ADD CONSTRAINT FK_Schedules_ShiftBuilderShiftId
+        FOREIGN KEY (ShiftBuilderShiftId) REFERENCES ShiftBuilderShifts(Id);
+    END
+
+    IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_Schedules_ShiftBuilderEmployeeRowId')
+    BEGIN
+        ALTER TABLE Schedules WITH NOCHECK
+        ADD CONSTRAINT FK_Schedules_ShiftBuilderEmployeeRowId
+        FOREIGN KEY (ShiftBuilderEmployeeRowId) REFERENCES ShiftBuilderEmployeeRows(Id);
+    END
+
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Schedules_ShiftBuilderShiftId' AND object_id = OBJECT_ID('Schedules'))
+        CREATE INDEX IX_Schedules_ShiftBuilderShiftId ON Schedules(ShiftBuilderShiftId);
+
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Schedules_ShiftBuilderEmployeeRowId' AND object_id = OBJECT_ID('Schedules'))
+        CREATE INDEX IX_Schedules_ShiftBuilderEmployeeRowId ON Schedules(ShiftBuilderEmployeeRowId);
+
+    PRINT 'Schedules shift-builder link constraints ensured';
+END
+GO
+
+-- =============================================
 -- VERIFY ALL TABLES
 -- =============================================
 SELECT 
@@ -534,6 +776,7 @@ SELECT
 FROM sys.tables t
 WHERE t.name IN ('Clinics', 'Rooms', 'Users', 'Vendors', 'Equipment', 'Instruments', 
                  'Supplies', 'Schedules', 'Tasks', 'Duties', 'Settings', 'Events', 'ChatMessages', 'StickyNotes',
+                 'StationaryTemplates', 'ShiftBuilderShifts', 'ShiftBuilderEmployeeRows', 'ShiftBuilderRowItems',
                  'Requests', 'RequestComments', 'RequestAttachments', 'RequestRoutingLog', 'RequestNotifications', 'Categories')
 ORDER BY t.name;
 

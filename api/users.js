@@ -5,6 +5,133 @@ const { successResponse, errorResponse, handleOptions } = require('./shared/resp
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
+function safeParseJsonObject(value) {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    if (typeof value !== 'string') return null;
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function toBit(value) {
+    if (value === true || value === 1) return 1;
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' ? 1 : 0;
+}
+
+function getHrInfoObjectFromBody(body) {
+    if (!body) return {};
+    const candidate = body.hrInfo ?? body.HRInfo;
+    if (candidate == null) return {};
+    if (typeof candidate === 'object') return candidate;
+    if (typeof candidate === 'string') return safeParseJsonObject(candidate) || {};
+    return {};
+}
+
+function getBenefitsFromHrInfo(hrInfoObj) {
+    const result = {};
+    const raw = hrInfoObj && typeof hrInfoObj === 'object' ? hrInfoObj.benefits : null;
+    if (!raw || typeof raw !== 'object') return result;
+    Object.entries(raw).forEach(([key, value]) => {
+        const normalizedKey = String(key || '').trim();
+        if (!normalizedKey) return;
+        result[normalizedKey] = toBit(value);
+    });
+    return result;
+}
+
+function humanizeBenefitKey(key) {
+    return String(key || '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+        .trim();
+}
+
+async function attachBenefitsToUsers(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+
+    const userIds = rows
+        .map((r) => Number(r?.Id || 0))
+        .filter((id) => Number.isInteger(id) && id > 0);
+    if (!userIds.length) return rows;
+
+    const inList = Array.from(new Set(userIds)).join(',');
+    const benefitsResult = await execute(`
+        SELECT uhr.UserId, b.BenefitKey, b.IsEnabled
+        FROM UserHRBenefits b
+        JOIN UserHRInfo uhr ON uhr.Id = b.UserHRInfoId
+        WHERE uhr.UserId IN (${inList})
+    `);
+
+    const benefitsByUserId = new Map();
+    (benefitsResult.recordset || []).forEach((row) => {
+        const userId = Number(row?.UserId || 0);
+        const key = String(row?.BenefitKey || '').trim();
+        if (!(userId > 0) || !key) return;
+        if (!benefitsByUserId.has(userId)) benefitsByUserId.set(userId, {});
+        benefitsByUserId.get(userId)[key] = !!row?.IsEnabled;
+    });
+
+    rows.forEach((row) => {
+        const userId = Number(row?.Id || 0);
+        const hrInfo = safeParseJsonObject(row?.HRInfo) || {};
+        const tableBenefits = benefitsByUserId.get(userId) || null;
+        if (tableBenefits) {
+            hrInfo.benefits = {
+                ...(hrInfo.benefits && typeof hrInfo.benefits === 'object' ? hrInfo.benefits : {}),
+                ...tableBenefits
+            };
+        }
+        row.HRInfo = hrInfo;
+    });
+
+    return rows;
+}
+
+async function upsertUserHrInfoAndBenefits(userId, body) {
+    if (!body || (body.hrInfo === undefined && body.HRInfo === undefined)) return;
+
+    const hrInfoObj = getHrInfoObjectFromBody(body);
+    const hrData = JSON.stringify(hrInfoObj || {});
+
+    await execute(`
+        MERGE UserHRInfo AS target
+        USING (SELECT @userId AS UserId, @hrData AS HRDataJson) AS source
+        ON target.UserId = source.UserId
+        WHEN MATCHED THEN
+            UPDATE SET HRDataJson = source.HRDataJson, LastUpdated = SYSUTCDATETIME(), UpdatedAt = SYSUTCDATETIME()
+        WHEN NOT MATCHED THEN
+            INSERT (UserId, HRDataJson, LastUpdated, CreatedAt, UpdatedAt)
+            VALUES (source.UserId, source.HRDataJson, SYSUTCDATETIME(), SYSUTCDATETIME(), SYSUTCDATETIME());
+    `, {
+        userId: Number(userId),
+        hrData
+    });
+
+    const hrInfoIdResult = await execute('SELECT TOP 1 Id FROM UserHRInfo WHERE UserId = @userId', { userId: Number(userId) });
+    const userHrInfoId = Number(hrInfoIdResult.recordset?.[0]?.Id || 0);
+    if (!(userHrInfoId > 0)) return;
+
+    await execute('DELETE FROM UserHRBenefits WHERE UserHRInfoId = @userHrInfoId', { userHrInfoId });
+
+    const benefits = getBenefitsFromHrInfo(hrInfoObj);
+    for (const [benefitKey, bitValue] of Object.entries(benefits)) {
+        await execute(`
+            INSERT INTO UserHRBenefits (UserHRInfoId, BenefitKey, BenefitName, IsEnabled, UpdatedAt, CreatedAt)
+            VALUES (@userHrInfoId, @benefitKey, @benefitName, @isEnabled, SYSUTCDATETIME(), SYSUTCDATETIME())
+        `, {
+            userHrInfoId,
+            benefitKey,
+            benefitName: humanizeBenefitKey(benefitKey),
+            isEnabled: bitValue
+        });
+    }
+}
+
 // GET all users
 app.http('getUsers', {
     methods: ['GET', 'OPTIONS'],
@@ -22,12 +149,15 @@ app.http('getUsers', {
                        CreatedDate, ModifiedDate, SSN, Title, EmergencyContactName,
                        EmergencyContactRelationship, EmergencyContactPhone, EmergencyContactEmail,
                        NextReviewDate, OfficeLocation, DirectSupervisor, SeparationDate,
-                       SeparationReason, PhotoFileName, Documents, FailedLoginAttempts,
+                      SeparationReason, PhotoFileName, Documents, uhr.HRDataJson AS HRInfo, FailedLoginAttempts,
                        IsOnline, LastSeen, RoleId
-                FROM Users WHERE IsActive = 1
+                FROM Users u
+                LEFT JOIN UserHRInfo uhr ON uhr.UserId = u.Id
+                WHERE ISNULL(u.IsActive, 1) = 1
                 ORDER BY FirstName, LastName
             `);
-            return successResponse(result.recordset);
+            const users = await attachBenefitsToUsers(result.recordset || []);
+            return successResponse(users);
         } catch (err) {
             context.error('Error fetching users:', err);
             return errorResponse('Failed to fetch users', 500);
@@ -54,15 +184,18 @@ app.http('getUserById', {
                        CreatedDate, ModifiedDate, SSN, Title, EmergencyContactName,
                        EmergencyContactRelationship, EmergencyContactPhone, EmergencyContactEmail,
                        NextReviewDate, OfficeLocation, DirectSupervisor, SeparationDate,
-                       SeparationReason, PhotoFileName, Documents, FailedLoginAttempts,
+                      SeparationReason, PhotoFileName, Documents, uhr.HRDataJson AS HRInfo, FailedLoginAttempts,
                        IsOnline, LastSeen, RoleId
-                FROM Users WHERE Id = @id AND IsActive = 1
+                FROM Users u
+                LEFT JOIN UserHRInfo uhr ON uhr.UserId = u.Id
+                WHERE u.Id = @id AND ISNULL(u.IsActive, 1) = 1
             `, { id });
             
             if (result.recordset.length === 0) {
                 return errorResponse('User not found', 404);
             }
-            return successResponse(result.recordset[0]);
+            const users = await attachBenefitsToUsers([result.recordset[0]]);
+            return successResponse(users[0]);
         } catch (err) {
             context.error('Error fetching user:', err);
             return errorResponse('Failed to fetch user', 500);
@@ -106,7 +239,7 @@ app.http('createUser', {
                     @hireDate, @hourlyRate, @salary, @color, @profileImage, @permissions,
                     @ssn, @title, @emergencyContactName, @emergencyContactRelationship,
                     @emergencyContactPhone, @emergencyContactEmail, @nextReviewDate, @officeLocation,
-                    @directSupervisor, @separationDate, @separationReason, @photoFileName, @documents,
+                        @directSupervisor, @separationDate, @separationReason, @photoFileName, @documents,
                     @failedLoginAttempts, @isOnline, @lastSeen, @roleId)
             `, {
                 username: body.username,
@@ -154,8 +287,11 @@ app.http('createUser', {
                 lastSeen: body.lastSeen || body.LastSeen || null,
                 roleId: body.roleId || body.RoleId || null
             });
+
+            const createdUserId = result.recordset[0].Id;
+            await upsertUserHrInfoAndBenefits(createdUserId, body);
             
-            return successResponse({ id: result.recordset[0].Id }, 201);
+            return successResponse({ id: createdUserId }, 201);
         } catch (err) {
             context.error('Error creating user:', err);
             if (err.message.includes('UNIQUE')) {
@@ -178,6 +314,25 @@ app.http('updateUser', {
         
         try {
             const body = await request.json();
+
+            if (body && (
+                body.hrInfoOnly === true || body.HRInfoOnly === true ||
+                String(body.hrInfoOnly || '').toLowerCase() === 'true' ||
+                String(body.HRInfoOnly || '').toLowerCase() === 'true'
+            )) {
+                await upsertUserHrInfoAndBenefits(Number(id), body);
+
+                const updatedHr = await execute(`
+                    SELECT u.Id, u.Username, uhr.HRDataJson AS HRInfo, u.ModifiedDate
+                    FROM Users u
+                    LEFT JOIN UserHRInfo uhr ON uhr.UserId = u.Id
+                    WHERE u.Id = @id
+                `, { id });
+
+                const hydratedHr = await attachBenefitsToUsers(updatedHr.recordset || []);
+                return successResponse({ message: 'HR info updated', user: hydratedHr[0] || { Id: Number(id) } });
+            }
+
             const permissionsValue = body.permissions == null
                 ? null
                 : (typeof body.permissions === 'string' ? body.permissions : JSON.stringify(body.permissions));
@@ -193,7 +348,7 @@ app.http('updateUser', {
                     HomePhone = @homePhone, CellPhone = @cellPhone,
                     Address = @address, City = @city, State = @state, ZipCode = @zipCode,
                     JobTitle = @jobTitle, StaffType = @staffType, EmployeeType = @employeeType,
-                    Department = @department, EmployeeStatus = @employeeStatus, Role = @role,
+                    Department = @department, EmployeeStatus = @employeeStatus, Role = COALESCE(@role, Role),
                     HireDate = @hireDate, HourlyRate = @hourlyRate, Salary = @salary,
                     Color = @color, ProfileImage = @profileImage, Permissions = @permissions,
                     SSN = @ssn, Title = @title, EmergencyContactName = @emergencyContactName,
@@ -252,8 +407,18 @@ app.http('updateUser', {
                 lastSeen: body.lastSeen || body.LastSeen || null,
                 roleId: body.roleId || body.RoleId || null
             });
-            
-            return successResponse({ message: 'User updated successfully' });
+
+            await upsertUserHrInfoAndBenefits(Number(id), body);
+
+            const updated = await execute(`
+                SELECT u.Id, u.Username, uhr.HRDataJson AS HRInfo, u.ModifiedDate
+                FROM Users u
+                LEFT JOIN UserHRInfo uhr ON uhr.UserId = u.Id
+                WHERE u.Id = @id
+            `, { id });
+
+            const hydrated = await attachBenefitsToUsers(updated.recordset || []);
+            return successResponse({ message: 'User updated successfully', user: hydrated[0] || { Id: Number(id) } });
         } catch (err) {
             context.error('Error updating user:', err);
             return errorResponse('Failed to update user', 500);

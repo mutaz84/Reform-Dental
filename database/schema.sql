@@ -67,6 +67,27 @@ CREATE TABLE Clinics (
 );
 
 -- =============================================
+-- 2b. CLINIC WORKING HOURS TABLE
+-- =============================================
+CREATE TABLE ClinicWorkingHours (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    ClinicId INT NOT NULL FOREIGN KEY REFERENCES Clinics(Id),
+    DayKey NVARCHAR(20) NOT NULL,
+    IsOpen BIT NOT NULL DEFAULT 0,
+    OpenTime TIME NULL,
+    CloseTime TIME NULL,
+    CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
+    ModifiedDate DATETIME2 DEFAULT GETUTCDATE(),
+    CONSTRAINT CK_ClinicWorkingHours_DayKey
+        CHECK (LOWER(DayKey) IN ('monday','tuesday','wednesday','thursday','friday','saturday','sunday')),
+    CONSTRAINT CK_ClinicWorkingHours_TimeRange
+        CHECK (IsOpen = 0 OR (OpenTime IS NOT NULL AND CloseTime IS NOT NULL AND OpenTime < CloseTime))
+);
+
+CREATE UNIQUE INDEX UX_ClinicWorkingHours_ClinicId_DayKey ON ClinicWorkingHours(ClinicId, DayKey);
+CREATE INDEX IX_ClinicWorkingHours_ClinicId ON ClinicWorkingHours(ClinicId);
+
+-- =============================================
 -- 3. ROOMS TABLE
 -- =============================================
 CREATE TABLE Rooms (
@@ -354,7 +375,64 @@ CREATE TABLE Vendors (
 );
 
 -- =============================================
--- 14. STICKY NOTES TABLE
+-- 14. CHAT MESSAGES TABLES
+-- =============================================
+CREATE TABLE ChatMessages (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    SenderId INT NOT NULL FOREIGN KEY REFERENCES Users(Id),
+    ReceiverId INT NULL FOREIGN KEY REFERENCES Users(Id),
+    Message NVARCHAR(MAX) NOT NULL,
+    IsRead BIT DEFAULT 0,
+    MessageType NVARCHAR(50) DEFAULT 'text',
+    SentAt DATETIME2 DEFAULT GETUTCDATE(),
+    ReadAt DATETIME2 NULL,
+    CreatedDate DATETIME2 DEFAULT GETUTCDATE()
+);
+
+CREATE INDEX IX_ChatMessages_Receiver_Read ON ChatMessages(ReceiverId, IsRead, SentAt DESC);
+CREATE INDEX IX_ChatMessages_Pair_Time ON ChatMessages(SenderId, ReceiverId, SentAt DESC);
+
+CREATE TABLE ChatMessageAttachments (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    MessageId INT NOT NULL FOREIGN KEY REFERENCES ChatMessages(Id) ON DELETE CASCADE,
+    FileName NVARCHAR(255) NOT NULL,
+    ContentType NVARCHAR(200) NOT NULL,
+    FileSize INT NOT NULL DEFAULT 0,
+    FileData NVARCHAR(MAX) NOT NULL,
+    CreatedDate DATETIME2 DEFAULT GETUTCDATE()
+);
+
+CREATE INDEX IX_ChatMessageAttachments_MessageId ON ChatMessageAttachments(MessageId);
+
+-- =============================================
+-- 14. COPILOT CONVERSATIONS TABLES
+-- =============================================
+CREATE TABLE CopilotConversations (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    UserId INT NOT NULL FOREIGN KEY REFERENCES Users(Id),
+    ConversationId NVARCHAR(100) NOT NULL,
+    Title NVARCHAR(255) NOT NULL,
+    IsDeleted BIT NOT NULL DEFAULT 0,
+    CreatedDate DATETIME2 DEFAULT SYSUTCDATETIME(),
+    ModifiedDate DATETIME2 DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UX_CopilotConversations_User_Conversation UNIQUE (UserId, ConversationId)
+);
+
+CREATE INDEX IX_CopilotConversations_User_ModifiedDate ON CopilotConversations(UserId, ModifiedDate DESC);
+
+CREATE TABLE CopilotConversationMessages (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    ConversationPkId INT NOT NULL FOREIGN KEY REFERENCES CopilotConversations(Id) ON DELETE CASCADE,
+    Role NVARCHAR(20) NOT NULL,
+    Content NVARCHAR(MAX) NOT NULL,
+    MessageOrder INT NOT NULL,
+    CreatedDate DATETIME2 DEFAULT SYSUTCDATETIME()
+);
+
+CREATE INDEX IX_CopilotConversationMessages_Conversation_Order ON CopilotConversationMessages(ConversationPkId, MessageOrder);
+
+-- =============================================
+-- 15. STICKY NOTES TABLE
 -- =============================================
 CREATE TABLE StickyNotes (
     Id INT IDENTITY(1,1) PRIMARY KEY,
@@ -370,7 +448,7 @@ CREATE TABLE StickyNotes (
 CREATE INDEX IX_StickyNotes_UserId ON StickyNotes(UserId);
 
 -- =============================================
--- 15. AUDIT LOG TABLE (for tracking changes)
+-- 16. AUDIT LOG TABLE (for tracking changes)
 -- =============================================
 CREATE TABLE AuditLog (
     Id INT IDENTITY(1,1) PRIMARY KEY,
@@ -463,6 +541,84 @@ SELECT
 FROM Supplies s
 LEFT JOIN Clinics c ON s.ClinicId = c.Id
 WHERE s.QuantityInStock <= s.ReorderPoint AND s.IsActive = 1;
+GO
+
+-- =============================================
+-- 22. STATIONARY TEMPLATES TABLE
+-- =============================================
+CREATE TABLE StationaryTemplates (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    TemplateKey NVARCHAR(120) NOT NULL UNIQUE,
+    Name NVARCHAR(255) NOT NULL,
+    HeaderLine1 NVARCHAR(MAX),
+    HeaderLine2 NVARCHAR(MAX),
+    FooterText NVARCHAR(MAX),
+    Elements NVARCHAR(MAX), -- JSON array of positioned builder elements
+    ClinicId INT FOREIGN KEY REFERENCES Clinics(Id),
+    OwnerUsername NVARCHAR(100),
+    IsActive BIT DEFAULT 1,
+    CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
+    ModifiedDate DATETIME2 DEFAULT GETUTCDATE()
+);
+
+CREATE INDEX IX_StationaryTemplates_ClinicId ON StationaryTemplates(ClinicId);
+CREATE INDEX IX_StationaryTemplates_OwnerUsername ON StationaryTemplates(OwnerUsername);
+CREATE INDEX IX_StationaryTemplates_ModifiedDate ON StationaryTemplates(ModifiedDate DESC);
+GO
+
+-- =============================================
+-- 23. LOGIN SESSION TRACKING TABLES
+-- =============================================
+CREATE TABLE UserLoginSessions (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    SessionId NVARCHAR(120) NOT NULL UNIQUE,
+    UserId INT NULL,
+    Username NVARCHAR(120) NOT NULL,
+    DisplayName NVARCHAR(200),
+    UserRole NVARCHAR(60),
+    Source NVARCHAR(60),
+    LoginAt DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+    LastSeenAt DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+    LogoutAt DATETIME2(3),
+    LogoutReason NVARCHAR(80),
+    ForcedLogoutAt DATETIME2(3),
+    ForcedBy NVARCHAR(120),
+    IsActive BIT NOT NULL DEFAULT 1,
+    CreatedDate DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+    ModifiedDate DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_UserLoginSessions_UserId FOREIGN KEY (UserId) REFERENCES Users(Id)
+);
+
+CREATE INDEX IX_UserLoginSessions_Active_LastSeen
+    ON UserLoginSessions(IsActive, LastSeenAt DESC)
+    INCLUDE (SessionId, Username, DisplayName, UserRole, LoginAt, ForcedLogoutAt, ForcedBy);
+
+CREATE INDEX IX_UserLoginSessions_Username
+    ON UserLoginSessions(Username)
+    INCLUDE (SessionId, IsActive, LastSeenAt, ForcedLogoutAt);
+
+CREATE TABLE UserLoginAudit (
+    Id BIGINT IDENTITY(1,1) PRIMARY KEY,
+    SessionId NVARCHAR(120),
+    UserId INT NULL,
+    Username NVARCHAR(120) NOT NULL,
+    DisplayName NVARCHAR(200),
+    UserRole NVARCHAR(60),
+    EventType NVARCHAR(80) NOT NULL,
+    EventSource NVARCHAR(60),
+    EventAt DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+    ForcedBy NVARCHAR(120),
+    Note NVARCHAR(400),
+    CONSTRAINT FK_UserLoginAudit_UserId FOREIGN KEY (UserId) REFERENCES Users(Id)
+);
+
+CREATE INDEX IX_UserLoginAudit_EventAt
+    ON UserLoginAudit(EventAt DESC)
+    INCLUDE (Username, DisplayName, UserRole, EventType, SessionId, ForcedBy);
+
+CREATE INDEX IX_UserLoginAudit_Username_EventAt
+    ON UserLoginAudit(Username, EventAt DESC)
+    INCLUDE (EventType, SessionId, ForcedBy);
 GO
 
 PRINT 'ReformDental Database Schema Created Successfully!';

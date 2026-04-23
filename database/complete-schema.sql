@@ -70,6 +70,28 @@ CREATE TABLE Clinics (
 );
 
 -- =============================================
+-- 2b. CLINIC WORKING HOURS TABLE
+-- =============================================
+DROP TABLE IF EXISTS ClinicWorkingHours;
+CREATE TABLE ClinicWorkingHours (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    ClinicId INT NOT NULL FOREIGN KEY REFERENCES Clinics(Id),
+    DayKey NVARCHAR(20) NOT NULL,
+    IsOpen BIT NOT NULL DEFAULT 0,
+    OpenTime TIME NULL,
+    CloseTime TIME NULL,
+    CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
+    ModifiedDate DATETIME2 DEFAULT GETUTCDATE(),
+    CONSTRAINT CK_ClinicWorkingHours_DayKey
+        CHECK (LOWER(DayKey) IN ('monday','tuesday','wednesday','thursday','friday','saturday','sunday')),
+    CONSTRAINT CK_ClinicWorkingHours_TimeRange
+        CHECK (IsOpen = 0 OR (OpenTime IS NOT NULL AND CloseTime IS NOT NULL AND OpenTime < CloseTime))
+);
+
+CREATE UNIQUE INDEX UX_ClinicWorkingHours_ClinicId_DayKey ON ClinicWorkingHours(ClinicId, DayKey);
+CREATE INDEX IX_ClinicWorkingHours_ClinicId ON ClinicWorkingHours(ClinicId);
+
+-- =============================================
 -- 3. ROOMS TABLE
 -- =============================================
 DROP TABLE IF EXISTS Rooms;
@@ -666,5 +688,62 @@ BEGIN
     CREATE NONCLUSTERED INDEX IX_UserComplianceAssignments_UserId
         ON dbo.UserComplianceAssignments (UserId);
 END;
+
+-- =============================================
+-- LOGIN SESSION TRACKING TABLES
+-- =============================================
+DROP TABLE IF EXISTS UserLoginAudit;
+DROP TABLE IF EXISTS UserLoginSessions;
+
+CREATE TABLE UserLoginSessions (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    SessionId NVARCHAR(120) NOT NULL UNIQUE,
+    UserId INT NULL,
+    Username NVARCHAR(120) NOT NULL,
+    DisplayName NVARCHAR(200),
+    UserRole NVARCHAR(60),
+    Source NVARCHAR(60),
+    LoginAt DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+    LastSeenAt DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+    LogoutAt DATETIME2(3),
+    LogoutReason NVARCHAR(80),
+    ForcedLogoutAt DATETIME2(3),
+    ForcedBy NVARCHAR(120),
+    IsActive BIT NOT NULL DEFAULT 1,
+    CreatedDate DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+    ModifiedDate DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_UserLoginSessions_UserId FOREIGN KEY (UserId) REFERENCES Users(Id)
+);
+
+CREATE INDEX IX_UserLoginSessions_Active_LastSeen
+    ON UserLoginSessions(IsActive, LastSeenAt DESC)
+    INCLUDE (SessionId, Username, DisplayName, UserRole, LoginAt, ForcedLogoutAt, ForcedBy);
+
+CREATE INDEX IX_UserLoginSessions_Username
+    ON UserLoginSessions(Username)
+    INCLUDE (SessionId, IsActive, LastSeenAt, ForcedLogoutAt);
+
+CREATE TABLE UserLoginAudit (
+    Id BIGINT IDENTITY(1,1) PRIMARY KEY,
+    SessionId NVARCHAR(120),
+    UserId INT NULL,
+    Username NVARCHAR(120) NOT NULL,
+    DisplayName NVARCHAR(200),
+    UserRole NVARCHAR(60),
+    EventType NVARCHAR(80) NOT NULL,
+    EventSource NVARCHAR(60),
+    EventAt DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+    ForcedBy NVARCHAR(120),
+    Note NVARCHAR(400),
+    CONSTRAINT FK_UserLoginAudit_UserId FOREIGN KEY (UserId) REFERENCES Users(Id)
+);
+
+CREATE INDEX IX_UserLoginAudit_EventAt
+    ON UserLoginAudit(EventAt DESC)
+    INCLUDE (Username, DisplayName, UserRole, EventType, SessionId, ForcedBy);
+
+CREATE INDEX IX_UserLoginAudit_Username_EventAt
+    ON UserLoginAudit(Username, EventAt DESC)
+    INCLUDE (EventType, SessionId, ForcedBy);
 
 PRINT 'ReformDental Complete Database Schema Created Successfully!';

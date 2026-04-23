@@ -3,7 +3,7 @@ const sql = require('mssql');
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
     if (connStr) {
-        const serverMatch = connStr.match(/Server=tcp:([^,]+)/i);
+        const serverMatch = connStr.match(/Server=(?:tcp:)?([^,;]+)/i);
         const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
         const userMatch = connStr.match(/User ID=([^;]+)/i);
         const passMatch = connStr.match(/Password=([^;]+)/i);
