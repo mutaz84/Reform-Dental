@@ -93,8 +93,8 @@ module.exports = async function (context, req) {
                 .input('warrantyExpiry', sql.Date, body.warrantyExpiry || null)
                 .input('notes', sql.NVarChar, body.notes || null)
                 .input('warnings', sql.NVarChar, body.warnings || null)
-                .input('imageUrl', sql.NVarChar, body.imageUrl || null)
-                .input('documentUrl', sql.NVarChar, body.documentUrl || null)
+                .input('imageUrl', sql.NVarChar(sql.MAX), body.imageUrl || null)
+                .input('documentUrl', sql.NVarChar(sql.MAX), body.documentUrl || null)
                 .query(`INSERT INTO Equipment (Name, Category, Brand, Model, SerialNumber, Description, Status, ClinicId, PurchaseDate, PurchasePrice, WarrantyExpiry, Notes, Warnings, ImageUrl, DocumentUrl) 
                         OUTPUT INSERTED.Id VALUES (@name, @category, @brand, @model, @serialNumber, @description, @status, @clinicId, @purchaseDate, @purchasePrice, @warrantyExpiry, @notes, @warnings, @imageUrl, @documentUrl)`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
@@ -115,8 +115,8 @@ module.exports = async function (context, req) {
                 .input('warrantyExpiry', sql.Date, body.warrantyExpiry || null)
                 .input('notes', sql.NVarChar, body.notes)
                 .input('warnings', sql.NVarChar, body.warnings)
-                .input('imageUrl', sql.NVarChar, body.imageUrl)
-                .input('documentUrl', sql.NVarChar, body.documentUrl)
+                .input('imageUrl', sql.NVarChar(sql.MAX), body.imageUrl)
+                .input('documentUrl', sql.NVarChar(sql.MAX), body.documentUrl)
                 .query(`UPDATE Equipment SET Name=@name, Category=@category, Brand=@brand, Model=@model, SerialNumber=@serialNumber, Description=@description, Status=@status, ClinicId=@clinicId, PurchaseDate=@purchaseDate, PurchasePrice=@purchasePrice, WarrantyExpiry=@warrantyExpiry, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Equipment updated' } };
         } else if (req.method === 'DELETE' && id) {
