@@ -232,16 +232,22 @@ CREATE TABLE Equipment (
     PurchasePrice DECIMAL(12,2),
     WarrantyExpiry DATE,
     Status NVARCHAR(50) DEFAULT 'operational', -- 'operational', 'maintenance', 'repair', 'retired'
+    Condition NVARCHAR(50), -- 'excellent', 'good', 'fair', 'poor'
     MaintenanceSchedule NVARCHAR(50), -- 'weekly', 'monthly', 'quarterly', 'yearly'
     LastMaintenanceDate DATE,
     NextMaintenanceDate DATE,
+    ServiceIntervalDays INT,
+    LastServiceDate DATE,
+    NextServiceDate DATE,
+    ServiceVendor NVARCHAR(120),
     VendorId INT,
     Notes NVARCHAR(MAX),
     Warnings NVARCHAR(MAX),
     ImageUrl NVARCHAR(MAX),
     DocumentUrl NVARCHAR(MAX),
     CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
-    ModifiedDate DATETIME2 DEFAULT GETUTCDATE()
+    ModifiedDate DATETIME2 DEFAULT GETUTCDATE(),
+    IsActive BIT DEFAULT 1
 );
 
 CREATE INDEX IX_Equipment_ClinicId ON Equipment(ClinicId);

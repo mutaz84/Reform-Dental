@@ -66,6 +66,7 @@ function buildEquipmentColumnDefinitions(request, columns, body) {
     addColumnValue(request, columns, definitions, 'Model', 'model', sql.NVarChar, body.model || null);
     addColumnValue(request, columns, definitions, 'SerialNumber', 'serialNumber', sql.NVarChar, body.serialNumber || null);
     addColumnValue(request, columns, definitions, 'Description', 'description', sql.NVarChar, body.description || null);
+    addColumnValue(request, columns, definitions, 'Condition', 'condition', sql.NVarChar, body.condition || null);
     addColumnValue(request, columns, definitions, 'Status', 'status', sql.NVarChar, body.status || 'operational');
     addColumnValue(request, columns, definitions, 'ClinicId', 'clinicId', sql.Int, toIntOrNull(body.clinicId));
     addColumnValue(request, columns, definitions, 'RoomId', 'roomId', sql.Int, toIntOrNull(body.roomId));
