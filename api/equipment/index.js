@@ -33,34 +33,43 @@ function addColumnValue(request, columns, definitions, columnName, paramName, ty
     definitions.push({ columnName, paramName });
 }
 
+function getBodyValue(body, ...keys) {
+    for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(body, key) && body[key] !== undefined) {
+            return body[key];
+        }
+    }
+    return undefined;
+}
+
 function buildEquipmentColumnDefinitions(request, columns, body) {
     const definitions = [];
-    addColumnValue(request, columns, definitions, 'Name', 'name', sql.NVarChar, body.name || null);
-    addColumnValue(request, columns, definitions, 'Category', 'category', sql.NVarChar, body.category || null);
-    addColumnValue(request, columns, definitions, 'Brand', 'brand', sql.NVarChar, body.brand || null);
-    addColumnValue(request, columns, definitions, 'Model', 'model', sql.NVarChar, body.model || null);
-    addColumnValue(request, columns, definitions, 'SerialNumber', 'serialNumber', sql.NVarChar, body.serialNumber || null);
-    addColumnValue(request, columns, definitions, 'Description', 'description', sql.NVarChar, body.description || null);
-    addColumnValue(request, columns, definitions, 'Condition', 'condition', sql.NVarChar, body.condition || null);
-    addColumnValue(request, columns, definitions, 'Status', 'status', sql.NVarChar, body.status || 'operational');
-    addColumnValue(request, columns, definitions, 'ClinicId', 'clinicId', sql.Int, toIntOrNull(body.clinicId));
-    addColumnValue(request, columns, definitions, 'RoomId', 'roomId', sql.Int, toIntOrNull(body.roomId));
-    addColumnValue(request, columns, definitions, 'VendorId', 'vendorId', sql.Int, toIntOrNull(body.vendorId));
-    addColumnValue(request, columns, definitions, 'PurchaseDate', 'purchaseDate', sql.Date, body.purchaseDate || null);
-    addColumnValue(request, columns, definitions, 'PurchasePrice', 'purchasePrice', sql.Decimal(12, 2), toDecimalOrNull(body.purchasePrice));
-    addColumnValue(request, columns, definitions, 'WarrantyExpiry', 'warrantyExpiry', sql.Date, body.warrantyExpiry || null);
-    addColumnValue(request, columns, definitions, 'MaintenanceSchedule', 'maintenanceSchedule', sql.NVarChar, body.maintenanceSchedule || null);
-    addColumnValue(request, columns, definitions, 'LastMaintenanceDate', 'lastMaintenanceDate', sql.Date, body.lastMaintenanceDate || body.lastServiceDate || null);
-    addColumnValue(request, columns, definitions, 'NextMaintenanceDate', 'nextMaintenanceDate', sql.Date, body.nextMaintenanceDate || body.nextServiceDate || null);
-    addColumnValue(request, columns, definitions, 'ServiceIntervalDays', 'serviceIntervalDays', sql.Int, toIntOrNull(body.serviceIntervalDays));
-    addColumnValue(request, columns, definitions, 'LastServiceDate', 'lastServiceDate', sql.Date, body.lastServiceDate || body.lastMaintenanceDate || null);
-    addColumnValue(request, columns, definitions, 'NextServiceDate', 'nextServiceDate', sql.Date, body.nextServiceDate || body.nextMaintenanceDate || null);
-    addColumnValue(request, columns, definitions, 'ServiceVendor', 'serviceVendor', sql.NVarChar, body.serviceVendor || null);
-    addColumnValue(request, columns, definitions, 'Notes', 'notes', sql.NVarChar, body.notes || null);
-    addColumnValue(request, columns, definitions, 'Warnings', 'warnings', sql.NVarChar, body.warnings || null);
-    addColumnValue(request, columns, definitions, 'ImageUrl', 'imageUrl', sql.NVarChar(sql.MAX), body.imageUrl || null);
-    addColumnValue(request, columns, definitions, 'DocumentUrl', 'documentUrl', sql.NVarChar(sql.MAX), body.documentUrl || null);
-    addColumnValue(request, columns, definitions, 'IsActive', 'isActive', sql.Bit, toBitOrNull(body.isActive));
+    addColumnValue(request, columns, definitions, 'Name', 'name', sql.NVarChar, getBodyValue(body, 'name', 'Name') || null);
+    addColumnValue(request, columns, definitions, 'Category', 'category', sql.NVarChar, getBodyValue(body, 'category', 'Category') || null);
+    addColumnValue(request, columns, definitions, 'Brand', 'brand', sql.NVarChar, getBodyValue(body, 'brand', 'Brand') || null);
+    addColumnValue(request, columns, definitions, 'Model', 'model', sql.NVarChar, getBodyValue(body, 'model', 'Model') || null);
+    addColumnValue(request, columns, definitions, 'SerialNumber', 'serialNumber', sql.NVarChar, getBodyValue(body, 'serialNumber', 'SerialNumber') || null);
+    addColumnValue(request, columns, definitions, 'Description', 'description', sql.NVarChar, getBodyValue(body, 'description', 'Description') || null);
+    addColumnValue(request, columns, definitions, 'Condition', 'condition', sql.NVarChar, getBodyValue(body, 'condition', 'Condition') || null);
+    addColumnValue(request, columns, definitions, 'Status', 'status', sql.NVarChar, getBodyValue(body, 'status', 'Status') || 'Operational');
+    addColumnValue(request, columns, definitions, 'ClinicId', 'clinicId', sql.Int, toIntOrNull(getBodyValue(body, 'clinicId', 'ClinicId')));
+    addColumnValue(request, columns, definitions, 'RoomId', 'roomId', sql.Int, toIntOrNull(getBodyValue(body, 'roomId', 'RoomId')));
+    addColumnValue(request, columns, definitions, 'VendorId', 'vendorId', sql.Int, toIntOrNull(getBodyValue(body, 'vendorId', 'VendorId')));
+    addColumnValue(request, columns, definitions, 'PurchaseDate', 'purchaseDate', sql.Date, getBodyValue(body, 'purchaseDate', 'PurchaseDate') || null);
+    addColumnValue(request, columns, definitions, 'PurchasePrice', 'purchasePrice', sql.Decimal(12, 2), toDecimalOrNull(getBodyValue(body, 'purchasePrice', 'PurchasePrice')));
+    addColumnValue(request, columns, definitions, 'WarrantyExpiry', 'warrantyExpiry', sql.Date, getBodyValue(body, 'warrantyExpiry', 'WarrantyExpiry') || null);
+    addColumnValue(request, columns, definitions, 'MaintenanceSchedule', 'maintenanceSchedule', sql.NVarChar, getBodyValue(body, 'maintenanceSchedule', 'MaintenanceSchedule') || null);
+    addColumnValue(request, columns, definitions, 'LastMaintenanceDate', 'lastMaintenanceDate', sql.Date, getBodyValue(body, 'lastMaintenanceDate', 'LastMaintenanceDate', 'lastServiceDate', 'LastServiceDate') || null);
+    addColumnValue(request, columns, definitions, 'NextMaintenanceDate', 'nextMaintenanceDate', sql.Date, getBodyValue(body, 'nextMaintenanceDate', 'NextMaintenanceDate', 'nextServiceDate', 'NextServiceDate') || null);
+    addColumnValue(request, columns, definitions, 'ServiceIntervalDays', 'serviceIntervalDays', sql.Int, toIntOrNull(getBodyValue(body, 'serviceIntervalDays', 'ServiceIntervalDays')));
+    addColumnValue(request, columns, definitions, 'LastServiceDate', 'lastServiceDate', sql.Date, getBodyValue(body, 'lastServiceDate', 'LastServiceDate', 'lastMaintenanceDate', 'LastMaintenanceDate') || null);
+    addColumnValue(request, columns, definitions, 'NextServiceDate', 'nextServiceDate', sql.Date, getBodyValue(body, 'nextServiceDate', 'NextServiceDate', 'nextMaintenanceDate', 'NextMaintenanceDate') || null);
+    addColumnValue(request, columns, definitions, 'ServiceVendor', 'serviceVendor', sql.NVarChar, getBodyValue(body, 'serviceVendor', 'ServiceVendor') || null);
+    addColumnValue(request, columns, definitions, 'Notes', 'notes', sql.NVarChar, getBodyValue(body, 'notes', 'Notes') || null);
+    addColumnValue(request, columns, definitions, 'Warnings', 'warnings', sql.NVarChar, getBodyValue(body, 'warnings', 'Warnings') || null);
+    addColumnValue(request, columns, definitions, 'ImageUrl', 'imageUrl', sql.NVarChar(sql.MAX), getBodyValue(body, 'imageUrl', 'ImageUrl') || null);
+    addColumnValue(request, columns, definitions, 'DocumentUrl', 'documentUrl', sql.NVarChar(sql.MAX), getBodyValue(body, 'documentUrl', 'DocumentUrl') || null);
+    addColumnValue(request, columns, definitions, 'IsActive', 'isActive', sql.Bit, toBitOrNull(getBodyValue(body, 'isActive', 'IsActive')));
     return definitions;
 }
 
@@ -121,6 +130,10 @@ module.exports = async function (context, req) {
             const body = req.body || {};
             const request = pool.request().input('id', sql.Int, id);
             const definitions = buildEquipmentColumnDefinitions(request, equipmentColumns, body);
+            if (definitions.length === 0 && !hasColumn(equipmentColumns, 'ModifiedDate')) {
+                context.res = { status: 400, headers, body: { error: 'No valid equipment fields were provided for update.' } };
+                return;
+            }
             const setClause = definitions
                 .map((definition) => `${definition.columnName}=@${definition.paramName}`)
                 .concat(hasColumn(equipmentColumns, 'ModifiedDate') ? ['ModifiedDate=GETUTCDATE()'] : [])
