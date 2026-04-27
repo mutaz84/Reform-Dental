@@ -2,6 +2,10 @@ const sql = require('mssql');
 
 let poolPromise = null;
 
+function isPoolUsable(pool) {
+    return Boolean(pool) && (pool.connected === true || pool.connecting === true);
+}
+
 function parseConnectionString(connStr) {
     const serverMatch = connStr.match(/Server=(?:tcp:)?([^,;]+)/i);
     const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
@@ -67,13 +71,34 @@ async function getPool() {
     if (!poolPromise) {
         const config = getConfig();
         validateConfig(config);
-        poolPromise = sql.connect(config).catch((err) => {
-            poolPromise = null;
+
+        const pool = new sql.ConnectionPool(config);
+        let connectPromise;
+
+        pool.on('error', () => {
+            if (poolPromise === connectPromise) {
+                poolPromise = null;
+            }
+        });
+
+        connectPromise = pool.connect().catch((err) => {
+            if (poolPromise === connectPromise) {
+                poolPromise = null;
+            }
             throw err;
         });
+
+        poolPromise = connectPromise;
     }
 
-    return poolPromise;
+    const pool = await poolPromise;
+
+    if (isPoolUsable(pool)) {
+        return pool;
+    }
+
+    await resetPool();
+    return getPool();
 }
 
 function bindInput(request, key, value) {
