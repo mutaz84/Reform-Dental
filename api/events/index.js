@@ -1,23 +1,4 @@
-const sql = require('mssql');
-
-function getConfig() {
-    const connStr = process.env.SQL_CONNECTION_STRING;
-    if (connStr) {
-        const serverMatch = connStr.match(/Server=(?:tcp:)?([^,;]+)/i);
-        const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
-        const userMatch = connStr.match(/User ID=([^;]+)/i);
-        const passMatch = connStr.match(/Password=([^;]+)/i);
-
-        return {
-            server: serverMatch ? serverMatch[1] : '',
-            database: dbMatch ? dbMatch[1] : '',
-            user: userMatch ? userMatch[1] : '',
-            password: passMatch ? passMatch[1] : '',
-            options: { encrypt: true, trustServerCertificate: false }
-        };
-    }
-    return {};
-}
+const { sql, getPool, resetPool } = require('../shared/database');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -216,7 +197,7 @@ module.exports = async function (context, req) {
 
     let pool;
     try {
-        pool = await sql.connect(getConfig());
+        pool = await getPool();
         const id = toNullableInt(req.params.id);
         const eventColumns = await getTableColumns(pool, 'Events');
         const attendeesColumns = await getTableColumns(pool, 'EventAttendees').catch(() => new Set());
@@ -455,14 +436,7 @@ module.exports = async function (context, req) {
         context.res = { status: 405, headers, body: { error: 'Method not allowed' } };
     } catch (err) {
         context.log.error('Events API error:', err);
+        await resetPool();
         context.res = { status: 500, headers, body: { error: err.message } };
-    } finally {
-        if (pool) {
-            try {
-                await pool.close();
-            } catch (_) {
-                // Ignore close errors
-            }
-        }
     }
 };

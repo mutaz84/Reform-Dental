@@ -1,23 +1,4 @@
-const sql = require('mssql');
-
-function getConfig() {
-    const connStr = process.env.SQL_CONNECTION_STRING;
-    if (connStr) {
-        const serverMatch = connStr.match(/Server=(?:tcp:)?([^,;]+)/i);
-        const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
-        const userMatch = connStr.match(/User ID=([^;]+)/i);
-        const passMatch = connStr.match(/Password=([^;]+)/i);
-        
-        return {
-            server: serverMatch ? serverMatch[1] : '',
-            database: dbMatch ? dbMatch[1] : '',
-            user: userMatch ? userMatch[1] : '',
-            password: passMatch ? passMatch[1] : '',
-            options: { encrypt: true, trustServerCertificate: false }
-        };
-    }
-    return {};
-}
+const { sql, getPool, resetPool } = require('../shared/database');
 
 async function readBody(req) {
     if (!req) return {};
@@ -53,7 +34,7 @@ module.exports = async function (context, req) {
     }
 
     try {
-        const pool = await sql.connect(getConfig());
+        const pool = await getPool();
         const id = req.params.id;
 
         const parseIntOrNull = (value) => {
@@ -575,6 +556,7 @@ module.exports = async function (context, req) {
 
     } catch (err) {
         context.log.error('Database error:', err);
+        await resetPool();
         context.res = {
             status: 500,
             headers,

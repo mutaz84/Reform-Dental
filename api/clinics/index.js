@@ -1,20 +1,4 @@
-const sql = require('mssql');
-
-let sharedPoolPromise = null;
-
-function resetSharedPool() {
-    if (!sharedPoolPromise) return;
-    sharedPoolPromise
-        .then(async (pool) => {
-            try {
-                if (pool && typeof pool.close === 'function') {
-                    await pool.close();
-                }
-            } catch (_) {}
-        })
-        .catch(() => {});
-    sharedPoolPromise = null;
-}
+const { sql, getPool, resetPool } = require('../shared/database');
 
 function isConnectionError(error) {
     const message = String(error?.message || '').toLowerCase();
@@ -29,83 +13,6 @@ function isConnectionError(error) {
         message.includes('timeout'),
         message.includes('closed')
     ].some(Boolean);
-}
-
-function getConfig() {
-    const connStr = process.env.SQL_CONNECTION_STRING;
-    if (connStr) {
-        const serverMatch = connStr.match(/Server=(?:tcp:)?([^,;]+)/i);
-        const portMatch = connStr.match(/Server=(?:tcp:)?[^,;]+,(\d+)/i);
-        const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
-        const userMatch = connStr.match(/User ID=([^;]+)/i);
-        const passMatch = connStr.match(/Password=([^;]+)/i);
-        const encryptMatch = connStr.match(/Encrypt=([^;]+)/i);
-        const trustMatch = connStr.match(/TrustServerCertificate=([^;]+)/i);
-
-        const parseBool = (value, fallback) => {
-            if (value == null) return fallback;
-            return /^(true|yes|1)$/i.test(String(value).trim());
-        };
-        
-        return {
-            server: serverMatch ? serverMatch[1] : '',
-            port: portMatch ? Number(portMatch[1]) : undefined,
-            database: dbMatch ? dbMatch[1] : '',
-            user: userMatch ? userMatch[1] : '',
-            password: passMatch ? passMatch[1] : '',
-            options: {
-                encrypt: parseBool(encryptMatch?.[1], true),
-                trustServerCertificate: parseBool(trustMatch?.[1], false),
-                enableArithAbort: true
-            },
-            pool: {
-                max: 10,
-                min: 0,
-                idleTimeoutMillis: 30000
-            },
-            requestTimeout: 30000,
-            connectionTimeout: 30000
-        };
-    }
-    return {
-        server: process.env.SQL_SERVER || '',
-        port: process.env.SQL_PORT ? Number(process.env.SQL_PORT) : undefined,
-        database: process.env.SQL_DATABASE || '',
-        user: process.env.SQL_USER || '',
-        password: process.env.SQL_PASSWORD || '',
-        options: {
-            encrypt: true,
-            trustServerCertificate: false,
-            enableArithAbort: true
-        },
-        pool: {
-            max: 10,
-            min: 0,
-            idleTimeoutMillis: 30000
-        },
-        requestTimeout: 30000,
-        connectionTimeout: 30000
-    };
-}
-
-async function getPool() {
-    if (sharedPoolPromise) {
-        try {
-            const existing = await sharedPoolPromise;
-            if (existing && (existing.connected || existing.connecting)) {
-                return existing;
-            }
-            resetSharedPool();
-        } catch (_) {
-            resetSharedPool();
-        }
-    }
-
-    sharedPoolPromise = sql.connect(getConfig()).catch((error) => {
-        sharedPoolPromise = null;
-        throw error;
-    });
-    return sharedPoolPromise;
 }
 
 async function getTableColumns(pool, tableName) {
@@ -525,7 +432,7 @@ module.exports = async function (context, req) {
 
     } catch (err) {
         if (isConnectionError(err)) {
-            resetSharedPool();
+            await resetPool();
         }
         context.log.error('Database error:', err);
         context.res = { status: 500, headers, body: { error: err.message } };
