@@ -206,11 +206,13 @@ module.exports = async function (context, req) {
         const hasEventCategory = hasColumn(eventColumns, 'EventCategory');
         const hasLocation = hasColumn(eventColumns, 'Location');
         const hasOrganizerUserId = hasColumn(eventColumns, 'OrganizerUserId');
+        const hasCreatedBy = hasColumn(eventColumns, 'CreatedBy');
         const hasOrganizerName = hasColumn(eventColumns, 'OrganizerName');
         const hasEventDate = hasColumn(eventColumns, 'EventDate');
         const hasStartTime = hasColumn(eventColumns, 'StartTime');
         const hasEndTime = hasColumn(eventColumns, 'EndTime');
         const hasModifiedDate = hasColumn(eventColumns, 'ModifiedDate');
+        const organizerJoinColumn = hasOrganizerUserId ? 'e.OrganizerUserId' : (hasCreatedBy ? 'e.CreatedBy' : 'NULL');
 
         if (req.method === 'GET') {
             if (id) {
@@ -220,7 +222,7 @@ module.exports = async function (context, req) {
                         u.Username AS CreatedByName,
                         LTRIM(RTRIM(CONCAT(COALESCE(u.FirstName, ''), ' ', COALESCE(u.LastName, '')))) AS CreatedByFullName
                     FROM Events e
-                    LEFT JOIN Users u ON u.Id = e.OrganizerUserId
+                    LEFT JOIN Users u ON u.Id = ${organizerJoinColumn}
                     WHERE e.Id = @id
                 `;
                 const result = await pool.request().input('id', sql.Int, id).query(query);
@@ -256,7 +258,7 @@ module.exports = async function (context, req) {
                     u.Username AS CreatedByName,
                     LTRIM(RTRIM(CONCAT(COALESCE(u.FirstName, ''), ' ', COALESCE(u.LastName, '')))) AS CreatedByFullName
                 FROM Events e
-                LEFT JOIN Users u ON u.Id = e.OrganizerUserId
+                LEFT JOIN Users u ON u.Id = ${organizerJoinColumn}
                 WHERE 1=1 ${whereClause}
                 ORDER BY e.StartDateTime, e.Title
             `;
