@@ -1,38 +1,4 @@
-const sql = require('mssql');
-
-const config = {
-    server: process.env.SQL_SERVER || '',
-    database: process.env.SQL_DATABASE || '',
-    user: process.env.SQL_USER || '',
-    password: process.env.SQL_PASSWORD || '',
-    options: {
-        encrypt: true,
-        trustServerCertificate: false
-    }
-};
-
-// Parse connection string if provided
-function getConfig() {
-    const connStr = process.env.SQL_CONNECTION_STRING;
-    if (connStr) {
-        const serverMatch = connStr.match(/Server=(?:tcp:)?([^,;]+)/i);
-        const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
-        const userMatch = connStr.match(/User ID=([^;]+)/i);
-        const passMatch = connStr.match(/Password=([^;]+)/i);
-        
-        return {
-            server: serverMatch ? serverMatch[1] : '',
-            database: dbMatch ? dbMatch[1] : '',
-            user: userMatch ? userMatch[1] : '',
-            password: passMatch ? passMatch[1] : '',
-            options: {
-                encrypt: true,
-                trustServerCertificate: false
-            }
-        };
-    }
-    return config;
-}
+const { sql, getPool, resetPool } = require('../shared/database');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -397,7 +363,7 @@ module.exports = async function (context, req) {
     }
 
     try {
-        const pool = await sql.connect(getConfig());
+        const pool = await getPool();
         const id = req.params.id;
         const includeInactive = (() => {
             const raw = req?.query?.includeInactive ?? req?.query?.IncludeInactive;
@@ -672,7 +638,6 @@ module.exports = async function (context, req) {
                             }
                         }
                     };
-                    await pool.close();
                     return;
                 } catch (e) {
                     await transaction.rollback();
@@ -712,7 +677,6 @@ module.exports = async function (context, req) {
                         headers,
                         body: { error: 'No supported deactivation fields found on Users table.' }
                     };
-                    await pool.close();
                     return;
                 }
 
@@ -852,7 +816,6 @@ module.exports = async function (context, req) {
                 if (affectedRows === 0) {
                     await transaction.rollback();
                     context.res = { status: 404, headers, body: { error: 'User not found or not updated' } };
-                    await pool.close();
                     return;
                 }
 
@@ -976,10 +939,9 @@ module.exports = async function (context, req) {
                 }
             }
         }
-
-        await pool.close();
     } catch (err) {
         context.log.error('Database error:', err);
+        await resetPool();
         context.res = { 
             status: 500, 
             headers, 

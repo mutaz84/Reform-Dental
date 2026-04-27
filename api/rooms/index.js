@@ -1,29 +1,4 @@
-const sql = require('mssql');
-
-function getConfig() {
-    const connStr = process.env.SQL_CONNECTION_STRING;
-    if (connStr) {
-        const serverMatch = connStr.match(/Server=(?:tcp:)?([^,;]+)/i);
-        const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
-        const userMatch = connStr.match(/User ID=([^;]+)/i);
-        const passMatch = connStr.match(/Password=([^;]+)/i);
-        
-        return {
-            server: serverMatch ? serverMatch[1] : '',
-            database: dbMatch ? dbMatch[1] : '',
-            user: userMatch ? userMatch[1] : '',
-            password: passMatch ? passMatch[1] : '',
-            options: { encrypt: true, trustServerCertificate: false }
-        };
-    }
-    return {
-        server: process.env.SQL_SERVER || '',
-        database: process.env.SQL_DATABASE || '',
-        user: process.env.SQL_USER || '',
-        password: process.env.SQL_PASSWORD || '',
-        options: { encrypt: true, trustServerCertificate: false }
-    };
-}
+const { sql, getPool, resetPool } = require('../shared/database');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -50,7 +25,7 @@ module.exports = async function (context, req) {
     }
 
     try {
-        const pool = await sql.connect(getConfig());
+        const pool = await getPool();
         const roomColumns = await getTableColumns(pool, 'Rooms');
         if (roomColumns.size === 0) {
             context.res = { status: 500, headers, body: { error: 'Rooms table not found.' } };
@@ -121,10 +96,9 @@ module.exports = async function (context, req) {
                 .query('UPDATE Rooms SET IsActive = 0 WHERE Id = @id');
             context.res = { status: 200, headers, body: { message: 'Room deleted' } };
         }
-
-        await pool.close();
     } catch (err) {
         context.log.error('Database error:', err);
+        await resetPool();
         context.res = { status: 500, headers, body: { error: err.message } };
     }
 };
