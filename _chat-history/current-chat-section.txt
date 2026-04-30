@@ -1,0 +1,2417 @@
+﻿        // TEAM CHAT FUNCTIONS
+        // ============================================
+        window.currentChatUserId = null;
+        window.currentChatType = 'direct'; // 'direct', 'group', 'announcement'
+        window.currentChatTab = 'direct';
+        window.chatPollingInterval = null;
+        window.lastMessageTimestamp = null;
+        window.chatUsersCache = [];
+        window.chatPendingAttachments = [];
+        window.chatAttachmentDownloadCache = {};
+        window.chatImageReviewState = null;
+        window.chatUploadProgressState = null;
+        window.chatActiveUploadXhr = null;
+        window.chatRetryUploadPayload = null;
+        
+        function openChat() {
+            const panel = document.getElementById('chatPanel');
+            if (panel) {
+                panel.classList.add('open');
+                window.currentChatTab = 'direct';
+                window.currentChatType = 'direct';
+                try { loadConversations(); } catch (error) { console.error('Failed to load chat conversations:', error); }
+                try { startChatPolling(); } catch (error) { console.error('Failed to start chat polling:', error); }
+                try { updateOnlineStatus(true); } catch (error) { console.error('Failed to update chat online status:', error); }
+                // Attach drag handler
+                setTimeout(() => {
+                    try { attachChatDrag(); } catch (error) { console.error('Failed to attach chat drag behavior:', error); }
+                }, 50);
+            }
+        }
+        
+        function closeChat() {
+            const panel = document.getElementById('chatPanel');
+            if (panel) {
+                panel.classList.remove('open', 'fullscreen');
+                // Reset position
+                panel.classList.remove('dragged');
+                panel.style.left = '';
+                panel.style.top = '';
+                // Reset fullscreen icon
+                const btn = document.getElementById('chatFullscreenBtn');
+                if (btn) { const i = btn.querySelector('i'); if (i) i.className = 'fas fa-expand'; }
+            }
+            stopChatPolling();
+            window.currentChatUserId = null;
+            clearChatAttachmentSelection();
+            hideNewChatPanel();
+        }
+
+        window.openChat = openChat;
+        window.closeChat = closeChat;
+        
+        // Switch between chat tabs (direct, group, announcements)
+        function switchChatTab(tab) {
+            console.log('ðŸ“‘ Switching to tab:', tab);
+            window.currentChatTab = tab;
+            window.currentChatType = tab === 'announcements' ? 'announcement' : tab;
+            window.currentChatUserId = null;
+            
+            // Hide new chat panel if open
+            hideNewChatPanel();
+            
+            // Update tab button styles
+            const directBtn = document.getElementById('chatTabDirect');
+            const groupBtn = document.getElementById('chatTabGroup');
+            const annBtn = document.getElementById('chatTabAnnouncements');
+            
+            [directBtn, groupBtn, annBtn].forEach(btn => {
+                if (btn) {
+                    btn.style.background = 'var(--bg-tertiary)';
+                    btn.style.color = 'var(--text-secondary)';
+                }
+            });
+            
+            if (tab === 'direct' && directBtn) {
+                directBtn.style.background = 'var(--accent-primary)';
+                directBtn.style.color = 'white';
+            } else if (tab === 'group' && groupBtn) {
+                groupBtn.style.background = 'var(--accent-primary)';
+                groupBtn.style.color = 'white';
+            } else if (tab === 'announcements' && annBtn) {
+                annBtn.style.background = 'var(--accent-primary)';
+                annBtn.style.color = 'white';
+            }
+            
+            // Update button text and visibility
+            const newChatBtn = document.getElementById('newChatBtn');
+            const newChatBtnText = document.getElementById('newChatBtnText');
+            
+            if (newChatBtn && newChatBtnText) {
+                if (tab === 'direct') {
+                    newChatBtn.style.display = 'flex';
+                    newChatBtnText.textContent = 'New Chat';
+                } else if (tab === 'group') {
+                    newChatBtn.style.display = 'flex';
+                    newChatBtnText.textContent = 'New Group';
+                } else if (tab === 'announcements') {
+                    const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
+                    if (currentUser.role === 'admin' || currentUser.role === 'manager') {
+                        newChatBtn.style.display = 'flex';
+                        newChatBtnText.textContent = 'New Announcement';
+                    } else {
+                        newChatBtn.style.display = 'none';
+                    }
+                }
+            }
+            
+            // Reset chat area
+            resetChatArea();
+            
+            // Load appropriate content based on tab
+            if (tab === 'direct') {
+                loadConversations();
+            } else if (tab === 'group') {
+                loadGroupChats();
+            } else if (tab === 'announcements') {
+                loadAnnouncements();
+            }
+        }
+        window.switchChatTab = switchChatTab;
+        
+        // Reset chat area to placeholder
+        function resetChatArea() {
+            const chatHeader = document.getElementById('chatAreaHeader');
+            const messageInput = document.getElementById('messageInputArea');
+            const messagesArea = document.getElementById('messagesArea');
+            const deleteBtn = document.getElementById('chatDeleteConversationBtn');
+            
+            if (chatHeader) chatHeader.style.display = 'none';
+            if (messageInput) messageInput.style.display = 'none';
+            if (deleteBtn) deleteBtn.style.display = 'none';
+            if (messagesArea) {
+                messagesArea.innerHTML = `
+                    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary);">
+                        <i class="fas fa-comments" style="font-size: 4rem; margin-bottom: 1rem; opacity: 0.3;"></i>
+                        <p style="margin: 0; font-size: 1.1rem;">Select a conversation or start a new chat</p>
+                    </div>
+                `;
+            }
+        }
+        
+        // Close current conversation and go back to list
+        function closeChatConversation() {
+            console.log('ðŸ”™ Closing conversation');
+            window.currentChatUserId = null;
+            clearChatAttachmentSelection();
+            resetChatArea();
+        }
+
+        function shouldShowChatDeleteConversationButton() {
+            const type = String(window.currentChatType || '').trim();
+            const chatId = String(window.currentChatUserId || '').trim();
+            if (!type || !chatId) return false;
+
+            if (type === 'direct' || type === 'group') {
+                return true;
+            }
+
+            if (type === 'announcement') {
+                const announcements = safeParseLocalStorageJSON('announcements', [], { expect: 'array' });
+                const ann = announcements.find((row) => String(row?.id || '') === chatId);
+                if (!ann) return false;
+
+                const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
+                const role = String(currentUser?.role || '').toLowerCase();
+                const displayName = String(currentUser?.name || '').trim().toLowerCase();
+                const username = String(currentUser?.username || '').trim().toLowerCase();
+                const author = String(ann?.author || '').trim().toLowerCase();
+
+                return role === 'admin' || role === 'manager' || (author && (author === displayName || author === username));
+            }
+
+            return false;
+        }
+
+        function refreshChatDeleteConversationButton() {
+            const btn = document.getElementById('chatDeleteConversationBtn');
+            if (!btn) return;
+            btn.style.display = shouldShowChatDeleteConversationButton() ? 'inline-flex' : 'none';
+        }
+
+        async function deleteCurrentChatConversation() {
+            const type = String(window.currentChatType || '').trim();
+            const chatId = String(window.currentChatUserId || '').trim();
+            if (!type || !chatId) return;
+
+            const confirmLabel = type === 'announcement'
+                ? 'Delete this entire announcement thread?'
+                : 'Delete this entire chat conversation?';
+            if (!confirm(confirmLabel)) return;
+
+            try {
+                if (type === 'direct') {
+                    const userId = await getCurrentChatUserId();
+                    const otherUserId = Number.parseInt(chatId, 10);
+                    if (!userId || !Number.isInteger(otherUserId)) {
+                        throw new Error('Invalid conversation context');
+                    }
+
+                    const response = await fetch(`/api/chat?action=conversation&userId=${userId}&otherUserId=${otherUserId}`, {
+                        method: 'DELETE'
+                    });
+                    if (!response.ok) {
+                        throw new Error(`Delete failed: ${response.status}`);
+                    }
+
+                    window.currentChatUserId = null;
+                    clearChatAttachmentSelection();
+                    resetChatArea();
+                    await loadConversations();
+                    await updateUnreadBadge();
+                    if (typeof showNotification === 'function') {
+                        showNotification('Conversation deleted', 'success');
+                    }
+                    return;
+                }
+
+                if (type === 'group') {
+                    const groups = safeParseLocalStorageJSON('groupChats', [], { expect: 'array' });
+                    const nextGroups = groups.filter((g) => String(g?.id || '') !== chatId);
+                    if (nextGroups.length === groups.length) return;
+
+                    localStorage.setItem('groupChats', JSON.stringify(nextGroups));
+                    window.currentChatUserId = null;
+                    clearChatAttachmentSelection();
+                    resetChatArea();
+                    await loadGroupChats();
+                    if (typeof showNotification === 'function') {
+                        showNotification('Group chat deleted', 'success');
+                    }
+                    return;
+                }
+
+                if (type === 'announcement') {
+                    const announcements = safeParseLocalStorageJSON('announcements', [], { expect: 'array' });
+                    const nextAnnouncements = announcements.filter((a) => String(a?.id || '') !== chatId);
+                    if (nextAnnouncements.length === announcements.length) return;
+
+                    localStorage.setItem('announcements', JSON.stringify(nextAnnouncements));
+                    window.currentChatUserId = null;
+                    clearChatAttachmentSelection();
+                    resetChatArea();
+                    await loadAnnouncements();
+                    if (typeof showNotification === 'function') {
+                        showNotification('Announcement thread deleted', 'success');
+                    }
+                }
+            } catch (error) {
+                console.error('Error deleting conversation:', error);
+                if (typeof showNotification === 'function') {
+                    showNotification('Failed to delete conversation', 'error');
+                }
+            }
+        }
+        
+        // Load group chats
+        async function loadGroupChats() {
+            const container = document.getElementById('conversationsList');
+            if (!container) return;
+            
+            // Load group chats from localStorage (will integrate with API later)
+            const groupChats = safeParseLocalStorageJSON('groupChats', [], { expect: 'array' });
+            
+            if (groupChats.length === 0) {
+                container.innerHTML = `
+                    <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                        <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p style="margin: 0;">No group chats yet</p>
+                        <p style="font-size: 0.85rem; margin-top: 0.5rem;">Create a group to start chatting with multiple team members</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = groupChats.map(group => `
+                <div onclick="selectGroupChat('${group.id}')" style="padding: 0.75rem; background: transparent; border-radius: 8px; cursor: pointer; margin-bottom: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-weight: 600; color: var(--text-primary);">${group.name}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary);">
+                                ${group.members?.length || 0} members
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Load announcements
+        async function loadAnnouncements() {
+            const container = document.getElementById('conversationsList');
+            if (!container) return;
+            
+            // Load announcements from localStorage (will integrate with API later)
+            const announcements = safeParseLocalStorageJSON('announcements', [], { expect: 'array' });
+            
+            if (announcements.length === 0) {
+                container.innerHTML = `
+                    <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                        <i class="fas fa-bullhorn" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p style="margin: 0;">No announcements yet</p>
+                        <p style="font-size: 0.85rem; margin-top: 0.5rem;">Announcements from management will appear here</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = announcements.map(ann => `
+                <div onclick="selectAnnouncement('${ann.id}')" style="padding: 0.75rem; background: transparent; border-radius: 8px; cursor: pointer; margin-bottom: 0.25rem; transition: all 0.2s; border-left: 3px solid ${ann.priority === 'high' ? '#ef4444' : ann.priority === 'medium' ? '#f59e0b' : '#10b981'};" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">
+                    <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+                        <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                            <i class="fas fa-bullhorn"></i>
+                        </div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-weight: 600; color: var(--text-primary);">${ann.title}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                ${ann.content?.substring(0, 50)}${ann.content?.length > 50 ? '...' : ''}
+                            </div>
+                            <div style="font-size: 0.7rem; color: var(--text-tertiary); margin-top: 0.25rem;">
+                                ${ann.author} â€¢ ${formatChatTime(ann.createdAt)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Select group chat
+        function selectGroupChat(groupId) {
+            console.log('ðŸ‘¥ selectGroupChat called with groupId:', groupId);
+            const groupChats = safeParseLocalStorageJSON('groupChats', [], { expect: 'array' });
+            const group = groupChats.find(g => g.id === groupId);
+            if (!group) {
+                console.log('âŒ Group not found');
+                return;
+            }
+            
+            // Set chat type
+            window.currentChatType = 'group';
+            window.currentChatUserId = groupId;
+            
+            // Show chat area with null checks
+            const chatHeader = document.getElementById('chatAreaHeader');
+            const messageInput = document.getElementById('messageInputArea');
+            const avatarEl = document.getElementById('chatUserAvatar');
+            const nameEl = document.getElementById('chatUserName');
+            const statusEl = document.getElementById('chatUserStatus');
+            
+            if (chatHeader) chatHeader.style.display = 'block';
+            if (messageInput) messageInput.style.display = 'block';
+            
+            // Update header
+            if (avatarEl) {
+                avatarEl.innerHTML = '<i class="fas fa-users"></i>';
+                avatarEl.style.background = 'linear-gradient(135deg, #8b5cf6, #7c3aed)';
+            }
+            if (nameEl) nameEl.textContent = group.name;
+            if (statusEl) statusEl.textContent = `${group.members?.length || 0} members`;
+            refreshChatDeleteConversationButton();
+            
+            // Load group messages
+            const messages = group.messages || [];
+            displayMessages(messages, true);
+        }
+        
+        // Select announcement
+        function selectAnnouncement(annId) {
+            console.log('ðŸ“¢ selectAnnouncement called with annId:', annId);
+            const announcements = safeParseLocalStorageJSON('announcements', [], { expect: 'array' });
+            const ann = announcements.find(a => a.id === annId);
+            if (!ann) {
+                console.log('âŒ Announcement not found');
+                return;
+            }
+            
+            // Set chat type
+            window.currentChatType = 'announcement';
+            window.currentChatUserId = annId;
+            
+            // Show chat area with null checks
+            const chatHeader = document.getElementById('chatAreaHeader');
+            const messageInput = document.getElementById('messageInputArea');
+            const avatarEl = document.getElementById('chatUserAvatar');
+            const nameEl = document.getElementById('chatUserName');
+            const statusEl = document.getElementById('chatUserStatus');
+            const messagesArea = document.getElementById('messagesArea');
+            
+            if (chatHeader) chatHeader.style.display = 'block';
+            
+            // Only admins/managers can reply to announcements
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
+            if (messageInput) {
+                if (currentUser.role === 'admin' || currentUser.role === 'manager') {
+                    messageInput.style.display = 'block';
+                } else {
+                    messageInput.style.display = 'none';
+                }
+            }
+            
+            // Update header
+            if (avatarEl) {
+                avatarEl.innerHTML = '<i class="fas fa-bullhorn"></i>';
+                avatarEl.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+            }
+            if (nameEl) nameEl.textContent = ann.title;
+            if (statusEl) statusEl.textContent = `By ${ann.author} â€¢ ${formatChatTime(ann.createdAt)}${ann.recipients ? ` â€¢ Sent to ${ann.recipients.length} employees` : ''}`;
+            refreshChatDeleteConversationButton();
+            
+            // Display announcement content
+            if (messagesArea) {
+                messagesArea.innerHTML = `
+                    <div style="max-width: 90%; padding: 1rem; background: linear-gradient(135deg, #fef3c7, #fde68a); border-radius: 12px; border-left: 4px solid #f59e0b; margin-bottom: 1rem;">
+                        <div style="font-weight: 600; color: #92400e; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-bullhorn"></i> ${ann.title}
+                        </div>
+                        <div style="color: #78350f; white-space: pre-wrap;">${ann.content}</div>
+                        <div style="font-size: 0.75rem; color: #92400e; margin-top: 0.75rem; opacity: 0.8;">
+                            Posted by ${ann.author} on ${new Date(ann.createdAt).toLocaleDateString()}
+                        </div>
+                    </div>
+                    ${ann.replies && ann.replies.length > 0 ? ann.replies.map(reply => `
+                        <div style="max-width: 80%; margin-left: auto; padding: 0.75rem 1rem; background: var(--bg-secondary); border-radius: 12px; margin-bottom: 0.5rem;">
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">${reply.author}</div>
+                            <div style="color: var(--text-primary);">${reply.content}</div>
+                        </div>
+                    `).join('') : ''}
+                `;
+            }
+        }
+        
+        // Display messages helper
+        function displayMessages(messages, isGroup = false) {
+            const messagesArea = document.getElementById('messagesArea');
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
+            
+            if (!messages || messages.length === 0) {
+                messagesArea.innerHTML = `
+                    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary);">
+                        <i class="fas fa-comment-slash" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.3;"></i>
+                        <p style="margin: 0;">No messages yet. Start the conversation!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            messagesArea.innerHTML = messages.map(msg => {
+                const isOwn = msg.senderId === currentUser.username || msg.sender === currentUser.name;
+                const attachments = Array.isArray(msg.attachments) ? msg.attachments : (Array.isArray(msg.Attachments) ? msg.Attachments : []);
+                const textBody = String(msg.content || msg.message || '').trim();
+                const attachmentsHtml = renderChatAttachmentListHtml(attachments, msg.id || msg.timestamp || `local-${Math.random().toString(36).slice(2, 9)}`);
+                const canDeleteLocal = isGroup && isOwn && msg && msg.id !== undefined && msg.id !== null;
+                return `
+                    <div style="display: flex; ${isOwn ? 'justify-content: flex-end' : 'justify-content: flex-start'};">
+                        <div style="max-width: 70%; padding: 0.75rem 1rem; background: ${isOwn ? 'var(--accent-primary)' : 'var(--bg-secondary)'}; color: ${isOwn ? 'white' : 'var(--text-primary)'}; border-radius: ${isOwn ? '12px 12px 0 12px' : '12px 12px 12px 0'}; position: relative;">
+                            ${canDeleteLocal ? `<button type="button" title="Delete message" onclick="deleteGroupMessageById('${String(window.currentChatUserId || '').replace(/'/g, "\\'")}', '${String(msg.id).replace(/'/g, "\\'")}')" style="position:absolute; top:0.3rem; right:0.3rem; background:transparent; border:none; color:inherit; opacity:0.75; cursor:pointer; padding:0.15rem;"><i class="fas fa-trash"></i></button>` : ''}
+                            ${isGroup && !isOwn ? `<div style="font-size: 0.7rem; font-weight: 600; margin-bottom: 0.25rem; opacity: 0.8;">${msg.sender || 'Unknown'}</div>` : ''}
+                            ${textBody ? `<div>${escapeHtml(textBody)}</div>` : ''}
+                            ${attachmentsHtml}
+                            <div style="font-size: 0.65rem; opacity: 0.7; margin-top: 0.25rem; text-align: right;">
+                                ${formatChatTime(msg.timestamp || msg.createdAt)}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            messagesArea.scrollTop = messagesArea.scrollHeight;
+        }
+        
+        // Show new chat/group/announcement panel
+        function showNewChatPanel() {
+            console.log('ðŸ†• showNewChatPanel called, currentChatTab:', window.currentChatTab);
+            if (window.currentChatTab === 'direct') {
+                showDirectChatPanel();
+            } else if (window.currentChatTab === 'group') {
+                showCreateGroupPanel();
+            } else if (window.currentChatTab === 'announcements') {
+                showCreateAnnouncementPanel();
+            }
+        }
+        window.showNewChatPanel = showNewChatPanel;
+        
+        // Show direct chat user selection panel
+        function showDirectChatPanel() {
+            console.log('ðŸ†• showDirectChatPanel called');
+            const panel = document.getElementById('newChatPanel');
+            console.log('ðŸ†• newChatPanel element:', panel);
+            if (panel) {
+                panel.style.display = 'block';
+                panel.innerHTML = `
+                    <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 1rem;">
+                        <button onclick="hideNewChatPanel()" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: 1.25rem;">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h4 style="margin: 0; color: var(--text-primary);">Start New Chat</h4>
+                    </div>
+                    <div style="padding: 1rem;">
+                        <input type="text" id="userSearchInput" placeholder="Search team members..." oninput="filterChatUsers()" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); margin-bottom: 1rem;">
+                    </div>
+                    <div id="chatUsersList" style="padding: 0 1rem; overflow-y: auto; max-height: calc(100% - 140px);">
+                        <div style="text-align: center; padding: 1rem; color: var(--text-tertiary);"><i class="fas fa-spinner fa-spin"></i> Loading users...</div>
+                    </div>
+                `;
+                const localUsers = getLocalChatUsersList();
+                if (localUsers.length > 0) {
+                    window.chatUsersCache = localUsers;
+                    renderChatUsersListLocal(localUsers);
+                }
+                loadChatUsers();
+            } else {
+                console.error('âŒ newChatPanel not found!');
+            }
+        }
+        
+        // Show create group panel
+        function showCreateGroupPanel() {
+            const panel = document.getElementById('newChatPanel');
+            if (panel) {
+                panel.style.display = 'block';
+                panel.innerHTML = `
+                    <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 1rem;">
+                        <button onclick="hideNewChatPanel()" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: 1.25rem;">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h4 style="margin: 0; color: var(--text-primary);">Create New Group</h4>
+                    </div>
+                    <div style="padding: 1rem; overflow-y: auto; max-height: calc(100vh - 200px);">
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Group Name *</label>
+                            <input type="text" id="newGroupName" placeholder="Enter group name..." style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary);">
+                        </div>
+                        <div class="form-group">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">
+                                <i class="fas fa-user-plus" style="margin-right: 0.5rem;"></i>Select Members *
+                            </label>
+                            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <button type="button" onclick="selectAllGroupMembers()" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                    <i class="fas fa-check-double"></i> Select All
+                                </button>
+                                <button type="button" onclick="clearAllGroupMembers()" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">
+                                    <i class="fas fa-times"></i> Clear All
+                                </button>
+                            </div>
+                            <div id="groupMembersList" style="max-height: 250px; overflow-y: auto; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem;">
+                                Loading members...
+                            </div>
+                            <div id="groupMembersCount" style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.5rem;">
+                                0 members selected
+                            </div>
+                        </div>
+                        <button onclick="createGroup()" style="width: 100%; padding: 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; margin-top: 1rem;">
+                            <i class="fas fa-plus"></i> Create Group
+                        </button>
+                    </div>
+                `;
+                loadGroupMembers();
+            }
+        }
+        
+        // Show create announcement panel
+        function showCreateAnnouncementPanel() {
+            const panel = document.getElementById('newChatPanel');
+            if (panel) {
+                panel.style.display = 'block';
+                const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
+                panel.innerHTML = `
+                    <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 1rem;">
+                        <button onclick="hideNewChatPanel()" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: 1.25rem;">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h4 style="margin: 0; color: var(--text-primary);">Create Announcement</h4>
+                    </div>
+                    <div style="padding: 1rem; overflow-y: auto; max-height: calc(100vh - 200px);">
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Title *</label>
+                            <input type="text" id="announcementTitle" placeholder="Announcement title..." style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary);">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Content *</label>
+                            <textarea id="announcementContent" placeholder="Write your announcement..." rows="4" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); resize: vertical;"></textarea>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Priority</label>
+                            <select id="announcementPriority" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary);">
+                                <option value="low">ðŸŸ¢ Low - General Information</option>
+                                <option value="medium" selected>ðŸŸ¡ Medium - Important Update</option>
+                                <option value="high">ðŸ”´ High - Urgent/Critical</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">
+                                <i class="fas fa-users" style="margin-right: 0.5rem;"></i>Select Recipients *
+                            </label>
+                            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <button type="button" onclick="selectAllAnnouncementRecipients()" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                    <i class="fas fa-check-double"></i> Select All
+                                </button>
+                                <button type="button" onclick="clearAllAnnouncementRecipients()" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">
+                                    <i class="fas fa-times"></i> Clear All
+                                </button>
+                            </div>
+                            <div id="announcementRecipientsList" style="max-height: 200px; overflow-y: auto; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem;">
+                                Loading employees...
+                            </div>
+                            <div id="announcementRecipientsCount" style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.5rem;">
+                                0 employees selected
+                            </div>
+                        </div>
+                        <button onclick="createAnnouncement()" style="width: 100%; padding: 0.75rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                            <i class="fas fa-bullhorn"></i> Post Announcement
+                        </button>
+                    </div>
+                `;
+                loadAnnouncementRecipients();
+            }
+        }
+        
+        // Load employees for announcement recipients
+        async function loadAnnouncementRecipients() {
+            const container = document.getElementById('announcementRecipientsList');
+            if (!container) return;
+            
+            container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;"><i class="fas fa-spinner fa-spin"></i> Loading employees...</p>';
+            
+            try {
+                // Load all users from database
+                const response = await fetch('/api/users');
+                if (!response.ok) throw new Error('Failed to load users');
+                
+                const dbUsers = await response.json();
+                console.log('ðŸ‘¥ Loaded announcement recipients from database:', dbUsers.length);
+                
+                if (dbUsers.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;">No employees found</p>';
+                    return;
+                }
+                
+                container.innerHTML = dbUsers.map(emp => `
+                    <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; cursor: pointer; border-radius: 6px; transition: background 0.2s; border: 1px solid transparent;" onmouseover="this.style.background='var(--bg-tertiary)'; this.style.borderColor='var(--border-color)'" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent'">
+                        <input type="checkbox" name="announcementRecipients" value="${emp.Id}" onchange="updateAnnouncementRecipientsCount()" style="width: 20px; height: 20px; accent-color: #f59e0b; cursor: pointer; flex-shrink: 0;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 500; color: var(--text-primary); font-size: 0.9rem;">${emp.FirstName} ${emp.LastName}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">${emp.Role || 'Staff'}</div>
+                        </div>
+                    </label>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading announcement recipients:', error);
+                container.innerHTML = '<p style="text-align: center; color: #ef4444; padding: 1rem;"><i class="fas fa-exclamation-circle"></i> Failed to load employees</p>';
+            }
+        }
+        
+        // Select all announcement recipients
+        function selectAllAnnouncementRecipients() {
+            const checkboxes = document.querySelectorAll('input[name="announcementRecipients"]');
+            checkboxes.forEach(cb => cb.checked = true);
+            updateAnnouncementRecipientsCount();
+        }
+        
+        // Clear all announcement recipients
+        function clearAllAnnouncementRecipients() {
+            const checkboxes = document.querySelectorAll('input[name="announcementRecipients"]');
+            checkboxes.forEach(cb => cb.checked = false);
+            updateAnnouncementRecipientsCount();
+        }
+        
+        // Update recipients count display
+        function updateAnnouncementRecipientsCount() {
+            const checkboxes = document.querySelectorAll('input[name="announcementRecipients"]:checked');
+            const countDisplay = document.getElementById('announcementRecipientsCount');
+            if (countDisplay) {
+                countDisplay.textContent = `${checkboxes.length} employee${checkboxes.length !== 1 ? 's' : ''} selected`;
+                countDisplay.style.color = checkboxes.length > 0 ? 'var(--accent-primary)' : 'var(--text-tertiary)';
+            }
+        }
+        
+        // Load members for group creation
+        async function loadGroupMembers() {
+            const container = document.getElementById('groupMembersList');
+            if (!container) return;
+            
+            container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;"><i class="fas fa-spinner fa-spin"></i> Loading members...</p>';
+            
+            const userId = await getCurrentChatUserId();
+            
+            try {
+                // Load users from database
+                const response = await fetch(`/api/chat?action=users&userId=${userId}`);
+                if (!response.ok) throw new Error('Failed to load users');
+                
+                const dbUsers = await response.json();
+                console.log('ðŸ‘¥ Loaded group members from database:', dbUsers.length);
+                
+                if (dbUsers.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;">No other team members found</p>';
+                    return;
+                }
+                
+                container.innerHTML = dbUsers.map(member => `
+                    <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; cursor: pointer; border-radius: 6px; transition: background 0.2s; border: 1px solid transparent;" onmouseover="this.style.background='var(--bg-tertiary)'; this.style.borderColor='var(--border-color)'" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent'">
+                        <input type="checkbox" name="groupMembers" value="${member.Id}" onchange="updateGroupMembersCount()" style="width: 20px; height: 20px; accent-color: #06b6d4; cursor: pointer; flex-shrink: 0; border: 2px solid var(--border-color); border-radius: 4px;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 500; color: var(--text-primary); font-size: 0.9rem;">${member.FirstName} ${member.LastName}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">${member.Role || 'Staff'}</div>
+                        </div>
+                        <span class="checkmark-indicator" style="width: 24px; height: 24px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0.75rem; transition: all 0.2s;">âœ“</span>
+                    </label>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading group members:', error);
+                container.innerHTML = '<p style="text-align: center; color: #ef4444; padding: 1rem;"><i class="fas fa-exclamation-circle"></i> Failed to load members</p>';
+            }
+        }
+        
+        // Select all group members
+        function selectAllGroupMembers() {
+            const checkboxes = document.querySelectorAll('input[name="groupMembers"]');
+            checkboxes.forEach(cb => cb.checked = true);
+            updateGroupMembersCount();
+        }
+        
+        // Clear all group members
+        function clearAllGroupMembers() {
+            const checkboxes = document.querySelectorAll('input[name="groupMembers"]');
+            checkboxes.forEach(cb => cb.checked = false);
+            updateGroupMembersCount();
+        }
+        
+        // Update group members count display
+        function updateGroupMembersCount() {
+            const checkboxes = document.querySelectorAll('input[name="groupMembers"]:checked');
+            const countDisplay = document.getElementById('groupMembersCount');
+            if (countDisplay) {
+                countDisplay.textContent = `${checkboxes.length} member${checkboxes.length !== 1 ? 's' : ''} selected`;
+                countDisplay.style.color = checkboxes.length > 0 ? 'var(--accent-primary)' : 'var(--text-tertiary)';
+            }
+        }
+        
+        // Create new group
+        function createGroup() {
+            const name = document.getElementById('newGroupName')?.value?.trim();
+            if (!name) {
+                alert('Please enter a group name');
+                return;
+            }
+            
+            const checkboxes = document.querySelectorAll('input[name="groupMembers"]:checked');
+            const members = Array.from(checkboxes).map(cb => cb.value);
+            
+            if (members.length === 0) {
+                alert('Please select at least one member');
+                return;
+            }
+            
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
+            members.push(currentUser.username); // Add creator to group
+            
+            const newGroup = {
+                id: 'group-' + Date.now(),
+                name: name,
+                members: members,
+                createdAt: new Date().toISOString(),
+                createdBy: currentUser.username,
+                messages: []
+            };
+            
+            const groupChats = safeParseLocalStorageJSON('groupChats', []);
+            groupChats.push(newGroup);
+            localStorage.setItem('groupChats', JSON.stringify(groupChats));
+            
+            hideNewChatPanel();
+            loadGroupChats();
+            showNotification('Group created successfully!', 'success');
+        }
+        
+        // Create new announcement
+        function createAnnouncement() {
+            const title = document.getElementById('announcementTitle')?.value?.trim();
+            const content = document.getElementById('announcementContent')?.value?.trim();
+            const priority = document.getElementById('announcementPriority')?.value || 'medium';
+            
+            if (!title || !content) {
+                alert('Please enter a title and content');
+                return;
+            }
+            
+            // Get selected recipients
+            const checkboxes = document.querySelectorAll('input[name="announcementRecipients"]:checked');
+            const recipients = Array.from(checkboxes).map(cb => cb.value);
+            
+            if (recipients.length === 0) {
+                alert('Please select at least one recipient');
+                return;
+            }
+            
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
+            
+            const newAnnouncement = {
+                id: 'ann-' + Date.now(),
+                title: title,
+                content: content,
+                priority: priority,
+                author: currentUser.name || currentUser.username || 'Admin',
+                recipients: recipients,
+                createdAt: new Date().toISOString(),
+                replies: []
+            };
+            
+            const announcements = safeParseLocalStorageJSON('announcements', []);
+            announcements.unshift(newAnnouncement); // Add to beginning
+            localStorage.setItem('announcements', JSON.stringify(announcements));
+            
+            hideNewChatPanel();
+            loadAnnouncements();
+            showNotification(`Announcement posted to ${recipients.length} employee${recipients.length !== 1 ? 's' : ''}!`, 'success');
+        }
+        
+        async function updateOnlineStatus(isOnline) {
+            try {
+                const userId = await getCurrentChatUserId();
+                if (!userId) return;
+                
+                await fetch('/api/chat?action=status', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, isOnline })
+                });
+            } catch (error) {
+                console.error('Error updating online status:', error);
+            }
+        }
+        window.updateOnlineStatus = updateOnlineStatus;
+        
+        // Cache for users loaded from API for chat - use window to make globally accessible
+        window.chatUserIdCache = null;
+        window.currentDbUserId = null; // Store the database user ID
+
+        function getCurrentChatSessionUser() {
+            const storedCurrentUser = safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' });
+            if (storedCurrentUser && (storedCurrentUser.username || storedCurrentUser.name)) {
+                return storedCurrentUser;
+            }
+
+            const loggedInUser = String(localStorage.getItem('loggedInUser') || '').trim();
+            const displayName = String(localStorage.getItem('userName') || document.getElementById('displayUserName')?.textContent || '').trim();
+            const role = String(localStorage.getItem('userRole') || 'user').trim() || 'user';
+            const isLoggedIn = document.body?.classList?.contains('auth-logged-in');
+
+            if (!loggedInUser && !isLoggedIn) {
+                return null;
+            }
+
+            const seedUser = {
+                name: displayName || loggedInUser,
+                role
+            };
+            const resolvedUser = (typeof buildSessionUserFromUsername === 'function' && loggedInUser)
+                ? buildSessionUserFromUsername(loggedInUser, seedUser)
+                : {
+                    username: loggedInUser,
+                    name: displayName || loggedInUser,
+                    role
+                };
+
+            if (!resolvedUser || (!resolvedUser.username && !resolvedUser.name)) {
+                return null;
+            }
+
+            try {
+                if (resolvedUser.username) {
+                    localStorage.setItem('loggedInUser', resolvedUser.username);
+                }
+                localStorage.setItem('userName', resolvedUser.name || displayName || loggedInUser);
+                localStorage.setItem('userRole', resolvedUser.role || role);
+                localStorage.setItem('currentUser', JSON.stringify(resolvedUser));
+            } catch (_) {}
+
+            return resolvedUser;
+        }
+        
+        async function getCurrentChatUserId() {
+            // Return cached ID if we have it
+            if (window.currentDbUserId) {
+                return window.currentDbUserId;
+            }
+
+            const currentUserData = getCurrentChatSessionUser();
+            if (!currentUserData) {
+                console.log('âŒ No current chat session user available');
+                return null;
+            }
+
+            try {
+                console.log('ðŸ‘¤ Current user data:', currentUserData);
+                
+                // Check if user has a stored database ID
+                if (currentUserData.dbId) {
+                    window.currentDbUserId = currentUserData.dbId;
+                    console.log('âœ… Using stored database ID:', window.currentDbUserId);
+                    return window.currentDbUserId;
+                }
+
+                const localUserId = getCurrentUserIdFromLocalUsers(currentUserData);
+                if (localUserId) {
+                    window.currentDbUserId = localUserId;
+                    currentUserData.dbId = localUserId;
+                    localStorage.setItem('currentUser', JSON.stringify(currentUserData));
+                    console.log('âœ… Resolved database ID from local user cache:', window.currentDbUserId);
+                    return window.currentDbUserId;
+                }
+                
+                // Fetch users from API to get the ID
+                if (!window.chatUserIdCache) {
+                    const response = await fetch('/api/users');
+                    if (response.ok) {
+                        window.chatUserIdCache = await response.json();
+                        console.log('ðŸ“¥ Loaded users from API:', window.chatUserIdCache.length, 'users');
+                    }
+                }
+                
+                if (window.chatUserIdCache && window.chatUserIdCache.length > 0) {
+                    // Find matching user by name or username (case-insensitive)
+                    const loggedInUser = window.chatUserIdCache.find(u => {
+                        const fnMatch = u.FirstName?.toLowerCase() === currentUserData.firstName?.toLowerCase();
+                        const lnMatch = u.LastName?.toLowerCase() === currentUserData.lastName?.toLowerCase();
+                        const unMatch = u.Username?.toLowerCase() === currentUserData.username?.toLowerCase();
+                        const nameMatch = `${u.FirstName} ${u.LastName}`.toLowerCase() === currentUserData.name?.toLowerCase();
+                        return (fnMatch && lnMatch) || unMatch || nameMatch;
+                    });
+                    
+                    if (loggedInUser) {
+                        window.currentDbUserId = loggedInUser.Id;
+                        console.log('âœ… Found user in database with ID:', window.currentDbUserId);
+                        
+                        // Store the database ID for future use
+                        currentUserData.dbId = window.currentDbUserId;
+                        localStorage.setItem('currentUser', JSON.stringify(currentUserData));
+                        
+                        return window.currentDbUserId;
+                    } else {
+                        console.warn('âš ï¸ User not found in database. Available users:', window.chatUserIdCache.map(u => `${u.FirstName} ${u.LastName} (${u.Username})`));
+                        return null;
+                    }
+                }
+                
+                console.warn('âš ï¸ No users loaded from database');
+                return null;
+                
+            } catch (e) {
+                console.error('Error getting current user ID:', e);
+                return null;
+            }
+        }
+        
+        async function loadConversations() {
+            const container = document.getElementById('conversationsList');
+            if (!container) return;
+            
+            const userId = await getCurrentChatUserId();
+            console.log('ðŸ“‹ Loading conversations for user ID:', userId);
+            
+            if (!userId) {
+                container.innerHTML = `
+                    <div style="padding: 1.5rem; text-align: center; color: var(--text-tertiary);">
+                        <i class="fas fa-user-slash" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p style="margin: 0;">User not found in database</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.5rem;">Your account needs to be synced with the database to use chat.</p>
+                    </div>`;
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/chat?action=conversations&userId=${userId}`);
+                console.log('ðŸ“‹ Conversations API response status:', response.status);
+                if (!response.ok) throw new Error('Failed to load conversations');
+                
+                const conversations = await response.json();
+                console.log('ðŸ“‹ Loaded conversations:', conversations.length);
+                
+                if (conversations.length === 0) {
+                    container.innerHTML = `
+                        <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                            <i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                            <p style="margin: 0;">No conversations yet</p>
+                            <p style="font-size: 0.85rem; margin-top: 0.5rem;">Start a new chat to begin messaging</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                container.innerHTML = conversations.map(conv => `
+                    <div onclick="window.ReformChat.selectConversation(${conv.OtherUserId}, '${(conv.FirstName || '').replace(/'/g, "\\'")}', '${(conv.LastName || '').replace(/'/g, "\\'")}', ${conv.IsOnline ? 'true' : 'false'})" style="padding: 0.75rem; background: transparent; border-radius: 8px; cursor: pointer; margin-bottom: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'" data-userid="${conv.OtherUserId}">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <div style="position: relative;">
+                                <div style="width: 44px; height: 44px; background: var(--accent-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 1rem;">
+                                    ${conv.FirstName?.[0] || ''}${conv.LastName?.[0] || ''}
+                                </div>
+                                <div style="position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; background: ${conv.IsOnline ? '#10b981' : '#6b7280'}; border-radius: 50%; border: 2px solid var(--bg-secondary);"></div>
+                            </div>
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: 600; color: var(--text-primary);">${conv.FirstName} ${conv.LastName}</span>
+                                    ${conv.UnreadCount > 0 ? `<span style="background: var(--accent-primary); color: white; font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 999px; font-weight: 600;">${conv.UnreadCount}</span>` : ''}
+                                </div>
+                                <div style="font-size: 0.8rem; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    ${conv.LastMessage ? (conv.LastMessageSenderId === userId ? 'You: ' : '') + conv.LastMessage.substring(0, 30) + (conv.LastMessage.length > 30 ? '...' : '') : 'No messages yet'}
+                                </div>
+                                <div style="font-size: 0.7rem; color: var(--text-tertiary);">
+                                    ${conv.LastMessageTime ? formatChatTime(conv.LastMessageTime) : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading conversations:', error);
+                container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-tertiary);">Failed to load conversations</div>';
+            }
+        }
+        
+        async function selectConversation(otherUserId, firstName, lastName, isOnline) {
+            console.log('ðŸ“¨ Selecting conversation with user ID:', otherUserId, firstName, lastName);
+            
+            // Reset chat type and set new user
+            window.currentChatType = 'direct';
+            window.currentChatUserId = otherUserId;
+            
+            // Clear messages immediately to prevent showing old messages
+            const messagesArea = document.getElementById('messagesArea');
+            if (messagesArea) {
+                messagesArea.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-tertiary);"><i class="fas fa-spinner fa-spin"></i> Loading messages...</div>';
+            }
+            
+            // Update UI to show chat area - use null checks
+            const chatHeader = document.getElementById('chatAreaHeader');
+            const messageInput = document.getElementById('messageInputArea');
+            
+            if (chatHeader) chatHeader.style.display = 'block';
+            if (messageInput) messageInput.style.display = 'block';
+            hideNewChatPanel();
+            
+            // Update header with passed user info (more reliable than cache lookup)
+            const avatarEl = document.getElementById('chatUserAvatar');
+            const nameEl = document.getElementById('chatUserName');
+            const statusEl = document.getElementById('chatUserStatus');
+            
+            if (firstName || lastName) {
+                if (avatarEl) {
+                    avatarEl.textContent = `${firstName?.[0] || ''}${lastName?.[0] || ''}`;
+                    avatarEl.style.background = 'var(--accent-primary)';
+                }
+                if (nameEl) nameEl.textContent = `${firstName || ''} ${lastName || ''}`.trim();
+                if (statusEl) statusEl.textContent = isOnline ? 'Online' : 'Offline';
+            } else {
+                // Fallback to cache lookup
+                const user = chatUsersCache.find(u => u.Id === otherUserId) || 
+                             window.usersData?.find(u => u.Id === otherUserId);
+                
+                if (user) {
+                    if (avatarEl) {
+                        avatarEl.textContent = `${user.FirstName?.[0] || ''}${user.LastName?.[0] || ''}`;
+                        avatarEl.style.background = 'var(--accent-primary)';
+                    }
+                    if (nameEl) nameEl.textContent = `${user.FirstName} ${user.LastName}`;
+                    if (statusEl) statusEl.textContent = user.IsOnline ? 'Online' : 'Offline';
+                }
+            }
+            refreshChatDeleteConversationButton();
+            
+            // Highlight selected conversation in the list
+            document.querySelectorAll('#conversationsList > div[data-userid]').forEach(el => {
+                if (parseInt(el.dataset.userid) === otherUserId) {
+                    el.style.background = 'var(--bg-tertiary)';
+                } else {
+                    el.style.background = 'transparent';
+                }
+            });
+            
+            // Load messages for this specific user
+            await loadMessages(otherUserId);
+            
+            // Mark messages as read
+            try {
+                const userId = await getCurrentChatUserId();
+                await fetch('/api/chat?action=markRead', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, otherUserId })
+                });
+            } catch (e) {
+                console.error('Error marking messages as read:', e);
+            }
+            
+            // Refresh conversations to update unread counts
+            loadConversations();
+            updateUnreadBadge();
+        }
+        
+        async function loadMessages(otherUserId) {
+            const container = document.getElementById('messagesArea');
+            if (!container) return;
+            
+            // Verify we're loading for the correct user
+            if (window.currentChatType !== 'direct' || window.currentChatUserId !== otherUserId) {
+                console.log('âš ï¸ Chat context changed, skipping message load');
+                return;
+            }
+            
+            const userId = await getCurrentChatUserId();
+            if (!userId) {
+                container.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-tertiary);">Please log in to view messages</div>';
+                return;
+            }
+            
+            console.log('ðŸ“¬ Loading messages between user', userId, 'and', otherUserId);
+            
+            try {
+                const response = await fetch(`/api/chat?action=messages&userId=${userId}&otherUserId=${otherUserId}`);
+                if (!response.ok) throw new Error('Failed to load messages');
+                
+                // Double-check the context hasn't changed while we were fetching
+                if (window.currentChatType !== 'direct' || window.currentChatUserId !== otherUserId) {
+                    console.log('âš ï¸ Chat context changed during fetch, discarding messages');
+                    return;
+                }
+                
+                const messages = await response.json();
+                console.log('ðŸ“¬ Loaded', messages.length, 'messages for user', otherUserId);
+                
+                if (messages.length === 0) {
+                    container.innerHTML = `
+                        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary);">
+                            <i class="fas fa-comment-dots" style="font-size: 3rem; margin-bottom: 0.5rem; opacity: 0.3;"></i>
+                            <p style="margin: 0;">No messages yet</p>
+                            <p style="font-size: 0.85rem;">Send a message to start the conversation</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Update last message timestamp for polling
+                if (messages.length > 0) {
+                    lastMessageTimestamp = messages[messages.length - 1].SentAt;
+                }
+                
+                container.innerHTML = messages.map(msg => {
+                    const isMe = msg.SenderId === userId;
+                    const attachments = Array.isArray(msg.Attachments) ? msg.Attachments : [];
+                    const rawMessage = String(msg.Message || '').trim();
+                    const displayMessage = rawMessage === '[Attachment]' ? '' : rawMessage;
+                    const attachmentsHtml = renderChatAttachmentListHtml(attachments, msg.Id || `api-${Math.random().toString(36).slice(2, 9)}`);
+                    const canDelete = isMe && Number.isInteger(Number(msg.Id));
+                    return `
+                        <div style="display: flex; justify-content: ${isMe ? 'flex-end' : 'flex-start'}; margin-bottom: 0.5rem;">
+                            <div style="max-width: 70%; padding: 0.75rem 1rem; background: ${isMe ? 'var(--accent-primary)' : 'var(--bg-secondary)'}; color: ${isMe ? 'white' : 'var(--text-primary)'}; border-radius: 18px; border-bottom-${isMe ? 'right' : 'left'}-radius: 4px; position: relative;">
+                                ${canDelete ? `<button type="button" title="Delete message" onclick="deleteDirectMessageById(${Number(msg.Id)})" style="position:absolute; top:0.3rem; right:0.3rem; background:transparent; border:none; color:inherit; opacity:0.75; cursor:pointer; padding:0.15rem;"><i class="fas fa-trash"></i></button>` : ''}
+                                ${displayMessage ? `<div style="word-wrap: break-word;">${escapeHtml(displayMessage)}</div>` : ''}
+                                ${attachmentsHtml}
+                                <div style="font-size: 0.65rem; opacity: 0.7; margin-top: 0.25rem; text-align: ${isMe ? 'right' : 'left'};">
+                                    ${formatChatTime(msg.SentAt)}
+                                    ${isMe && msg.IsRead ? ' <i class="fas fa-check-double"></i>' : isMe ? ' <i class="fas fa-check"></i>' : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                // Scroll to bottom
+                container.scrollTop = container.scrollHeight;
+                
+            } catch (error) {
+                console.error('Error loading messages:', error);
+                container.innerHTML = '<div style="text-align: center; padding: 2rem; color: #ef4444;"><i class="fas fa-exclamation-circle"></i> Failed to load messages</div>';
+            }
+        }
+
+        async function deleteDirectMessageById(messageId) {
+            const normalizedId = Number.parseInt(String(messageId || ''), 10);
+            if (!Number.isInteger(normalizedId) || normalizedId <= 0) return;
+            if (!confirm('Delete this message?')) return;
+
+            try {
+                const userId = await getCurrentChatUserId();
+                if (!userId) return;
+
+                const response = await fetch(`/api/chat/${normalizedId}?userId=${userId}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Delete failed: ${response.status}`);
+                }
+
+                if (window.currentChatType === 'direct' && window.currentChatUserId) {
+                    await loadMessages(window.currentChatUserId);
+                    await loadConversations();
+                }
+                if (typeof showNotification === 'function') {
+                    showNotification('Message deleted', 'success');
+                }
+            } catch (error) {
+                console.error('Error deleting direct message:', error);
+                if (typeof showNotification === 'function') {
+                    showNotification('Failed to delete message', 'error');
+                }
+            }
+        }
+
+        function deleteGroupMessageById(groupId, messageId) {
+            const groupKey = String(groupId || '').trim();
+            const messageKey = String(messageId || '').trim();
+            if (!groupKey || !messageKey) return;
+            if (!confirm('Delete this message?')) return;
+
+            const groups = safeParseLocalStorageJSON('groupChats', []);
+            const groupIndex = groups.findIndex((g) => String(g?.id || '') === groupKey);
+            if (groupIndex < 0) return;
+
+            const group = groups[groupIndex] || {};
+            const existing = Array.isArray(group.messages) ? group.messages : [];
+            const nextMessages = existing.filter((msg) => String(msg?.id || '') !== messageKey);
+            if (nextMessages.length === existing.length) return;
+
+            groups[groupIndex] = {
+                ...group,
+                messages: nextMessages
+            };
+            localStorage.setItem('groupChats', JSON.stringify(groups));
+
+            if (window.currentChatType === 'group' && String(window.currentChatUserId || '') === groupKey) {
+                displayMessages(nextMessages, true);
+            }
+            if (typeof showNotification === 'function') {
+                showNotification('Message deleted', 'success');
+            }
+        }
+
+        function getChatUploadTrackerFiles(files) {
+            return (Array.isArray(files) ? files : []).map((file) => ({
+                name: String(file?.name || 'attachment'),
+                size: Math.max(1, Number(file?.size || 0) || 1),
+                isImage: String(file?.type || '').toLowerCase().startsWith('image/'),
+                percent: 0
+            }));
+        }
+
+        function derivePerFileUploadPercent(files, overallPercent) {
+                                    throw new Error(normalizeDeleteBlockedMessage(
+                                        payload?.error || payload?.message || `Failed to delete clinic (HTTP ${response.status})`,
+                                        'clinic'
+                                    ));
+            const totalBytes = safeFiles.reduce((sum, item) => sum + Math.max(1, Number(item?.size || 0) || 1), 0);
+            if (totalBytes <= 0) {
+                return safeFiles.map(() => Math.max(0, Math.min(100, Number(overallPercent || 0))));
+                                showNotification(`Failed to delete clinic: ${normalizeDeleteBlockedMessage(error?.message, 'clinic')}`, 'error');
+
+            let remainingBytes = (Math.max(0, Math.min(100, Number(overallPercent || 0))) / 100) * totalBytes;
+            return safeFiles.map((item) => {
+                const fileSize = Math.max(1, Number(item?.size || 0) || 1);
+                if (remainingBytes <= 0) return 0;
+                if (remainingBytes >= fileSize) {
+                    remainingBytes -= fileSize;
+                    return 100;
+                }
+                const partial = Math.max(0, Math.min(100, (remainingBytes / fileSize) * 100));
+                remainingBytes = 0;
+                return partial;
+            });
+        }
+
+        function renderChatUploadProgress() {
+            const container = document.getElementById('chatUploadProgress');
+            if (!container) return;
+
+            const state = window.chatUploadProgressState;
+            if (!state || !state.active) {
+                container.style.display = 'none';
+                container.innerHTML = '';
+                return;
+            }
+
+            const files = Array.isArray(state.files) ? state.files : [];
+            const label = escapeHtml(String(state.label || 'Uploading attachments...'));
+            const pct = Math.max(0, Math.min(100, Number(state.percent || 0)));
+            const canCancel = Boolean(state.canCancel && window.chatActiveUploadXhr);
+            const canRetry = Boolean(state.canRetry && !window.chatActiveUploadXhr && window.chatRetryUploadPayload);
+            const canDismiss = Boolean(!window.chatActiveUploadXhr);
+            const bars = files.map((file) => {
+                const filePct = Math.max(0, Math.min(100, Number(file?.percent || 0)));
+                const icon = file?.isImage ? 'fa-image' : 'fa-paperclip';
+                return `
+                    <div style="margin-top:0.35rem;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.75rem; color:var(--text-secondary);">
+                            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><i class="fas ${icon}" style="margin-right:0.35rem;"></i>${escapeHtml(String(file?.name || 'attachment'))}</span>
+                            <span>${Math.round(filePct)}%</span>
+                        </div>
+                        <div style="margin-top:0.2rem; height:6px; background:var(--bg-tertiary); border-radius:999px; overflow:hidden;">
+                            <div style="height:100%; width:${filePct}%; background:linear-gradient(90deg, #06b6d4, #22c55e);"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.style.display = 'block';
+            container.innerHTML = `
+                <div style="padding:0.55rem 0.65rem; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-secondary);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; font-size:0.78rem; color:var(--text-secondary);">
+                        <span>${label}</span>
+                        <div style="display:flex; align-items:center; gap:0.45rem;">
+                            <strong style="color:var(--text-primary);">${Math.round(pct)}%</strong>
+                            ${canCancel ? '<button type="button" onclick="cancelChatUpload()" style="border:1px solid var(--border-color); background:var(--bg-primary); color:var(--text-primary); border-radius:999px; padding:0.12rem 0.55rem; font-size:0.72rem; cursor:pointer;">Cancel</button>' : ''}
+                            ${canRetry ? '<button type="button" onclick="retryLastCanceledChatUpload()" style="border:1px solid var(--border-color); background:var(--bg-primary); color:var(--text-primary); border-radius:999px; padding:0.12rem 0.55rem; font-size:0.72rem; cursor:pointer;">Retry</button>' : ''}
+                            ${canDismiss ? '<button type="button" onclick="dismissChatUploadProgress()" style="border:1px solid var(--border-color); background:transparent; color:var(--text-secondary); border-radius:999px; padding:0.12rem 0.55rem; font-size:0.72rem; cursor:pointer;">Dismiss</button>' : ''}
+                        </div>
+                    </div>
+                    <div style="margin-top:0.3rem; height:7px; background:var(--bg-tertiary); border-radius:999px; overflow:hidden;">
+                        <div style="height:100%; width:${pct}%; background:linear-gradient(90deg, #0ea5e9, #22c55e);"></div>
+                    </div>
+                    ${bars}
+                </div>
+            `;
+        }
+
+        function setChatUploadProgressState(nextState) {
+            window.chatUploadProgressState = {
+                ...(window.chatUploadProgressState || {}),
+                ...(nextState || {})
+            };
+            renderChatUploadProgress();
+        }
+
+        function clearChatUploadProgressState(delayMs = 0) {
+            const clearNow = () => {
+                window.chatUploadProgressState = null;
+                renderChatUploadProgress();
+            };
+            if (delayMs > 0) {
+                setTimeout(clearNow, delayMs);
+                return;
+            }
+            clearNow();
+        }
+
+        function cancelChatUpload() {
+            const xhr = window.chatActiveUploadXhr;
+            if (!xhr) return;
+            try {
+                xhr.abort();
+            } catch (_) { }
+        }
+
+        function dismissChatUploadProgress() {
+            if (window.chatActiveUploadXhr) return;
+            window.chatRetryUploadPayload = null;
+            clearChatUploadProgressState();
+        }
+
+        async function sendDirectChatMessageWithProgress(bodyPayload, onProgress) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                window.chatActiveUploadXhr = xhr;
+                xhr.open('POST', '/api/chat', true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+
+                const cleanup = () => {
+                    if (window.chatActiveUploadXhr === xhr) {
+                        window.chatActiveUploadXhr = null;
+                    }
+                };
+
+                xhr.upload.onprogress = (event) => {
+                    if (!event || !event.lengthComputable) return;
+                    const percent = Math.round((event.loaded / Math.max(1, event.total)) * 100);
+                    if (typeof onProgress === 'function') onProgress(percent);
+                };
+
+                xhr.onload = () => {
+                    cleanup();
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve({ ok: true, status: xhr.status });
+                    } else {
+                        reject(new Error(`Failed to send message (HTTP ${xhr.status})`));
+                    }
+                };
+                xhr.onerror = () => {
+                    cleanup();
+                    reject(new Error('Network error while uploading message'));
+                };
+                xhr.onabort = () => {
+                    cleanup();
+                    reject(new Error('Message upload was canceled'));
+                };
+
+                xhr.send(JSON.stringify(bodyPayload));
+            });
+        }
+        
+        async function sendMessage(event) {
+            event.preventDefault();
+
+            if (window.chatActiveUploadXhr) {
+                if (typeof showNotification === 'function') {
+                    showNotification('An upload is already in progress.', 'warning');
+                }
+                return;
+            }
+            
+            const input = document.getElementById('messageInput');
+            const message = String(input?.value || '').trim();
+            const pendingAttachments = Array.isArray(window.chatPendingAttachments) ? window.chatPendingAttachments : [];
+
+            if ((!message && !pendingAttachments.length) || !window.currentChatUserId) return;
+
+            let attachmentsPayload = [];
+            if (pendingAttachments.length) {
+                try {
+                    attachmentsPayload = await buildChatAttachmentPayload();
+                } catch (error) {
+                    console.error('Error preparing attachments:', error);
+                    showNotification('Failed to read one or more attachments', 'error');
+                    return;
+                }
+            }
+            
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
+            
+            // Handle group messages (localStorage)
+            if (window.currentChatType === 'group') {
+                const groupChats = safeParseLocalStorageJSON('groupChats', []);
+                const groupIndex = groupChats.findIndex(g => g.id === window.currentChatUserId);
+                
+                if (groupIndex !== -1) {
+                    if (!groupChats[groupIndex].messages) {
+                        groupChats[groupIndex].messages = [];
+                    }
+                    
+                    groupChats[groupIndex].messages.push({
+                        id: Date.now(),
+                        sender: currentUser.name || currentUser.username || 'You',
+                        senderId: currentUser.username,
+                        content: message,
+                        attachments: attachmentsPayload,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    localStorage.setItem('groupChats', JSON.stringify(groupChats));
+                    input.value = '';
+                    clearChatAttachmentSelection();
+                    
+                    // Reload messages
+                    displayMessages(groupChats[groupIndex].messages, true);
+                    showNotification('Message sent!', 'success');
+                }
+                return;
+            }
+            
+            // Handle announcement replies (localStorage)
+            if (window.currentChatType === 'announcement') {
+                const announcements = safeParseLocalStorageJSON('announcements', []);
+                const annIndex = announcements.findIndex(a => a.id === window.currentChatUserId);
+                
+                if (annIndex !== -1) {
+                    if (!announcements[annIndex].replies) {
+                        announcements[annIndex].replies = [];
+                    }
+                    
+                    announcements[annIndex].replies.push({
+                        author: currentUser.name || currentUser.username || 'You',
+                        content: message,
+                        attachments: attachmentsPayload,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    localStorage.setItem('announcements', JSON.stringify(announcements));
+                    input.value = '';
+                    clearChatAttachmentSelection();
+                    
+                    // Reload announcement
+                    selectAnnouncement(window.currentChatUserId);
+                    showNotification('Reply sent!', 'success');
+                }
+                return;
+            }
+            
+            // Handle direct messages (API)
+            const userId = await getCurrentChatUserId();
+            if (!userId) return;
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        senderId: userId,
+                        receiverId: window.currentChatUserId,
+                        message: message,
+                        attachments: attachmentsPayload
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to send message');
+                }
+
+                input.value = '';
+                clearChatAttachmentSelection();
+                await loadMessages(window.currentChatUserId);
+                loadConversations();
+            } catch (error) {
+                console.error('Error sending message:', error);
+                showNotification('Failed to send message', 'error');
+            }
+        }
+        
+        function hideNewChatPanel() {
+            const panel = document.getElementById('newChatPanel');
+            if (panel) {
+                panel.style.display = 'none';
+            }
+        }
+        window.hideNewChatPanel = hideNewChatPanel;
+        
+        async function loadChatUsers() {
+            const container = document.getElementById('chatUsersList');
+            if (!container) return;
+
+            const localUsers = getLocalChatUsersList();
+            let renderedLocalFallback = false;
+
+            if (Array.isArray(window.chatUsersCache) && window.chatUsersCache.length > 0) {
+                renderChatUsersList(window.chatUsersCache);
+            } else if (localUsers.length > 0) {
+                window.chatUsersCache = localUsers;
+                renderChatUsersListLocal(localUsers);
+                renderedLocalFallback = true;
+            } else {
+                container.innerHTML = '<div style="text-align: center; padding: 1rem; color: var(--text-tertiary);"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+            }
+
+            let userId = window.currentDbUserId || safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' })?.dbId || null;
+            if (!userId) {
+                if (renderedLocalFallback) {
+                    getCurrentChatUserId().then((resolvedUserId) => {
+                        if (resolvedUserId) {
+                            loadChatUsers();
+                        }
+                    }).catch((error) => {
+                        console.error('Error resolving current chat user ID in background:', error);
+                    });
+                    return;
+                }
+                userId = await getCurrentChatUserId();
+            }
+
+            console.log('ðŸ‘¥ Loading chat users, current user ID:', userId);
+            if (!userId) {
+                loadChatUsersFromLocalStorage();
+                return;
+            }
+
+            try {
+                const response = await fetchChatUsersWithTimeout(userId);
+                console.log('ðŸ‘¥ Chat users API response status:', response.status);
+                if (!response.ok) throw new Error('Failed to load users');
+
+                window.chatUsersCache = await response.json();
+                console.log('ðŸ‘¥ Loaded', chatUsersCache.length, 'users from database');
+
+                if (chatUsersCache.length === 0) {
+                    container.innerHTML = `
+                        <div style="text-align: center; padding: 1.5rem; color: var(--text-tertiary);">
+                            <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                            <p style="margin: 0;">No other users found</p>
+                            <p style="font-size: 0.8rem; margin-top: 0.5rem;">Add team members to start chatting</p>
+                        </div>
+                    `;
+                } else {
+                    renderChatUsersList(chatUsersCache);
+                }
+
+            } catch (error) {
+                console.error('Error loading users from API:', error);
+                if (renderedLocalFallback) {
+                    return;
+                }
+                loadChatUsersFromLocalStorage();
+            }
+        }
+
+        async function fetchChatUsersWithTimeout(userId, timeoutMs = 4000) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                return await fetch(`/api/chat?action=users&userId=${userId}`, { signal: controller.signal });
+            } finally {
+                clearTimeout(timeoutId);
+            }
+        }
+
+        function getLocalChatUsersEntries() {
+            const parsedUsers = safeParseLocalStorageJSON('users', {});
+            if (Array.isArray(parsedUsers)) {
+                return parsedUsers
+                    .filter(user => user && typeof user === 'object')
+                    .map((user, index) => [user.username || user.userName || user.Username || user.email || user.id || user.Id || user.name || `user-${index}`, user]);
+            }
+            if (parsedUsers && typeof parsedUsers === 'object') {
+                return Object.entries(parsedUsers);
+            }
+            return [];
+        }
+
+        function getLocalChatUsersList() {
+            const userEntries = getLocalChatUsersEntries();
+            const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
+            const currentUsername = String(currentUser?.username || '').toLowerCase();
+            const currentName = String(currentUser?.name || '').toLowerCase();
+
+            return userEntries
+                .filter(([username, user]) => {
+                    const normalizedUsername = String(user?.Username || user?.username || username || '').toLowerCase();
+                    const firstName = String(user?.firstName || user?.FirstName || '').trim();
+                    const lastName = String(user?.lastName || user?.LastName || '').trim();
+                    const fullName = `${firstName} ${lastName}`.trim().toLowerCase();
+                    return normalizedUsername !== currentUsername && normalizedUsername !== 'admin' && fullName !== currentName;
+                })
+                .map(([username, user]) => ({
+                    Id: user?.Id || user?.id || username,
+                    Username: user?.Username || user?.username || username,
+                    FirstName: user?.FirstName || user?.firstName || username,
+                    LastName: user?.LastName || user?.lastName || '',
+                    Role: user?.Role || user?.role || 'User',
+                    IsOnline: Boolean(user?.IsOnline)
+                }));
+        }
+
+        function getCurrentUserIdFromLocalUsers(currentUserData) {
+            const currentUsername = String(currentUserData?.username || '').toLowerCase();
+            const currentName = String(currentUserData?.name || '').toLowerCase();
+            const currentFirstName = String(currentUserData?.firstName || currentUserData?.FirstName || '').toLowerCase();
+            const currentLastName = String(currentUserData?.lastName || currentUserData?.LastName || '').toLowerCase();
+
+            const localMatch = getLocalChatUsersEntries()
+                .map(([, user]) => user)
+                .find((user) => {
+                    const username = String(user?.Username || user?.username || '').toLowerCase();
+                    const firstName = String(user?.FirstName || user?.firstName || '').toLowerCase();
+                    const lastName = String(user?.LastName || user?.lastName || '').toLowerCase();
+                    const fullName = `${firstName} ${lastName}`.trim().toLowerCase();
+                    return (username && username === currentUsername)
+                        || (firstName && lastName && firstName === currentFirstName && lastName === currentLastName)
+                        || (fullName && fullName === currentName);
+                });
+
+            return localMatch?.Id || localMatch?.id || null;
+        }
+        
+        // Fallback: Load users from localStorage
+        function loadChatUsersFromLocalStorage() {
+            const container = document.getElementById('chatUsersList');
+            if (!container) return;
+
+            const users = getLocalChatUsersList();
+            
+            if (users.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 1.5rem; color: var(--text-tertiary);">
+                        <i class="fas fa-users-slash" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p style="margin: 0;">No team members found</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.5rem;">Add users in User Management first</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            chatUsersCache = users;
+            renderChatUsersListLocal(users);
+        }
+        
+        // Render users from localStorage format
+        function renderChatUsersListLocal(users) {
+            const container = document.getElementById('chatUsersList');
+            if (!container) return;
+            
+            container.innerHTML = users.map(user => `
+                <div onclick="startChatWithLocal('${user.Username}', '${user.FirstName}', '${user.LastName}')" style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px; cursor: pointer; margin-bottom: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="position: relative;">
+                            <div style="width: 40px; height: 40px; background: var(--accent-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                                ${user.FirstName?.[0] || ''}${user.LastName?.[0] || ''}
+                            </div>
+                            <div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #6b7280; border-radius: 50%; border: 2px solid var(--bg-secondary);"></div>
+                        </div>
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary);">${user.FirstName} ${user.LastName || ''}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary);">${user.Role || 'Staff'}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Start chat with local user (create if needed in DB)
+        async function startChatWithLocal(username, firstName, lastName) {
+            console.log('ðŸ“§ Starting chat with local user:', username, firstName, lastName);
+            hideNewChatPanel();
+            
+            // Try to find user in API cache first
+            let userId = null;
+            if (chatUserIdCache) {
+                const apiUser = chatUserIdCache.find(u => 
+                    u.Username === username || 
+                    (u.FirstName === firstName && u.LastName === lastName)
+                );
+                userId = apiUser?.Id;
+            }
+            
+            if (userId) {
+                selectConversation(userId, firstName, lastName, false);
+            } else {
+                // Show message that user needs to be synced to database
+                showNotification('This user needs to be synced to the database first. Try logging in as this user or sync users.', 'warning');
+            }
+        }
+        
+        function renderChatUsersList(users) {
+            const container = document.getElementById('chatUsersList');
+            if (!container) return;
+            
+            container.innerHTML = users.map(user => `
+                <div onclick="startChatWith(${user.Id})" style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px; cursor: pointer; margin-bottom: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="position: relative;">
+                            <div style="width: 40px; height: 40px; background: var(--accent-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                                ${user.FirstName?.[0] || ''}${user.LastName?.[0] || ''}
+                            </div>
+                            <div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: ${user.IsOnline ? '#10b981' : '#6b7280'}; border-radius: 50%; border: 2px solid var(--bg-secondary);"></div>
+                        </div>
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary);">${user.FirstName} ${user.LastName}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary);">${user.Role || 'Staff'}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function filterChatUsers() {
+            const search = document.getElementById('userSearchInput').value.toLowerCase();
+            const filtered = chatUsersCache.filter(u => 
+                `${u.FirstName} ${u.LastName}`.toLowerCase().includes(search)
+            );
+            renderChatUsersList(filtered);
+        }
+        
+        function startChatWith(userId) {
+            console.log('ðŸ’¬ startChatWith called with userId:', userId);
+            
+            // Hide the new chat panel first
+            hideNewChatPanel();
+            
+            // Set to direct chat mode
+            window.currentChatTab = 'direct';
+            window.currentChatType = 'direct';
+            
+            // Find user info from cache
+            const user = chatUsersCache.find(u => u.Id === userId);
+            console.log('ðŸ’¬ Found user in cache:', user);
+            
+            if (user) {
+                selectConversation(userId, user.FirstName, user.LastName, user.IsOnline);
+            } else {
+                selectConversation(userId, null, null, false);
+            }
+        }
+        
+        function startChatPolling() {
+            // Poll for new messages every 5 seconds
+            window.chatPollingInterval = setInterval(async () => {
+                // Only poll when on direct messages tab AND viewing a specific conversation
+                if (window.currentChatTab === 'direct' && window.currentChatType === 'direct' && window.currentChatUserId) {
+                    await loadMessages(window.currentChatUserId);
+                    await loadConversations();
+                }
+                // Always update unread badge
+                await updateUnreadBadge();
+            }, 5000);
+        }
+        window.startChatPolling = startChatPolling;
+        
+        function stopChatPolling() {
+            if (window.chatPollingInterval) {
+                clearInterval(window.chatPollingInterval);
+                window.chatPollingInterval = null;
+            }
+        }
+        window.stopChatPolling = stopChatPolling;
+        
+        async function updateUnreadBadge() {
+            try {
+                const userId = await getCurrentChatUserId();
+                if (!userId) return;
+                
+                const response = await fetch(`/api/chat?action=unreadCount&userId=${userId}`);
+                if (!response.ok) return;
+                
+                const data = await response.json();
+                const count = data.UnreadCount || 0;
+                
+                // Update floating chat button badge
+                const floatingBadge = document.getElementById('floatingChatBadge');
+                const floatingBtn = document.getElementById('floatingChatBtn');
+                const logoBadge = document.getElementById('logoChatBadge');
+                
+                if (count > 0) {
+                    if (floatingBadge) {
+                        floatingBadge.textContent = count > 99 ? '99+' : count;
+                        floatingBadge.style.display = 'flex';
+                    }
+                    if (floatingBtn) floatingBtn.classList.add('has-messages');
+                    if (logoBadge) {
+                        logoBadge.textContent = count > 99 ? '99+' : count;
+                        logoBadge.style.display = 'flex';
+                    }
+                } else {
+                    if (floatingBadge) floatingBadge.style.display = 'none';
+                    if (floatingBtn) floatingBtn.classList.remove('has-messages');
+                    if (logoBadge) logoBadge.style.display = 'none';
+                }
+                
+                // Also call global updateChatBadges if available
+                if (typeof updateChatBadges === 'function') {
+                    updateChatBadges(count);
+                }
+                
+                // Update badge on all chat buttons
+                const chatBadges = document.querySelectorAll('.chat-unread-badge');
+                chatBadges.forEach(badge => {
+                    if (count > 0) {
+                        badge.textContent = count > 99 ? '99+' : count;
+                        badge.style.display = 'flex';
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                });
+            } catch (error) {
+                console.error('Error updating unread badge:', error);
+            }
+        }
+        
+        function formatChatTime(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            const now = new Date();
+            const diff = now - date;
+            
+            // Less than 1 minute
+            if (diff < 60000) return 'Just now';
+            
+            // Less than 1 hour
+            if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+            
+            // Less than 24 hours
+            if (diff < 86400000) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            // Less than 7 days
+            if (diff < 604800000) {
+                const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                return days[date.getDay()];
+            }
+            
+            // Otherwise show date
+            return date.toLocaleDateString();
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatChatFileSize(bytes) {
+            const size = Math.max(0, Number(bytes || 0));
+            if (size < 1024) return `${size} B`;
+            if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+            return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+        }
+
+        function normalizeChatAttachment(att) {
+            const fileName = String(att?.fileName || att?.FileName || att?.name || att?.Name || 'attachment');
+            const contentType = String(att?.contentType || att?.ContentType || att?.type || att?.Type || att?.mimeType || att?.MimeType || '').trim();
+            const rawData = String(att?.fileData || att?.FileData || att?.data || att?.Data || att?.base64 || att?.Base64 || att?.fileUrl || att?.FileUrl || att?.url || att?.Url || '').trim();
+            const fileSize = Number(att?.fileSize || att?.FileSize || att?.size || att?.Size || 0) || 0;
+
+            let fileData = rawData;
+            if (fileData && !/^data:/i.test(fileData) && !/^blob:/i.test(fileData) && !/^https?:\/\//i.test(fileData) && !/^\//.test(fileData)) {
+                const mime = contentType || 'application/octet-stream';
+                fileData = `data:${mime};base64,${fileData}`;
+            }
+
+            return {
+                ...att,
+                fileName,
+                contentType,
+                fileData,
+                fileSize
+            };
+        }
+
+        function isChatImageAttachment(att) {
+            const contentType = String(att?.contentType || att?.type || '').toLowerCase();
+            if (contentType.startsWith('image/')) return true;
+            const name = String(att?.fileName || att?.name || '').toLowerCase();
+            return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name);
+        }
+
+        function buildChatImageCandidates(attachments) {
+            const list = Array.isArray(attachments) ? attachments : [];
+            return list
+                .map((att) => normalizeChatAttachment(att))
+                .filter((item) => item.fileData && isChatImageAttachment(item));
+        }
+
+        function openChatImageReview(cacheKey, imageIndex = 0) {
+            const item = window.chatAttachmentDownloadCache?.[cacheKey];
+            if (!item || !Array.isArray(item.images) || !item.images.length) {
+                if (typeof showNotification === 'function') showNotification('Image preview unavailable', 'warning');
+                return;
+            }
+
+            const modal = document.getElementById('chatImageReviewModal');
+            const img = document.getElementById('chatImageReviewImage');
+            const title = document.getElementById('chatImageReviewTitle');
+            const sizeEl = document.getElementById('chatImageReviewSize');
+            const counter = document.getElementById('chatImageReviewCounter');
+            const prevBtn = document.getElementById('chatImageReviewPrev');
+            const nextBtn = document.getElementById('chatImageReviewNext');
+            const downloadBtn = document.getElementById('chatImageReviewDownloadBtn');
+            if (!modal || !img || !title || !sizeEl || !counter || !prevBtn || !nextBtn || !downloadBtn) return;
+
+            const maxIndex = item.images.length - 1;
+            const clampedIndex = Math.max(0, Math.min(maxIndex, Number(imageIndex) || 0));
+            const activeImage = item.images[clampedIndex];
+
+            window.chatImageReviewState = {
+                cacheKey,
+                index: clampedIndex
+            };
+
+            img.src = activeImage.fileData;
+            img.alt = activeImage.fileName || 'Chat image';
+            title.textContent = activeImage.fileName || 'Chat image';
+            sizeEl.textContent = formatChatFileSize(activeImage.fileSize || 0);
+            counter.textContent = `${clampedIndex + 1} / ${item.images.length}`;
+
+            prevBtn.disabled = clampedIndex <= 0;
+            nextBtn.disabled = clampedIndex >= maxIndex;
+            downloadBtn.onclick = () => {
+                const link = document.createElement('a');
+                link.href = activeImage.fileData;
+                link.download = String(activeImage.fileName || 'chat-image');
+                link.click();
+            };
+
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeChatImageReview() {
+            const modal = document.getElementById('chatImageReviewModal');
+            const img = document.getElementById('chatImageReviewImage');
+            if (modal) modal.style.display = 'none';
+            if (img) {
+                img.src = '';
+                img.alt = '';
+            }
+            document.body.style.overflow = '';
+        }
+
+        function stepChatImageReview(delta) {
+            const state = window.chatImageReviewState;
+            if (!state) return;
+            const item = window.chatAttachmentDownloadCache?.[state.cacheKey];
+            if (!item || !Array.isArray(item.images) || !item.images.length) return;
+            const nextIndex = Math.max(0, Math.min(item.images.length - 1, Number(state.index || 0) + Number(delta || 0)));
+            openChatImageReview(state.cacheKey, nextIndex);
+        }
+
+        document.addEventListener('keydown', (event) => {
+            const modal = document.getElementById('chatImageReviewModal');
+            if (!modal || modal.style.display !== 'flex') return;
+            if (event.key === 'Escape') closeChatImageReview();
+            if (event.key === 'ArrowLeft') stepChatImageReview(-1);
+            if (event.key === 'ArrowRight') stepChatImageReview(1);
+        });
+
+        function renderChatAttachmentPreview() {
+            const preview = document.getElementById('chatAttachmentPreview');
+            if (!preview) return;
+
+            const files = Array.isArray(window.chatPendingAttachments) ? window.chatPendingAttachments : [];
+            if (!files.length) {
+                preview.style.display = 'none';
+                preview.innerHTML = '';
+                return;
+            }
+
+            const labels = files
+                .map((f, index) => {
+                    const icon = String(f?.type || '').toLowerCase().startsWith('image/') ? '<i class="fas fa-image" style="margin-right:0.35rem;"></i>' : '<i class="fas fa-paperclip" style="margin-right:0.35rem;"></i>';
+                    return `<div style="display:flex; align-items:center; gap:0.35rem; margin-bottom:0.25rem;">${icon}<span>${index + 1}. ${escapeHtml(f.name || 'attachment')} (${formatChatFileSize(f.size || 0)})</span></div>`;
+                })
+                .join('');
+
+            const imageTiles = files
+                .filter((f) => String(f?.type || '').toLowerCase().startsWith('image/'))
+                .map((f) => {
+                    const url = URL.createObjectURL(f);
+                    return `<img src="${url}" alt="${escapeHtml(f.name || 'image')}" style="width:56px; height:56px; object-fit:cover; border-radius:10px; border:1px solid var(--border-color);">`;
+                })
+                .join('');
+
+            preview.style.display = 'block';
+            preview.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem;">
+                    <div>
+                        <strong>${files.length}</strong> attachment${files.length === 1 ? '' : 's'} selected
+                        <div style="margin-top:0.35rem;">${labels}</div>
+                        ${imageTiles ? `<div style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.45rem;">${imageTiles}</div>` : ''}
+                    </div>
+                    <button type="button" onclick="clearChatAttachmentSelection()" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;">Clear</button>
+                </div>
+            `;
+
+            // Release temporary object URLs created for this preview render.
+            setTimeout(() => {
+                const images = preview.querySelectorAll('img[src^="blob:"]');
+                images.forEach((img) => {
+                    try { URL.revokeObjectURL(img.src); } catch (_) { }
+                });
+            }, 0);
+        }
+
+        function clearChatAttachmentSelection() {
+            window.chatPendingAttachments = [];
+            const input = document.getElementById('chatAttachmentInput');
+            if (input) input.value = '';
+            renderChatAttachmentPreview();
+            if (!window.chatUploadProgressState?.active) {
+                clearChatUploadProgressState();
+            }
+        }
+        window.clearChatAttachmentSelection = clearChatAttachmentSelection;
+
+        function handleChatAttachmentSelection(event) {
+            const selected = Array.from(event?.target?.files || []);
+            if (!selected.length) return;
+
+            const maxFiles = 5;
+            const maxBytes = 4 * 1024 * 1024;
+            const current = Array.isArray(window.chatPendingAttachments) ? window.chatPendingAttachments : [];
+            const next = [...current, ...selected].slice(0, maxFiles);
+            const filtered = next.filter((file) => Number(file?.size || 0) <= maxBytes);
+
+            if (filtered.length < next.length && typeof showNotification === 'function') {
+                showNotification('Some files were skipped (max 4 MB each).', 'warning');
+            }
+
+            window.chatPendingAttachments = filtered;
+            renderChatAttachmentPreview();
+        }
+
+        Object.assign(window, {
+            switchChatTab,
+            closeChatConversation,
+            deleteCurrentChatConversation,
+            loadGroupChats,
+            loadAnnouncements,
+            showNewChatPanel,
+            loadConversations,
+            selectConversation,
+            sendMessage,
+            hideNewChatPanel,
+            filterChatUsers,
+            closeChatImageReview,
+            handleChatAttachmentSelection
+        });
+
+        Object.assign(window.ReformChat || (window.ReformChat = {}), {
+            open() {
+                const panel = document.getElementById('chatPanel');
+                if (!panel) return;
+
+                panel.classList.add('open');
+                window.currentChatTab = 'direct';
+                window.currentChatType = 'direct';
+
+                try { loadConversations(); } catch (error) { console.error('Failed to load chat conversations:', error); }
+                try { startChatPolling(); } catch (error) { console.error('Failed to start chat polling:', error); }
+                try { updateOnlineStatus(true); } catch (error) { console.error('Failed to update chat online status:', error); }
+
+                if (typeof window.attachChatDrag === 'function') {
+                    setTimeout(() => {
+                        try { window.attachChatDrag(); } catch (error) { console.error('Failed to attach chat drag behavior:', error); }
+                    }, 50);
+                }
+            },
+
+            close() {
+                const panel = document.getElementById('chatPanel');
+                if (!panel) return;
+
+                panel.classList.remove('open', 'fullscreen', 'dragged');
+                panel.style.left = '';
+                panel.style.top = '';
+
+                const btn = document.getElementById('chatFullscreenBtn');
+                if (btn) {
+                    const icon = btn.querySelector('i');
+                    if (icon) icon.className = 'fas fa-expand';
+                }
+
+                try { stopChatPolling(); } catch (error) { console.error('Failed to stop chat polling:', error); }
+                window.currentChatUserId = null;
+                try { clearChatAttachmentSelection(); } catch (error) { console.error('Failed to clear chat attachments:', error); }
+                try { hideNewChatPanel(); } catch (error) { console.error('Failed to hide new chat panel:', error); }
+            },
+
+            toggle() {
+                const panel = document.getElementById('chatPanel');
+                if (!panel || !panel.classList.contains('open')) {
+                    this.open();
+                    return;
+                }
+
+                this.close();
+            },
+
+            switchTab(tab) {
+                return switchChatTab(tab);
+            },
+
+            showNewChatPanel() {
+                return showNewChatPanel();
+            },
+
+            hideNewChatPanel() {
+                return hideNewChatPanel();
+            },
+
+            closeChatConversation() {
+                return closeChatConversation();
+            },
+
+            deleteCurrentChatConversation() {
+                return deleteCurrentChatConversation();
+            },
+
+            sendMessage(event) {
+                return sendMessage(event);
+            },
+
+            filterChatUsers() {
+                return filterChatUsers();
+            },
+
+            handleChatAttachmentSelection(event) {
+                return handleChatAttachmentSelection(event);
+            },
+
+            closeImageReview() {
+                return closeChatImageReview();
+            },
+
+            selectConversation(otherUserId, firstName, lastName, isOnline) {
+                return selectConversation(otherUserId, firstName, lastName, isOnline);
+            }
+        });
+
+        async function readChatFileAsDataUrl(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ''));
+                reader.onerror = () => reject(new Error('Failed to read file'));
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function chatEstimateDataUrlBytes(dataUrl) {
+            const value = String(dataUrl || '');
+            const commaIndex = value.indexOf(',');
+            const base64Part = commaIndex >= 0 ? value.slice(commaIndex + 1) : value;
+            if (!base64Part) return 0;
+            return Math.floor((base64Part.length * 3) / 4);
+        }
+
+        function chatRenameFileExtension(fileName, extensionWithDot) {
+            const safeName = String(fileName || 'image').trim() || 'image';
+            const ext = String(extensionWithDot || '.jpg');
+            const dotIndex = safeName.lastIndexOf('.');
+            if (dotIndex <= 0) return `${safeName}${ext}`;
+            return `${safeName.slice(0, dotIndex)}${ext}`;
+        }
+
+        async function compressChatImageForUpload(file) {
+            const originalType = String(file?.type || '').toLowerCase();
+            const isSvg = originalType === 'image/svg+xml';
+            if (!String(originalType).startsWith('image/') || isSvg) {
+                return {
+                    fileName: String(file?.name || 'attachment'),
+                    contentType: String(file?.type || 'application/octet-stream'),
+                    fileSize: Number(file?.size || 0) || 0,
+                    fileData: await readChatFileAsDataUrl(file),
+                    compressed: false
+                };
+            }
+
+            if (typeof createImageBitmap !== 'function') {
+                return {
+                    fileName: String(file?.name || 'attachment'),
+                    contentType: String(file?.type || 'application/octet-stream'),
+                    fileSize: Number(file?.size || 0) || 0,
+                    fileData: await readChatFileAsDataUrl(file),
+                    compressed: false
+                };
+            }
+
+            const bitmap = await createImageBitmap(file);
+            const maxDimension = 1600;
+            const longest = Math.max(bitmap.width, bitmap.height);
+            const ratio = longest > maxDimension ? (maxDimension / longest) : 1;
+            let width = Math.max(1, Math.round(bitmap.width * ratio));
+            let height = Math.max(1, Math.round(bitmap.height * ratio));
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                bitmap.close();
+                return {
+                    fileName: String(file?.name || 'attachment'),
+                    contentType: String(file?.type || 'application/octet-stream'),
+                    fileSize: Number(file?.size || 0) || 0,
+                    fileData: await readChatFileAsDataUrl(file),
+                    compressed: false
+                };
+            }
+
+            const canKeepType = originalType === 'image/jpeg' || originalType === 'image/webp';
+            const outputType = canKeepType ? originalType : 'image/jpeg';
+            const maxBytes = 1500 * 1024;
+            let quality = canKeepType ? 0.82 : 0.8;
+            let bestDataUrl = '';
+
+            for (let attempts = 0; attempts < 6; attempts += 1) {
+                canvas.width = width;
+                canvas.height = height;
+                ctx.clearRect(0, 0, width, height);
+                ctx.drawImage(bitmap, 0, 0, width, height);
+                bestDataUrl = canvas.toDataURL(outputType, quality);
+
+                const bytes = chatEstimateDataUrlBytes(bestDataUrl);
+                if (bytes <= maxBytes) break;
+
+                if (quality > 0.5) {
+                    quality = Math.max(0.5, quality - 0.08);
+                } else {
+                    width = Math.max(320, Math.round(width * 0.86));
+                    height = Math.max(320, Math.round(height * 0.86));
+                }
+            }
+
+            bitmap.close();
+
+            const outputBytes = chatEstimateDataUrlBytes(bestDataUrl);
+            const outputName = outputType === 'image/jpeg'
+                ? chatRenameFileExtension(file?.name || 'image', '.jpg')
+                : String(file?.name || 'image');
+
+            return {
+                fileName: outputName,
+                contentType: outputType,
+                fileSize: outputBytes,
+                fileData: bestDataUrl,
+                compressed: outputBytes < (Number(file?.size || 0) || 0)
+            };
+        }
+
+        async function buildChatAttachmentPayload(onProgress) {
+            const files = Array.isArray(window.chatPendingAttachments) ? window.chatPendingAttachments : [];
+            const payload = [];
+            let compressedCount = 0;
+            for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+                const file = files[fileIndex];
+                const isImage = String(file?.type || '').toLowerCase().startsWith('image/');
+                if (isImage) {
+                    const compressed = await compressChatImageForUpload(file);
+                    payload.push({
+                        fileName: compressed.fileName,
+                        contentType: compressed.contentType,
+                        fileSize: compressed.fileSize,
+                        fileData: compressed.fileData
+                    });
+                    if (compressed.compressed) compressedCount += 1;
+                    if (typeof onProgress === 'function') {
+                        onProgress({ completed: fileIndex + 1, total: files.length, file });
+                    }
+                    continue;
+                }
+
+                const fileData = await readChatFileAsDataUrl(file);
+                payload.push({
+                    fileName: String(file?.name || 'attachment'),
+                    contentType: String(file?.type || 'application/octet-stream'),
+                    fileSize: Number(file?.size || 0) || 0,
+                    fileData
+                });
+                if (typeof onProgress === 'function') {
+                    onProgress({ completed: fileIndex + 1, total: files.length, file });
+                }
+            }
+
+            if (compressedCount > 0 && typeof showNotification === 'function') {
+                showNotification(`${compressedCount} image${compressedCount === 1 ? '' : 's'} optimized for upload`, 'success');
+            }
+            return payload;
+        }
+
+        function renderChatAttachmentListHtml(attachments, messageKey) {
+            const list = Array.isArray(attachments) ? attachments : [];
+            if (!list.length) return '';
+
+            const normalizedList = list.map((att) => normalizeChatAttachment(att));
+
+            const imageCandidates = buildChatImageCandidates(normalizedList);
+            const imageButtonsHtml = imageCandidates.map((img, index) => {
+                const cacheKey = `${String(messageKey || 'msg')}:image:${index}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`;
+                window.chatAttachmentDownloadCache[cacheKey] = {
+                    images: imageCandidates,
+                    sourceMessageKey: String(messageKey || '')
+                };
+                return `
+                    <div style="position:relative; margin-top:0.35rem; margin-right:0.35rem;">
+                        <button type="button" onclick="openChatImageReview('${cacheKey}', ${index})" title="Preview image" style="border:none; background:transparent; padding:0; cursor:pointer; display:block;">
+                            <img src="${img.fileData}" alt="${escapeHtml(img.fileName || 'chat image')}" style="width:88px; height:88px; object-fit:cover; border-radius:10px; border:1px solid rgba(255,255,255,0.3); display:block;">
+                        </button>
+                    </div>
+                `;
+            }).join('');
+
+            const items = normalizedList.map((att, index) => {
+                const cacheKey = `${String(messageKey || 'msg')}:${index}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`;
+                window.chatAttachmentDownloadCache[cacheKey] = att;
+                const fileName = escapeHtml(String(att?.fileName || 'attachment'));
+                const fileSize = formatChatFileSize(att?.fileSize || 0);
+                const hasData = String(att?.fileData || '').trim().length > 0;
+                const isImage = isChatImageAttachment(att);
+                if (!hasData) {
+                    return `<div style="display:block; margin-top:0.35rem; padding:0.35rem 0.5rem; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.22); border-radius:8px; color:inherit;"><i class="fas fa-paperclip"></i> ${fileName} <span style="opacity:0.75;">(${fileSize})</span></div>`;
+                }
+                // Image attachments are shown via thumbnail previews above; no duplicate file row.
+                if (isImage) return '';
+                return `<button type="button" onclick="openChatAttachment('${cacheKey}')" style="display:block; width:100%; text-align:left; margin-top:0.35rem; padding:0.35rem 0.5rem; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.22); border-radius:8px; color:inherit; cursor:pointer;"><i class="fas fa-paperclip"></i> ${fileName} <span style="opacity:0.75;">(${fileSize})</span></button>`;
+            }).join('');
+
+            return `<div style="margin-top:0.3rem;">${imageButtonsHtml ? `<div style="display:flex; flex-wrap:wrap; align-items:center;">${imageButtonsHtml}</div>` : ''}${items}</div>`;
+        }
+
+        function openChatAttachment(cacheKey, forceDownload = false) {
+            const item = window.chatAttachmentDownloadCache?.[cacheKey];
+            if (!item) return;
+
+            const href = String(item.fileData || '').trim();
+            if (!href) {
+                if (typeof showNotification === 'function') showNotification('Attachment data missing', 'error');
+                return;
+            }
+
+            if (isChatImageAttachment(item) && !forceDownload) {
+                window.chatAttachmentDownloadCache[cacheKey] = {
+                    images: [
+                        {
+                            fileName: String(item.fileName || 'chat-image'),
+                            fileData: href,
+                            fileSize: Number(item.fileSize || 0) || 0,
+                            contentType: String(item.contentType || '')
+                        }
+                    ]
+                };
+                openChatImageReview(cacheKey, 0);
+                return;
+            }
+
+            const link = document.createElement('a');
+            link.href = href;
+            link.download = String(item.fileName || 'attachment');
+            link.click();
+        }
+        
+        // Start background badge updates when logged in
+        function initChatNotifications() {
+            setInterval(updateUnreadBadge, 30000); // Update every 30 seconds
+            updateUnreadBadge(); // Initial check
+        }
+        
+        // Update online status when page closes
+        window.addEventListener('beforeunload', () => {
+            updateOnlineStatus(false);
+        });
+        
+        // ============================================
+        // END TEAM CHAT FUNCTIONS

@@ -1,0 +1,1341 @@
+﻿        // TEAM CHAT FUNCTIONS
+        // ============================================
+        window.currentChatUserId = null;
+        window.currentChatType = 'direct'; // 'direct', 'group', 'announcement'
+        window.currentChatTab = 'direct';
+        window.chatPollingInterval = null;
+        window.lastMessageTimestamp = null;
+        window.chatUsersCache = [];
+        
+        function openChat() {
+            const modal = document.getElementById('chatModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                window.currentChatTab = 'direct';
+                window.currentChatType = 'direct';
+                loadConversations();
+                startChatPolling();
+                updateOnlineStatus(true);
+            }
+        }
+        
+        function closeChat() {
+            const modal = document.getElementById('chatModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+            stopChatPolling();
+            window.currentChatUserId = null;
+            hideNewChatPanel();
+        }
+        
+        // Switch between chat tabs (direct, group, announcements)
+        function switchChatTab(tab) {
+            console.log('≡ƒôæ Switching to tab:', tab);
+            window.currentChatTab = tab;
+            window.currentChatType = tab === 'announcements' ? 'announcement' : tab;
+            window.currentChatUserId = null;
+            
+            // Hide new chat panel if open
+            hideNewChatPanel();
+            
+            // Update tab button styles
+            const directBtn = document.getElementById('chatTabDirect');
+            const groupBtn = document.getElementById('chatTabGroup');
+            const annBtn = document.getElementById('chatTabAnnouncements');
+            
+            [directBtn, groupBtn, annBtn].forEach(btn => {
+                if (btn) {
+                    btn.style.background = 'var(--bg-tertiary)';
+                    btn.style.color = 'var(--text-secondary)';
+                }
+            });
+            
+            if (tab === 'direct' && directBtn) {
+                directBtn.style.background = 'var(--accent-primary)';
+                directBtn.style.color = 'white';
+            } else if (tab === 'group' && groupBtn) {
+                groupBtn.style.background = 'var(--accent-primary)';
+                groupBtn.style.color = 'white';
+            } else if (tab === 'announcements' && annBtn) {
+                annBtn.style.background = 'var(--accent-primary)';
+                annBtn.style.color = 'white';
+            }
+            
+            // Update button text and visibility
+            const newChatBtn = document.getElementById('newChatBtn');
+            const newChatBtnText = document.getElementById('newChatBtnText');
+            
+            if (newChatBtn && newChatBtnText) {
+                if (tab === 'direct') {
+                    newChatBtn.style.display = 'flex';
+                    newChatBtnText.textContent = 'New Chat';
+                } else if (tab === 'group') {
+                    newChatBtn.style.display = 'flex';
+                    newChatBtnText.textContent = 'New Group';
+                } else if (tab === 'announcements') {
+                    const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+                    if (currentUser.role === 'admin' || currentUser.role === 'manager') {
+                        newChatBtn.style.display = 'flex';
+                        newChatBtnText.textContent = 'New Announcement';
+                    } else {
+                        newChatBtn.style.display = 'none';
+                    }
+                }
+            }
+            
+            // Reset chat area
+            resetChatArea();
+            
+            // Load appropriate content based on tab
+            if (tab === 'direct') {
+                loadConversations();
+            } else if (tab === 'group') {
+                loadGroupChats();
+            } else if (tab === 'announcements') {
+                loadAnnouncements();
+            }
+        }
+        
+        // Reset chat area to placeholder
+        function resetChatArea() {
+            const chatHeader = document.getElementById('chatAreaHeader');
+            const messageInput = document.getElementById('messageInputArea');
+            const messagesArea = document.getElementById('messagesArea');
+            
+            if (chatHeader) chatHeader.style.display = 'none';
+            if (messageInput) messageInput.style.display = 'none';
+            if (messagesArea) {
+                messagesArea.innerHTML = `
+                    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary);">
+                        <i class="fas fa-comments" style="font-size: 4rem; margin-bottom: 1rem; opacity: 0.3;"></i>
+                        <p style="margin: 0; font-size: 1.1rem;">Select a conversation or start a new chat</p>
+                    </div>
+                `;
+            }
+        }
+        
+        // Close current conversation and go back to list
+        function closeChatConversation() {
+            console.log('≡ƒöÖ Closing conversation');
+            window.currentChatUserId = null;
+            resetChatArea();
+        }
+        
+        // Load group chats
+        async function loadGroupChats() {
+            const container = document.getElementById('conversationsList');
+            if (!container) return;
+            
+            // Load group chats from localStorage (will integrate with API later)
+            const groupChats = JSON.parse(localStorage.getItem('groupChats') || '[]');
+            
+            if (groupChats.length === 0) {
+                container.innerHTML = `
+                    <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                        <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p style="margin: 0;">No group chats yet</p>
+                        <p style="font-size: 0.85rem; margin-top: 0.5rem;">Create a group to start chatting with multiple team members</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = groupChats.map(group => `
+                <div onclick="selectGroupChat('${group.id}')" style="padding: 0.75rem; background: transparent; border-radius: 8px; cursor: pointer; margin-bottom: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-weight: 600; color: var(--text-primary);">${group.name}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary);">
+                                ${group.members?.length || 0} members
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Load announcements
+        async function loadAnnouncements() {
+            const container = document.getElementById('conversationsList');
+            if (!container) return;
+            
+            // Load announcements from localStorage (will integrate with API later)
+            const announcements = JSON.parse(localStorage.getItem('announcements') || '[]');
+            
+            if (announcements.length === 0) {
+                container.innerHTML = `
+                    <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                        <i class="fas fa-bullhorn" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p style="margin: 0;">No announcements yet</p>
+                        <p style="font-size: 0.85rem; margin-top: 0.5rem;">Announcements from management will appear here</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = announcements.map(ann => `
+                <div onclick="selectAnnouncement('${ann.id}')" style="padding: 0.75rem; background: transparent; border-radius: 8px; cursor: pointer; margin-bottom: 0.25rem; transition: all 0.2s; border-left: 3px solid ${ann.priority === 'high' ? '#ef4444' : ann.priority === 'medium' ? '#f59e0b' : '#10b981'};" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">
+                    <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+                        <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                            <i class="fas fa-bullhorn"></i>
+                        </div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-weight: 600; color: var(--text-primary);">${ann.title}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                ${ann.content?.substring(0, 50)}${ann.content?.length > 50 ? '...' : ''}
+                            </div>
+                            <div style="font-size: 0.7rem; color: var(--text-tertiary); margin-top: 0.25rem;">
+                                ${ann.author} ΓÇó ${formatChatTime(ann.createdAt)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Select group chat
+        function selectGroupChat(groupId) {
+            console.log('≡ƒæÑ selectGroupChat called with groupId:', groupId);
+            const groupChats = JSON.parse(localStorage.getItem('groupChats') || '[]');
+            const group = groupChats.find(g => g.id === groupId);
+            if (!group) {
+                console.log('Γ¥î Group not found');
+                return;
+            }
+            
+            // Set chat type
+            window.currentChatType = 'group';
+            window.currentChatUserId = groupId;
+            
+            // Show chat area with null checks
+            const chatHeader = document.getElementById('chatAreaHeader');
+            const messageInput = document.getElementById('messageInputArea');
+            const avatarEl = document.getElementById('chatUserAvatar');
+            const nameEl = document.getElementById('chatUserName');
+            const statusEl = document.getElementById('chatUserStatus');
+            
+            if (chatHeader) chatHeader.style.display = 'block';
+            if (messageInput) messageInput.style.display = 'block';
+            
+            // Update header
+            if (avatarEl) {
+                avatarEl.innerHTML = '<i class="fas fa-users"></i>';
+                avatarEl.style.background = 'linear-gradient(135deg, #8b5cf6, #7c3aed)';
+            }
+            if (nameEl) nameEl.textContent = group.name;
+            if (statusEl) statusEl.textContent = `${group.members?.length || 0} members`;
+            
+            // Load group messages
+            const messages = group.messages || [];
+            displayMessages(messages, true);
+        }
+        
+        // Select announcement
+        function selectAnnouncement(annId) {
+            console.log('≡ƒôó selectAnnouncement called with annId:', annId);
+            const announcements = JSON.parse(localStorage.getItem('announcements') || '[]');
+            const ann = announcements.find(a => a.id === annId);
+            if (!ann) {
+                console.log('Γ¥î Announcement not found');
+                return;
+            }
+            
+            // Set chat type
+            window.currentChatType = 'announcement';
+            window.currentChatUserId = annId;
+            
+            // Show chat area with null checks
+            const chatHeader = document.getElementById('chatAreaHeader');
+            const messageInput = document.getElementById('messageInputArea');
+            const avatarEl = document.getElementById('chatUserAvatar');
+            const nameEl = document.getElementById('chatUserName');
+            const statusEl = document.getElementById('chatUserStatus');
+            const messagesArea = document.getElementById('messagesArea');
+            
+            if (chatHeader) chatHeader.style.display = 'block';
+            
+            // Only admins/managers can reply to announcements
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            if (messageInput) {
+                if (currentUser.role === 'admin' || currentUser.role === 'manager') {
+                    messageInput.style.display = 'block';
+                } else {
+                    messageInput.style.display = 'none';
+                }
+            }
+            
+            // Update header
+            if (avatarEl) {
+                avatarEl.innerHTML = '<i class="fas fa-bullhorn"></i>';
+                avatarEl.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+            }
+            if (nameEl) nameEl.textContent = ann.title;
+            if (statusEl) statusEl.textContent = `By ${ann.author} ΓÇó ${formatChatTime(ann.createdAt)}${ann.recipients ? ` ΓÇó Sent to ${ann.recipients.length} employees` : ''}`;
+            
+            // Display announcement content
+            if (messagesArea) {
+                messagesArea.innerHTML = `
+                    <div style="max-width: 90%; padding: 1rem; background: linear-gradient(135deg, #fef3c7, #fde68a); border-radius: 12px; border-left: 4px solid #f59e0b; margin-bottom: 1rem;">
+                        <div style="font-weight: 600; color: #92400e; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-bullhorn"></i> ${ann.title}
+                        </div>
+                        <div style="color: #78350f; white-space: pre-wrap;">${ann.content}</div>
+                        <div style="font-size: 0.75rem; color: #92400e; margin-top: 0.75rem; opacity: 0.8;">
+                            Posted by ${ann.author} on ${new Date(ann.createdAt).toLocaleDateString()}
+                        </div>
+                    </div>
+                    ${ann.replies && ann.replies.length > 0 ? ann.replies.map(reply => `
+                        <div style="max-width: 80%; margin-left: auto; padding: 0.75rem 1rem; background: var(--bg-secondary); border-radius: 12px; margin-bottom: 0.5rem;">
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 0.25rem;">${reply.author}</div>
+                            <div style="color: var(--text-primary);">${reply.content}</div>
+                        </div>
+                    `).join('') : ''}
+                `;
+            }
+        }
+        
+        // Display messages helper
+        function displayMessages(messages, isGroup = false) {
+            const messagesArea = document.getElementById('messagesArea');
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            
+            if (!messages || messages.length === 0) {
+                messagesArea.innerHTML = `
+                    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary);">
+                        <i class="fas fa-comment-slash" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.3;"></i>
+                        <p style="margin: 0;">No messages yet. Start the conversation!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            messagesArea.innerHTML = messages.map(msg => {
+                const isOwn = msg.senderId === currentUser.username || msg.sender === currentUser.name;
+                return `
+                    <div style="display: flex; ${isOwn ? 'justify-content: flex-end' : 'justify-content: flex-start'};">
+                        <div style="max-width: 70%; padding: 0.75rem 1rem; background: ${isOwn ? 'var(--accent-primary)' : 'var(--bg-secondary)'}; color: ${isOwn ? 'white' : 'var(--text-primary)'}; border-radius: ${isOwn ? '12px 12px 0 12px' : '12px 12px 12px 0'};">
+                            ${isGroup && !isOwn ? `<div style="font-size: 0.7rem; font-weight: 600; margin-bottom: 0.25rem; opacity: 0.8;">${msg.sender || 'Unknown'}</div>` : ''}
+                            <div>${msg.content || msg.message}</div>
+                            <div style="font-size: 0.65rem; opacity: 0.7; margin-top: 0.25rem; text-align: right;">
+                                ${formatChatTime(msg.timestamp || msg.createdAt)}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            messagesArea.scrollTop = messagesArea.scrollHeight;
+        }
+        
+        // Show new chat/group/announcement panel
+        function showNewChatPanel() {
+            console.log('≡ƒåò showNewChatPanel called, currentChatTab:', currentChatTab);
+            if (currentChatTab === 'direct') {
+                showDirectChatPanel();
+            } else if (currentChatTab === 'group') {
+                showCreateGroupPanel();
+            } else if (currentChatTab === 'announcements') {
+                showCreateAnnouncementPanel();
+            }
+        }
+        
+        // Show direct chat user selection panel
+        function showDirectChatPanel() {
+            console.log('≡ƒåò showDirectChatPanel called');
+            const panel = document.getElementById('newChatPanel');
+            console.log('≡ƒåò newChatPanel element:', panel);
+            if (panel) {
+                panel.style.display = 'block';
+                panel.innerHTML = `
+                    <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 1rem;">
+                        <button onclick="hideNewChatPanel()" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: 1.25rem;">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h4 style="margin: 0; color: var(--text-primary);">Start New Chat</h4>
+                    </div>
+                    <div style="padding: 1rem;">
+                        <input type="text" id="userSearchInput" placeholder="Search team members..." oninput="filterChatUsers()" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); margin-bottom: 1rem;">
+                    </div>
+                    <div id="chatUsersList" style="padding: 0 1rem; overflow-y: auto; max-height: calc(100% - 140px);">
+                        <div style="text-align: center; padding: 1rem; color: var(--text-tertiary);"><i class="fas fa-spinner fa-spin"></i> Loading users...</div>
+                    </div>
+                `;
+                loadChatUsers();
+            } else {
+                console.error('Γ¥î newChatPanel not found!');
+            }
+        }
+        
+        // Show create group panel
+        function showCreateGroupPanel() {
+            const panel = document.getElementById('newChatPanel');
+            if (panel) {
+                panel.style.display = 'block';
+                panel.innerHTML = `
+                    <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 1rem;">
+                        <button onclick="hideNewChatPanel()" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: 1.25rem;">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h4 style="margin: 0; color: var(--text-primary);">Create New Group</h4>
+                    </div>
+                    <div style="padding: 1rem; overflow-y: auto; max-height: calc(100vh - 200px);">
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Group Name *</label>
+                            <input type="text" id="newGroupName" placeholder="Enter group name..." style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary);">
+                        </div>
+                        <div class="form-group">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">
+                                <i class="fas fa-user-plus" style="margin-right: 0.5rem;"></i>Select Members *
+                            </label>
+                            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <button type="button" onclick="selectAllGroupMembers()" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                    <i class="fas fa-check-double"></i> Select All
+                                </button>
+                                <button type="button" onclick="clearAllGroupMembers()" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">
+                                    <i class="fas fa-times"></i> Clear All
+                                </button>
+                            </div>
+                            <div id="groupMembersList" style="max-height: 250px; overflow-y: auto; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem;">
+                                Loading members...
+                            </div>
+                            <div id="groupMembersCount" style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.5rem;">
+                                0 members selected
+                            </div>
+                        </div>
+                        <button onclick="createGroup()" style="width: 100%; padding: 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; margin-top: 1rem;">
+                            <i class="fas fa-plus"></i> Create Group
+                        </button>
+                    </div>
+                `;
+                loadGroupMembers();
+            }
+        }
+        
+        // Show create announcement panel
+        function showCreateAnnouncementPanel() {
+            const panel = document.getElementById('newChatPanel');
+            if (panel) {
+                panel.style.display = 'block';
+                const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+                panel.innerHTML = `
+                    <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 1rem;">
+                        <button onclick="hideNewChatPanel()" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: 1.25rem;">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h4 style="margin: 0; color: var(--text-primary);">Create Announcement</h4>
+                    </div>
+                    <div style="padding: 1rem; overflow-y: auto; max-height: calc(100vh - 200px);">
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Title *</label>
+                            <input type="text" id="announcementTitle" placeholder="Announcement title..." style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary);">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Content *</label>
+                            <textarea id="announcementContent" placeholder="Write your announcement..." rows="4" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); resize: vertical;"></textarea>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Priority</label>
+                            <select id="announcementPriority" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary);">
+                                <option value="low">≡ƒƒó Low - General Information</option>
+                                <option value="medium" selected>≡ƒƒí Medium - Important Update</option>
+                                <option value="high">≡ƒö┤ High - Urgent/Critical</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">
+                                <i class="fas fa-users" style="margin-right: 0.5rem;"></i>Select Recipients *
+                            </label>
+                            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <button type="button" onclick="selectAllAnnouncementRecipients()" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                    <i class="fas fa-check-double"></i> Select All
+                                </button>
+                                <button type="button" onclick="clearAllAnnouncementRecipients()" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">
+                                    <i class="fas fa-times"></i> Clear All
+                                </button>
+                            </div>
+                            <div id="announcementRecipientsList" style="max-height: 200px; overflow-y: auto; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem;">
+                                Loading employees...
+                            </div>
+                            <div id="announcementRecipientsCount" style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.5rem;">
+                                0 employees selected
+                            </div>
+                        </div>
+                        <button onclick="createAnnouncement()" style="width: 100%; padding: 0.75rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                            <i class="fas fa-bullhorn"></i> Post Announcement
+                        </button>
+                    </div>
+                `;
+                loadAnnouncementRecipients();
+            }
+        }
+        
+        // Load employees for announcement recipients
+        async function loadAnnouncementRecipients() {
+            const container = document.getElementById('announcementRecipientsList');
+            if (!container) return;
+            
+            container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;"><i class="fas fa-spinner fa-spin"></i> Loading employees...</p>';
+            
+            try {
+                // Load all users from database
+                const response = await fetch('/api/users');
+                if (!response.ok) throw new Error('Failed to load users');
+                
+                const dbUsers = await response.json();
+                console.log('≡ƒæÑ Loaded announcement recipients from database:', dbUsers.length);
+                
+                if (dbUsers.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;">No employees found</p>';
+                    return;
+                }
+                
+                container.innerHTML = dbUsers.map(emp => `
+                    <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; cursor: pointer; border-radius: 6px; transition: background 0.2s; border: 1px solid transparent;" onmouseover="this.style.background='var(--bg-tertiary)'; this.style.borderColor='var(--border-color)'" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent'">
+                        <input type="checkbox" name="announcementRecipients" value="${emp.Id}" onchange="updateAnnouncementRecipientsCount()" style="width: 20px; height: 20px; accent-color: #f59e0b; cursor: pointer; flex-shrink: 0;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 500; color: var(--text-primary); font-size: 0.9rem;">${emp.FirstName} ${emp.LastName}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">${emp.Role || 'Staff'}</div>
+                        </div>
+                    </label>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading announcement recipients:', error);
+                container.innerHTML = '<p style="text-align: center; color: #ef4444; padding: 1rem;"><i class="fas fa-exclamation-circle"></i> Failed to load employees</p>';
+            }
+        }
+        
+        // Select all announcement recipients
+        function selectAllAnnouncementRecipients() {
+            const checkboxes = document.querySelectorAll('input[name="announcementRecipients"]');
+            checkboxes.forEach(cb => cb.checked = true);
+            updateAnnouncementRecipientsCount();
+        }
+        
+        // Clear all announcement recipients
+        function clearAllAnnouncementRecipients() {
+            const checkboxes = document.querySelectorAll('input[name="announcementRecipients"]');
+            checkboxes.forEach(cb => cb.checked = false);
+            updateAnnouncementRecipientsCount();
+        }
+        
+        // Update recipients count display
+        function updateAnnouncementRecipientsCount() {
+            const checkboxes = document.querySelectorAll('input[name="announcementRecipients"]:checked');
+            const countDisplay = document.getElementById('announcementRecipientsCount');
+            if (countDisplay) {
+                countDisplay.textContent = `${checkboxes.length} employee${checkboxes.length !== 1 ? 's' : ''} selected`;
+                countDisplay.style.color = checkboxes.length > 0 ? 'var(--accent-primary)' : 'var(--text-tertiary)';
+            }
+        }
+        
+        // Load members for group creation
+        async function loadGroupMembers() {
+            const container = document.getElementById('groupMembersList');
+            if (!container) return;
+            
+            container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;"><i class="fas fa-spinner fa-spin"></i> Loading members...</p>';
+            
+            const userId = await getCurrentUserId();
+            
+            try {
+                // Load users from database
+                const response = await fetch(`/api/chat?action=users&userId=${userId}`);
+                if (!response.ok) throw new Error('Failed to load users');
+                
+                const dbUsers = await response.json();
+                console.log('≡ƒæÑ Loaded group members from database:', dbUsers.length);
+                
+                if (dbUsers.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: var(--text-tertiary); padding: 1rem;">No other team members found</p>';
+                    return;
+                }
+                
+                container.innerHTML = dbUsers.map(member => `
+                    <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; cursor: pointer; border-radius: 6px; transition: background 0.2s; border: 1px solid transparent;" onmouseover="this.style.background='var(--bg-tertiary)'; this.style.borderColor='var(--border-color)'" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent'">
+                        <input type="checkbox" name="groupMembers" value="${member.Id}" onchange="updateGroupMembersCount()" style="width: 20px; height: 20px; accent-color: #06b6d4; cursor: pointer; flex-shrink: 0; border: 2px solid var(--border-color); border-radius: 4px;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 500; color: var(--text-primary); font-size: 0.9rem;">${member.FirstName} ${member.LastName}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary);">${member.Role || 'Staff'}</div>
+                        </div>
+                        <span class="checkmark-indicator" style="width: 24px; height: 24px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0.75rem; transition: all 0.2s;">Γ£ô</span>
+                    </label>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading group members:', error);
+                container.innerHTML = '<p style="text-align: center; color: #ef4444; padding: 1rem;"><i class="fas fa-exclamation-circle"></i> Failed to load members</p>';
+            }
+        }
+        
+        // Select all group members
+        function selectAllGroupMembers() {
+            const checkboxes = document.querySelectorAll('input[name="groupMembers"]');
+            checkboxes.forEach(cb => cb.checked = true);
+            updateGroupMembersCount();
+        }
+        
+        // Clear all group members
+        function clearAllGroupMembers() {
+            const checkboxes = document.querySelectorAll('input[name="groupMembers"]');
+            checkboxes.forEach(cb => cb.checked = false);
+            updateGroupMembersCount();
+        }
+        
+        // Update group members count display
+        function updateGroupMembersCount() {
+            const checkboxes = document.querySelectorAll('input[name="groupMembers"]:checked');
+            const countDisplay = document.getElementById('groupMembersCount');
+            if (countDisplay) {
+                countDisplay.textContent = `${checkboxes.length} member${checkboxes.length !== 1 ? 's' : ''} selected`;
+                countDisplay.style.color = checkboxes.length > 0 ? 'var(--accent-primary)' : 'var(--text-tertiary)';
+            }
+        }
+        
+        // Create new group
+        function createGroup() {
+            const name = document.getElementById('newGroupName')?.value?.trim();
+            if (!name) {
+                alert('Please enter a group name');
+                return;
+            }
+            
+            const checkboxes = document.querySelectorAll('input[name="groupMembers"]:checked');
+            const members = Array.from(checkboxes).map(cb => cb.value);
+            
+            if (members.length === 0) {
+                alert('Please select at least one member');
+                return;
+            }
+            
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            members.push(currentUser.username); // Add creator to group
+            
+            const newGroup = {
+                id: 'group-' + Date.now(),
+                name: name,
+                members: members,
+                createdAt: new Date().toISOString(),
+                createdBy: currentUser.username,
+                messages: []
+            };
+            
+            const groupChats = JSON.parse(localStorage.getItem('groupChats') || '[]');
+            groupChats.push(newGroup);
+            localStorage.setItem('groupChats', JSON.stringify(groupChats));
+            
+            hideNewChatPanel();
+            loadGroupChats();
+            showNotification('Group created successfully!', 'success');
+        }
+        
+        // Create new announcement
+        function createAnnouncement() {
+            const title = document.getElementById('announcementTitle')?.value?.trim();
+            const content = document.getElementById('announcementContent')?.value?.trim();
+            const priority = document.getElementById('announcementPriority')?.value || 'medium';
+            
+            if (!title || !content) {
+                alert('Please enter a title and content');
+                return;
+            }
+            
+            // Get selected recipients
+            const checkboxes = document.querySelectorAll('input[name="announcementRecipients"]:checked');
+            const recipients = Array.from(checkboxes).map(cb => cb.value);
+            
+            if (recipients.length === 0) {
+                alert('Please select at least one recipient');
+                return;
+            }
+            
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            
+            const newAnnouncement = {
+                id: 'ann-' + Date.now(),
+                title: title,
+                content: content,
+                priority: priority,
+                author: currentUser.name || currentUser.username || 'Admin',
+                recipients: recipients,
+                createdAt: new Date().toISOString(),
+                replies: []
+            };
+            
+            const announcements = JSON.parse(localStorage.getItem('announcements') || '[]');
+            announcements.unshift(newAnnouncement); // Add to beginning
+            localStorage.setItem('announcements', JSON.stringify(announcements));
+            
+            hideNewChatPanel();
+            loadAnnouncements();
+            showNotification(`Announcement posted to ${recipients.length} employee${recipients.length !== 1 ? 's' : ''}!`, 'success');
+        }
+        
+        async function updateOnlineStatus(isOnline) {
+            try {
+                const userId = await getCurrentUserId();
+                if (!userId) return;
+                
+                await fetch('/api/chat?action=status', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, isOnline })
+                });
+            } catch (error) {
+                console.error('Error updating online status:', error);
+            }
+        }
+        
+        // Cache for users loaded from API for chat - use window to make globally accessible
+        window.chatUserIdCache = null;
+        window.currentDbUserId = null; // Store the database user ID
+        
+        async function getCurrentUserId() {
+            // Return cached ID if we have it
+            if (window.currentDbUserId) {
+                return window.currentDbUserId;
+            }
+            
+            // Get logged-in user from localStorage
+            const storedUser = localStorage.getItem('currentUser');
+            if (!storedUser) {
+                console.log('Γ¥î No current user in localStorage');
+                return null;
+            }
+            
+            try {
+                const currentUserData = JSON.parse(storedUser);
+                console.log('≡ƒæñ Current user data:', currentUserData);
+                
+                // Check if user has a stored database ID
+                if (currentUserData.dbId) {
+                    window.currentDbUserId = currentUserData.dbId;
+                    console.log('Γ£à Using stored database ID:', window.currentDbUserId);
+                    return window.currentDbUserId;
+                }
+                
+                // Fetch users from API to get the ID
+                if (!window.chatUserIdCache) {
+                    const response = await fetch('/api/users');
+                    if (response.ok) {
+                        window.chatUserIdCache = await response.json();
+                        console.log('≡ƒôÑ Loaded users from API:', window.chatUserIdCache.length, 'users');
+                    }
+                }
+                
+                if (window.chatUserIdCache && window.chatUserIdCache.length > 0) {
+                    // Find matching user by name or username (case-insensitive)
+                    const loggedInUser = window.chatUserIdCache.find(u => {
+                        const fnMatch = u.FirstName?.toLowerCase() === currentUserData.firstName?.toLowerCase();
+                        const lnMatch = u.LastName?.toLowerCase() === currentUserData.lastName?.toLowerCase();
+                        const unMatch = u.Username?.toLowerCase() === currentUserData.username?.toLowerCase();
+                        const nameMatch = `${u.FirstName} ${u.LastName}`.toLowerCase() === currentUserData.name?.toLowerCase();
+                        return (fnMatch && lnMatch) || unMatch || nameMatch;
+                    });
+                    
+                    if (loggedInUser) {
+                        window.currentDbUserId = loggedInUser.Id;
+                        console.log('Γ£à Found user in database with ID:', window.currentDbUserId);
+                        
+                        // Store the database ID for future use
+                        currentUserData.dbId = window.currentDbUserId;
+                        localStorage.setItem('currentUser', JSON.stringify(currentUserData));
+                        
+                        return window.currentDbUserId;
+                    } else {
+                        console.warn('ΓÜá∩╕Å User not found in database. Available users:', window.chatUserIdCache.map(u => `${u.FirstName} ${u.LastName} (${u.Username})`));
+                        return null;
+                    }
+                }
+                
+                console.warn('ΓÜá∩╕Å No users loaded from database');
+                return null;
+                
+            } catch (e) {
+                console.error('Error getting current user ID:', e);
+                return null;
+            }
+        }
+        
+        async function loadConversations() {
+            const container = document.getElementById('conversationsList');
+            if (!container) return;
+            
+            const userId = await getCurrentUserId();
+            console.log('≡ƒôï Loading conversations for user ID:', userId);
+            
+            if (!userId) {
+                container.innerHTML = `
+                    <div style="padding: 1.5rem; text-align: center; color: var(--text-tertiary);">
+                        <i class="fas fa-user-slash" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p style="margin: 0;">User not found in database</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.5rem;">Your account needs to be synced with the database to use chat.</p>
+                    </div>`;
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/chat?action=conversations&userId=${userId}`);
+                console.log('≡ƒôï Conversations API response status:', response.status);
+                if (!response.ok) throw new Error('Failed to load conversations');
+                
+                const conversations = await response.json();
+                console.log('≡ƒôï Loaded conversations:', conversations.length);
+                
+                if (conversations.length === 0) {
+                    container.innerHTML = `
+                        <div style="padding: 2rem; text-align: center; color: var(--text-tertiary);">
+                            <i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                            <p style="margin: 0;">No conversations yet</p>
+                            <p style="font-size: 0.85rem; margin-top: 0.5rem;">Start a new chat to begin messaging</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                container.innerHTML = conversations.map(conv => `
+                    <div onclick="selectConversation(${conv.OtherUserId}, '${(conv.FirstName || '').replace(/'/g, "\\'")}', '${(conv.LastName || '').replace(/'/g, "\\'")}', ${conv.IsOnline ? 'true' : 'false'})" style="padding: 0.75rem; background: transparent; border-radius: 8px; cursor: pointer; margin-bottom: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'" data-userid="${conv.OtherUserId}">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <div style="position: relative;">
+                                <div style="width: 44px; height: 44px; background: var(--accent-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 1rem;">
+                                    ${conv.FirstName?.[0] || ''}${conv.LastName?.[0] || ''}
+                                </div>
+                                <div style="position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; background: ${conv.IsOnline ? '#10b981' : '#6b7280'}; border-radius: 50%; border: 2px solid var(--bg-secondary);"></div>
+                            </div>
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: 600; color: var(--text-primary);">${conv.FirstName} ${conv.LastName}</span>
+                                    ${conv.UnreadCount > 0 ? `<span style="background: var(--accent-primary); color: white; font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 999px; font-weight: 600;">${conv.UnreadCount}</span>` : ''}
+                                </div>
+                                <div style="font-size: 0.8rem; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    ${conv.LastMessage ? (conv.LastMessageSenderId === userId ? 'You: ' : '') + conv.LastMessage.substring(0, 30) + (conv.LastMessage.length > 30 ? '...' : '') : 'No messages yet'}
+                                </div>
+                                <div style="font-size: 0.7rem; color: var(--text-tertiary);">
+                                    ${conv.LastMessageTime ? formatChatTime(conv.LastMessageTime) : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading conversations:', error);
+                container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-tertiary);">Failed to load conversations</div>';
+            }
+        }
+        
+        async function selectConversation(otherUserId, firstName, lastName, isOnline) {
+            console.log('≡ƒô¿ Selecting conversation with user ID:', otherUserId, firstName, lastName);
+            
+            // Reset chat type and set new user
+            window.currentChatType = 'direct';
+            window.currentChatUserId = otherUserId;
+            
+            // Clear messages immediately to prevent showing old messages
+            const messagesArea = document.getElementById('messagesArea');
+            if (messagesArea) {
+                messagesArea.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-tertiary);"><i class="fas fa-spinner fa-spin"></i> Loading messages...</div>';
+            }
+            
+            // Update UI to show chat area - use null checks
+            const chatHeader = document.getElementById('chatAreaHeader');
+            const messageInput = document.getElementById('messageInputArea');
+            
+            if (chatHeader) chatHeader.style.display = 'block';
+            if (messageInput) messageInput.style.display = 'block';
+            hideNewChatPanel();
+            
+            // Update header with passed user info (more reliable than cache lookup)
+            const avatarEl = document.getElementById('chatUserAvatar');
+            const nameEl = document.getElementById('chatUserName');
+            const statusEl = document.getElementById('chatUserStatus');
+            
+            if (firstName || lastName) {
+                if (avatarEl) {
+                    avatarEl.textContent = `${firstName?.[0] || ''}${lastName?.[0] || ''}`;
+                    avatarEl.style.background = 'var(--accent-primary)';
+                }
+                if (nameEl) nameEl.textContent = `${firstName || ''} ${lastName || ''}`.trim();
+                if (statusEl) statusEl.textContent = isOnline ? 'Online' : 'Offline';
+            } else {
+                // Fallback to cache lookup
+                const user = chatUsersCache.find(u => u.Id === otherUserId) || 
+                             window.usersData?.find(u => u.Id === otherUserId);
+                
+                if (user) {
+                    if (avatarEl) {
+                        avatarEl.textContent = `${user.FirstName?.[0] || ''}${user.LastName?.[0] || ''}`;
+                        avatarEl.style.background = 'var(--accent-primary)';
+                    }
+                    if (nameEl) nameEl.textContent = `${user.FirstName} ${user.LastName}`;
+                    if (statusEl) statusEl.textContent = user.IsOnline ? 'Online' : 'Offline';
+                }
+            }
+            
+            // Highlight selected conversation in the list
+            document.querySelectorAll('#conversationsList > div[data-userid]').forEach(el => {
+                if (parseInt(el.dataset.userid) === otherUserId) {
+                    el.style.background = 'var(--bg-tertiary)';
+                } else {
+                    el.style.background = 'transparent';
+                }
+            });
+            
+            // Load messages for this specific user
+            await loadMessages(otherUserId);
+            
+            // Mark messages as read
+            try {
+                const userId = await getCurrentUserId();
+                await fetch('/api/chat?action=markRead', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, otherUserId })
+                });
+            } catch (e) {
+                console.error('Error marking messages as read:', e);
+            }
+            
+            // Refresh conversations to update unread counts
+            loadConversations();
+            updateUnreadBadge();
+        }
+        
+        async function loadMessages(otherUserId) {
+            const container = document.getElementById('messagesArea');
+            if (!container) return;
+            
+            // Verify we're loading for the correct user
+            if (window.currentChatType !== 'direct' || window.currentChatUserId !== otherUserId) {
+                console.log('ΓÜá∩╕Å Chat context changed, skipping message load');
+                return;
+            }
+            
+            const userId = await getCurrentUserId();
+            if (!userId) {
+                container.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-tertiary);">Please log in to view messages</div>';
+                return;
+            }
+            
+            console.log('≡ƒô¼ Loading messages between user', userId, 'and', otherUserId);
+            
+            try {
+                const response = await fetch(`/api/chat?action=messages&userId=${userId}&otherUserId=${otherUserId}`);
+                if (!response.ok) throw new Error('Failed to load messages');
+                
+                // Double-check the context hasn't changed while we were fetching
+                if (window.currentChatType !== 'direct' || window.currentChatUserId !== otherUserId) {
+                    console.log('ΓÜá∩╕Å Chat context changed during fetch, discarding messages');
+                    return;
+                }
+                
+                const messages = await response.json();
+                console.log('≡ƒô¼ Loaded', messages.length, 'messages for user', otherUserId);
+                
+                if (messages.length === 0) {
+                    container.innerHTML = `
+                        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-tertiary);">
+                            <i class="fas fa-comment-dots" style="font-size: 3rem; margin-bottom: 0.5rem; opacity: 0.3;"></i>
+                            <p style="margin: 0;">No messages yet</p>
+                            <p style="font-size: 0.85rem;">Send a message to start the conversation</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Update last message timestamp for polling
+                if (messages.length > 0) {
+                    lastMessageTimestamp = messages[messages.length - 1].SentAt;
+                }
+                
+                container.innerHTML = messages.map(msg => {
+                    const isMe = msg.SenderId === userId;
+                    return `
+                        <div style="display: flex; justify-content: ${isMe ? 'flex-end' : 'flex-start'}; margin-bottom: 0.5rem;">
+                            <div style="max-width: 70%; padding: 0.75rem 1rem; background: ${isMe ? 'var(--accent-primary)' : 'var(--bg-secondary)'}; color: ${isMe ? 'white' : 'var(--text-primary)'}; border-radius: 18px; border-bottom-${isMe ? 'right' : 'left'}-radius: 4px;">
+                                <div style="word-wrap: break-word;">${escapeHtml(msg.Message)}</div>
+                                <div style="font-size: 0.65rem; opacity: 0.7; margin-top: 0.25rem; text-align: ${isMe ? 'right' : 'left'};">
+                                    ${formatChatTime(msg.SentAt)}
+                                    ${isMe && msg.IsRead ? ' <i class="fas fa-check-double"></i>' : isMe ? ' <i class="fas fa-check"></i>' : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                // Scroll to bottom
+                container.scrollTop = container.scrollHeight;
+                
+            } catch (error) {
+                console.error('Error loading messages:', error);
+                container.innerHTML = '<div style="text-align: center; padding: 2rem; color: #ef4444;"><i class="fas fa-exclamation-circle"></i> Failed to load messages</div>';
+            }
+        }
+        
+        async function sendMessage(event) {
+            event.preventDefault();
+            
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            
+            if (!message || !window.currentChatUserId) return;
+            
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            
+            // Handle group messages (localStorage)
+            if (window.currentChatType === 'group') {
+                const groupChats = JSON.parse(localStorage.getItem('groupChats') || '[]');
+                const groupIndex = groupChats.findIndex(g => g.id === window.currentChatUserId);
+                
+                if (groupIndex !== -1) {
+                    if (!groupChats[groupIndex].messages) {
+                        groupChats[groupIndex].messages = [];
+                    }
+                    
+                    groupChats[groupIndex].messages.push({
+                        id: Date.now(),
+                        sender: currentUser.name || currentUser.username || 'You',
+                        senderId: currentUser.username,
+                        content: message,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    localStorage.setItem('groupChats', JSON.stringify(groupChats));
+                    input.value = '';
+                    
+                    // Reload messages
+                    displayMessages(groupChats[groupIndex].messages, true);
+                    showNotification('Message sent!', 'success');
+                }
+                return;
+            }
+            
+            // Handle announcement replies (localStorage)
+            if (window.currentChatType === 'announcement') {
+                const announcements = JSON.parse(localStorage.getItem('announcements') || '[]');
+                const annIndex = announcements.findIndex(a => a.id === window.currentChatUserId);
+                
+                if (annIndex !== -1) {
+                    if (!announcements[annIndex].replies) {
+                        announcements[annIndex].replies = [];
+                    }
+                    
+                    announcements[annIndex].replies.push({
+                        author: currentUser.name || currentUser.username || 'You',
+                        content: message,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    localStorage.setItem('announcements', JSON.stringify(announcements));
+                    input.value = '';
+                    
+                    // Reload announcement
+                    selectAnnouncement(window.currentChatUserId);
+                    showNotification('Reply sent!', 'success');
+                }
+                return;
+            }
+            
+            // Handle direct messages (API)
+            const userId = await getCurrentUserId();
+            if (!userId) return;
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        senderId: userId,
+                        receiverId: window.currentChatUserId,
+                        message: message
+                    })
+                });
+                
+                if (response.ok) {
+                    input.value = '';
+                    await loadMessages(window.currentChatUserId);
+                    loadConversations();
+                } else {
+                    throw new Error('Failed to send message');
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+                showNotification('Failed to send message', 'error');
+            }
+        }
+        
+        function hideNewChatPanel() {
+            const panel = document.getElementById('newChatPanel');
+            if (panel) {
+                panel.style.display = 'none';
+            }
+        }
+        
+        async function loadChatUsers() {
+            const container = document.getElementById('chatUsersList');
+            if (!container) return;
+            
+            container.innerHTML = '<div style="text-align: center; padding: 1rem; color: var(--text-tertiary);"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+            
+            const userId = await getCurrentUserId();
+            console.log('≡ƒæÑ Loading chat users, current user ID:', userId);
+            
+            try {
+                const response = await fetch(`/api/chat?action=users&userId=${userId}`);
+                console.log('≡ƒæÑ Chat users API response status:', response.status);
+                if (!response.ok) throw new Error('Failed to load users');
+                
+                chatUsersCache = await response.json();
+                console.log('≡ƒæÑ Loaded', chatUsersCache.length, 'users from database');
+                
+                if (chatUsersCache.length === 0) {
+                    container.innerHTML = `
+                        <div style="text-align: center; padding: 1.5rem; color: var(--text-tertiary);">
+                            <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                            <p style="margin: 0;">No other users found</p>
+                            <p style="font-size: 0.8rem; margin-top: 0.5rem;">Add team members to start chatting</p>
+                        </div>
+                    `;
+                } else {
+                    renderChatUsersList(chatUsersCache);
+                }
+                
+            } catch (error) {
+                console.error('Error loading users from API:', error);
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 1.5rem; color: var(--text-tertiary);">
+                        <i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ef4444;"></i>
+                        <p style="margin: 0;">Failed to load users</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.5rem;">${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+        
+        // Fallback: Load users from localStorage
+        function loadChatUsersFromLocalStorage() {
+            const container = document.getElementById('chatUsersList');
+            if (!container) return;
+            
+            const storedUsers = localStorage.getItem('users');
+            const usersData = storedUsers ? JSON.parse(storedUsers) : {};
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            
+            // Convert localStorage users to the same format as API users
+            const users = Object.entries(usersData)
+                .filter(([username]) => username !== currentUser.username && username !== 'admin')
+                .map(([username, user]) => ({
+                    Id: user.id || username,
+                    Username: username,
+                    FirstName: user.firstName || username,
+                    LastName: user.lastName || '',
+                    Role: user.role || 'User',
+                    IsOnline: false
+                }));
+            
+            if (users.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 1.5rem; color: var(--text-tertiary);">
+                        <i class="fas fa-users-slash" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                        <p style="margin: 0;">No team members found</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.5rem;">Add users in User Management first</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            chatUsersCache = users;
+            renderChatUsersListLocal(users);
+        }
+        
+        // Render users from localStorage format
+        function renderChatUsersListLocal(users) {
+            const container = document.getElementById('chatUsersList');
+            if (!container) return;
+            
+            container.innerHTML = users.map(user => `
+                <div onclick="startChatWithLocal('${user.Username}', '${user.FirstName}', '${user.LastName}')" style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px; cursor: pointer; margin-bottom: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="position: relative;">
+                            <div style="width: 40px; height: 40px; background: var(--accent-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                                ${user.FirstName?.[0] || ''}${user.LastName?.[0] || ''}
+                            </div>
+                            <div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #6b7280; border-radius: 50%; border: 2px solid var(--bg-secondary);"></div>
+                        </div>
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary);">${user.FirstName} ${user.LastName || ''}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary);">${user.Role || 'Staff'}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Start chat with local user (create if needed in DB)
+        async function startChatWithLocal(username, firstName, lastName) {
+            console.log('≡ƒôº Starting chat with local user:', username, firstName, lastName);
+            hideNewChatPanel();
+            
+            // Try to find user in API cache first
+            let userId = null;
+            if (chatUserIdCache) {
+                const apiUser = chatUserIdCache.find(u => 
+                    u.Username === username || 
+                    (u.FirstName === firstName && u.LastName === lastName)
+                );
+                userId = apiUser?.Id;
+            }
+            
+            if (userId) {
+                selectConversation(userId, firstName, lastName, false);
+            } else {
+                // Show message that user needs to be synced to database
+                showNotification('This user needs to be synced to the database first. Try logging in as this user or sync users.', 'warning');
+            }
+        }
+        
+        function renderChatUsersList(users) {
+            const container = document.getElementById('chatUsersList');
+            if (!container) return;
+            
+            container.innerHTML = users.map(user => `
+                <div onclick="startChatWith(${user.Id})" style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px; cursor: pointer; margin-bottom: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="position: relative;">
+                            <div style="width: 40px; height: 40px; background: var(--accent-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                                ${user.FirstName?.[0] || ''}${user.LastName?.[0] || ''}
+                            </div>
+                            <div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: ${user.IsOnline ? '#10b981' : '#6b7280'}; border-radius: 50%; border: 2px solid var(--bg-secondary);"></div>
+                        </div>
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary);">${user.FirstName} ${user.LastName}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-tertiary);">${user.Role || 'Staff'}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function filterChatUsers() {
+            const search = document.getElementById('userSearchInput').value.toLowerCase();
+            const filtered = chatUsersCache.filter(u => 
+                `${u.FirstName} ${u.LastName}`.toLowerCase().includes(search)
+            );
+            renderChatUsersList(filtered);
+        }
+        
+        function startChatWith(userId) {
+            console.log('≡ƒÆ¼ startChatWith called with userId:', userId);
+            
+            // Hide the new chat panel first
+            hideNewChatPanel();
+            
+            // Set to direct chat mode
+            currentChatTab = 'direct';
+            currentChatType = 'direct';
+            
+            // Find user info from cache
+            const user = chatUsersCache.find(u => u.Id === userId);
+            console.log('≡ƒÆ¼ Found user in cache:', user);
+            
+            if (user) {
+                selectConversation(userId, user.FirstName, user.LastName, user.IsOnline);
+            } else {
+                selectConversation(userId, null, null, false);
+            }
+        }
+        
+        function startChatPolling() {
+            // Poll for new messages every 5 seconds
+            window.chatPollingInterval = setInterval(async () => {
+                // Only poll when on direct messages tab AND viewing a specific conversation
+                if (window.currentChatTab === 'direct' && window.currentChatType === 'direct' && window.currentChatUserId) {
+                    await loadMessages(window.currentChatUserId);
+                    await loadConversations();
+                }
+                // Always update unread badge
+                await updateUnreadBadge();
+            }, 5000);
+        }
+        
+        function stopChatPolling() {
+            if (window.chatPollingInterval) {
+                clearInterval(window.chatPollingInterval);
+                window.chatPollingInterval = null;
+            }
+        }
+        
+        async function updateUnreadBadge() {
+            try {
+                const userId = await getCurrentUserId();
+                if (!userId) return;
+                
+                const response = await fetch(`/api/chat?action=unreadCount&userId=${userId}`);
+                if (!response.ok) return;
+                
+                const data = await response.json();
+                const count = data.UnreadCount || 0;
+                
+                // Update badge on all chat buttons
+                const chatBadges = document.querySelectorAll('.chat-unread-badge');
+                chatBadges.forEach(badge => {
+                    if (count > 0) {
+                        badge.textContent = count > 99 ? '99+' : count;
+                        badge.style.display = 'flex';
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                });
+            } catch (error) {
+                console.error('Error updating unread badge:', error);
+            }
+        }
+        
+        function formatChatTime(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            const now = new Date();
+            const diff = now - date;
+            
+            // Less than 1 minute
+            if (diff < 60000) return 'Just now';
+            
+            // Less than 1 hour
+            if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+            
+            // Less than 24 hours
+            if (diff < 86400000) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            // Less than 7 days
+            if (diff < 604800000) {
+                const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                return days[date.getDay()];
+            }
+            
+            // Otherwise show date
+            return date.toLocaleDateString();
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Start background badge updates when logged in
+        function initChatNotifications() {
+            setInterval(updateUnreadBadge, 30000); // Update every 30 seconds
+            updateUnreadBadge(); // Initial check
+        }
+        
+        // Update online status when page closes
+        window.addEventListener('beforeunload', () => {
+            updateOnlineStatus(false);
+        });
+        
+        // ============================================
+        // END TEAM CHAT FUNCTIONS
