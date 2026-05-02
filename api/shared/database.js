@@ -106,6 +106,12 @@ function bindInput(request, key, value) {
         request.input(key, null);
         return;
     }
+    // For strings longer than 4000 chars, explicitly use NVarChar(MAX) to
+    // prevent mssql from defaulting to nvarchar(4000) and silently truncating.
+    if (typeof value === 'string' && value.length > 4000) {
+        request.input(key, sql.NVarChar(sql.MAX), value);
+        return;
+    }
     request.input(key, value);
 }
 
