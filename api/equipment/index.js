@@ -67,7 +67,7 @@ function buildEquipmentColumnDefinitions(request, columns, body) {
     addColumnValue(request, columns, definitions, 'ServiceVendor', 'serviceVendor', sql.NVarChar, getBodyValue(body, 'serviceVendor', 'ServiceVendor') || null);
     addColumnValue(request, columns, definitions, 'Notes', 'notes', sql.NVarChar, getBodyValue(body, 'notes', 'Notes') || null);
     addColumnValue(request, columns, definitions, 'Warnings', 'warnings', sql.NVarChar, getBodyValue(body, 'warnings', 'Warnings') || null);
-    addColumnValue(request, columns, definitions, 'ImageUrl', 'imageUrl', sql.NVarChar(sql.MAX), getBodyValue(body, 'imageUrl', 'ImageUrl') || null);
+    addColumnValue(request, columns, definitions, 'ImageUrl', 'imageUrl', sql.NVarChar(sql.MAX), getBodyValue(body, 'ImageUrl', 'imageUrl') || null);
     addColumnValue(request, columns, definitions, 'DocumentUrl', 'documentUrl', sql.NVarChar(sql.MAX), getBodyValue(body, 'documentUrl', 'DocumentUrl') || null);
     addColumnValue(request, columns, definitions, 'IsActive', 'isActive', sql.Bit, toBitOrNull(getBodyValue(body, 'isActive', 'IsActive')));
     return definitions;
