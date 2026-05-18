@@ -109,6 +109,7 @@ module.exports = async function (context, req) {
             addCol('Priority',       sql.NVarChar(50),   String(body.Priority ?? body.priority ?? 'Medium').trim());
             addCol('EventDate',      sql.Date,           body.EventDate ?? body.eventDate ?? null);
             addCol('EventTime',      sql.NVarChar(20),   String(body.EventTime ?? body.eventTime ?? '').trim() || null);
+            addCol('Frequency',      sql.NVarChar(50),   String(body.Frequency ?? body.frequency ?? 'One-Time').trim());
             addCol('Location',       sql.NVarChar(255),  String(body.Location ?? body.location ?? '').trim() || null);
             addCol('AssignedMembers',sql.NVarChar(sql.MAX), body.AssignedMembers != null ? JSON.stringify(body.AssignedMembers) : null);
             addCol('Description',    sql.NVarChar(sql.MAX), String(body.Description ?? body.description ?? '').trim() || null);
@@ -152,6 +153,7 @@ module.exports = async function (context, req) {
             if (body.Priority !== undefined)        addSet('Priority',       sql.NVarChar(50),       String(body.Priority ?? 'Medium').trim());
             if (body.EventDate !== undefined)       addSet('EventDate',      sql.Date,               body.EventDate ?? null);
             if (body.EventTime !== undefined)       addSet('EventTime',      sql.NVarChar(20),       String(body.EventTime ?? '').trim() || null);
+            if (body.Frequency !== undefined)       addSet('Frequency',      sql.NVarChar(50),       String(body.Frequency ?? 'One-Time').trim());
             if (body.Location !== undefined)        addSet('Location',       sql.NVarChar(255),      String(body.Location ?? '').trim() || null);
             if (body.AssignedMembers !== undefined) addSet('AssignedMembers',sql.NVarChar(sql.MAX),  body.AssignedMembers != null ? JSON.stringify(body.AssignedMembers) : null);
             if (body.Description !== undefined)     addSet('Description',    sql.NVarChar(sql.MAX),  String(body.Description ?? '').trim() || null);
