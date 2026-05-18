@@ -115,6 +115,7 @@ module.exports = async function (context, req) {
             addCol('Description',    sql.NVarChar(sql.MAX), String(body.Description ?? body.description ?? '').trim() || null);
             addCol('Notes',          sql.NVarChar(sql.MAX), String(body.Notes ?? body.notes ?? '').trim() || null);
             addCol('Attachments',    sql.NVarChar(sql.MAX), body.Attachments != null ? JSON.stringify(body.Attachments) : null);
+            addCol('DocumentUrl',    sql.NVarChar(sql.MAX), String(body.DocumentUrl ?? body.documentUrl ?? '').trim() || null);
             addCol('CompletedDate',  sql.Date,           body.CompletedDate ?? body.completedDate ?? null);
             addCol('IsActive',       sql.Bit,            toBitOrNull(body.IsActive ?? body.isActive) ?? 1);
             addCol('CreatedDate',    sql.DateTime,       new Date());
@@ -159,6 +160,7 @@ module.exports = async function (context, req) {
             if (body.Description !== undefined)     addSet('Description',    sql.NVarChar(sql.MAX),  String(body.Description ?? '').trim() || null);
             if (body.Notes !== undefined)           addSet('Notes',          sql.NVarChar(sql.MAX),  String(body.Notes ?? '').trim() || null);
             if (body.Attachments !== undefined)     addSet('Attachments',    sql.NVarChar(sql.MAX),  body.Attachments != null ? JSON.stringify(body.Attachments) : null);
+            if (body.DocumentUrl !== undefined)     addSet('DocumentUrl',    sql.NVarChar(sql.MAX),  String(body.DocumentUrl ?? '').trim() || null);
             if (body.CompletedDate !== undefined)   addSet('CompletedDate',  sql.Date,               body.CompletedDate ?? null);
             if (body.IsActive !== undefined)        addSet('IsActive',       sql.Bit,                toBitOrNull(body.IsActive));
 

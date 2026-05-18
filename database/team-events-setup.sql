@@ -23,6 +23,7 @@ BEGIN
         Description      NVARCHAR(MAX) NULL,
         Notes            NVARCHAR(MAX) NULL,
         Attachments      NVARCHAR(MAX) NULL,  -- JSON array of attachment objects
+        DocumentUrl      NVARCHAR(MAX) NULL,
         CompletedDate    DATE          NULL,
         IsActive         BIT           NOT NULL DEFAULT 1,
         CreatedDate      DATETIME      NOT NULL DEFAULT GETDATE(),
@@ -55,6 +56,9 @@ BEGIN
 
     IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='TeamEvents' AND COLUMN_NAME='IsActive')
         ALTER TABLE TeamEvents ADD IsActive BIT NOT NULL DEFAULT 1;
+
+    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='TeamEvents' AND COLUMN_NAME='DocumentUrl')
+        ALTER TABLE TeamEvents ADD DocumentUrl NVARCHAR(MAX) NULL;
 
     PRINT 'TeamEvents column check complete.';
 END
