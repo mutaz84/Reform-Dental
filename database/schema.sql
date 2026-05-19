@@ -167,7 +167,7 @@ CREATE TABLE Tasks (
     Priority NVARCHAR(20) NOT NULL DEFAULT 'Medium', -- 'Low', 'Medium', 'High', 'Critical'
     Status NVARCHAR(50) NOT NULL DEFAULT 'Pending', -- 'Pending', 'In Progress', 'Completed', 'Overdue'
     DueDate DATE,
-    DueTime TIME,
+    DueTime NVARCHAR(10),
     AssignedToId INT FOREIGN KEY REFERENCES Users(Id),
     AssignedById INT FOREIGN KEY REFERENCES Users(Id),
     ClinicId INT FOREIGN KEY REFERENCES Clinics(Id),
@@ -177,6 +177,18 @@ CREATE TABLE Tasks (
     Tags NVARCHAR(MAX), -- JSON array of tags
     IsRecurring BIT DEFAULT 0,
     RecurrenceRule NVARCHAR(255),
+    TaskType NVARCHAR(50) DEFAULT 'Regular',
+    IsPaid BIT DEFAULT 0,
+    PayAmount DECIMAL(10,2),
+    Location NVARCHAR(100),
+    TimeEstimate NVARCHAR(50),
+    Assignee NVARCHAR(100),
+    ClaimedBy NVARCHAR(100),
+    ClaimedAt DATETIME,
+    ComplianceFlag BIT DEFAULT 0,
+    LinkedComplianceId INT,
+    LinkedComplianceTitle NVARCHAR(255),
+    LinkedComplianceStatus NVARCHAR(50),
     CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
     ModifiedDate DATETIME2 DEFAULT GETUTCDATE()
 );

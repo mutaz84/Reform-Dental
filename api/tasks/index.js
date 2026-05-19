@@ -48,6 +48,76 @@ async function resolveUserId(pool, key) {
     return result.recordset[0]?.Id || null;
 }
 
+async function ensureTasksTable(pool) {
+    await pool.request().query(`
+        IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'Tasks') AND type = 'U')
+        BEGIN
+            CREATE TABLE Tasks (
+                Id INT IDENTITY(1,1) PRIMARY KEY,
+                Title NVARCHAR(255) NOT NULL,
+                Description NVARCHAR(MAX),
+                Category NVARCHAR(50),
+                Priority NVARCHAR(20) NOT NULL DEFAULT 'Medium',
+                Status NVARCHAR(50) NOT NULL DEFAULT 'Pending',
+                DueDate DATE,
+                DueTime NVARCHAR(10),
+                AssignedToId INT,
+                AssignedById INT,
+                ClinicId INT,
+                CompletedDate DATETIME2,
+                CompletedById INT,
+                Notes NVARCHAR(MAX),
+                Tags NVARCHAR(MAX),
+                IsRecurring BIT DEFAULT 0,
+                RecurrenceRule NVARCHAR(255),
+                TaskType NVARCHAR(50) DEFAULT 'Regular',
+                IsPaid BIT DEFAULT 0,
+                PayAmount DECIMAL(10,2),
+                Location NVARCHAR(100),
+                TimeEstimate NVARCHAR(50),
+                Assignee NVARCHAR(100),
+                ClaimedBy NVARCHAR(100),
+                ClaimedAt DATETIME,
+                ComplianceFlag BIT DEFAULT 0,
+                LinkedComplianceId INT,
+                LinkedComplianceTitle NVARCHAR(255),
+                LinkedComplianceStatus NVARCHAR(50),
+                CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
+                ModifiedDate DATETIME2 DEFAULT GETUTCDATE()
+            );
+        END
+
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'TaskType')
+            ALTER TABLE Tasks ADD TaskType NVARCHAR(50) DEFAULT 'Regular';
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'IsPaid')
+            ALTER TABLE Tasks ADD IsPaid BIT DEFAULT 0;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'PayAmount')
+            ALTER TABLE Tasks ADD PayAmount DECIMAL(10,2) NULL;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'Location')
+            ALTER TABLE Tasks ADD Location NVARCHAR(100) NULL;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'TimeEstimate')
+            ALTER TABLE Tasks ADD TimeEstimate NVARCHAR(50) NULL;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'Assignee')
+            ALTER TABLE Tasks ADD Assignee NVARCHAR(100) NULL;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'ClaimedBy')
+            ALTER TABLE Tasks ADD ClaimedBy NVARCHAR(100) NULL;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'ClaimedAt')
+            ALTER TABLE Tasks ADD ClaimedAt DATETIME NULL;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'ComplianceFlag')
+            ALTER TABLE Tasks ADD ComplianceFlag BIT DEFAULT 0;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'LinkedComplianceId')
+            ALTER TABLE Tasks ADD LinkedComplianceId INT NULL;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'LinkedComplianceTitle')
+            ALTER TABLE Tasks ADD LinkedComplianceTitle NVARCHAR(255) NULL;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'LinkedComplianceStatus')
+            ALTER TABLE Tasks ADD LinkedComplianceStatus NVARCHAR(50) NULL;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'DueTime')
+            ALTER TABLE Tasks ADD DueTime NVARCHAR(10) NULL;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'ModifiedDate')
+            ALTER TABLE Tasks ADD ModifiedDate DATETIME2 DEFAULT GETUTCDATE();
+    `);
+}
+
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
@@ -63,6 +133,7 @@ module.exports = async function (context, req) {
 
     try {
         const pool = await getPool();
+        await ensureTasksTable(pool);
         const id = req.params.id;
         const taskColumns = await getTableColumns(pool, 'Tasks');
         const hasModifiedDate = hasColumn(taskColumns, 'ModifiedDate');
