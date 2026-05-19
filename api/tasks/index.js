@@ -133,7 +133,11 @@ module.exports = async function (context, req) {
 
     try {
         const pool = await getPool();
-        await ensureTasksTable(pool);
+        try {
+            await ensureTasksTable(pool);
+        } catch (schemaErr) {
+            context.log.warn('ensureTasksTable warning (non-fatal):', schemaErr.message);
+        }
         const id = req.params.id;
         const taskColumns = await getTableColumns(pool, 'Tasks');
         const hasModifiedDate = hasColumn(taskColumns, 'ModifiedDate');
