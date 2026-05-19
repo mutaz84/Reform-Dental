@@ -38,6 +38,35 @@ async function getTableColumns(pool, tableName) {
     return result.recordset.map(r => r.COLUMN_NAME.toLowerCase());
 }
 
+async function ensureTeamEventsTable(pool) {
+    await pool.request().query(`
+        IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'TeamEvents') AND type = 'U')
+        BEGIN
+            CREATE TABLE TeamEvents (
+                Id              INT IDENTITY(1,1) PRIMARY KEY,
+                TeamId          INT,
+                Title           NVARCHAR(255),
+                EventType       NVARCHAR(100) DEFAULT 'Meeting',
+                Status          NVARCHAR(50)  DEFAULT 'Scheduled',
+                Priority        NVARCHAR(50)  DEFAULT 'Medium',
+                EventDate       DATE,
+                EventTime       NVARCHAR(20),
+                Frequency       NVARCHAR(50)  DEFAULT 'One-Time',
+                Location        NVARCHAR(255),
+                AssignedMembers NVARCHAR(MAX),
+                Description     NVARCHAR(MAX),
+                Notes           NVARCHAR(MAX),
+                Attachments     NVARCHAR(MAX),
+                DocumentUrl     NVARCHAR(MAX),
+                CompletedDate   DATE,
+                IsActive        BIT DEFAULT 1,
+                CreatedDate     DATETIME2 DEFAULT GETUTCDATE(),
+                ModifiedDate    DATETIME2
+            )
+        END
+    `);
+}
+
 module.exports = async function (context, req) {
     if (req.method === 'OPTIONS') {
         context.res = { status: 204, headers: CORS_HEADERS, body: '' };
@@ -47,6 +76,7 @@ module.exports = async function (context, req) {
     let pool;
     try {
         pool = await getPool();
+        await ensureTeamEventsTable(pool);
     } catch (err) {
         context.log.error('DB connect error:', err.message);
         return jsonResponse(context, 503, { error: 'Database unavailable', detail: err.message });

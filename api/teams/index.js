@@ -38,6 +38,34 @@ function addColumnValue(request, columns, definitions, columnName, paramName, ty
     definitions.push({ columnName, paramName });
 }
 
+async function ensureTeamsTable(pool) {
+    await pool.request().query(`
+        IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'Teams') AND type = 'U')
+        BEGIN
+            CREATE TABLE Teams (
+                Id            INT IDENTITY(1,1) PRIMARY KEY,
+                TeamName      NVARCHAR(200) NOT NULL,
+                Category      NVARCHAR(100),
+                Description   NVARCHAR(1000),
+                TeamLeadId    NVARCHAR(100),
+                TeamLeadName  NVARCHAR(200),
+                Members       NVARCHAR(MAX),
+                OfficeId      NVARCHAR(50),
+                Schedule      NVARCHAR(200),
+                ImageData     NVARCHAR(MAX),
+                DocumentData  NVARCHAR(MAX),
+                DocumentName  NVARCHAR(500),
+                Notes         NVARCHAR(MAX),
+                Warnings      NVARCHAR(MAX),
+                OperationsLog NVARCHAR(MAX),
+                IsActive      BIT DEFAULT 1,
+                CreatedDate   DATETIME2 DEFAULT GETUTCDATE(),
+                ModifiedDate  DATETIME2
+            )
+        END
+    `);
+}
+
 function buildTeamColumnDefinitions(request, columns, body) {
     const definitions = [];
     addColumnValue(request, columns, definitions, 'TeamName',       'teamName',       sql.NVarChar(200),     getBodyValue(body, 'teamName', 'TeamName', 'name', 'Name') || null);
@@ -77,11 +105,8 @@ module.exports = async function (context, req) {
 
     try {
         const pool = await getPool();
+        await ensureTeamsTable(pool);
         const teamColumns = await getTableColumns(pool, 'Teams');
-        if (teamColumns.size === 0) {
-            context.res = { status: 500, headers, body: { error: 'Teams table not found. Please run the database setup script.' } };
-            return;
-        }
 
         const hasIsActive = hasColumn(teamColumns, 'IsActive');
         const orderBy = hasColumn(teamColumns, 'TeamName') ? 'ORDER BY TeamName' : 'ORDER BY Id';
