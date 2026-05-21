@@ -104,18 +104,17 @@ module.exports = async function (context, req) {
 
         if (req.method === 'GET') {
             if (id) {
-                const where = ['Id = @id'];
-                if (hasIsActive) {
-                    where.push('IsActive = 1');
-                }
+                // Return single row regardless of IsActive so retired/out-of-service items
+                // remain accessible from their detail/log views.
                 const result = await pool.request()
                     .input('id', sql.Int, id)
-                    .query(`SELECT * FROM Equipment WHERE ${where.join(' AND ')}`);
+                    .query(`SELECT * FROM Equipment WHERE Id = @id`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                const whereClause = hasIsActive ? 'WHERE IsActive = 1' : '';
+                // Return all rows; the client filters by IsActive / Status as needed.
+                // Filtering server-side caused retired items to vanish from local cache on next sync.
                 const result = await pool.request()
-                    .query(`SELECT * FROM Equipment ${whereClause} ${orderBy}`);
+                    .query(`SELECT * FROM Equipment ${orderBy}`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {

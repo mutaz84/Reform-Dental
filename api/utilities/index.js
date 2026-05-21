@@ -57,6 +57,7 @@ function buildUtilityColumnDefinitions(request, columns, body) {
     addColumnValue(request, columns, definitions, 'Warnings',       'warnings',       sql.NVarChar(sql.MAX), getBodyValue(body, 'warnings', 'Warnings') || null);
     addColumnValue(request, columns, definitions, 'ImageUrl',       'imageUrl',       sql.NVarChar(sql.MAX), getBodyValue(body, 'imageUrl', 'ImageUrl') || null);
     addColumnValue(request, columns, definitions, 'DocumentUrl',    'documentUrl',    sql.NVarChar(sql.MAX), getBodyValue(body, 'documentUrl', 'DocumentUrl') || null);
+    addColumnValue(request, columns, definitions, 'Status',         'status',         sql.NVarChar(50),      getBodyValue(body, 'status', 'Status') || null);
     addColumnValue(request, columns, definitions, 'IsActive',       'isActive',       sql.Bit,               toBitOrNull(getBodyValue(body, 'isActive', 'IsActive')));
     return definitions;
 }
@@ -92,14 +93,17 @@ module.exports = async function (context, req) {
 
         if (req.method === 'GET') {
             if (id) {
+                // Return single row regardless of IsActive.
                 const result = await pool.request()
                     .input('id', sql.Int, id)
                     .query(`SELECT * FROM Utilities WHERE Id = @id`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                const whereClause = hasIsActive ? 'WHERE IsActive = 1' : '';
+                // Return all rows (active + inactive); client filters as needed.
+                // The previous IsActive=1 filter caused retired/out-of-service utilities
+                // to disappear from local cache on next sync.
                 const result = await pool.request()
-                    .query(`SELECT * FROM Utilities ${whereClause} ${orderBy}`);
+                    .query(`SELECT * FROM Utilities ${orderBy}`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {
