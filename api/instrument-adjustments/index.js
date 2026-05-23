@@ -29,9 +29,37 @@ async function ensureTable(pool) {
             )
         END
     `);
+    // Add DocumentIds column (JSON array of attached file keys) if missing.
+    try {
+        await pool.request().query(`
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'DocumentIds' AND Object_ID = Object_ID(N'InstrumentAdjustments'))
+            BEGIN ALTER TABLE InstrumentAdjustments ADD DocumentIds NVARCHAR(MAX) NULL; END
+        `);
+    } catch (_) {}
+    // Add VendorName/PoNumber/UnitCost for inline edits of PO-style adjustments.
+    try {
+        await pool.request().query(`
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'VendorName' AND Object_ID = Object_ID(N'InstrumentAdjustments'))
+            BEGIN ALTER TABLE InstrumentAdjustments ADD VendorName NVARCHAR(255) NULL; END
+        `);
+        await pool.request().query(`
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'PoNumber' AND Object_ID = Object_ID(N'InstrumentAdjustments'))
+            BEGIN ALTER TABLE InstrumentAdjustments ADD PoNumber NVARCHAR(100) NULL; END
+        `);
+        await pool.request().query(`
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'UnitCost' AND Object_ID = Object_ID(N'InstrumentAdjustments'))
+            BEGIN ALTER TABLE InstrumentAdjustments ADD UnitCost DECIMAL(18,2) NULL; END
+        `);
+    } catch (_) {}
 }
 
 function mapRow(r) {
+    let documentIds = [];
+    if (r.DocumentIds) {
+        try { const parsed = JSON.parse(r.DocumentIds); if (Array.isArray(parsed)) documentIds = parsed.map(String); }
+        catch (_) {}
+    }
+    if (!documentIds.length && r.DocumentId) documentIds = [String(r.DocumentId)];
     return {
         timestamp: Number(r.Timestamp) || r.Timestamp,
         instrumentID: r.InstrumentId,
@@ -42,9 +70,13 @@ function mapRow(r) {
         newQty: r.NewQty,
         change: r.ChangeQty,
         purchaseOrderId: r.PurchaseOrderId,
+        vendorName: r.VendorName || null,
+        poNumber: r.PoNumber || null,
+        unitCost: r.UnitCost != null ? Number(r.UnitCost) : null,
         reason: r.Reason,
         reasonNotes: r.ReasonNotes,
         documentId: r.DocumentId,
+        documentIds,
         createdAt: r.CreatedAt
     };
 }
@@ -90,6 +122,16 @@ module.exports = async function (context, req) {
             const previousQty = body.previousQty != null ? (parseInt(String(body.previousQty), 10) || 0) : null;
             const newQty = body.newQty != null ? (parseInt(String(body.newQty), 10) || 0) : null;
             const changeQty = body.change != null ? (parseInt(String(body.change), 10) || 0) : null;
+            let documentIdsJson = null;
+            if (Array.isArray(body.documentIds)) {
+                const arr = body.documentIds.filter(v => v != null && String(v).trim()).map(v => String(v).slice(0, 255));
+                documentIdsJson = arr.length ? JSON.stringify(arr) : null;
+            }
+            const firstDocId = documentIdsJson
+                ? (JSON.parse(documentIdsJson)[0] || null)
+                : toSafeString(body.documentId || (body.document && body.document.key), 255);
+            const unitCostRaw = body.unitCost != null ? Number(body.unitCost) : (body.purchaseOrder && body.purchaseOrder.unitCost != null ? Number(body.purchaseOrder.unitCost) : null);
+            const unitCost = (unitCostRaw != null && Number.isFinite(unitCostRaw)) ? unitCostRaw : null;
 
             await pool.request()
                 .input('ts', sql.NVarChar(50), ts)
@@ -103,17 +145,23 @@ module.exports = async function (context, req) {
                 .input('purchaseOrderId', sql.NVarChar(100), toSafeString(body.purchaseOrderId || (body.purchaseOrder && body.purchaseOrder.id), 100))
                 .input('reason', sql.NVarChar(255), toSafeString(body.reason, 255))
                 .input('reasonNotes', sql.NVarChar(sql.MAX), body.reasonNotes || null)
-                .input('documentId', sql.NVarChar(255), toSafeString(body.documentId || (body.document && body.document.key), 255))
+                .input('documentId', sql.NVarChar(255), firstDocId)
+                .input('documentIds', sql.NVarChar(sql.MAX), documentIdsJson)
+                .input('vendorName', sql.NVarChar(255), toSafeString(body.vendorName || (body.purchaseOrder && body.purchaseOrder.vendorName), 255))
+                .input('poNumber', sql.NVarChar(100), toSafeString(body.poNumber || (body.purchaseOrder && body.purchaseOrder.poNumber), 100))
+                .input('unitCost', sql.Decimal(18, 2), unitCost)
                 .query(`
                     MERGE InstrumentAdjustments WITH (HOLDLOCK) AS target
                     USING (SELECT @ts AS Timestamp) AS source ON target.Timestamp = source.Timestamp
                     WHEN MATCHED THEN UPDATE SET
                         InstrumentId=@instrumentId, ApiInstrumentId=@apiId, InstrumentName=@instrumentName,
                         UserName=@userName, PreviousQty=@previousQty, NewQty=@newQty, ChangeQty=@changeQty,
-                        PurchaseOrderId=@purchaseOrderId, Reason=@reason, ReasonNotes=@reasonNotes, DocumentId=@documentId
+                        PurchaseOrderId=@purchaseOrderId, Reason=@reason, ReasonNotes=@reasonNotes,
+                        DocumentId=@documentId, DocumentIds=@documentIds,
+                        VendorName=@vendorName, PoNumber=@poNumber, UnitCost=@unitCost
                     WHEN NOT MATCHED THEN INSERT
-                        (Timestamp, InstrumentId, ApiInstrumentId, InstrumentName, UserName, PreviousQty, NewQty, ChangeQty, PurchaseOrderId, Reason, ReasonNotes, DocumentId)
-                        VALUES (@ts, @instrumentId, @apiId, @instrumentName, @userName, @previousQty, @newQty, @changeQty, @purchaseOrderId, @reason, @reasonNotes, @documentId);
+                        (Timestamp, InstrumentId, ApiInstrumentId, InstrumentName, UserName, PreviousQty, NewQty, ChangeQty, PurchaseOrderId, Reason, ReasonNotes, DocumentId, DocumentIds, VendorName, PoNumber, UnitCost)
+                        VALUES (@ts, @instrumentId, @apiId, @instrumentName, @userName, @previousQty, @newQty, @changeQty, @purchaseOrderId, @reason, @reasonNotes, @documentId, @documentIds, @vendorName, @poNumber, @unitCost);
                 `);
 
             context.res = { status: 200, headers, body: { success: true, timestamp: ts } };
