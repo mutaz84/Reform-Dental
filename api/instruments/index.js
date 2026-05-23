@@ -34,6 +34,13 @@ module.exports = async function (context, req) {
 
     try {
         const pool = await sql.connect(getConfig());
+        // Ensure optional Links column exists for arbitrary external URLs per instrument.
+        try {
+            await pool.request().query(`
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'Links' AND Object_ID = Object_ID(N'Instruments'))
+                BEGIN ALTER TABLE Instruments ADD Links NVARCHAR(MAX) NULL; END
+            `);
+        } catch (_) {}
         const id = req.params.id;
 
         if (req.method === 'GET') {
@@ -63,8 +70,9 @@ module.exports = async function (context, req) {
                 .input('warnings', sql.NVarChar(sql.MAX), body.warnings || null)
                 .input('imageUrl', sql.NVarChar(sql.MAX), body.imageUrl || null)
                 .input('documentUrl', sql.NVarChar(sql.MAX), body.documentUrl || null)
-                .query(`INSERT INTO Instruments (Name, SkuNumber, Category, Description, Quantity, Status, ClinicId, SterilizationRequired, Icon, Notes, Warnings, ImageUrl, DocumentUrl) 
-                        OUTPUT INSERTED.Id VALUES (@name, @skuNumber, @category, @description, @quantity, @status, @clinicId, @sterilizationRequired, @icon, @notes, @warnings, @imageUrl, @documentUrl)`);
+                .input('links', sql.NVarChar(sql.MAX), body.links || null)
+                .query(`INSERT INTO Instruments (Name, SkuNumber, Category, Description, Quantity, Status, ClinicId, SterilizationRequired, Icon, Notes, Warnings, ImageUrl, DocumentUrl, Links) 
+                        OUTPUT INSERTED.Id VALUES (@name, @skuNumber, @category, @description, @quantity, @status, @clinicId, @sterilizationRequired, @icon, @notes, @warnings, @imageUrl, @documentUrl, @links)`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
@@ -83,7 +91,8 @@ module.exports = async function (context, req) {
                 .input('warnings', sql.NVarChar(sql.MAX), body.warnings)
                 .input('imageUrl', sql.NVarChar(sql.MAX), body.imageUrl)
                 .input('documentUrl', sql.NVarChar(sql.MAX), body.documentUrl)
-                .query(`UPDATE Instruments SET Name=@name, SkuNumber=@skuNumber, Category=@category, Description=@description, Quantity=@quantity, Status=@status, ClinicId=@clinicId, SterilizationRequired=@sterilizationRequired, Icon=@icon, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+                .input('links', sql.NVarChar(sql.MAX), body.links == null ? null : body.links)
+                .query(`UPDATE Instruments SET Name=@name, SkuNumber=@skuNumber, Category=@category, Description=@description, Quantity=@quantity, Status=@status, ClinicId=@clinicId, SterilizationRequired=@sterilizationRequired, Icon=@icon, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, Links=@links, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Instrument updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()
