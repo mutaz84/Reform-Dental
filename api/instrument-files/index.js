@@ -32,7 +32,7 @@ module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type'
     };
 
@@ -129,6 +129,30 @@ module.exports = async function (context, req) {
                 .input('documentId', sql.NVarChar(255), documentId)
                 .query('DELETE FROM InstrumentFiles WHERE DocumentId = @documentId');
             context.res = { status: 200, headers, body: { success: true } };
+            return;
+        }
+
+        if (req.method === 'PATCH') {
+            if (!documentId) {
+                context.res = { status: 400, headers, body: { error: 'documentId is required.' } };
+                return;
+            }
+            const body = req.body || {};
+            const name = toSafeString(body.name || body.Name, 500);
+            if (!name) {
+                context.res = { status: 400, headers, body: { error: 'name is required.' } };
+                return;
+            }
+            const result = await pool.request()
+                .input('documentId', sql.NVarChar(255), documentId)
+                .input('name', sql.NVarChar(500), name)
+                .query('UPDATE InstrumentFiles SET Name = @name WHERE DocumentId = @documentId; SELECT @@ROWCOUNT AS affected');
+            const affected = result.recordset && result.recordset[0] && result.recordset[0].affected;
+            if (!affected) {
+                context.res = { status: 404, headers, body: { error: 'File not found.' } };
+                return;
+            }
+            context.res = { status: 200, headers, body: { success: true, documentId, name } };
             return;
         }
 
