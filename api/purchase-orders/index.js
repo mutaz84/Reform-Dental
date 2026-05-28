@@ -215,14 +215,22 @@ module.exports = async function (context, req) {
             }
             const r = pool.request();
             const filters = [];
-            const instrumentId = req.query && req.query.instrumentId ? parseInt(req.query.instrumentId, 10) : null;
+            const instrumentIdRaw = req.query && req.query.instrumentId ? parseInt(req.query.instrumentId, 10) : null;
+            const instrumentId = Number.isInteger(instrumentIdRaw) && instrumentIdRaw > 0 && instrumentIdRaw <= 2147483647 ? instrumentIdRaw : null;
             const supplyType = req.query && req.query.supplyType ? String(req.query.supplyType).slice(0, 20) : null;
-            const supplyId = req.query && req.query.supplyId ? parseInt(req.query.supplyId, 10) : null;
+            const supplyIdRaw = req.query && req.query.supplyId ? parseInt(req.query.supplyId, 10) : null;
+            // SQL INT max is 2147483647. Client may pass JS timestamp-based IDs (e.g. 1779992810223)
+            // for supplies that were never synced to the API. Treat those as "no API rows" -> empty list.
+            const supplyId = Number.isInteger(supplyIdRaw) && supplyIdRaw > 0 && supplyIdRaw <= 2147483647 ? supplyIdRaw : null;
             if (instrumentId) { filters.push('InstrumentId = @instrumentId'); r.input('instrumentId', sql.Int, instrumentId); }
             if (supplyType) { filters.push('(SupplyType = @supplyType OR Id IN (SELECT PurchaseOrderId FROM PurchaseOrderItems WHERE SupplyType = @supplyType))'); r.input('supplyType', sql.NVarChar(20), supplyType); }
             if (supplyId) {
                 filters.push('(SupplyId = @supplyId OR Id IN (SELECT PurchaseOrderId FROM PurchaseOrderItems WHERE SupplyId = @supplyId))');
                 r.input('supplyId', sql.Int, supplyId);
+            } else if (req.query && req.query.supplyId) {
+                // Supply id was provided but is not a valid INT (local-only supply). Return empty list.
+                context.res = { status: 200, headers, body: [] };
+                return;
             }
             let q = 'SELECT * FROM PurchaseOrders';
             if (filters.length) q += ' WHERE ' + filters.join(' AND ');
