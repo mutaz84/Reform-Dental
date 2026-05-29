@@ -11,6 +11,24 @@ function hasColumn(columns, name) {
     return columns.has(String(name).toLowerCase());
 }
 
+async function ensureSupplyTypeColumn(pool, columns) {
+    if (hasColumn(columns, 'SupplyType')) return columns;
+    try {
+        await pool.request().query("ALTER TABLE Supplies ADD SupplyType NVARCHAR(20) NULL");
+        columns.add('supplytype');
+    } catch (e) {
+        // ignore - we still operate without the column
+    }
+    return columns;
+}
+
+function normalizeSupplyType(raw) {
+    const v = String(raw || '').trim().toLowerCase();
+    if (v === 'office') return 'Office';
+    if (v === 'dental') return 'Dental';
+    return null;
+}
+
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
@@ -26,15 +44,18 @@ module.exports = async function (context, req) {
 
     try {
         const pool = await getPool();
-        const supplyColumns = await getTableColumns(pool, 'Supplies');
+        let supplyColumns = await getTableColumns(pool, 'Supplies');
         if (supplyColumns.size === 0) {
             context.res = { status: 500, headers, body: { error: 'Supplies table not found.' } };
             return;
         }
+        supplyColumns = await ensureSupplyTypeColumn(pool, supplyColumns);
 
         const hasIsActive = hasColumn(supplyColumns, 'IsActive');
+        const hasSupplyType = hasColumn(supplyColumns, 'SupplyType');
         const orderBy = hasColumn(supplyColumns, 'Name') ? 'ORDER BY Name' : 'ORDER BY Id';
         const id = req.params.id;
+        const requestedType = normalizeSupplyType(req.query && req.query.type);
 
         if (req.method === 'GET') {
             if (id) {
@@ -47,14 +68,31 @@ module.exports = async function (context, req) {
                     .query(`SELECT * FROM Supplies WHERE ${where.join(' AND ')}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                const whereClause = hasIsActive ? 'WHERE IsActive = 1' : '';
-                const result = await pool.request()
-                    .query(`SELECT * FROM Supplies ${whereClause} ${orderBy}`);
-                context.res = { status: 200, headers, body: result.recordset };
+                const where = [];
+                if (hasIsActive) where.push('IsActive = 1');
+                const reqBuilder = pool.request();
+                if (hasSupplyType && requestedType) {
+                    where.push('(SupplyType = @stype OR SupplyType IS NULL)');
+                    reqBuilder.input('stype', sql.NVarChar(20), requestedType);
+                }
+                const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+                const result = await reqBuilder.query(`SELECT * FROM Supplies ${whereClause} ${orderBy}`);
+                let rows = result.recordset || [];
+                if (hasSupplyType && requestedType) {
+                    rows = rows.filter(r => {
+                        const t = String(r.SupplyType || '').toLowerCase();
+                        return !t || t === requestedType.toLowerCase();
+                    });
+                }
+                context.res = { status: 200, headers, body: rows };
             }
         } else if (req.method === 'POST') {
-            const body = req.body;
-            const result = await pool.request()
+            const body = req.body || {};
+            const supplyType = normalizeSupplyType(body.supplyType) || 'Dental';
+            const cols = ['Name', 'Category', 'SKU', 'Description', 'Unit', 'QuantityInStock', 'MinimumStock', 'ReorderPoint', 'UnitCost', 'ClinicId', 'Notes', 'Warnings', 'ImageUrl', 'DocumentUrl'];
+            const params = ['@name', '@category', '@sku', '@description', '@unit', '@quantityInStock', '@minimumStock', '@reorderPoint', '@unitCost', '@clinicId', '@notes', '@warnings', '@imageUrl', '@documentUrl'];
+            if (hasSupplyType) { cols.push('SupplyType'); params.push('@supplyType'); }
+            const reqBuilder = pool.request()
                 .input('name', sql.NVarChar, body.name)
                 .input('category', sql.NVarChar, body.category)
                 .input('sku', sql.NVarChar, body.sku)
@@ -68,13 +106,21 @@ module.exports = async function (context, req) {
                 .input('notes', sql.NVarChar, body.notes || null)
                 .input('warnings', sql.NVarChar, body.warnings || null)
                 .input('imageUrl', sql.NVarChar, body.imageUrl || null)
-                .input('documentUrl', sql.NVarChar, body.documentUrl || null)
-                .query(`INSERT INTO Supplies (Name, Category, SKU, Description, Unit, QuantityInStock, MinimumStock, ReorderPoint, UnitCost, ClinicId, Notes, Warnings, ImageUrl, DocumentUrl) 
-                        OUTPUT INSERTED.Id VALUES (@name, @category, @sku, @description, @unit, @quantityInStock, @minimumStock, @reorderPoint, @unitCost, @clinicId, @notes, @warnings, @imageUrl, @documentUrl)`);
+                .input('documentUrl', sql.NVarChar, body.documentUrl || null);
+            if (hasSupplyType) reqBuilder.input('supplyType', sql.NVarChar(20), supplyType);
+            const result = await reqBuilder.query(`INSERT INTO Supplies (${cols.join(', ')}) OUTPUT INSERTED.Id VALUES (${params.join(', ')})`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
-            const body = req.body;
-            await pool.request()
+            const body = req.body || {};
+            const supplyType = normalizeSupplyType(body.supplyType);
+            const setParts = [
+                'Name=@name', 'Category=@category', 'SKU=@sku', 'Description=@description', 'Unit=@unit',
+                'QuantityInStock=@quantityInStock', 'MinimumStock=@minimumStock', 'ReorderPoint=@reorderPoint',
+                'UnitCost=@unitCost', 'ClinicId=@clinicId', 'Notes=@notes', 'Warnings=@warnings',
+                'ImageUrl=@imageUrl', 'DocumentUrl=@documentUrl', 'ModifiedDate=GETUTCDATE()'
+            ];
+            if (hasSupplyType && supplyType) setParts.push('SupplyType=@supplyType');
+            const reqBuilder = pool.request()
                 .input('id', sql.Int, id)
                 .input('name', sql.NVarChar, body.name)
                 .input('category', sql.NVarChar, body.category)
@@ -89,8 +135,9 @@ module.exports = async function (context, req) {
                 .input('notes', sql.NVarChar, body.notes)
                 .input('warnings', sql.NVarChar, body.warnings)
                 .input('imageUrl', sql.NVarChar, body.imageUrl)
-                .input('documentUrl', sql.NVarChar, body.documentUrl)
-                .query(`UPDATE Supplies SET Name=@name, Category=@category, SKU=@sku, Description=@description, Unit=@unit, QuantityInStock=@quantityInStock, MinimumStock=@minimumStock, ReorderPoint=@reorderPoint, UnitCost=@unitCost, ClinicId=@clinicId, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+                .input('documentUrl', sql.NVarChar, body.documentUrl);
+            if (hasSupplyType && supplyType) reqBuilder.input('supplyType', sql.NVarChar(20), supplyType);
+            await reqBuilder.query(`UPDATE Supplies SET ${setParts.join(', ')} WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Supply updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()
