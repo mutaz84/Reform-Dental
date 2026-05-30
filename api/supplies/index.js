@@ -92,6 +92,7 @@ module.exports = async function (context, req) {
             const cols = ['Name', 'Category', 'SKU', 'Description', 'Unit', 'QuantityInStock', 'MinimumStock', 'ReorderPoint', 'UnitCost', 'ClinicId', 'Notes', 'Warnings', 'ImageUrl', 'DocumentUrl'];
             const params = ['@name', '@category', '@sku', '@description', '@unit', '@quantityInStock', '@minimumStock', '@reorderPoint', '@unitCost', '@clinicId', '@notes', '@warnings', '@imageUrl', '@documentUrl'];
             if (hasSupplyType) { cols.push('SupplyType'); params.push('@supplyType'); }
+            if (hasIsActive) { cols.push('IsActive'); params.push('@isActive'); }
             const reqBuilder = pool.request()
                 .input('name', sql.NVarChar, body.name)
                 .input('category', sql.NVarChar, body.category)
@@ -108,7 +109,7 @@ module.exports = async function (context, req) {
                 .input('imageUrl', sql.NVarChar, body.imageUrl || null)
                 .input('documentUrl', sql.NVarChar, body.documentUrl || null);
             if (hasSupplyType) reqBuilder.input('supplyType', sql.NVarChar(20), supplyType);
-            const result = await reqBuilder.query(`INSERT INTO Supplies (${cols.join(', ')}) OUTPUT INSERTED.Id VALUES (${params.join(', ')})`);
+            if (hasIsActive) reqBuilder.input('isActive', sql.Bit, body.isActive === false ? 0 : 1); (${cols.join(', ')}) OUTPUT INSERTED.Id VALUES (${params.join(', ')})`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body || {};
@@ -120,6 +121,7 @@ module.exports = async function (context, req) {
                 'ImageUrl=@imageUrl', 'DocumentUrl=@documentUrl', 'ModifiedDate=GETUTCDATE()'
             ];
             if (hasSupplyType && supplyType) setParts.push('SupplyType=@supplyType');
+            if (hasIsActive && typeof body.isActive !== 'undefined') setParts.push('IsActive=@isActive');
             const reqBuilder = pool.request()
                 .input('id', sql.Int, id)
                 .input('name', sql.NVarChar, body.name)
@@ -137,6 +139,7 @@ module.exports = async function (context, req) {
                 .input('imageUrl', sql.NVarChar, body.imageUrl)
                 .input('documentUrl', sql.NVarChar, body.documentUrl);
             if (hasSupplyType && supplyType) reqBuilder.input('supplyType', sql.NVarChar(20), supplyType);
+            if (hasIsActive && typeof body.isActive !== 'undefined') reqBuilder.input('isActive', sql.Bit, body.isActive === false ? 0 : 1);
             await reqBuilder.query(`UPDATE Supplies SET ${setParts.join(', ')} WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Supply updated' } };
         } else if (req.method === 'DELETE' && id) {
