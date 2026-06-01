@@ -54,7 +54,11 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'POST') {
             const body = req.body;
-            const result = await pool.request()
+            const hasImageUrl = hasColumn(vendorColumns, 'ImageUrl');
+            const cols = ['Name', 'VendorType', 'ContactName', 'Phone', 'AlternatePhone', 'Email', 'Address', 'City', 'State', 'ZipCode', 'Website', 'PortalUsername', 'PortalPassword', 'Notes', 'IsActive', 'CreatedDate'];
+            const vals = ['@name', '@vendorType', '@contactName', '@phone', '@alternatePhone', '@email', '@address', '@city', '@state', '@zipCode', '@website', '@portalUsername', '@portalPassword', '@notes', '@isActive', 'GETDATE()'];
+            if (hasImageUrl) { cols.push('ImageUrl'); vals.push('@imageUrl'); }
+            const request = pool.request()
                 .input('name', sql.NVarChar, body.name || '')
                 .input('vendorType', sql.NVarChar, body.vendorType || '')
                 .input('contactName', sql.NVarChar, body.contactPerson || '')
@@ -69,12 +73,19 @@ module.exports = async function (context, req) {
                 .input('portalUsername', sql.NVarChar, body.portalUsername || '')
                 .input('portalPassword', sql.NVarChar, body.portalPassword || '')
                 .input('notes', sql.NVarChar, body.notes || '')
-                .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0)
-                .query('INSERT INTO Vendors (Name, VendorType, ContactName, Phone, AlternatePhone, Email, Address, City, State, ZipCode, Website, PortalUsername, PortalPassword, Notes, IsActive, CreatedDate) OUTPUT INSERTED.Id VALUES (@name, @vendorType, @contactName, @phone, @alternatePhone, @email, @address, @city, @state, @zipCode, @website, @portalUsername, @portalPassword, @notes, @isActive, GETDATE())');
+                .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0);
+            if (hasImageUrl) {
+                request.input('imageUrl', sql.NVarChar(sql.MAX), body.imageUrl || body.ImageUrl || null);
+            }
+            const result = await request.query(`INSERT INTO Vendors (${cols.join(', ')}) OUTPUT INSERTED.Id VALUES (${vals.join(', ')})`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id, message: 'Vendor created successfully' } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
-            await pool.request()
+            const hasImageUrl = hasColumn(vendorColumns, 'ImageUrl');
+            const setClauses = ['Name=@name', 'VendorType=@vendorType', 'ContactName=@contactName', 'Phone=@phone', 'AlternatePhone=@alternatePhone', 'Email=@email', 'Address=@address', 'City=@city', 'State=@state', 'ZipCode=@zipCode', 'Website=@website', 'PortalUsername=@portalUsername', 'PortalPassword=@portalPassword', 'Notes=@notes', 'IsActive=@isActive', 'ModifiedDate=GETDATE()'];
+            const hasImageInBody = Object.prototype.hasOwnProperty.call(body, 'imageUrl') || Object.prototype.hasOwnProperty.call(body, 'ImageUrl');
+            if (hasImageUrl && hasImageInBody) setClauses.push('ImageUrl=@imageUrl');
+            const request = pool.request()
                 .input('id', sql.Int, id)
                 .input('name', sql.NVarChar, body.name || '')
                 .input('vendorType', sql.NVarChar, body.vendorType || '')
@@ -90,8 +101,12 @@ module.exports = async function (context, req) {
                 .input('portalUsername', sql.NVarChar, body.portalUsername || '')
                 .input('portalPassword', sql.NVarChar, body.portalPassword || '')
                 .input('notes', sql.NVarChar, body.notes || '')
-                .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0)
-                .query('UPDATE Vendors SET Name=@name, VendorType=@vendorType, ContactName=@contactName, Phone=@phone, AlternatePhone=@alternatePhone, Email=@email, Address=@address, City=@city, State=@state, ZipCode=@zipCode, Website=@website, PortalUsername=@portalUsername, PortalPassword=@portalPassword, Notes=@notes, IsActive=@isActive, ModifiedDate=GETDATE() WHERE Id=@id');
+                .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0);
+            if (hasImageUrl && hasImageInBody) {
+                const incoming = (body.imageUrl !== undefined) ? body.imageUrl : body.ImageUrl;
+                request.input('imageUrl', sql.NVarChar(sql.MAX), incoming || null);
+            }
+            await request.query(`UPDATE Vendors SET ${setClauses.join(', ')} WHERE Id=@id`);
             context.res = { status: 200, headers, body: { message: 'Vendor updated successfully' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()
