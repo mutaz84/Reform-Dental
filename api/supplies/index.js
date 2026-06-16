@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -58,22 +59,40 @@ module.exports = async function (context, req) {
         const requestedType = normalizeSupplyType(req.query && req.query.type);
 
         if (req.method === 'GET') {
+            const tenantUserId = getRequestUserId(req);
+            const hasClinicCol = hasColumn(supplyColumns, 'ClinicId');
             if (id) {
                 const where = ['Id = @id'];
                 if (hasIsActive) {
                     where.push('IsActive = 1');
                 }
-                const result = await pool.request()
-                    .input('id', sql.Int, id)
+                const reqBuilder = pool.request().input('id', sql.Int, id);
+                if (hasClinicCol) {
+                    if (!tenantUserId) {
+                        context.res = { status: 200, headers, body: null };
+                        return;
+                    }
+                    reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
+                    where.push(tenantClinicScopeSql('ClinicId'));
+                }
+                const result = await reqBuilder
                     .query(`SELECT * FROM Supplies WHERE ${where.join(' AND ')}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
+                if (hasClinicCol && !tenantUserId) {
+                    context.res = { status: 200, headers, body: [] };
+                    return;
+                }
                 const where = [];
                 if (hasIsActive) where.push('IsActive = 1');
                 const reqBuilder = pool.request();
                 if (hasSupplyType && requestedType) {
                     where.push('(SupplyType = @stype OR SupplyType IS NULL)');
                     reqBuilder.input('stype', sql.NVarChar(20), requestedType);
+                }
+                if (hasClinicCol) {
+                    reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
+                    where.push(tenantClinicScopeSql('ClinicId'));
                 }
                 const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
                 const result = await reqBuilder.query(`SELECT * FROM Supplies ${whereClause} ${orderBy}`);
