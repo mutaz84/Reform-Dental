@@ -130,18 +130,22 @@ async function getTenantContext(req, pool) {
  * upstream if you prefer to short-circuit.
  */
 function tenantClinicScopeSql(columnExpr = 'ClinicId') {
-    // A user can reach a clinic two ways:
-    //   1. Explicit per-user assignment in UserClinics (sub-users).
-    //   2. They OWN a Subscription whose SubscriptionClinics include the clinic
+    // A user can reach a clinic three ways:
+    //   1. They are the platform admin (Username='admin') — sees everything across all subscriptions.
+    //   2. Explicit per-user assignment in UserClinics (sub-users).
+    //   3. They OWN a Subscription whose SubscriptionClinics include the clinic
     //      (subscription owner / "house" admin who paid for it).
-    // Both branches use the same @_tenantUserId binding.
-    return `${columnExpr} IN (
-        SELECT ClinicId FROM UserClinics WHERE UserId = @${TENANT_PARAM}
-        UNION
-        SELECT sc.ClinicId
-            FROM SubscriptionClinics sc
-            INNER JOIN Subscriptions s ON s.Id = sc.SubscriptionId
-            WHERE s.OwnerUserId = @${TENANT_PARAM} AND s.IsActive = 1
+    // All branches use the same @_tenantUserId binding.
+    return `(
+        EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
+        OR ${columnExpr} IN (
+            SELECT ClinicId FROM UserClinics WHERE UserId = @${TENANT_PARAM}
+            UNION
+            SELECT sc.ClinicId
+                FROM SubscriptionClinics sc
+                INNER JOIN Subscriptions s ON s.Id = sc.SubscriptionId
+                WHERE s.OwnerUserId = @${TENANT_PARAM} AND s.IsActive = 1
+        )
     )`;
 }
 
@@ -155,7 +159,13 @@ function tenantClinicScopeSql(columnExpr = 'ClinicId') {
  * Or via convenience helper: tenantVisibleUserIdsClause('t.UserId').
  */
 function tenantVisibleUserIdsSql() {
+    // Platform admin (Username='admin') sees ALL users across all subscriptions.
+    // Everyone else sees: themselves + every user assigned to a clinic they can reach.
     return `
+        SELECT u_all.Id AS UserId
+            FROM Users u_all
+            WHERE EXISTS (SELECT 1 FROM Users u_admin WHERE u_admin.Id = @${TENANT_PARAM} AND LOWER(u_admin.Username) = 'admin')
+        UNION
         SELECT @${TENANT_PARAM} AS UserId
         UNION
         SELECT DISTINCT uc.UserId
