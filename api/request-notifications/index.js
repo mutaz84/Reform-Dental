@@ -1,4 +1,5 @@
 const sql = require('mssql');
+const { TENANT_PARAM, getRequestUserId, tenantVisibleUsernamesSql, tenantRequestVisible } = require('../shared/tenant');
 
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -58,6 +59,7 @@ module.exports = async function (context, req) {
         const method = req.method;
         const id = toIntOrNull(req.params && req.params.id);
         const body = req.body || {};
+        const callerUserId = getRequestUserId(req) || -1;
 
         if (method === 'GET') {
             const toUser = (req.query && req.query.to ? String(req.query.to) : '').trim();
@@ -72,9 +74,11 @@ module.exports = async function (context, req) {
 
             const request = pool.request()
                 .input('toUser', sql.NVarChar, toUser)
-                .input('limit', sql.Int, limit);
+                .input('limit', sql.Int, limit)
+                .input(TENANT_PARAM, sql.Int, callerUserId);
 
-            let where = 'WHERE ToUser = @toUser';
+            // Only allow reads for usernames the caller can see.
+            let where = `WHERE ToUser = @toUser AND ToUser IN (${tenantVisibleUsernamesSql()})`;
             if (unread === '1' || unread.toLowerCase() === 'true') {
                 where += ' AND IsRead = 0';
             }
@@ -118,6 +122,16 @@ module.exports = async function (context, req) {
                 return;
             }
 
+            // Verify caller can see the parent Request before sending notification.
+            const visCheck = await pool.request()
+                .input('requestId', sql.Int, requestId)
+                .input(TENANT_PARAM, sql.Int, callerUserId)
+                .query(`SELECT TOP 1 1 AS ok WHERE ${tenantRequestVisible('@requestId')}`);
+            if (!visCheck.recordset.length) {
+                context.res = { status: 404, headers, body: { error: 'Request not found.' } };
+                return;
+            }
+
             const result = await pool.request()
                 .input('requestId', sql.Int, requestId)
                 .input('toUser', sql.NVarChar, toUser)
@@ -148,11 +162,14 @@ module.exports = async function (context, req) {
 
                 await pool.request()
                     .input('toUser', sql.NVarChar, toUser)
+                    .input(TENANT_PARAM, sql.Int, callerUserId)
                     .query(`
                         UPDATE RequestNotifications
                         SET IsRead = 1,
                             ReadAt = SYSDATETIME()
-                        WHERE ToUser = @toUser AND IsRead = 0
+                        WHERE ToUser = @toUser
+                          AND ToUser IN (${tenantVisibleUsernamesSql()})
+                          AND IsRead = 0
                     `);
 
                 context.res = { status: 200, headers, body: { message: 'Marked all read' } };
@@ -167,11 +184,13 @@ module.exports = async function (context, req) {
 
             await pool.request()
                 .input('id', sql.Int, targetId)
+                .input(TENANT_PARAM, sql.Int, callerUserId)
                 .query(`
                     UPDATE RequestNotifications
                     SET IsRead = 1,
                         ReadAt = SYSDATETIME()
                     WHERE Id = @id
+                      AND ToUser IN (${tenantVisibleUsernamesSql()})
                 `);
 
             context.res = { status: 200, headers, body: { id: targetId } };

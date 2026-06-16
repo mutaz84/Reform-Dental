@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { TENANT_PARAM, getRequestUserId, tenantSubscriptionScope } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -109,18 +110,30 @@ module.exports = async function (context, req) {
         const teamColumns = await getTableColumns(pool, 'Teams');
 
         const hasIsActive = hasColumn(teamColumns, 'IsActive');
+        const hasSubscriptionId = hasColumn(teamColumns, 'SubscriptionId');
         const orderBy = hasColumn(teamColumns, 'TeamName') ? 'ORDER BY TeamName' : 'ORDER BY Id';
         const id = req.params.id;
+        const callerUserId = getRequestUserId(req);
+        const tenantWhere = hasSubscriptionId ? tenantSubscriptionScope('SubscriptionId') : null;
 
         if (req.method === 'GET') {
             if (id) {
-                const result = await pool.request()
-                    .input('id', sql.Int, id)
-                    .query('SELECT * FROM Teams WHERE Id = @id');
+                const r = pool.request().input('id', sql.Int, id);
+                let where = 'Id = @id';
+                if (tenantWhere) {
+                    r.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                    where += ` AND ${tenantWhere}`;
+                }
+                const result = await r.query(`SELECT * FROM Teams WHERE ${where}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                const result = await pool.request()
-                    .query(`SELECT * FROM Teams ${orderBy}`);
+                const r = pool.request();
+                let whereClause = '';
+                if (tenantWhere) {
+                    r.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                    whereClause = `WHERE ${tenantWhere}`;
+                }
+                const result = await r.query(`SELECT * FROM Teams ${whereClause} ${orderBy}`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {
@@ -131,10 +144,15 @@ module.exports = async function (context, req) {
                 context.res = { status: 400, headers, body: { error: 'No valid team fields were provided.' } };
                 return;
             }
-            const columnList = definitions.map((d) => d.columnName).join(', ');
-            const valueList  = definitions.map((d) => `@${d.paramName}`).join(', ');
+            const columnList = definitions.map((d) => d.columnName).slice();
+            const valueList = definitions.map((d) => `@${d.paramName}`).slice();
+            if (hasSubscriptionId) {
+                request.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                columnList.push('SubscriptionId');
+                valueList.push(`(SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})`);
+            }
             const result = await request.query(
-                `INSERT INTO Teams (${columnList}) OUTPUT INSERTED.Id VALUES (${valueList})`
+                `INSERT INTO Teams (${columnList.join(', ')}) OUTPUT INSERTED.Id VALUES (${valueList.join(', ')})`
             );
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
@@ -149,12 +167,21 @@ module.exports = async function (context, req) {
                 .map((d) => `${d.columnName}=@${d.paramName}`)
                 .concat(hasColumn(teamColumns, 'ModifiedDate') ? ['ModifiedDate=GETUTCDATE()'] : [])
                 .join(', ');
-            await request.query(`UPDATE Teams SET ${setClause} WHERE Id=@id`);
+            let putWhere = 'Id=@id';
+            if (tenantWhere) {
+                request.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                putWhere += ` AND ${tenantWhere}`;
+            }
+            await request.query(`UPDATE Teams SET ${setClause} WHERE ${putWhere}`);
             context.res = { status: 200, headers, body: { message: 'Team updated' } };
         } else if (req.method === 'DELETE' && id) {
-            await pool.request()
-                .input('id', sql.Int, id)
-                .query('DELETE FROM Teams WHERE Id = @id');
+            const r = pool.request().input('id', sql.Int, id);
+            let delWhere = 'Id = @id';
+            if (tenantWhere) {
+                r.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                delWhere += ` AND ${tenantWhere}`;
+            }
+            await r.query(`DELETE FROM Teams WHERE ${delWhere}`);
             context.res = { status: 200, headers, body: { message: 'Team deleted' } };
         } else {
             context.res = { status: 405, headers, body: { error: 'Method not allowed.' } };

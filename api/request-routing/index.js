@@ -1,4 +1,5 @@
 const sql = require('mssql');
+const { TENANT_PARAM, getRequestUserId, tenantRequestVisible } = require('../shared/tenant');
 
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -67,6 +68,7 @@ module.exports = async function (context, req) {
         pool = await sql.connect(getConfig());
         const method = req.method;
         const body = req.body || {};
+        const callerUserId = getRequestUserId(req) || -1;
         const routingLogColumns = await getTableColumns(pool, 'RequestRoutingLog');
 
         const requestIdColumn = hasColumn(routingLogColumns, 'RequestId') ? 'RequestId' : null;
@@ -95,6 +97,7 @@ module.exports = async function (context, req) {
 
             const result = await pool.request()
                 .input('requestId', sql.Int, requestId)
+                .input(TENANT_PARAM, sql.Int, callerUserId)
                 .query(`
                     SELECT
                       Id AS id,
@@ -106,6 +109,7 @@ module.exports = async function (context, req) {
                                             ${createdAtColumn ? `${createdAtColumn} AS createdAt` : 'SYSUTCDATETIME() AS createdAt'}
                     FROM RequestRoutingLog
                                         WHERE ${requestIdColumn} = @requestId
+                                          AND ${tenantRequestVisible('@requestId')}
                                         ORDER BY ${createdAtColumn || 'Id'} ASC
                 `);
 
@@ -127,6 +131,16 @@ module.exports = async function (context, req) {
             }
             if (!toUser) {
                 context.res = { status: 400, headers, body: { error: 'Missing toUser.' } };
+                return;
+            }
+
+            // Verify caller can see the parent Request before logging routing event.
+            const visCheck = await pool.request()
+                .input('requestId', sql.Int, requestId)
+                .input(TENANT_PARAM, sql.Int, callerUserId)
+                .query(`SELECT TOP 1 1 AS ok WHERE ${tenantRequestVisible('@requestId')}`);
+            if (!visCheck.recordset.length) {
+                context.res = { status: 404, headers, body: { error: 'Request not found.' } };
                 return;
             }
 

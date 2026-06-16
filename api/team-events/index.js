@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { TENANT_PARAM, getRequestUserId, tenantSubscriptionScope } = require('../shared/tenant');
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
@@ -84,14 +85,22 @@ module.exports = async function (context, req) {
 
     const id = req.params?.id;
     const method = req.method.toUpperCase();
+    const callerUserId = getRequestUserId(req);
+    const teColumnsCache = await getTableColumns(pool, 'TeamEvents');
+    const hasSubscriptionId = teColumnsCache.includes('subscriptionid');
+    const tenantWhere = hasSubscriptionId ? tenantSubscriptionScope('SubscriptionId') : null;
 
     try {
         // GET: list all events (optionally filter by teamId) or single event
         if (method === 'GET') {
             if (id) {
-                const result = await pool.request()
-                    .input('id', sql.Int, parseInt(id))
-                    .query('SELECT * FROM TeamEvents WHERE Id = @id');
+                const r = pool.request().input('id', sql.Int, parseInt(id));
+                let where = 'Id = @id';
+                if (tenantWhere) {
+                    r.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                    where += ` AND ${tenantWhere}`;
+                }
+                const result = await r.query(`SELECT * FROM TeamEvents WHERE ${where}`);
                 if (!result.recordset.length) return jsonResponse(context, 404, { error: 'Not found' });
                 const row = result.recordset[0];
                 row.AssignedMembers = safeJson(row.AssignedMembers);
@@ -99,12 +108,18 @@ module.exports = async function (context, req) {
                 return jsonResponse(context, 200, row);
             } else {
                 const teamId = req.query?.teamId;
-                let query = 'SELECT * FROM TeamEvents';
+                const whereParts = [];
                 const request = pool.request();
                 if (teamId) {
-                    query += ' WHERE TeamId = @teamId';
+                    whereParts.push('TeamId = @teamId');
                     request.input('teamId', sql.Int, parseInt(teamId));
                 }
+                if (tenantWhere) {
+                    whereParts.push(tenantWhere);
+                    request.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                }
+                let query = 'SELECT * FROM TeamEvents';
+                if (whereParts.length) query += ` WHERE ${whereParts.join(' AND ')}`;
                 query += ' ORDER BY EventDate DESC, CreatedDate DESC';
                 const result = await request.query(query);
                 const rows = result.recordset.map(row => ({
@@ -150,6 +165,12 @@ module.exports = async function (context, req) {
             addCol('IsActive',       sql.Bit,            toBitOrNull(body.IsActive ?? body.isActive) ?? 1);
             addCol('CreatedDate',    sql.DateTime,       new Date());
             addCol('ModifiedDate',   sql.DateTime,       new Date());
+
+            if (hasSubscriptionId) {
+                request.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                fields.push('SubscriptionId');
+                values.push(`(SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})`);
+            }
 
             const insertSql = `INSERT INTO TeamEvents (${fields.join(', ')}) OUTPUT INSERTED.Id VALUES (${values.join(', ')})`;
             const result = await request.query(insertSql);
@@ -198,7 +219,8 @@ module.exports = async function (context, req) {
 
             if (!setClauses.length) return jsonResponse(context, 400, { error: 'No fields to update' });
 
-            await request.query(`UPDATE TeamEvents SET ${setClauses.join(', ')} WHERE Id = @id`);
+            if (tenantWhere) request.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+            await request.query(`UPDATE TeamEvents SET ${setClauses.join(', ')} WHERE Id = @id${tenantWhere ? ` AND ${tenantWhere}` : ''}`);
             const fetched = await pool.request().input('fid', sql.Int, parseInt(id)).query('SELECT * FROM TeamEvents WHERE Id = @fid');
             if (!fetched.recordset.length) return jsonResponse(context, 404, { error: 'Not found' });
             const row = fetched.recordset[0];
@@ -210,7 +232,13 @@ module.exports = async function (context, req) {
         // DELETE: delete event
         if (method === 'DELETE') {
             if (!id) return jsonResponse(context, 400, { error: 'Id required for delete' });
-            await pool.request().input('id', sql.Int, parseInt(id)).query('DELETE FROM TeamEvents WHERE Id = @id');
+            const r = pool.request().input('id', sql.Int, parseInt(id));
+            let delWhere = 'Id = @id';
+            if (tenantWhere) {
+                r.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                delWhere += ` AND ${tenantWhere}`;
+            }
+            await r.query(`DELETE FROM TeamEvents WHERE ${delWhere}`);
             return jsonResponse(context, 200, { success: true });
         }
 

@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { TENANT_PARAM, getRequestUserId, tenantVisibleUserIdsClause } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -447,9 +448,11 @@ module.exports = async function (context, req) {
                 if (hasUserIsActive && !includeInactive) {
                     where.push('ISNULL(u.IsActive, 1) = 1');
                 }
+                where.push(tenantVisibleUserIdsClause('u.Id'));
 
                 const result = await pool.request()
                     .input('id', sql.Int, id)
+                    .input(TENANT_PARAM, sql.Int, getRequestUserId(req) || -1)
                     .query(`SELECT ${baseSelect}${clinicIdsJson}${clinicsJson}${hrDataSelect} FROM Users u ${hrJoin} WHERE ${where.join(' AND ')}`);
 
                 if (result.recordset.length === 0) {
@@ -481,10 +484,14 @@ module.exports = async function (context, req) {
                     };
                 }
             } else {
-                const whereClause = (hasUserIsActive && !includeInactive) ? 'WHERE ISNULL(u.IsActive, 1) = 1' : '';
+                const wherePartsList = [];
+                if (hasUserIsActive && !includeInactive) wherePartsList.push('ISNULL(u.IsActive, 1) = 1');
+                wherePartsList.push(tenantVisibleUserIdsClause('u.Id'));
+                const whereClause = `WHERE ${wherePartsList.join(' AND ')}`;
                 const orderBy = hasColumn(userColumns, 'FirstName') ? 'ORDER BY u.FirstName' : 'ORDER BY u.Id';
 
                 const result = await pool.request()
+                    .input(TENANT_PARAM, sql.Int, getRequestUserId(req) || -1)
                     .query(`SELECT ${baseSelect}${clinicIdsJson}${clinicsJson}${hrDataSelect} FROM Users u ${hrJoin} ${whereClause} ${orderBy}`);
 
                 const users = (result.recordset || []).map((row) => {
@@ -511,6 +518,8 @@ module.exports = async function (context, req) {
             const body = parseRequestBody(req.body);
             const userColumns = await getTableColumns(pool, 'Users');
             const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
+            const hasUsersSubscriptionId = hasColumn(userColumns, 'SubscriptionId');
+            const callerUserId = getRequestUserId(req);
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
             const permissionsValue = toJsonString(body.permissions || body.Permissions);
             const documentsValue = toJsonString(body.documents || body.Documents);
@@ -519,7 +528,11 @@ module.exports = async function (context, req) {
             const transaction = new sql.Transaction(pool);
             await transaction.begin();
             try {
-                const result = await new sql.Request(transaction)
+                const insertReq = new sql.Request(transaction);
+                if (hasUsersSubscriptionId) {
+                    insertReq.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                }
+                const result = await insertReq
                     .input('username', sql.NVarChar, body.username)
                     .input('passwordHash', sql.NVarChar, body.password || body.passwordHash || body.PasswordHash || 'changeme')
                     .input('firstName', sql.NVarChar, toNullableString(body.firstName || body.FirstName))
@@ -573,7 +586,7 @@ module.exports = async function (context, req) {
                             EmergencyContactName, EmergencyContactRelationship, EmergencyContactPhone,
                             EmergencyContactEmail, NextReviewDate, OfficeLocation, DirectSupervisor,
                             SeparationDate, SeparationReason, PhotoFileName, Documents${hasUsersHrInfoColumn ? ', HRInfo' : ''},
-                            FailedLoginAttempts, IsActive, IsOnline, LastSeen, RoleId)
+                            FailedLoginAttempts, IsActive, IsOnline, LastSeen, RoleId${hasUsersSubscriptionId ? ', SubscriptionId' : ''})
                             OUTPUT INSERTED.Id
                             VALUES (@username, @passwordHash, @firstName, @middleName, @lastName, @gender, @dateOfBirth,
                             @personalEmail, @workEmail, @homePhone, @cellPhone, @address, @city, @state, @zipCode,
@@ -582,7 +595,7 @@ module.exports = async function (context, req) {
                             @emergencyContactName, @emergencyContactRelationship, @emergencyContactPhone,
                             @emergencyContactEmail, @nextReviewDate, @officeLocation, @directSupervisor,
                             @separationDate, @separationReason, @photoFileName, @documents${hasUsersHrInfoColumn ? ', @hrInfo' : ''},
-                            @failedLoginAttempts, @isActive, @isOnline, @lastSeen, @roleId)`);
+                            @failedLoginAttempts, @isActive, @isOnline, @lastSeen, @roleId${hasUsersSubscriptionId ? `, (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})` : ''})`);
 
                 const userId = result.recordset[0].Id;
 

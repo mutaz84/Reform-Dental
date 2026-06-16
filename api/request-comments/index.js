@@ -1,4 +1,5 @@
 const sql = require('mssql');
+const { TENANT_PARAM, getRequestUserId, tenantRequestVisible } = require('../shared/tenant');
 
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -54,6 +55,7 @@ module.exports = async function (context, req) {
         pool = await sql.connect(getConfig());
         const method = req.method;
         const body = req.body || {};
+        const callerUserId = getRequestUserId(req) || -1;
 
         if (method === 'GET') {
             const requestId = toIntOrNull((req.query && req.query.requestId) || (req.params && req.params.id));
@@ -64,6 +66,7 @@ module.exports = async function (context, req) {
 
             const result = await pool.request()
                 .input('requestId', sql.Int, requestId)
+                .input(TENANT_PARAM, sql.Int, callerUserId)
                 .query(`
                     SELECT
                       Id AS id,
@@ -73,6 +76,7 @@ module.exports = async function (context, req) {
                       CreatedAt AS createdAt
                     FROM RequestComments
                     WHERE RequestId = @requestId
+                      AND ${tenantRequestVisible('@requestId')}
                     ORDER BY CreatedAt ASC
                 `);
 
@@ -97,6 +101,16 @@ module.exports = async function (context, req) {
                 return;
             }
 
+            // Verify caller can see the parent Request before allowing a comment.
+            const visCheck = await pool.request()
+                .input('requestId', sql.Int, requestId)
+                .input(TENANT_PARAM, sql.Int, callerUserId)
+                .query(`SELECT TOP 1 1 AS ok WHERE ${tenantRequestVisible('@requestId')}`);
+            if (!visCheck.recordset.length) {
+                context.res = { status: 404, headers, body: { error: 'Request not found.' } };
+                return;
+            }
+
             const result = await pool.request()
                 .input('requestId', sql.Int, requestId)
                 .input('commentText', sql.NVarChar, commentText)
@@ -117,6 +131,24 @@ module.exports = async function (context, req) {
             const commentId = toIntOrNull((req.query && (req.query.id || req.query.commentId)) || (req.params && req.params.id));
             if (!commentId) {
                 context.res = { status: 400, headers, body: { error: 'Missing numeric comment id.' } };
+                return;
+            }
+
+            // Look up parent RequestId, then verify visibility, then delete.
+            const lookup = await pool.request()
+                .input('id', sql.Int, commentId)
+                .query('SELECT RequestId FROM RequestComments WHERE Id = @id');
+            const parentRequestId = lookup.recordset[0]?.RequestId;
+            if (!parentRequestId) {
+                context.res = { status: 404, headers, body: { error: 'Comment not found.' } };
+                return;
+            }
+            const visCheck = await pool.request()
+                .input('requestId', sql.Int, parentRequestId)
+                .input(TENANT_PARAM, sql.Int, callerUserId)
+                .query(`SELECT TOP 1 1 AS ok WHERE ${tenantRequestVisible('@requestId')}`);
+            if (!visCheck.recordset.length) {
+                context.res = { status: 404, headers, body: { error: 'Comment not found.' } };
                 return;
             }
 

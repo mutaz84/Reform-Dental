@@ -202,6 +202,28 @@ function tenantVisibleUsernamesClause(columnExpr = 'CreatedBy') {
 }
 
 /**
+ * Returns a SQL fragment that checks whether the parent Request identified by
+ * @paramName is visible to the caller (i.e. either created by or assigned to a
+ * user the caller can see). Used by request-* child endpoints to gate access
+ * to comments, attachments, notifications, and routing log entries.
+ *
+ * Use as: `WHERE EXISTS (${tenantRequestVisible('@requestId')})`
+ */
+function tenantRequestVisible(requestIdParam = '@requestId') {
+    return `
+        EXISTS (
+            SELECT 1 FROM Requests r_v
+            WHERE r_v.Id = ${requestIdParam}
+              AND (
+                EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
+                OR r_v.RequestedBy IN (${tenantVisibleUsernamesSql()})
+                OR r_v.AssignedTo IN (${tenantVisibleUsernamesSql()})
+              )
+        )
+    `;
+}
+
+/**
  * Builds a parameterized SQL fragment "ClinicId IN (@_tc0, @_tc1, ...)"
  * and binds values onto the provided sql.Request. Returns:
  *   - null if clinicIds is empty.
@@ -257,6 +279,7 @@ module.exports = {
     tenantVisibleUserIdsClause,
     tenantVisibleUsernamesSql,
     tenantVisibleUsernamesClause,
+    tenantRequestVisible,
     buildClinicInClause,
     isPlatformAdmin,
     isPlatformAdminRequest

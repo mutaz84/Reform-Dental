@@ -1,4 +1,5 @@
 const sql = require('mssql');
+const { TENANT_PARAM, getRequestUserId, tenantRequestVisible } = require('../shared/tenant');
 
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -69,6 +70,7 @@ module.exports = async function (context, req) {
         pool = await sql.connect(getConfig());
         const method = req.method;
         const body = req.body || {};
+        const callerUserId = getRequestUserId(req) || -1;
 
         if (method === 'GET') {
             const requestId = toIntOrNull(req.query && req.query.requestId);
@@ -84,10 +86,12 @@ module.exports = async function (context, req) {
 
                 const result = await pool.request()
                     .input('requestId', sql.Int, requestId)
+                    .input(TENANT_PARAM, sql.Int, callerUserId)
                     .query(`
                         SELECT ${selectFields}
                         FROM RequestAttachments
                         WHERE RequestId = @requestId
+                          AND ${tenantRequestVisible('@requestId')}
                         ORDER BY UploadedAt ASC
                     `);
 
@@ -102,6 +106,7 @@ module.exports = async function (context, req) {
             if (attachmentId) {
                 const result = await pool.request()
                     .input('id', sql.Int, attachmentId)
+                    .input(TENANT_PARAM, sql.Int, callerUserId)
                     .query(`
                         SELECT
                           Id AS id,
@@ -114,6 +119,20 @@ module.exports = async function (context, req) {
                           Data AS data
                         FROM RequestAttachments
                         WHERE Id = @id
+                          AND EXISTS (
+                            SELECT 1 FROM Requests r_v
+                            WHERE r_v.Id = RequestAttachments.RequestId
+                              AND (
+                                EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
+                                OR r_v.RequestedBy IN (SELECT u.Username FROM Users u WHERE u.Id IN (
+                                    SELECT u_all.Id FROM Users u_all WHERE EXISTS (SELECT 1 FROM Users u_admin WHERE u_admin.Id = @${TENANT_PARAM} AND LOWER(u_admin.Username) = 'admin')
+                                    UNION
+                                    SELECT @${TENANT_PARAM} AS UserId
+                                    UNION
+                                    SELECT u2.Id FROM Users u2 WHERE u2.SubscriptionId IS NOT NULL AND u2.SubscriptionId = (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})
+                                ))
+                              )
+                          )
                     `);
 
                 const row = (result.recordset || [])[0];
@@ -166,6 +185,16 @@ module.exports = async function (context, req) {
             }
             const sizeBytes = toIntOrNull(body.sizeBytes) || buffer.length;
 
+            // Verify caller can see the parent Request before allowing upload.
+            const visCheck = await pool.request()
+                .input('requestId', sql.Int, requestId)
+                .input(TENANT_PARAM, sql.Int, callerUserId)
+                .query(`SELECT TOP 1 1 AS ok WHERE ${tenantRequestVisible('@requestId')}`);
+            if (!visCheck.recordset.length) {
+                context.res = { status: 404, headers, body: { error: 'Request not found.' } };
+                return;
+            }
+
             const result = await pool.request()
                 .input('requestId', sql.Int, requestId)
                 .input('fileName', sql.NVarChar, fileName)
@@ -189,6 +218,24 @@ module.exports = async function (context, req) {
             const attachmentId = toIntOrNull((req.query && (req.query.id || req.query.attachmentId)) || (req.params && req.params.id));
             if (!attachmentId) {
                 context.res = { status: 400, headers, body: { error: 'Missing numeric attachment id.' } };
+                return;
+            }
+
+            // Look up parent RequestId, then verify visibility, then delete.
+            const lookup = await pool.request()
+                .input('id', sql.Int, attachmentId)
+                .query('SELECT RequestId FROM RequestAttachments WHERE Id = @id');
+            const parentRequestId = lookup.recordset[0]?.RequestId;
+            if (!parentRequestId) {
+                context.res = { status: 404, headers, body: { error: 'Attachment not found.' } };
+                return;
+            }
+            const visCheck = await pool.request()
+                .input('requestId', sql.Int, parentRequestId)
+                .input(TENANT_PARAM, sql.Int, callerUserId)
+                .query(`SELECT TOP 1 1 AS ok WHERE ${tenantRequestVisible('@requestId')}`);
+            if (!visCheck.recordset.length) {
+                context.res = { status: 404, headers, body: { error: 'Attachment not found.' } };
                 return;
             }
 

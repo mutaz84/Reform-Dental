@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { TENANT_PARAM, getRequestUserId, tenantSubscriptionScope } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -141,6 +142,9 @@ module.exports = async function (context, req) {
         const id = req.params.id;
         const taskColumns = await getTableColumns(pool, 'Tasks');
         const hasModifiedDate = hasColumn(taskColumns, 'ModifiedDate');
+        const hasSubscriptionId = hasColumn(taskColumns, 'SubscriptionId');
+        const callerUserId = getRequestUserId(req);
+        const tenantWhere = hasSubscriptionId ? tenantSubscriptionScope('SubscriptionId') : null;
         const complianceFlagColumn = getExistingColumn(taskColumns, ['ComplianceFlag']);
         const linkedComplianceIdColumn = getExistingColumn(taskColumns, ['LinkedComplianceId', 'ComplianceId']);
         const linkedComplianceTitleColumn = getExistingColumn(taskColumns, ['LinkedComplianceTitle', 'ComplianceTitle']);
@@ -148,23 +152,25 @@ module.exports = async function (context, req) {
 
         if (req.method === 'GET') {
             if (id) {
-                const result = await pool.request()
-                    .input('id', sql.Int, id)
-                    .query('SELECT * FROM Tasks WHERE Id = @id');
+                const r = pool.request().input('id', sql.Int, id);
+                let where = 'Id = @id';
+                if (tenantWhere) {
+                    r.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                    where += ` AND ${tenantWhere}`;
+                }
+                const result = await r.query(`SELECT * FROM Tasks WHERE ${where}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                // Support filtering by TaskType
                 const taskType = req.query.taskType;
-                let query = 'SELECT * FROM Tasks';
-                if (taskType) {
-                    query += ' WHERE TaskType = @taskType';
-                }
-                query += ' ORDER BY DueDate, Priority';
-                
+                const whereParts = [];
+                if (taskType) whereParts.push('TaskType = @taskType');
+                if (tenantWhere) whereParts.push(tenantWhere);
+                const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+                const query = `SELECT * FROM Tasks ${whereClause} ORDER BY DueDate, Priority`;
+
                 const request = pool.request();
-                if (taskType) {
-                    request.input('taskType', sql.NVarChar, taskType);
-                }
+                if (taskType) request.input('taskType', sql.NVarChar, taskType);
+                if (tenantWhere) request.input(TENANT_PARAM, sql.Int, callerUserId || -1);
                 const result = await request.query(query);
                 context.res = { status: 200, headers, body: result.recordset };
             }
@@ -213,9 +219,14 @@ module.exports = async function (context, req) {
             const insertRequest = pool.request();
             insertDefs.forEach((def) => insertRequest.input(def.param, def.type, def.value));
 
-            const insertColumns = insertDefs.map((def) => def.column).join(', ');
-            const insertValues = insertDefs.map((def) => `@${def.param}`).join(', ');
-            const result = await insertRequest.query(`INSERT INTO Tasks (${insertColumns}) OUTPUT INSERTED.Id VALUES (${insertValues})`);
+            const insertColumns = insertDefs.map((def) => def.column).slice();
+            const insertValues = insertDefs.map((def) => `@${def.param}`).slice();
+            if (hasSubscriptionId) {
+                insertRequest.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                insertColumns.push('SubscriptionId');
+                insertValues.push(`(SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})`);
+            }
+            const result = await insertRequest.query(`INSERT INTO Tasks (${insertColumns.join(', ')}) OUTPUT INSERTED.Id VALUES (${insertValues.join(', ')})`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
@@ -349,12 +360,21 @@ module.exports = async function (context, req) {
                 return;
             }
 
-            await updateRequest.query(`UPDATE Tasks SET ${setClauses.join(', ')} WHERE Id=@id`);
+            let putWhere = 'Id=@id';
+            if (tenantWhere) {
+                updateRequest.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                putWhere += ` AND ${tenantWhere}`;
+            }
+            await updateRequest.query(`UPDATE Tasks SET ${setClauses.join(', ')} WHERE ${putWhere}`);
             context.res = { status: 200, headers, body: { message: 'Task updated' } };
         } else if (req.method === 'DELETE' && id) {
-            await pool.request()
-                .input('id', sql.Int, id)
-                .query('DELETE FROM Tasks WHERE Id = @id');
+            const r = pool.request().input('id', sql.Int, id);
+            let delWhere = 'Id = @id';
+            if (tenantWhere) {
+                r.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                delWhere += ` AND ${tenantWhere}`;
+            }
+            await r.query(`DELETE FROM Tasks WHERE ${delWhere}`);
             context.res = { status: 200, headers, body: { message: 'Task deleted' } };
         }
     } catch (err) {

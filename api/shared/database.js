@@ -28,6 +28,24 @@ async function ensureTenantSchema(pool) {
             IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'SubscriptionId' AND Object_ID = Object_ID(N'Vendors'))
                 ALTER TABLE Vendors ADD SubscriptionId INT NULL;
         `);
+        await pool.request().batch(`
+            -- Tasks.SubscriptionId column
+            IF EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'Tasks') AND type = 'U')
+            AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'SubscriptionId' AND Object_ID = Object_ID(N'Tasks'))
+                ALTER TABLE Tasks ADD SubscriptionId INT NULL;
+        `);
+        await pool.request().batch(`
+            -- Teams.SubscriptionId column
+            IF EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'Teams') AND type = 'U')
+            AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'SubscriptionId' AND Object_ID = Object_ID(N'Teams'))
+                ALTER TABLE Teams ADD SubscriptionId INT NULL;
+        `);
+        await pool.request().batch(`
+            -- TeamEvents.SubscriptionId column
+            IF EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID(N'TeamEvents') AND type = 'U')
+            AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'SubscriptionId' AND Object_ID = Object_ID(N'TeamEvents'))
+                ALTER TABLE TeamEvents ADD SubscriptionId INT NULL;
+        `);
 
         // Owners: each Subscriptions.OwnerUserId gets that subscription's Id.
         await pool.request().query(`
@@ -102,6 +120,65 @@ async function ensureTenantSchema(pool) {
             UPDATE Vendors SET SubscriptionId = (SELECT Id FROM AdminSub)
             WHERE SubscriptionId IS NULL
               AND EXISTS (SELECT 1 FROM AdminSub);
+        `);
+
+        // Tasks: backfill via Clinics.SubscriptionId chain when ClinicId exists,
+        // otherwise to admin's house subscription.
+        await pool.request().query(`
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'SubscriptionId' AND Object_ID = Object_ID(N'Tasks'))
+            BEGIN
+                UPDATE t SET t.SubscriptionId = c.SubscriptionId
+                FROM Tasks t
+                INNER JOIN Clinics c ON c.Id = t.ClinicId
+                WHERE t.SubscriptionId IS NULL AND c.SubscriptionId IS NOT NULL;
+
+                ;WITH AdminSub AS (
+                    SELECT TOP 1 s.Id AS Id FROM Subscriptions s
+                    INNER JOIN Users u ON u.Id = s.OwnerUserId
+                    WHERE LOWER(u.Username) = 'admin'
+                    ORDER BY s.Id ASC
+                )
+                UPDATE Tasks SET SubscriptionId = (SELECT Id FROM AdminSub)
+                WHERE SubscriptionId IS NULL AND EXISTS (SELECT 1 FROM AdminSub);
+            END
+        `);
+
+        // Teams: existing rows -> admin's house subscription (no clinic linkage).
+        await pool.request().query(`
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'SubscriptionId' AND Object_ID = Object_ID(N'Teams'))
+            BEGIN
+                ;WITH AdminSub AS (
+                    SELECT TOP 1 s.Id AS Id FROM Subscriptions s
+                    INNER JOIN Users u ON u.Id = s.OwnerUserId
+                    WHERE LOWER(u.Username) = 'admin'
+                    ORDER BY s.Id ASC
+                )
+                UPDATE Teams SET SubscriptionId = (SELECT Id FROM AdminSub)
+                WHERE SubscriptionId IS NULL AND EXISTS (SELECT 1 FROM AdminSub);
+            END
+        `);
+
+        // TeamEvents: derive from parent Teams.SubscriptionId, fallback admin sub.
+        await pool.request().query(`
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'SubscriptionId' AND Object_ID = Object_ID(N'TeamEvents'))
+            BEGIN
+                IF EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'SubscriptionId' AND Object_ID = Object_ID(N'Teams'))
+                BEGIN
+                    UPDATE te SET te.SubscriptionId = t.SubscriptionId
+                    FROM TeamEvents te
+                    INNER JOIN Teams t ON t.Id = te.TeamId
+                    WHERE te.SubscriptionId IS NULL AND t.SubscriptionId IS NOT NULL;
+                END
+
+                ;WITH AdminSub AS (
+                    SELECT TOP 1 s.Id AS Id FROM Subscriptions s
+                    INNER JOIN Users u ON u.Id = s.OwnerUserId
+                    WHERE LOWER(u.Username) = 'admin'
+                    ORDER BY s.Id ASC
+                )
+                UPDATE TeamEvents SET SubscriptionId = (SELECT Id FROM AdminSub)
+                WHERE SubscriptionId IS NULL AND EXISTS (SELECT 1 FROM AdminSub);
+            END
         `);
 
         tenantSchemaEnsured = true;
