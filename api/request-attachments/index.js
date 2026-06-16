@@ -1,4 +1,5 @@
 const sql = require('mssql');
+const { getRequestUserId, tenantVisibleUsernamesSql, TENANT_PARAM } = require('../shared/tenant');
 
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -78,17 +79,26 @@ module.exports = async function (context, req) {
             const includeData = includeDataRaw === '1' || includeDataRaw.toLowerCase() === 'true';
 
             if (requestId) {
+                const tenantUserId = getRequestUserId(req);
+                if (!tenantUserId) {
+                    context.res = { status: 200, headers, body: [] };
+                    return;
+                }
+
                 const selectFields = includeData
-                    ? 'Id AS id, RequestId AS requestId, FileName AS fileName, ContentType AS contentType, SizeBytes AS sizeBytes, UploadedBy AS uploadedBy, UploadedAt AS uploadedAt, Data AS data'
-                    : 'Id AS id, RequestId AS requestId, FileName AS fileName, ContentType AS contentType, SizeBytes AS sizeBytes, UploadedBy AS uploadedBy, UploadedAt AS uploadedAt';
+                    ? 'a.Id AS id, a.RequestId AS requestId, a.FileName AS fileName, a.ContentType AS contentType, a.SizeBytes AS sizeBytes, a.UploadedBy AS uploadedBy, a.UploadedAt AS uploadedAt, a.Data AS data'
+                    : 'a.Id AS id, a.RequestId AS requestId, a.FileName AS fileName, a.ContentType AS contentType, a.SizeBytes AS sizeBytes, a.UploadedBy AS uploadedBy, a.UploadedAt AS uploadedAt';
 
                 const result = await pool.request()
                     .input('requestId', sql.Int, requestId)
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
                     .query(`
                         SELECT ${selectFields}
-                        FROM RequestAttachments
-                        WHERE RequestId = @requestId
-                        ORDER BY UploadedAt ASC
+                        FROM RequestAttachments a
+                        INNER JOIN Requests r ON r.Id = a.RequestId
+                        WHERE a.RequestId = @requestId
+                          AND r.RequestedBy IN (${tenantVisibleUsernamesSql()})
+                        ORDER BY a.UploadedAt ASC
                     `);
 
                 context.res = {
@@ -100,20 +110,28 @@ module.exports = async function (context, req) {
             }
 
             if (attachmentId) {
+                const tenantUserId = getRequestUserId(req);
+                if (!tenantUserId) {
+                    context.res = { status: 404, headers, body: { error: 'Attachment not found.' } };
+                    return;
+                }
                 const result = await pool.request()
                     .input('id', sql.Int, attachmentId)
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
                     .query(`
                         SELECT
-                          Id AS id,
-                          RequestId AS requestId,
-                          FileName AS fileName,
-                          ContentType AS contentType,
-                          SizeBytes AS sizeBytes,
-                          UploadedBy AS uploadedBy,
-                          UploadedAt AS uploadedAt,
-                          Data AS data
-                        FROM RequestAttachments
-                        WHERE Id = @id
+                          a.Id AS id,
+                          a.RequestId AS requestId,
+                          a.FileName AS fileName,
+                          a.ContentType AS contentType,
+                          a.SizeBytes AS sizeBytes,
+                          a.UploadedBy AS uploadedBy,
+                          a.UploadedAt AS uploadedAt,
+                          a.Data AS data
+                        FROM RequestAttachments a
+                        INNER JOIN Requests r ON r.Id = a.RequestId
+                        WHERE a.Id = @id
+                          AND r.RequestedBy IN (${tenantVisibleUsernamesSql()})
                     `);
 
                 const row = (result.recordset || [])[0];
