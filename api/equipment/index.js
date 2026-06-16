@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -101,20 +102,36 @@ module.exports = async function (context, req) {
         const hasIsActive = hasColumn(equipmentColumns, 'IsActive');
         const orderBy = hasColumn(equipmentColumns, 'Name') ? 'ORDER BY Name' : 'ORDER BY Id';
         const id = req.params.id;
+        const tenantUserId = getRequestUserId(req);
+        const hasClinicCol = hasColumn(equipmentColumns, 'ClinicId');
 
         if (req.method === 'GET') {
             if (id) {
-                // Return single row regardless of IsActive so retired/out-of-service items
-                // remain accessible from their detail/log views.
-                const result = await pool.request()
-                    .input('id', sql.Int, id)
-                    .query(`SELECT * FROM Equipment WHERE Id = @id`);
+                // Single-row fetch is tenant-scoped: not found if outside the caller's clinics.
+                const reqBuilder = pool.request().input('id', sql.Int, id);
+                let whereSql = 'Id = @id';
+                if (hasClinicCol) {
+                    if (!tenantUserId) {
+                        context.res = { status: 200, headers, body: null };
+                        return;
+                    }
+                    reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
+                    whereSql += ` AND ${tenantClinicScopeSql('ClinicId')}`;
+                }
+                const result = await reqBuilder.query(`SELECT * FROM Equipment WHERE ${whereSql}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                // Return all rows; the client filters by IsActive / Status as needed.
-                // Filtering server-side caused retired items to vanish from local cache on next sync.
-                const result = await pool.request()
-                    .query(`SELECT * FROM Equipment ${orderBy}`);
+                if (hasClinicCol && !tenantUserId) {
+                    context.res = { status: 200, headers, body: [] };
+                    return;
+                }
+                const reqBuilder = pool.request();
+                let whereSql = '';
+                if (hasClinicCol) {
+                    reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
+                    whereSql = `WHERE ${tenantClinicScopeSql('ClinicId')}`;
+                }
+                const result = await reqBuilder.query(`SELECT * FROM Equipment ${whereSql} ${orderBy}`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {

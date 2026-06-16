@@ -1,6 +1,7 @@
 // Users API Functions
 const { app } = require('@azure/functions');
 const { execute } = require('./shared/database');
+const { getRequestUserId } = require('./shared/tenant');
 const { successResponse, errorResponse, handleOptions } = require('./shared/response');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -141,6 +142,12 @@ app.http('getUsers', {
         if (request.method === 'OPTIONS') return handleOptions();
         
         try {
+            const tenantUserId = getRequestUserId(request);
+            // Tenant scope: only return users who share at least one clinic with the caller,
+            // OR the caller themselves. If caller is unidentified, return empty.
+            if (!tenantUserId) {
+                return successResponse([]);
+            }
             const result = await execute(`
                 SELECT Id, Username, FirstName, MiddleName, LastName, Gender, DateOfBirth,
                        PersonalEmail, WorkEmail, HomePhone, CellPhone, Address, City, State, ZipCode,
@@ -154,8 +161,18 @@ app.http('getUsers', {
                 FROM Users u
                 LEFT JOIN UserHRInfo uhr ON uhr.UserId = u.Id
                 WHERE ISNULL(u.IsActive, 1) = 1
+                  AND (
+                        u.Id = @tenantUserId
+                        OR EXISTS (
+                            SELECT 1 FROM UserClinics uc_self
+                            INNER JOIN UserClinics uc_other
+                                ON uc_self.ClinicId = uc_other.ClinicId
+                            WHERE uc_self.UserId = @tenantUserId
+                              AND uc_other.UserId = u.Id
+                        )
+                      )
                 ORDER BY FirstName, LastName
-            `);
+            `, { tenantUserId });
             const users = await attachBenefitsToUsers(result.recordset || []);
             return successResponse(users);
         } catch (err) {
