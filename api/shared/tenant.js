@@ -79,20 +79,10 @@ async function getUserClinicIds(pool, userId) {
     try {
         const result = await pool.request()
             .input('userId', sql.Int, id)
-            .query(`
-                SELECT DISTINCT clinics_for_user.ClinicId
-                FROM (
-                    SELECT uc.ClinicId
-                        FROM UserClinics uc
-                        WHERE uc.UserId = @userId
-                    UNION
-                    SELECT sc.ClinicId
-                        FROM SubscriptionClinics sc
-                        INNER JOIN Subscriptions s ON s.Id = sc.SubscriptionId
-                        WHERE s.OwnerUserId = @userId AND s.IsActive = 1
-                ) AS clinics_for_user
-                INNER JOIN Clinics c ON c.Id = clinics_for_user.ClinicId
-                WHERE c.IsActive = 1`);
+            .query(`SELECT uc.ClinicId
+                      FROM UserClinics uc
+                      INNER JOIN Clinics c ON c.Id = uc.ClinicId
+                      WHERE uc.UserId = @userId AND c.IsActive = 1`);
         return (result.recordset || [])
             .map((r) => _toIntOrNull(r.ClinicId))
             .filter((n) => n !== null);
@@ -130,19 +120,7 @@ async function getTenantContext(req, pool) {
  * upstream if you prefer to short-circuit.
  */
 function tenantClinicScopeSql(columnExpr = 'ClinicId') {
-    // A user can reach a clinic two ways:
-    //   1. Explicit per-user assignment in UserClinics (sub-users).
-    //   2. They OWN a Subscription whose SubscriptionClinics include the clinic
-    //      (subscription owner / "house" admin who paid for it).
-    // Both branches use the same @_tenantUserId binding.
-    return `${columnExpr} IN (
-        SELECT ClinicId FROM UserClinics WHERE UserId = @${TENANT_PARAM}
-        UNION
-        SELECT sc.ClinicId
-            FROM SubscriptionClinics sc
-            INNER JOIN Subscriptions s ON s.Id = sc.SubscriptionId
-            WHERE s.OwnerUserId = @${TENANT_PARAM} AND s.IsActive = 1
-    )`;
+    return `${columnExpr} IN (SELECT ClinicId FROM UserClinics WHERE UserId = @${TENANT_PARAM})`;
 }
 
 /**
