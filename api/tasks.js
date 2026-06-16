@@ -1,7 +1,6 @@
 // Tasks API Functions
 const { app } = require('@azure/functions');
 const { execute } = require('./shared/database');
-const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('./shared/tenant');
 const { successResponse, errorResponse, handleOptions } = require('./shared/response');
 
 // GET all tasks
@@ -13,10 +12,6 @@ app.http('getTasks', {
         if (request.method === 'OPTIONS') return handleOptions();
         
         try {
-            const tenantUserId = getRequestUserId(request);
-            if (!tenantUserId) {
-                return successResponse([]);
-            }
             const status = request.query.get('status');
             const priority = request.query.get('priority');
             const category = request.query.get('category');
@@ -36,10 +31,10 @@ app.http('getTasks', {
                 LEFT JOIN Users u ON t.AssignedToId = u.Id
                 LEFT JOIN Users ab ON t.AssignedById = ab.Id
                 LEFT JOIN Clinics c ON t.ClinicId = c.Id
-                WHERE ${tenantClinicScopeSql('t.ClinicId')}
+                WHERE 1=1
             `;
             
-            const params = { [TENANT_PARAM]: tenantUserId };
+            const params = {};
             
             if (status) {
                 query += ' AND t.Status = @status';
@@ -90,10 +85,6 @@ app.http('getTaskById', {
         const id = request.params.id;
         
         try {
-            const tenantUserId = getRequestUserId(request);
-            if (!tenantUserId) {
-                return errorResponse('Task not found', 404);
-            }
             const result = await execute(`
                 SELECT t.Id, t.Title, t.Description, t.Category, t.Priority, t.Status,
                        t.DueDate, t.DueTime, t.AssignedToId, t.AssignedById, t.ClinicId,
@@ -106,8 +97,8 @@ app.http('getTaskById', {
                 LEFT JOIN Users u ON t.AssignedToId = u.Id
                 LEFT JOIN Users ab ON t.AssignedById = ab.Id
                 LEFT JOIN Clinics c ON t.ClinicId = c.Id
-                WHERE t.Id = @id AND ${tenantClinicScopeSql('t.ClinicId')}
-            `, { id, [TENANT_PARAM]: tenantUserId });
+                WHERE t.Id = @id
+            `, { id });
             
             if (result.recordset.length === 0) {
                 return errorResponse('Task not found', 404);

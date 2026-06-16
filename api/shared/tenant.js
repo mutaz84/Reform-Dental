@@ -3,18 +3,18 @@ const { sql, getPool } = require('./database');
 /**
  * Tenant scoping helpers.
  *
- * Multi-tenancy is enforced at query-time using the user's UserClinics membership.
- * Every API endpoint that returns or mutates tenant-scoped data should:
- *   1. Resolve the caller's UserId via getRequestUserId(req).
- *   2. Add the snippet returned by tenantClinicScopeSql('ClinicId') (or with a
- *      table alias such as 't.ClinicId') to its WHERE clause.
- *   3. Bind the userId via the param name TENANT_PARAM ('_tenantUserId').
+ * Multi-tenancy in Reform Dental is enforced at query-time using the user's
+ * UserClinics membership. Every API endpoint that returns or mutates
+ * tenant-scoped data should:
+ *   1. Call getRequestUserId(req) to get the caller's UserId.
+ *   2. Call getUserClinicIds(pool, userId) to get the list of ClinicIds they may see.
+ *   3. Add WHERE ClinicId IN (...) (or join on UserClinics) to every SELECT.
+ *   4. On INSERT, default the row's ClinicId to the user's primary clinic if not supplied.
  *
- * If a user has no clinic memberships, the subquery returns no ClinicIds and
- * the caller naturally sees zero rows (fail closed).
+ * If a user has no clinics, they see an empty result set (NEVER all rows).
+ * Super-admin / platform-owner accounts can be opted in via the IsPlatformAdmin
+ * flag on Users, but until that exists every caller is tenant-scoped.
  */
-
-const TENANT_PARAM = '_tenantUserId';
 
 function _toIntOrNull(v) {
     if (v === null || v === undefined || v === '') return null;
@@ -23,49 +23,24 @@ function _toIntOrNull(v) {
 }
 
 /**
- * Pulls the caller's UserId from the request. Handles both Azure Functions v3
- * (req.headers is a plain object) and v4 (request.headers is a Headers
- * instance). Looks at, in order:
- *   - X-User-Id header
- *   - query.userId / query.actorUserId / query.UserId
- *   - body.userId / body.actorUserId / body.UserId
+ * Pulls the caller's UserId from the request. Looks at (in order):
+ *   - req.headers['x-user-id']
+ *   - req.query.userId / req.query.actorUserId / req.query.UserId
+ *   - req.body.userId / req.body.actorUserId / req.body.UserId
  * Returns null if none of those are present or numeric.
  */
 function getRequestUserId(req) {
     if (!req) return null;
-
-    // Header lookup (works for v3 plain object and v4 Headers instance).
-    const headers = req.headers;
-    let headerVal;
-    if (headers) {
-        if (typeof headers.get === 'function') {
-            headerVal = headers.get('x-user-id') || headers.get('X-User-Id');
-        } else {
-            headerVal = headers['x-user-id'] || headers['X-User-Id'];
-        }
-    }
+    const h = req.headers || {};
+    const headerVal = h['x-user-id'] || h['X-User-Id'];
     const fromHeader = _toIntOrNull(headerVal);
     if (fromHeader) return fromHeader;
-
-    // Query lookup (v4 query is a URLSearchParams-like Map; v3 is a plain object).
-    const q = req.query;
-    let qVal;
-    if (q && typeof q.get === 'function') {
-        qVal = q.get('userId') || q.get('actorUserId') || q.get('UserId') || q.get('ActorUserId');
-    } else if (q && typeof q === 'object') {
-        qVal = q.userId || q.actorUserId || q.UserId || q.ActorUserId;
-    }
-    const fromQuery = _toIntOrNull(qVal);
+    const q = req.query || {};
+    const fromQuery = _toIntOrNull(q.userId || q.actorUserId || q.UserId || q.ActorUserId);
     if (fromQuery) return fromQuery;
-
-    // Body lookup (must already be parsed by caller).
-    const b = req.body || (typeof req.json === 'function' ? null : null);
-    if (b && typeof b === 'object') {
-        const fromBody = _toIntOrNull(b.userId || b.actorUserId || b.UserId || b.ActorUserId);
-        if (fromBody) return fromBody;
-    }
-
-    return null;
+    const b = req.body || {};
+    const fromBody = _toIntOrNull(b.userId || b.actorUserId || b.UserId || b.ActorUserId);
+    return fromBody;
 }
 
 /**
@@ -87,6 +62,7 @@ async function getUserClinicIds(pool, userId) {
             .map((r) => _toIntOrNull(r.ClinicId))
             .filter((n) => n !== null);
     } catch (err) {
+        // If UserClinics is missing / unhealthy, fail closed (return empty).
         return [];
     }
 }
@@ -104,33 +80,14 @@ async function getTenantContext(req, pool) {
 }
 
 /**
- * Returns a SQL snippet that scopes a column to clinics the caller is a member of.
- * Caller must bind the userId via TENANT_PARAM.
- *
- * Example:
- *   request.input('_tenantUserId', sql.Int, userId);
- *   await request.query(`SELECT * FROM Equipment WHERE ${tenantClinicScopeSql('ClinicId')}`);
- *
- * Or with execute():
- *   const params = { ..., _tenantUserId: userId };
- *   await execute(`SELECT * FROM Tasks t WHERE ${tenantClinicScopeSql('t.ClinicId')}`, params);
- *
- * NOTE: pass a userId of -1 (or 0) when none is available so the subquery
- * matches no rows (fail closed). Wrap the snippet with `userId == null` check
- * upstream if you prefer to short-circuit.
- */
-function tenantClinicScopeSql(columnExpr = 'ClinicId') {
-    return `${columnExpr} IN (SELECT ClinicId FROM UserClinics WHERE UserId = @${TENANT_PARAM})`;
-}
-
-/**
  * Builds a parameterized SQL fragment "ClinicId IN (@_tc0, @_tc1, ...)"
  * and binds values onto the provided sql.Request. Returns:
- *   - null if clinicIds is empty.
+ *   - null if clinicIds is empty (caller should short-circuit to []).
  *   - { sql: 'ClinicId IN (@_tc0,@_tc1)', paramNames: ['_tc0','_tc1'] } otherwise.
  *
- * Useful when the caller already has the clinicIds array in JS and wants to
- * avoid a second roundtrip to compute the subquery.
+ * @param {sql.Request} request - the mssql request to bind onto
+ * @param {number[]} clinicIds
+ * @param {string} columnExpr - e.g. 'ClinicId' or 't.ClinicId'
  */
 function buildClinicInClause(request, clinicIds, columnExpr = 'ClinicId') {
     if (!Array.isArray(clinicIds) || clinicIds.length === 0) return null;
@@ -147,10 +104,8 @@ function buildClinicInClause(request, clinicIds, columnExpr = 'ClinicId') {
 }
 
 module.exports = {
-    TENANT_PARAM,
     getRequestUserId,
     getUserClinicIds,
     getTenantContext,
-    tenantClinicScopeSql,
     buildClinicInClause
 };

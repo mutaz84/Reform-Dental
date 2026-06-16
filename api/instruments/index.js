@@ -1,5 +1,4 @@
 const sql = require('mssql');
-const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -45,25 +44,14 @@ module.exports = async function (context, req) {
         const id = req.params.id;
 
         if (req.method === 'GET') {
-            const tenantUserId = getRequestUserId(req);
             if (id) {
-                if (!tenantUserId) {
-                    context.res = { status: 200, headers, body: null };
-                    return;
-                }
                 const result = await pool.request()
                     .input('id', sql.Int, id)
-                    .input(TENANT_PARAM, sql.Int, tenantUserId)
-                    .query(`SELECT * FROM Instruments WHERE Id = @id AND ${tenantClinicScopeSql('ClinicId')}`);
+                    .query('SELECT * FROM Instruments WHERE Id = @id');
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                if (!tenantUserId) {
-                    context.res = { status: 200, headers, body: [] };
-                    return;
-                }
                 const result = await pool.request()
-                    .input(TENANT_PARAM, sql.Int, tenantUserId)
-                    .query(`SELECT * FROM Instruments WHERE ${tenantClinicScopeSql('ClinicId')} ORDER BY Name`);
+                    .query('SELECT * FROM Instruments ORDER BY Name');
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {
