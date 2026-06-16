@@ -268,6 +268,12 @@ module.exports = async function (context, req) {
                     context.res = { status: 200, headers, body: { message: 'Note added' } };
                     return;
                 }
+                if (action === 'welcome-email') {
+                    // Placeholder: logs the intent until an email provider is wired up.
+                    await logEvent(pool, id, 'welcome_email_sent', actorUserId, { sentAt: new Date().toISOString() });
+                    context.res = { status: 200, headers, body: { message: 'Welcome email queued (placeholder — wire to your email provider).' } };
+                    return;
+                }
                 context.res = { status: 400, headers, body: { error: `Unknown action: ${action}` } };
                 return;
             }

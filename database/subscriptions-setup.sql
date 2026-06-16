@@ -99,6 +99,18 @@ ELSE
 GO
 
 -- =============================================
+-- 4b. ADD TRIAL COLUMN (idempotent)
+-- =============================================
+IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='Subscriptions' AND COLUMN_NAME='TrialEndsAt')
+BEGIN
+    ALTER TABLE Subscriptions ADD TrialEndsAt DATETIME NULL;
+    PRINT 'Added TrialEndsAt column to Subscriptions';
+END
+ELSE
+    PRINT 'TrialEndsAt column already exists';
+GO
+
+-- =============================================
 -- 5. SEED DEFAULT PLANS (only if SubscriptionPlans is empty)
 -- =============================================
 IF NOT EXISTS (SELECT TOP 1 1 FROM SubscriptionPlans)
