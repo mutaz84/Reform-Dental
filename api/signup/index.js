@@ -83,6 +83,7 @@ module.exports = async function (context, req) {
     if (!planId) { context.res = { status: 400, headers, body: { error: 'Plan selection is required.' } }; return; }
 
     let pool;
+    let transaction = null;
     try {
         pool = await getPool();
 
@@ -95,11 +96,14 @@ module.exports = async function (context, req) {
             context.res = { status: 400, headers, body: { error: 'Selected plan is no longer available.' } }; return;
         }
 
-        // Reject if username (email) already in use
+        // Reject if username (email) already in use — case-insensitive check on Username AND WorkEmail
         const existingUser = await pool.request().input('uname', sql.NVarChar, email)
-            .query('SELECT TOP 1 Id FROM Users WHERE Username = @uname');
+            .query('SELECT TOP 1 Id, Username FROM Users WHERE LOWER(Username) = LOWER(@uname) OR LOWER(ISNULL(WorkEmail, \'\')) = LOWER(@uname)');
         if (existingUser.recordset && existingUser.recordset.length > 0) {
-            context.res = { status: 409, headers, body: { error: 'An account with this email already exists. Please sign in instead.' } };
+            context.res = { status: 409, headers, body: {
+                error: 'An account with this email already exists. Please sign in instead, or use a different email address.',
+                code: 'duplicate_user'
+            } };
             return;
         }
 
@@ -108,8 +112,14 @@ module.exports = async function (context, req) {
         const userClinicCols = await getTableColumns(pool, 'UserClinics');
         const subColumns     = await getTableColumns(pool, 'Subscriptions');
 
+        // ===== TRANSACTION: Clinic + User + UserClinics + Subscription + SubscriptionClinics =====
+        // If ANY core insert fails, rollback so no orphan clinic / user remains.
+        transaction = new sql.Transaction(pool);
+        await transaction.begin();
+        const tReq = () => new sql.Request(transaction);
+
         // 1) Create Clinic
-        const clinicReq = pool.request().input('name', sql.NVarChar, companyName);
+        const clinicReq = tReq().input('name', sql.NVarChar, companyName);
         const clinicCols = ['Name'];
         const clinicVals = ['@name'];
         if (hasColumn(clinicColumns, 'Address')) { clinicReq.input('address', sql.NVarChar, address); clinicCols.push('Address'); clinicVals.push('@address'); }
@@ -121,8 +131,8 @@ module.exports = async function (context, req) {
         const clinicInsert = await clinicReq.query(`INSERT INTO Clinics (${clinicCols.join(', ')}) OUTPUT INSERTED.Id VALUES (${clinicVals.join(', ')})`);
         const clinicId = clinicInsert.recordset[0].Id;
 
-        // 2) Create User (role=owner)
-        const userReq = pool.request()
+        // 2) Create User (role=admin — CK constraint compatible; treated same as owner by app permissions)
+        const userReq = tReq()
             .input('username', sql.NVarChar, email)
             .input('passwordHash', sql.NVarChar, password)
             .input('firstName', sql.NVarChar, ownerFirstName)
@@ -134,7 +144,6 @@ module.exports = async function (context, req) {
             uCols.push('WorkEmail'); uVals.push('@workEmail');
         }
         if (hasColumn(userColumns, 'Role')) {
-            // Use 'admin' (CK-constraint compatible). The app treats admin and owner interchangeably for permissions.
             userReq.input('role', sql.NVarChar, 'admin');
             uCols.push('Role'); uVals.push('@role');
         }
@@ -143,20 +152,20 @@ module.exports = async function (context, req) {
         const userInsert = await userReq.query(`INSERT INTO Users (${uCols.join(', ')}) OUTPUT INSERTED.Id VALUES (${uVals.join(', ')})`);
         const userId = userInsert.recordset[0].Id;
 
-        // 3) Link user <-> clinic
+        // 3) Link user <-> clinic (non-fatal — kept inside txn so it rolls back too)
         if (userClinicCols.size > 0 && hasColumn(userClinicCols, 'UserId') && hasColumn(userClinicCols, 'ClinicId')) {
             try {
-                await pool.request()
+                await tReq()
                     .input('userId', sql.Int, userId)
                     .input('clinicId', sql.Int, clinicId)
                     .query('INSERT INTO UserClinics (UserId, ClinicId) VALUES (@userId, @clinicId)');
-            } catch (_) { /* non-fatal */ }
+            } catch (linkErr) { context.log.warn('UserClinics link failed (non-fatal):', linkErr.message); }
         }
 
         // 4) Create subscription (active with trial)
         const trialEndsAt = startTrial ? new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000) : null;
         const status = startTrial ? 'active' : 'pending';
-        const subReq = pool.request()
+        const subReq = tReq()
             .input('owner', sql.Int, userId)
             .input('planId', sql.Int, planId)
             .input('status', sql.NVarChar(30), status);
@@ -175,13 +184,16 @@ module.exports = async function (context, req) {
 
         // 5) Cover the new clinic under the subscription
         try {
-            await pool.request()
+            await tReq()
                 .input('subId', sql.Int, subscriptionId)
                 .input('clinicId', sql.Int, clinicId)
                 .query('INSERT INTO SubscriptionClinics (SubscriptionId, ClinicId) VALUES (@subId, @clinicId)');
-        } catch (_) { /* non-fatal */ }
+        } catch (covErr) { context.log.warn('SubscriptionClinics link failed (non-fatal):', covErr.message); }
 
-        // 6) Audit
+        await transaction.commit();
+        transaction = null;
+
+        // 6) Audit (outside the txn — non-critical history)
         await logEvent(pool, subscriptionId, 'requested', actorUserId || userId, { planId, source: actorUserId ? 'admin' : 'public' });
         if (status === 'active') {
             await logEvent(pool, subscriptionId, 'approved', actorUserId || userId, { auto: true, trial: !!trialEndsAt });
@@ -210,6 +222,9 @@ module.exports = async function (context, req) {
         };
     } catch (err) {
         context.log.error('Signup error:', err);
+        if (transaction) {
+            try { await transaction.rollback(); } catch (rbErr) { context.log.warn('Rollback failed:', rbErr.message); }
+        }
         await resetPool();
         const raw = String(err && (err.message || err) || '');
         let status = 500;
