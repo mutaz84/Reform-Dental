@@ -1,5 +1,6 @@
 const { execute } = require('../shared/database');
 const { successResponse, errorResponse, handleOptions } = require('../shared/response');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 function hasOwn(obj, key) {
     return Object.prototype.hasOwnProperty.call(obj || {}, key);
@@ -123,7 +124,7 @@ function mapShiftRowsToHierarchy(rows) {
     });
 }
 
-async function getShifts({ id = null, shiftDate = null, startDate = null, endDate = null, includeInactive = false } = {}) {
+async function getShifts({ id = null, shiftDate = null, startDate = null, endDate = null, includeInactive = false, tenantUserId = null } = {}) {
     const result = await execute(`
         SELECT
             sh.Id AS ShiftId,
@@ -188,13 +189,21 @@ async function getShifts({ id = null, shiftDate = null, startDate = null, endDat
           AND (@shiftDate IS NULL OR sh.ShiftDate = @shiftDate)
           AND (@startDate IS NULL OR sh.ShiftDate IS NULL OR sh.ShiftDate >= @startDate)
           AND (@endDate IS NULL OR sh.ShiftDate IS NULL OR sh.ShiftDate <= @endDate)
+          AND (ser.ClinicId IS NULL OR ser.ClinicId IN (
+                SELECT ClinicId FROM UserClinics WHERE UserId = @_tenantUserId
+                UNION
+                SELECT sc.ClinicId FROM SubscriptionClinics sc
+                INNER JOIN Subscriptions s ON s.Id = sc.SubscriptionId
+                WHERE s.OwnerUserId = @_tenantUserId AND s.IsActive = 1
+          ))
         ORDER BY sh.ShiftDate, sh.Id, ser.SortOrder, ser.Id, ri.SortOrder, ri.Id
     `, {
         id: parseIntOrNull(id),
         includeInactive: includeInactive ? 1 : 0,
         shiftDate: toNullableString(shiftDate),
         startDate: toNullableString(startDate),
-        endDate: toNullableString(endDate)
+        endDate: toNullableString(endDate),
+        _tenantUserId: tenantUserId
     });
 
     return mapShiftRowsToHierarchy(result.recordset || []);
@@ -232,6 +241,14 @@ module.exports = async function (context, req) {
 
     const entity = String(req.params?.entity || '').trim().toLowerCase();
     const id = parseIntOrNull(req.params?.id);
+    const tenantUserId = getRequestUserId(req);
+    const tenantClause = `(ser.ClinicId IS NULL OR ${tenantClinicScopeSql('ser.ClinicId')})`;
+    const tenantClauseSer2 = `(ser2.ClinicId IS NULL OR ${tenantClinicScopeSql('ser2.ClinicId')})`;
+
+    if (req.method === 'GET' && !tenantUserId) {
+        context.res = successResponse(id ? null : []);
+        return;
+    }
 
     try {
         if (req.method === 'GET' && entity === 'shifts') {
@@ -246,7 +263,8 @@ module.exports = async function (context, req) {
                 shiftDate,
                 startDate,
                 endDate,
-                includeInactive
+                includeInactive,
+                tenantUserId
             });
 
             if (id) {
@@ -292,7 +310,8 @@ module.exports = async function (context, req) {
                 LEFT JOIN Rooms r ON r.Id = ser.RoomId
                 WHERE ser.Id = @id
                   AND ser.IsActive = 1
-            `, { id });
+                  AND ${tenantClause}
+            `, { id, [TENANT_PARAM]: tenantUserId });
 
             const row = result.recordset?.[0] || null;
             if (!row) {
@@ -338,10 +357,12 @@ module.exports = async function (context, req) {
                 LEFT JOIN Rooms r ON r.Id = ser.RoomId
                 WHERE (@shiftId IS NULL OR ser.ShiftId = @shiftId)
                   AND (@includeInactive = 1 OR ser.IsActive = 1)
+                  AND ${tenantClause}
                 ORDER BY ser.ShiftId, ser.SortOrder, ser.Id
             `, {
                 shiftId,
-                includeInactive: includeInactive ? 1 : 0
+                includeInactive: includeInactive ? 1 : 0,
+                [TENANT_PARAM]: tenantUserId
             });
 
             context.res = successResponse(result.recordset || []);
@@ -361,9 +382,11 @@ module.exports = async function (context, req) {
                     ri.CreatedDate,
                     ri.ModifiedDate
                 FROM ShiftBuilderRowItems ri
+                INNER JOIN ShiftBuilderEmployeeRows ser2 ON ser2.Id = ri.EmployeeShiftId
                 WHERE ri.Id = @id
                   AND ri.IsActive = 1
-            `, { id });
+                  AND ${tenantClauseSer2}
+            `, { id, [TENANT_PARAM]: tenantUserId });
 
             const row = result.recordset?.[0] || null;
             if (!row) {
@@ -401,11 +424,13 @@ module.exports = async function (context, req) {
                 WHERE (@employeeShiftId IS NULL OR ri.EmployeeShiftId = @employeeShiftId)
                   AND (@shiftId IS NULL OR ser.ShiftId = @shiftId)
                   AND (@includeInactive = 1 OR ri.IsActive = 1)
+                  AND ${tenantClause}
                 ORDER BY ser.ShiftId, ri.EmployeeShiftId, ri.SortOrder, ri.Id
             `, {
                 employeeShiftId,
                 shiftId,
-                includeInactive: includeInactive ? 1 : 0
+                includeInactive: includeInactive ? 1 : 0,
+                [TENANT_PARAM]: tenantUserId
             });
 
             context.res = successResponse(result.recordset || []);

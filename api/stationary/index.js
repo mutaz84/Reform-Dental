@@ -1,4 +1,5 @@
 const sql = require('mssql');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -144,6 +145,12 @@ module.exports = async function (context, req) {
         await ensureTable(pool);
 
         const routeId = cleanString(req.params?.id || '');
+        const tenantUserId = getRequestUserId(req);
+        if (!tenantUserId) {
+            context.res = { status: 200, headers, body: routeId ? null : [] };
+            return;
+        }
+        const tenantScope = tenantClinicScopeSql('ClinicId');
 
         if (req.method === 'GET') {
             if (routeId) {
@@ -151,6 +158,7 @@ module.exports = async function (context, req) {
                 const result = byNumericId
                     ? await pool.request()
                         .input('id', sql.Int, Number.parseInt(routeId, 10))
+                        .input(TENANT_PARAM, sql.Int, tenantUserId)
                         .query(`
 SELECT Id, TemplateKey,
        COALESCE(NULLIF(Name, ''), NULLIF(TemplateName, ''), 'Untitled Form') AS Name,
@@ -158,9 +166,10 @@ SELECT Id, TemplateKey,
        COALESCE(NULLIF(Elements, ''), NULLIF(TemplateJson, ''), '[]') AS Elements,
        ClinicId, OwnerUsername, CreatedDate, ModifiedDate
 FROM dbo.StationaryTemplates
-WHERE Id = @id AND IsActive = 1`)
+WHERE Id = @id AND IsActive = 1 AND (ClinicId IS NULL OR ${tenantScope})`)
                     : await pool.request()
                         .input('templateKey', sql.NVarChar(120), routeId)
+                        .input(TENANT_PARAM, sql.Int, tenantUserId)
                         .query(`
 SELECT Id, TemplateKey,
        COALESCE(NULLIF(Name, ''), NULLIF(TemplateName, ''), 'Untitled Form') AS Name,
@@ -168,7 +177,7 @@ SELECT Id, TemplateKey,
        COALESCE(NULLIF(Elements, ''), NULLIF(TemplateJson, ''), '[]') AS Elements,
        ClinicId, OwnerUsername, CreatedDate, ModifiedDate
 FROM dbo.StationaryTemplates
-WHERE TemplateKey = @templateKey AND IsActive = 1`);
+WHERE TemplateKey = @templateKey AND IsActive = 1 AND (ClinicId IS NULL OR ${tenantScope})`);
 
                 const row = result.recordset?.[0] || null;
                 context.res = {
@@ -194,8 +203,9 @@ WHERE TemplateKey = @templateKey AND IsActive = 1`);
             const clinicId = toNullableInt(req.query?.clinicId);
             const owner = cleanString(req.query?.owner || '');
 
-            const whereParts = ['IsActive = 1'];
+            const whereParts = ['IsActive = 1', `(ClinicId IS NULL OR ${tenantScope})`];
             const request = pool.request();
+            request.input(TENANT_PARAM, sql.Int, tenantUserId);
 
             if (Number.isInteger(clinicId)) {
                 whereParts.push('ClinicId = @clinicId');

@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -284,6 +285,15 @@ WHERE EXISTS (
 
         if (req.method === 'GET') {
             const viewMode = String(req.query.view || '').trim().toLowerCase();
+            const tenantUserId = getRequestUserId(req);
+            const hasComplianceClinicCol = hasColumn(complianceColumns, 'ClinicId');
+            if (hasComplianceClinicCol && !tenantUserId) {
+                context.res = { status: 200, headers, body: id ? { error: 'Compliance not found' } : [] };
+                return;
+            }
+            const tenantClause = hasComplianceClinicCol
+                ? `(c.ClinicId IS NULL OR ${tenantClinicScopeSql('c.ClinicId')})`
+                : null;
 
             if (viewMode === 'summary-by-user') {
                 if (!hasAssignmentTable && !hasColumn(complianceColumns, 'UserId')) {
@@ -295,7 +305,10 @@ WHERE EXISTS (
                 const hasUsersTable = userColumns.size > 0 && hasColumn(userColumns, 'Id');
                 const whereParts = [];
                 if (hasIsActive) whereParts.push('c.IsActive = 1');
-                const summaryRows = await pool.request().query(`
+                if (tenantClause) whereParts.push(tenantClause);
+                const summaryReq = pool.request();
+                if (tenantClause) summaryReq.input(TENANT_PARAM, sql.Int, tenantUserId);
+                const summaryRows = await summaryReq.query(`
 SELECT c.Id, c.UserId, c.Status, c.ExpiryDate
 FROM Compliances c
 ${whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : ''}`);
@@ -392,6 +405,10 @@ FROM Users`);
                 if (hasColumn(complianceColumns, 'Status')) {
                     whereParts.push("LOWER(LTRIM(RTRIM(ISNULL(c.Status, '')))) <> 'completed'");
                 }
+                if (tenantClause) {
+                    request.input(TENANT_PARAM, sql.Int, tenantUserId);
+                    whereParts.push(tenantClause);
+                }
 
                 const userIdFilter = toNullableInt(req.query.userId);
                 const shouldFilterInMemoryByUser = !!(Number.isInteger(userIdFilter) && userIdFilter > 0 && hasAssignmentTable);
@@ -446,6 +463,10 @@ ORDER BY DaysUntilDue ASC, c.ExpiryDate ASC`);
                 if (hasIsActive) {
                     whereById.push('c.IsActive = 1');
                 }
+                if (tenantClause) {
+                    idRequest.input(TENANT_PARAM, sql.Int, tenantUserId);
+                    whereById.push(tenantClause);
+                }
 
                 const result = await idRequest.query(`
 SELECT c.*, ${selectTypeName}
@@ -481,6 +502,11 @@ WHERE ${whereById.join(' AND ')}`);
             if (Number.isInteger(clinicId) && clinicId > 0 && hasColumn(complianceColumns, 'ClinicId')) {
                 request.input('clinicId', sql.Int, clinicId);
                 where.push('c.ClinicId = @clinicId');
+            }
+
+            if (tenantClause) {
+                request.input(TENANT_PARAM, sql.Int, tenantUserId);
+                where.push(tenantClause);
             }
 
             const orderBy = hasColumn(complianceColumns, 'ExpiryDate')

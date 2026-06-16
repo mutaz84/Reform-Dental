@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 async function readBody(req) {
     if (!req) return {};
@@ -156,14 +157,22 @@ module.exports = async function (context, req) {
             )`;
 
         if (req.method === 'GET') {
+            const tenantUserId = getRequestUserId(req);
+            if (!tenantUserId) {
+                context.res = { status: 200, headers, body: id ? null : [] };
+                return;
+            }
+            const tenantClause = `AND ${tenantClinicScopeSql('s.ClinicId')}`;
             if (id) {
                 const result = await pool.request()
                     .input('id', sql.Int, id)
-                    .query(`${baseGetSelect} WHERE s.Id = @id AND ${activeAndNotSyntheticWhere}`);
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
+                    .query(`${baseGetSelect} WHERE s.Id = @id AND ${activeAndNotSyntheticWhere} ${tenantClause}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 const result = await pool.request()
-                    .query(`${baseGetSelect} WHERE ${activeAndNotSyntheticWhere} ORDER BY s.StartDate, s.StartTime`);
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
+                    .query(`${baseGetSelect} WHERE ${activeAndNotSyntheticWhere} ${tenantClause} ORDER BY s.StartDate, s.StartTime`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
             return;

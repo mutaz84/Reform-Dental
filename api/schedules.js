@@ -2,6 +2,7 @@
 const { app } = require('@azure/functions');
 const { execute } = require('./shared/database');
 const { successResponse, errorResponse, handleOptions } = require('./shared/response');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('./shared/tenant');
 
 // GET all schedules
 app.http('getSchedules', {
@@ -12,6 +13,8 @@ app.http('getSchedules', {
         if (request.method === 'OPTIONS') return handleOptions();
         
         try {
+            const tenantUserId = getRequestUserId(request);
+            if (!tenantUserId) return successResponse([]);
             const userId = request.query.get('userId');
             const clinicId = request.query.get('clinicId');
             const startDate = request.query.get('startDate');
@@ -32,10 +35,10 @@ app.http('getSchedules', {
                 LEFT JOIN Clinics c ON s.ClinicId = c.Id
                 LEFT JOIN Rooms r ON s.RoomId = r.Id
                 LEFT JOIN Users a ON s.AssistantId = a.Id
-                WHERE s.IsActive = 1
+                WHERE s.IsActive = 1 AND ${tenantClinicScopeSql('s.ClinicId')}
             `;
             
-            const params = {};
+            const params = { [TENANT_PARAM]: tenantUserId };
             
             if (userId) {
                 query += ' AND s.UserId = @userId';
@@ -76,6 +79,8 @@ app.http('getScheduleById', {
         const id = request.params.id;
         
         try {
+            const tenantUserId = getRequestUserId(request);
+            if (!tenantUserId) return errorResponse('Schedule not found', 404);
             const result = await execute(`
                   SELECT s.Id, s.UserId, s.ProviderId, s.EmployeeId, s.ClinicId, s.RoomId, s.AssistantId,
                       s.ShiftBuilderShiftId, s.ShiftBuilderEmployeeRowId,
@@ -90,8 +95,8 @@ app.http('getScheduleById', {
                 LEFT JOIN Clinics c ON s.ClinicId = c.Id
                 LEFT JOIN Rooms r ON s.RoomId = r.Id
                 LEFT JOIN Users a ON s.AssistantId = a.Id
-                WHERE s.Id = @id AND s.IsActive = 1
-            `, { id });
+                WHERE s.Id = @id AND s.IsActive = 1 AND ${tenantClinicScopeSql('s.ClinicId')}
+            `, { id, [TENANT_PARAM]: tenantUserId });
             
             if (result.recordset.length === 0) {
                 return errorResponse('Schedule not found', 404);

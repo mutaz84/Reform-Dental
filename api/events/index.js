@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -212,10 +213,17 @@ module.exports = async function (context, req) {
         const hasStartTime = hasColumn(eventColumns, 'StartTime');
         const hasEndTime = hasColumn(eventColumns, 'EndTime');
         const hasModifiedDate = hasColumn(eventColumns, 'ModifiedDate');
+        const hasClinicCol = hasColumn(eventColumns, 'ClinicId');
         const organizerJoinColumn = hasOrganizerUserId ? 'e.OrganizerUserId' : (hasCreatedBy ? 'e.CreatedBy' : 'NULL');
+        const tenantUserId = getRequestUserId(req);
 
         if (req.method === 'GET') {
+            if (hasClinicCol && !tenantUserId) {
+                context.res = { status: 200, headers, body: id ? null : [] };
+                return;
+            }
             if (id) {
+                const tenantClause = hasClinicCol ? ` AND ${tenantClinicScopeSql('e.ClinicId')}` : '';
                 const query = `
                     SELECT
                         e.*,
@@ -223,9 +231,11 @@ module.exports = async function (context, req) {
                         LTRIM(RTRIM(CONCAT(COALESCE(u.FirstName, ''), ' ', COALESCE(u.LastName, '')))) AS CreatedByFullName
                     FROM Events e
                     LEFT JOIN Users u ON u.Id = ${organizerJoinColumn}
-                    WHERE e.Id = @id
+                    WHERE e.Id = @id${tenantClause}
                 `;
-                const result = await pool.request().input('id', sql.Int, id).query(query);
+                const reqBuilder = pool.request().input('id', sql.Int, id);
+                if (hasClinicCol) reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
+                const result = await reqBuilder.query(query);
                 const row = result.recordset[0] || null;
                 if (!row) {
                     context.res = { status: 404, headers, body: { error: 'Event not found' } };
@@ -250,6 +260,10 @@ module.exports = async function (context, req) {
             if (endQuery) {
                 request.input('endQuery', sql.DateTime2, toDateTime(endQuery));
                 whereClause += ` AND e.StartDateTime <= @endQuery`;
+            }
+            if (hasClinicCol) {
+                request.input(TENANT_PARAM, sql.Int, tenantUserId);
+                whereClause += ` AND ${tenantClinicScopeSql('e.ClinicId')}`;
             }
 
             const query = `

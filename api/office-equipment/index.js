@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -99,23 +100,32 @@ module.exports = async function (context, req) {
         }
 
         const hasIsActive = hasColumn(equipmentColumns, 'IsActive');
+        const hasClinicCol = hasColumn(equipmentColumns, 'ClinicId');
         const orderBy = hasColumn(equipmentColumns, 'Name') ? 'ORDER BY Name' : 'ORDER BY Id';
         const id = req.params.id;
+        const tenantUserId = getRequestUserId(req);
 
         if (req.method === 'GET') {
+            if (hasClinicCol && !tenantUserId) {
+                context.res = { status: 200, headers, body: id ? null : [] };
+                return;
+            }
             if (id) {
                 const where = ['Id = @id'];
-                if (hasIsActive) {
-                    where.push('IsActive = 1');
-                }
-                const result = await pool.request()
-                    .input('id', sql.Int, id)
-                    .query(`SELECT * FROM OfficeEquipment WHERE ${where.join(' AND ')}`);
+                if (hasIsActive) where.push('IsActive = 1');
+                if (hasClinicCol) where.push(tenantClinicScopeSql('ClinicId'));
+                const reqBuilder = pool.request().input('id', sql.Int, id);
+                if (hasClinicCol) reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
+                const result = await reqBuilder.query(`SELECT * FROM OfficeEquipment WHERE ${where.join(' AND ')}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                const whereClause = hasIsActive ? 'WHERE IsActive = 1' : '';
-                const result = await pool.request()
-                    .query(`SELECT * FROM OfficeEquipment ${whereClause} ${orderBy}`);
+                const where = [];
+                if (hasIsActive) where.push('IsActive = 1');
+                if (hasClinicCol) where.push(tenantClinicScopeSql('ClinicId'));
+                const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+                const reqBuilder = pool.request();
+                if (hasClinicCol) reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
+                const result = await reqBuilder.query(`SELECT * FROM OfficeEquipment ${whereClause} ${orderBy}`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {
