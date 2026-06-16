@@ -1,5 +1,4 @@
 const sql = require('mssql');
-const { getRequestUserId, tenantVisibleUsernamesSql, TENANT_PARAM } = require('../shared/tenant');
 
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -94,29 +93,20 @@ module.exports = async function (context, req) {
                 return;
             }
 
-            const tenantUserId = getRequestUserId(req);
-            if (!tenantUserId) {
-                context.res = { status: 200, headers, body: [] };
-                return;
-            }
-
             const result = await pool.request()
                 .input('requestId', sql.Int, requestId)
-                .input(TENANT_PARAM, sql.Int, tenantUserId)
                 .query(`
                     SELECT
-                      rrl.Id AS id,
-                                            rrl.${requestIdColumn} AS requestId,
-                                            ${fromUserColumn ? `rrl.${fromUserColumn} AS fromUser` : 'NULL AS fromUser'},
-                                            ${toUserColumn ? `rrl.${toUserColumn} AS toUser` : 'NULL AS toUser'},
-                                            rrl.${actionColumn} AS action,
-                                            ${noteColumn ? `rrl.${noteColumn} AS note` : 'NULL AS note'},
-                                            ${createdAtColumn ? `rrl.${createdAtColumn} AS createdAt` : 'SYSUTCDATETIME() AS createdAt'}
-                    FROM RequestRoutingLog rrl
-                    INNER JOIN Requests r ON r.Id = rrl.${requestIdColumn}
-                                        WHERE rrl.${requestIdColumn} = @requestId
-                                          AND r.RequestedBy IN (${tenantVisibleUsernamesSql()})
-                                        ORDER BY ${createdAtColumn ? `rrl.${createdAtColumn}` : 'rrl.Id'} ASC
+                      Id AS id,
+                                            ${requestIdColumn} AS requestId,
+                                            ${fromUserColumn ? `${fromUserColumn} AS fromUser` : 'NULL AS fromUser'},
+                                            ${toUserColumn ? `${toUserColumn} AS toUser` : 'NULL AS toUser'},
+                                            ${actionColumn} AS action,
+                                            ${noteColumn ? `${noteColumn} AS note` : 'NULL AS note'},
+                                            ${createdAtColumn ? `${createdAtColumn} AS createdAt` : 'SYSUTCDATETIME() AS createdAt'}
+                    FROM RequestRoutingLog
+                                        WHERE ${requestIdColumn} = @requestId
+                                        ORDER BY ${createdAtColumn || 'Id'} ASC
                 `);
 
             context.res = { status: 200, headers, body: (result.recordset || []).map(mapRow) };

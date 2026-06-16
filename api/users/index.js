@@ -1,5 +1,4 @@
 const { sql, getPool, resetPool } = require('../shared/database');
-const { getRequestUserId, tenantVisibleUserIdsClause, isPlatformAdminRequest, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -449,20 +448,8 @@ module.exports = async function (context, req) {
                     where.push('ISNULL(u.IsActive, 1) = 1');
                 }
 
-                // Tenant scope: caller must be able to "see" this user.
-                const tenantUserId = getRequestUserId(req);
-                const isPlatform = await isPlatformAdminRequest(req);
-                if (!isPlatform) {
-                    if (!tenantUserId) {
-                        context.res = { status: 404, headers, body: { error: 'User not found' } };
-                        return;
-                    }
-                    where.push(tenantVisibleUserIdsClause('u.Id'));
-                }
-
-                const reqBuilder = pool.request().input('id', sql.Int, id);
-                if (!isPlatform) reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                const result = await reqBuilder
+                const result = await pool.request()
+                    .input('id', sql.Int, id)
                     .query(`SELECT ${baseSelect}${clinicIdsJson}${clinicsJson}${hrDataSelect} FROM Users u ${hrJoin} WHERE ${where.join(' AND ')}`);
 
                 if (result.recordset.length === 0) {
@@ -494,25 +481,10 @@ module.exports = async function (context, req) {
                     };
                 }
             } else {
-                const where = [];
-                if (hasUserIsActive && !includeInactive) where.push('ISNULL(u.IsActive, 1) = 1');
-
-                const tenantUserId = getRequestUserId(req);
-                const isPlatform = await isPlatformAdminRequest(req);
-                if (!isPlatform) {
-                    if (!tenantUserId) {
-                        context.res = { status: 200, headers, body: [] };
-                        return;
-                    }
-                    where.push(tenantVisibleUserIdsClause('u.Id'));
-                }
-
-                const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+                const whereClause = (hasUserIsActive && !includeInactive) ? 'WHERE ISNULL(u.IsActive, 1) = 1' : '';
                 const orderBy = hasColumn(userColumns, 'FirstName') ? 'ORDER BY u.FirstName' : 'ORDER BY u.Id';
 
-                const reqBuilder = pool.request();
-                if (!isPlatform) reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                const result = await reqBuilder
+                const result = await pool.request()
                     .query(`SELECT ${baseSelect}${clinicIdsJson}${clinicsJson}${hrDataSelect} FROM Users u ${hrJoin} ${whereClause} ${orderBy}`);
 
                 const users = (result.recordset || []).map((row) => {

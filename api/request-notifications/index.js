@@ -1,5 +1,4 @@
 const sql = require('mssql');
-const { getRequestUserId, tenantVisibleUsernamesSql, TENANT_PARAM } = require('../shared/tenant');
 
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -71,19 +70,11 @@ module.exports = async function (context, req) {
                 return;
             }
 
-            const tenantUserId = getRequestUserId(req);
-            if (!tenantUserId) {
-                context.res = { status: 200, headers, body: [] };
-                return;
-            }
-
-            // Tenant scope: ToUser must be a username the caller can "see".
             const request = pool.request()
                 .input('toUser', sql.NVarChar, toUser)
-                .input('limit', sql.Int, limit)
-                .input(TENANT_PARAM, sql.Int, tenantUserId);
+                .input('limit', sql.Int, limit);
 
-            let where = `WHERE ToUser = @toUser AND ToUser IN (${tenantVisibleUsernamesSql()})`;
+            let where = 'WHERE ToUser = @toUser';
             if (unread === '1' || unread.toLowerCase() === 'true') {
                 where += ' AND IsRead = 0';
             }

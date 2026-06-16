@@ -1,5 +1,4 @@
 ﻿const { sql, getPool, resetPool } = require('../shared/database');
-const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -38,36 +37,19 @@ module.exports = async function (context, req) {
         const id = req.params.id;
 
         if (req.method === 'GET') {
-            const tenantUserId = getRequestUserId(req);
-            const hasClinicCol = hasColumn(vendorColumns, 'ClinicId');
             if (id) {
                 const where = ['Id = @id'];
-                if (hasIsActive) where.push('IsActive = 1');
-                const reqBuilder = pool.request().input('id', sql.Int, id);
-                if (hasClinicCol) {
-                    if (!tenantUserId) {
-                        context.res = { status: 200, headers, body: null };
-                        return;
-                    }
-                    reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                    where.push(`(ClinicId IS NULL OR ${tenantClinicScopeSql('ClinicId')})`);
+                if (hasIsActive) {
+                    where.push('IsActive = 1');
                 }
-                const result = await reqBuilder.query(`SELECT * FROM Vendors WHERE ${where.join(' AND ')}`);
+                const result = await pool.request()
+                    .input('id', sql.Int, id)
+                    .query(`SELECT * FROM Vendors WHERE ${where.join(' AND ')}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                if (hasClinicCol && !tenantUserId) {
-                    context.res = { status: 200, headers, body: [] };
-                    return;
-                }
-                const where = [];
-                if (hasIsActive) where.push('IsActive = 1');
-                const reqBuilder = pool.request();
-                if (hasClinicCol) {
-                    reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                    where.push(`(ClinicId IS NULL OR ${tenantClinicScopeSql('ClinicId')})`);
-                }
-                const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-                const result = await reqBuilder.query(`SELECT * FROM Vendors ${whereClause} ${orderBy}`);
+                const whereClause = hasIsActive ? 'WHERE IsActive = 1' : '';
+                const result = await pool.request()
+                    .query(`SELECT * FROM Vendors ${whereClause} ${orderBy}`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {

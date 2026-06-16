@@ -1,5 +1,4 @@
 const sql = require('mssql');
-const { getRequestUserId, tenantVisibleUsernamesSql, TENANT_PARAM } = require('../shared/tenant');
 
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -63,28 +62,18 @@ module.exports = async function (context, req) {
                 return;
             }
 
-            const tenantUserId = getRequestUserId(req);
-            if (!tenantUserId) {
-                context.res = { status: 200, headers, body: [] };
-                return;
-            }
-
-            // Tenant scope: only return comments whose parent Request was created by a visible user.
             const result = await pool.request()
                 .input('requestId', sql.Int, requestId)
-                .input(TENANT_PARAM, sql.Int, tenantUserId)
                 .query(`
                     SELECT
-                      rc.Id AS id,
-                      rc.RequestId AS requestId,
-                      rc.CommentText AS commentText,
-                      rc.CreatedBy AS createdBy,
-                      rc.CreatedAt AS createdAt
-                    FROM RequestComments rc
-                    INNER JOIN Requests r ON r.Id = rc.RequestId
-                    WHERE rc.RequestId = @requestId
-                      AND r.RequestedBy IN (${tenantVisibleUsernamesSql()})
-                    ORDER BY rc.CreatedAt ASC
+                      Id AS id,
+                      RequestId AS requestId,
+                      CommentText AS commentText,
+                      CreatedBy AS createdBy,
+                      CreatedAt AS createdAt
+                    FROM RequestComments
+                    WHERE RequestId = @requestId
+                    ORDER BY CreatedAt ASC
                 `);
 
             context.res = { status: 200, headers, body: (result.recordset || []).map(mapRow) };

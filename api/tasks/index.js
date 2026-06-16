@@ -1,5 +1,4 @@
 const { sql, getPool, resetPool } = require('../shared/database');
-const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -148,37 +147,24 @@ module.exports = async function (context, req) {
         const linkedComplianceStatusColumn = getExistingColumn(taskColumns, ['LinkedComplianceStatus', 'ComplianceStatus']);
 
         if (req.method === 'GET') {
-            const tenantUserId = getRequestUserId(req);
-            const hasClinicCol = hasColumn(taskColumns, 'ClinicId');
             if (id) {
-                const reqBuilder = pool.request().input('id', sql.Int, id);
-                let whereSql = 'Id = @id';
-                if (hasClinicCol) {
-                    if (!tenantUserId) {
-                        context.res = { status: 200, headers, body: null };
-                        return;
-                    }
-                    reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                    whereSql += ` AND (ClinicId IS NULL OR ${tenantClinicScopeSql('ClinicId')})`;
-                }
-                const result = await reqBuilder.query(`SELECT * FROM Tasks WHERE ${whereSql}`);
+                const result = await pool.request()
+                    .input('id', sql.Int, id)
+                    .query('SELECT * FROM Tasks WHERE Id = @id');
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                if (hasClinicCol && !tenantUserId) {
-                    context.res = { status: 200, headers, body: [] };
-                    return;
-                }
                 // Support filtering by TaskType
                 const taskType = req.query.taskType;
-                const where = [];
-                if (hasClinicCol) where.push(`(ClinicId IS NULL OR ${tenantClinicScopeSql('ClinicId')})`);
-                if (taskType) where.push('TaskType = @taskType');
-                const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-                let query = `SELECT * FROM Tasks ${whereClause} ORDER BY DueDate, Priority`;
-
+                let query = 'SELECT * FROM Tasks';
+                if (taskType) {
+                    query += ' WHERE TaskType = @taskType';
+                }
+                query += ' ORDER BY DueDate, Priority';
+                
                 const request = pool.request();
-                if (hasClinicCol) request.input(TENANT_PARAM, sql.Int, tenantUserId);
-                if (taskType) request.input('taskType', sql.NVarChar, taskType);
+                if (taskType) {
+                    request.input('taskType', sql.NVarChar, taskType);
+                }
                 const result = await request.query(query);
                 context.res = { status: 200, headers, body: result.recordset };
             }

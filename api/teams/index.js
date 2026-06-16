@@ -86,8 +86,6 @@ function buildTeamColumnDefinitions(request, columns, body) {
     return definitions;
 }
 
-const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
-
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
@@ -115,33 +113,14 @@ module.exports = async function (context, req) {
         const id = req.params.id;
 
         if (req.method === 'GET') {
-            const tenantUserId = getRequestUserId(req);
-            const hasClinicCol = hasColumn(teamColumns, 'ClinicId');
             if (id) {
-                const reqBuilder = pool.request().input('id', sql.Int, id);
-                let whereSql = 'Id = @id';
-                if (hasClinicCol) {
-                    if (!tenantUserId) {
-                        context.res = { status: 200, headers, body: null };
-                        return;
-                    }
-                    reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                    whereSql += ` AND (ClinicId IS NULL OR ${tenantClinicScopeSql('ClinicId')})`;
-                }
-                const result = await reqBuilder.query(`SELECT * FROM Teams WHERE ${whereSql}`);
+                const result = await pool.request()
+                    .input('id', sql.Int, id)
+                    .query('SELECT * FROM Teams WHERE Id = @id');
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                if (hasClinicCol && !tenantUserId) {
-                    context.res = { status: 200, headers, body: [] };
-                    return;
-                }
-                const reqBuilder = pool.request();
-                let whereSql = '';
-                if (hasClinicCol) {
-                    reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                    whereSql = `WHERE (ClinicId IS NULL OR ${tenantClinicScopeSql('ClinicId')})`;
-                }
-                const result = await reqBuilder.query(`SELECT * FROM Teams ${whereSql} ${orderBy}`);
+                const result = await pool.request()
+                    .query(`SELECT * FROM Teams ${orderBy}`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {
