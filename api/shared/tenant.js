@@ -168,11 +168,35 @@ function buildClinicInClause(request, clinicIds, columnExpr = 'ClinicId') {
     };
 }
 
+// The single platform-level admin (the SaaS owner) is identified by Username='admin'.
+// Tenant admins (Role='admin' but bound to a Subscription) MUST NOT be platform admins.
+async function isPlatformAdmin(pool, userId) {
+    const id = _toIntOrNull(userId);
+    if (!id) return false;
+    try {
+        const r = await pool.request()
+            .input('id', sql.Int, id)
+            .query("SELECT TOP 1 1 AS ok FROM Users WHERE Id = @id AND LOWER(Username) = 'admin'");
+        return (r.recordset || []).length > 0;
+    } catch (_) {
+        return false;
+    }
+}
+
+async function isPlatformAdminRequest(req, pool) {
+    const uid = getRequestUserId(req);
+    if (!uid) return false;
+    const usePool = pool || (await getPool());
+    return isPlatformAdmin(usePool, uid);
+}
+
 module.exports = {
     TENANT_PARAM,
     getRequestUserId,
     getUserClinicIds,
     getTenantContext,
     tenantClinicScopeSql,
-    buildClinicInClause
+    buildClinicInClause,
+    isPlatformAdmin,
+    isPlatformAdminRequest
 };

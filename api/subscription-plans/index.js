@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { isPlatformAdmin, getRequestUserId } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -135,51 +136,61 @@ module.exports = async function (context, req) {
                     .query(`SELECT * FROM SubscriptionPlans ${orderClause}`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
-        } else if (req.method === 'POST') {
-            const body = req.body || {};
-            if (!getBodyValue(body, 'name', 'Name')) {
-                context.res = { status: 400, headers, body: { error: 'Plan name is required.' } };
+        } else if (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') {
+            // Writes are platform-admin only (the SaaS owner who defines the plans).
+            // Tenant admins (Role='admin' on a Subscription) MUST NOT create/edit/delete plans.
+            if (!await isPlatformAdmin(pool, getRequestUserId(req))) {
+                context.res = { status: 403, headers, body: { error: 'Only the platform administrator can manage subscription plans.' } };
                 return;
             }
-            const request = pool.request();
-            const definitions = buildPlanColumnDefinitions(request, planColumns, body);
-            const columnList = definitions.map((d) => d.columnName).join(', ');
-            const valueList = definitions.map((d) => `@${d.paramName}`).join(', ');
-            const result = await request.query(
-                `INSERT INTO SubscriptionPlans (${columnList}) OUTPUT INSERTED.Id VALUES (${valueList})`
-            );
-            context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
-        } else if (req.method === 'PUT' && id) {
-            const body = req.body || {};
-            const request = pool.request().input('id', sql.Int, id);
-            const definitions = buildPlanColumnDefinitions(request, planColumns, body);
-            if (definitions.length === 0 && !hasColumn(planColumns, 'ModifiedDate')) {
-                context.res = { status: 400, headers, body: { error: 'No valid fields were provided for update.' } };
-                return;
-            }
-            const setClause = definitions
-                .map((d) => `${d.columnName}=@${d.paramName}`)
-                .concat(hasColumn(planColumns, 'ModifiedDate') ? ['ModifiedDate=GETUTCDATE()'] : [])
-                .join(', ');
-            await request.query(`UPDATE SubscriptionPlans SET ${setClause} WHERE Id=@id`);
-            context.res = { status: 200, headers, body: { message: 'Subscription plan updated' } };
-        } else if (req.method === 'DELETE' && id) {
-            // Soft-delete by toggling IsActive when in use; hard-delete otherwise.
-            const inUseResult = await pool.request()
-                .input('planId', sql.Int, id)
-                .query('SELECT TOP 1 1 AS InUse FROM Subscriptions WHERE PlanId = @planId');
-            if (inUseResult.recordset && inUseResult.recordset.length > 0 && hasColumn(planColumns, 'IsActive')) {
-                await pool.request()
-                    .input('id', sql.Int, id)
-                    .query('UPDATE SubscriptionPlans SET IsActive = 0' +
-                        (hasColumn(planColumns, 'ModifiedDate') ? ', ModifiedDate = GETUTCDATE()' : '') +
-                        ' WHERE Id = @id');
-                context.res = { status: 200, headers, body: { message: 'Plan is in use; deactivated instead of deleted.', deactivated: true } };
+            if (req.method === 'POST') {
+                const body = req.body || {};
+                if (!getBodyValue(body, 'name', 'Name')) {
+                    context.res = { status: 400, headers, body: { error: 'Plan name is required.' } };
+                    return;
+                }
+                const request = pool.request();
+                const definitions = buildPlanColumnDefinitions(request, planColumns, body);
+                const columnList = definitions.map((d) => d.columnName).join(', ');
+                const valueList = definitions.map((d) => `@${d.paramName}`).join(', ');
+                const result = await request.query(
+                    `INSERT INTO SubscriptionPlans (${columnList}) OUTPUT INSERTED.Id VALUES (${valueList})`
+                );
+                context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
+            } else if (req.method === 'PUT' && id) {
+                const body = req.body || {};
+                const request = pool.request().input('id', sql.Int, id);
+                const definitions = buildPlanColumnDefinitions(request, planColumns, body);
+                if (definitions.length === 0 && !hasColumn(planColumns, 'ModifiedDate')) {
+                    context.res = { status: 400, headers, body: { error: 'No valid fields were provided for update.' } };
+                    return;
+                }
+                const setClause = definitions
+                    .map((d) => `${d.columnName}=@${d.paramName}`)
+                    .concat(hasColumn(planColumns, 'ModifiedDate') ? ['ModifiedDate=GETUTCDATE()'] : [])
+                    .join(', ');
+                await request.query(`UPDATE SubscriptionPlans SET ${setClause} WHERE Id=@id`);
+                context.res = { status: 200, headers, body: { message: 'Subscription plan updated' } };
+            } else if (req.method === 'DELETE' && id) {
+                // Soft-delete by toggling IsActive when in use; hard-delete otherwise.
+                const inUseResult = await pool.request()
+                    .input('planId', sql.Int, id)
+                    .query('SELECT TOP 1 1 AS InUse FROM Subscriptions WHERE PlanId = @planId');
+                if (inUseResult.recordset && inUseResult.recordset.length > 0 && hasColumn(planColumns, 'IsActive')) {
+                    await pool.request()
+                        .input('id', sql.Int, id)
+                        .query('UPDATE SubscriptionPlans SET IsActive = 0' +
+                            (hasColumn(planColumns, 'ModifiedDate') ? ', ModifiedDate = GETUTCDATE()' : '') +
+                            ' WHERE Id = @id');
+                    context.res = { status: 200, headers, body: { message: 'Plan is in use; deactivated instead of deleted.', deactivated: true } };
+                } else {
+                    await pool.request()
+                        .input('id', sql.Int, id)
+                        .query('DELETE FROM SubscriptionPlans WHERE Id = @id');
+                    context.res = { status: 200, headers, body: { message: 'Subscription plan deleted' } };
+                }
             } else {
-                await pool.request()
-                    .input('id', sql.Int, id)
-                    .query('DELETE FROM SubscriptionPlans WHERE Id = @id');
-                context.res = { status: 200, headers, body: { message: 'Subscription plan deleted' } };
+                context.res = { status: 405, headers, body: { error: 'Method not allowed.' } };
             }
         } else {
             context.res = { status: 405, headers, body: { error: 'Method not allowed.' } };

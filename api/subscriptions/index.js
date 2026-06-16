@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { isPlatformAdmin, getRequestUserId } = require('../shared/tenant');
 
 const VALID_STATUSES = ['pending', 'active', 'cancellation_requested', 'cancelled', 'rejected', 'paused'];
 
@@ -145,14 +146,45 @@ module.exports = async function (context, req) {
         const body = req.body || {};
         const actorUserId = toIntOrNull(getBodyValue(body, 'actorUserId', 'ActorUserId'));
 
+        // ---- Authorization context ----
+        // Caller is identified by X-User-Id header (injected on every API request by the frontend).
+        // Platform admin (Username='admin') can manage every subscription. Tenant admins
+        // (Role='admin' on a Subscription) can only see/act on subscriptions they OWN.
+        const callerUserId = getRequestUserId(req);
+        const callerIsPlatformAdmin = await isPlatformAdmin(pool, callerUserId);
+
+        async function loadOwnerOf(subId) {
+            if (!subId) return null;
+            try {
+                const r = await pool.request().input('id', sql.Int, subId)
+                    .query('SELECT TOP 1 OwnerUserId FROM Subscriptions WHERE Id=@id');
+                return r.recordset[0] ? toIntOrNull(r.recordset[0].OwnerUserId) : null;
+            } catch (_) { return null; }
+        }
+
         // ---- GET ----
         if (req.method === 'GET') {
             if (id && !action) {
+                // Single subscription: platform admin OR the subscription's owner.
+                if (!callerIsPlatformAdmin) {
+                    const ownerId = await loadOwnerOf(id);
+                    if (!callerUserId || ownerId !== callerUserId) {
+                        context.res = { status: 403, headers, body: { error: 'Forbidden' } };
+                        return;
+                    }
+                }
                 const sub = await fetchSubscriptionFull(pool, id);
                 context.res = { status: 200, headers, body: sub };
                 return;
             }
             if (id && action === 'events') {
+                if (!callerIsPlatformAdmin) {
+                    const ownerId = await loadOwnerOf(id);
+                    if (!callerUserId || ownerId !== callerUserId) {
+                        context.res = { status: 403, headers, body: { error: 'Forbidden' } };
+                        return;
+                    }
+                }
                 try {
                     const r = await pool.request().input('id', sql.Int, id).query(`
                         SELECT TOP 100 e.Id, e.EventType, e.ActorUserId, e.Payload, e.CreatedDate,
@@ -163,10 +195,21 @@ module.exports = async function (context, req) {
                 } catch (_) { context.res = { status: 200, headers, body: [] }; }
                 return;
             }
-            // List
+            // List: platform admin sees ALL; tenant users only see their own (forced filter).
+            const requestedOwnerRaw = req.query && req.query.ownerUserId !== undefined ? req.query.ownerUserId : undefined;
+            const requestedOwner = toIntOrNull(requestedOwnerRaw);
+            let listOwnerUserId = requestedOwner;
+            if (!callerIsPlatformAdmin) {
+                if (!callerUserId) {
+                    context.res = { status: 200, headers, body: [] };
+                    return;
+                }
+                // Force the filter to the caller — they cannot enumerate other people's subs.
+                listOwnerUserId = callerUserId;
+            }
             const list = await listSubscriptions(pool, {
                 status: req.query && req.query.status ? String(req.query.status) : undefined,
-                ownerUserId: req.query && req.query.ownerUserId !== undefined ? req.query.ownerUserId : undefined
+                ownerUserId: listOwnerUserId === null ? undefined : listOwnerUserId
             });
             context.res = { status: 200, headers, body: list };
             return;
@@ -175,7 +218,23 @@ module.exports = async function (context, req) {
         // ---- POST (create or sub-action) ----
         if (req.method === 'POST') {
             if (id && action) {
-                // Sub-actions on an existing subscription
+                // Sub-actions on an existing subscription.
+                // Authorization rules:
+                //   approve / reject / note / welcome-email   → platform admin only
+                //   cancel / change-plan / add-clinic /
+                //   remove-clinic                              → platform admin OR subscription owner
+                const PLATFORM_ONLY_ACTIONS = new Set(['approve', 'reject', 'note', 'welcome-email']);
+                if (!callerIsPlatformAdmin) {
+                    if (PLATFORM_ONLY_ACTIONS.has(action)) {
+                        context.res = { status: 403, headers, body: { error: 'Only the platform administrator can perform this action.' } };
+                        return;
+                    }
+                    const ownerId = await loadOwnerOf(id);
+                    if (!callerUserId || ownerId !== callerUserId) {
+                        context.res = { status: 403, headers, body: { error: 'Forbidden: you do not own this subscription.' } };
+                        return;
+                    }
+                }
                 if (action === 'approve') {
                     await pool.request()
                         .input('id', sql.Int, id)
@@ -278,11 +337,21 @@ module.exports = async function (context, req) {
                 return;
             }
 
-            // Plain create (subscriber requesting a subscription)
+            // Plain create (subscriber requesting a subscription).
+            // The signup flow uses /api/signup, NOT this endpoint, so direct
+            // POSTs here are an admin tool. Tenant users may request a
+            // subscription only for THEMSELVES — they cannot create on behalf
+            // of another user.
             const ownerUserId = toIntOrNull(getBodyValue(body, 'ownerUserId', 'OwnerUserId'));
             const planId = toIntOrNull(getBodyValue(body, 'planId', 'PlanId'));
             if (!ownerUserId) { context.res = { status: 400, headers, body: { error: 'ownerUserId is required' } }; return; }
             if (!planId) { context.res = { status: 400, headers, body: { error: 'planId is required' } }; return; }
+            if (!callerIsPlatformAdmin) {
+                if (!callerUserId || ownerUserId !== callerUserId) {
+                    context.res = { status: 403, headers, body: { error: 'Forbidden: cannot create a subscription for another user.' } };
+                    return;
+                }
+            }
 
             // Block duplicate active/pending subscription for the same owner
             const existing = await pool.request().input('owner', sql.Int, ownerUserId)
@@ -334,6 +403,11 @@ module.exports = async function (context, req) {
 
         // ---- PUT (admin updates fields) ----
         if (req.method === 'PUT' && id) {
+            // PUT writes status / planId / notes / renewal date — platform admin only.
+            if (!callerIsPlatformAdmin) {
+                context.res = { status: 403, headers, body: { error: 'Only the platform administrator can update subscription records.' } };
+                return;
+            }
             const sets = [];
             const r = pool.request().input('id', sql.Int, id);
             const status = getBodyValue(body, 'status', 'Status');
@@ -364,6 +438,10 @@ module.exports = async function (context, req) {
 
         // ---- DELETE ----
         if (req.method === 'DELETE' && id) {
+            if (!callerIsPlatformAdmin) {
+                context.res = { status: 403, headers, body: { error: 'Only the platform administrator can delete subscription records.' } };
+                return;
+            }
             await pool.request().input('id', sql.Int, id).query('DELETE FROM Subscriptions WHERE Id=@id');
             context.res = { status: 200, headers, body: { message: 'Subscription deleted' } };
             return;
