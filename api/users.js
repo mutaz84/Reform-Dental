@@ -164,11 +164,28 @@ app.http('getUsers', {
                   AND (
                         u.Id = @tenantUserId
                         OR EXISTS (
-                            SELECT 1 FROM UserClinics uc_self
-                            INNER JOIN UserClinics uc_other
-                                ON uc_self.ClinicId = uc_other.ClinicId
-                            WHERE uc_self.UserId = @tenantUserId
-                              AND uc_other.UserId = u.Id
+                            -- A user is visible to the caller if they share at least
+                            -- one clinic. Clinic membership comes from UserClinics OR
+                            -- from owning a Subscription that includes the clinic.
+                            SELECT 1
+                            FROM (
+                                SELECT ClinicId FROM UserClinics WHERE UserId = @tenantUserId
+                                UNION
+                                SELECT sc.ClinicId
+                                    FROM SubscriptionClinics sc
+                                    INNER JOIN Subscriptions s ON s.Id = sc.SubscriptionId
+                                    WHERE s.OwnerUserId = @tenantUserId AND s.IsActive = 1
+                            ) self_clinics
+                            INNER JOIN (
+                                SELECT UserId, ClinicId FROM UserClinics
+                                UNION
+                                SELECT s2.OwnerUserId AS UserId, sc2.ClinicId
+                                    FROM SubscriptionClinics sc2
+                                    INNER JOIN Subscriptions s2 ON s2.Id = sc2.SubscriptionId
+                                    WHERE s2.IsActive = 1
+                            ) other_clinics
+                                ON self_clinics.ClinicId = other_clinics.ClinicId
+                            WHERE other_clinics.UserId = u.Id
                         )
                       )
                 ORDER BY FirstName, LastName
