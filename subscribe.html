@@ -390,7 +390,22 @@
                 body: JSON.stringify(payload)
             });
             const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+            if (!res.ok) {
+                if (res.status === 409 || data.code === 'duplicate_user') {
+                    showAlert('error', `An account with <b>${escHtml(payload.email)}</b> already exists. <a href="/" style="color:#fda4af; text-decoration: underline;">Sign in instead</a> or use a different email.`);
+                } else if (data.code === 'schema_outdated') {
+                    showAlert('error', 'Our setup is being updated — please try again in a few minutes. (Database schema is out of date.)');
+                } else if (data.code === 'db_unavailable') {
+                    showAlert('error', 'Our database is temporarily unavailable. Please try again in a moment.');
+                } else if (data.code === 'check_constraint' || data.code === 'foreign_key') {
+                    showAlert('error', data.error || 'One of the values you entered is not allowed. Please review and try again.');
+                } else {
+                    showAlert('error', data.error || ('Sign-up failed (HTTP ' + res.status + ').'));
+                }
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-rocket"></i> Start my free trial';
+                return;
+            }
             // Show success screen
             document.getElementById('signupCardWrapper').style.display = 'none';
             document.querySelectorAll('section').forEach((s, i) => { if (i < 2) s.style.display = 'none'; });

@@ -134,7 +134,8 @@ module.exports = async function (context, req) {
             uCols.push('WorkEmail'); uVals.push('@workEmail');
         }
         if (hasColumn(userColumns, 'Role')) {
-            userReq.input('role', sql.NVarChar, 'owner');
+            // Use 'admin' (CK-constraint compatible). The app treats admin and owner interchangeably for permissions.
+            userReq.input('role', sql.NVarChar, 'admin');
             uCols.push('Role'); uVals.push('@role');
         }
         if (hasColumn(userColumns, 'IsActive')) { uCols.push('IsActive'); uVals.push('1'); }
@@ -210,6 +211,27 @@ module.exports = async function (context, req) {
     } catch (err) {
         context.log.error('Signup error:', err);
         await resetPool();
-        context.res = { status: 500, headers, body: { error: err.message || 'Signup failed' } };
+        const raw = String(err && (err.message || err) || '');
+        let status = 500;
+        let friendly = 'We could not complete your signup. Please try again.';
+        let code = 'signup_failed';
+        if (/UNIQUE KEY|duplicate key|Cannot insert duplicate/i.test(raw) && /Username|Users/i.test(raw)) {
+            status = 409; code = 'duplicate_user';
+            friendly = 'An account with this email already exists. Please sign in or use a different email.';
+        } else if (/CHECK constraint/i.test(raw)) {
+            status = 400; code = 'check_constraint';
+            const m = raw.match(/column '([^']+)'/i);
+            friendly = m ? `The value provided for ${m[1]} is not allowed by the database. Please contact support.` : 'One of the values you entered is not allowed. Please review and try again.';
+        } else if (/FOREIGN KEY/i.test(raw)) {
+            status = 400; code = 'foreign_key';
+            friendly = 'A required reference is missing (likely the selected plan is no longer valid).';
+        } else if (/Invalid object name|Invalid column name/i.test(raw)) {
+            status = 500; code = 'schema_outdated';
+            friendly = 'The database schema is out of date. An admin needs to run the latest subscriptions-setup.sql migration.';
+        } else if (/Login failed|connection|ETIMEOUT|ECONNRESET/i.test(raw)) {
+            status = 503; code = 'db_unavailable';
+            friendly = 'The database is temporarily unavailable. Please try again in a moment.';
+        }
+        context.res = { status, headers, body: { error: friendly, code, detail: raw } };
     }
 };
