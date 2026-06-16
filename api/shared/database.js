@@ -81,12 +81,20 @@ async function getPool() {
             }
         });
 
-        connectPromise = pool.connect().catch((err) => {
-            if (poolPromise === connectPromise) {
-                poolPromise = null;
-            }
-            throw err;
-        });
+        connectPromise = pool.connect()
+            .then(async (p) => {
+                // Best-effort one-time tenant schema migration. Never block the pool on failure.
+                try {
+                    await ensureTenantSchema(p);
+                } catch (_) { /* ignore */ }
+                return p;
+            })
+            .catch((err) => {
+                if (poolPromise === connectPromise) {
+                    poolPromise = null;
+                }
+                throw err;
+            });
 
         poolPromise = connectPromise;
     }
@@ -153,10 +161,35 @@ async function resetPool() {
     }
 }
 
+// One-time idempotent schema migration to support strict per-subscription tenant scoping.
+// Adds Clinics.SubscriptionId (single canonical subscription per clinic) and backfills it
+// from SubscriptionClinics, breaking ties with MIN(SubscriptionId).
+async function ensureTenantSchema(pool) {
+    await pool.request().query(`
+        IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'SubscriptionId' AND Object_ID = Object_ID(N'Clinics'))
+        BEGIN
+            ALTER TABLE Clinics ADD SubscriptionId INT NULL;
+        END
+    `);
+    // Backfill rows where SubscriptionId is still NULL — pick the smallest matching SubscriptionId.
+    await pool.request().query(`
+        UPDATE c
+        SET c.SubscriptionId = x.SubscriptionId
+        FROM Clinics c
+        INNER JOIN (
+            SELECT ClinicId, MIN(SubscriptionId) AS SubscriptionId
+            FROM SubscriptionClinics
+            GROUP BY ClinicId
+        ) x ON x.ClinicId = c.Id
+        WHERE c.SubscriptionId IS NULL;
+    `);
+}
+
 module.exports = {
     sql,
     execute,
     getConfig,
     getPool,
-    resetPool
+    resetPool,
+    ensureTenantSchema
 };
