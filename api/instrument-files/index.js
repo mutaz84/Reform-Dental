@@ -1,4 +1,5 @@
 const { sql, getPool } = require('../shared/database');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 function toSafeString(value, maxLen = 500) {
     if (value == null) return null;
@@ -48,20 +49,31 @@ module.exports = async function (context, req) {
         const documentId = toSafeString(req.params && req.params.documentId, 255);
 
         if (req.method === 'GET') {
+            const tenantUserId = getRequestUserId(req);
+            if (!tenantUserId) {
+                context.res = { status: 200, headers, body: documentId ? null : [] };
+                return;
+            }
             if (!documentId) {
-                // List metadata only (no Data) optionally filtered by instrumentId.
                 const instrumentId = req.query && req.query.instrumentId ? parseInt(req.query.instrumentId, 10) : null;
-                const r = pool.request();
-                let q = 'SELECT DocumentId, InstrumentId, AdjustmentTimestamp, PurchaseOrderId, Name, MimeType, Size, UploadedAt, CreatedDate FROM InstrumentFiles';
-                if (instrumentId) { q += ' WHERE InstrumentId = @instrumentId'; r.input('instrumentId', sql.Int, instrumentId); }
-                q += ' ORDER BY CreatedDate DESC';
+                const r = pool.request().input(TENANT_PARAM, sql.Int, tenantUserId);
+                let q = `SELECT f.DocumentId, f.InstrumentId, f.AdjustmentTimestamp, f.PurchaseOrderId, f.Name, f.MimeType, f.Size, f.UploadedAt, f.CreatedDate
+                         FROM InstrumentFiles f
+                         INNER JOIN Instruments i ON i.Id = f.InstrumentId
+                         WHERE ${tenantClinicScopeSql('i.ClinicId')}`;
+                if (instrumentId) { q += ' AND f.InstrumentId = @instrumentId'; r.input('instrumentId', sql.Int, instrumentId); }
+                q += ' ORDER BY f.CreatedDate DESC';
                 const result = await r.query(q);
                 context.res = { status: 200, headers, body: result.recordset };
                 return;
             }
             const result = await pool.request()
                 .input('documentId', sql.NVarChar(255), documentId)
-                .query('SELECT DocumentId, InstrumentId, AdjustmentTimestamp, PurchaseOrderId, Name, MimeType, Size, Data, UploadedAt, CreatedDate FROM InstrumentFiles WHERE DocumentId = @documentId');
+                .input(TENANT_PARAM, sql.Int, tenantUserId)
+                .query(`SELECT f.DocumentId, f.InstrumentId, f.AdjustmentTimestamp, f.PurchaseOrderId, f.Name, f.MimeType, f.Size, f.Data, f.UploadedAt, f.CreatedDate
+                        FROM InstrumentFiles f
+                        INNER JOIN Instruments i ON i.Id = f.InstrumentId
+                        WHERE f.DocumentId = @documentId AND ${tenantClinicScopeSql('i.ClinicId')}`);
             if (!result.recordset.length) {
                 context.res = { status: 404, headers, body: { error: 'File not found.' } };
                 return;

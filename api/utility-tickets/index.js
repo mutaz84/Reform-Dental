@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
@@ -41,21 +42,31 @@ module.exports = async function (context, req) {
     try {
         // GET: list all tickets (optionally filter by utilityId) or single ticket
         if (method === 'GET') {
+            const tenantUserId = getRequestUserId(req);
+            if (!tenantUserId) {
+                if (id) return jsonResponse(context, 404, { error: 'Not found' });
+                return jsonResponse(context, 200, []);
+            }
             if (id) {
                 const result = await pool.request()
                     .input('id', sql.Int, parseInt(id))
-                    .query('SELECT * FROM UtilityTickets WHERE Id = @id');
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
+                    .query(`SELECT t.* FROM UtilityTickets t
+                            INNER JOIN Utilities u ON u.Id = t.UtilityId
+                            WHERE t.Id = @id AND ${tenantClinicScopeSql('u.ClinicId')}`);
                 if (!result.recordset.length) return jsonResponse(context, 404, { error: 'Not found' });
                 return jsonResponse(context, 200, result.recordset[0]);
             } else {
                 const utilityId = req.query?.utilityId;
-                let query = 'SELECT * FROM UtilityTickets';
-                const request = pool.request();
+                let query = `SELECT t.* FROM UtilityTickets t
+                             INNER JOIN Utilities u ON u.Id = t.UtilityId
+                             WHERE ${tenantClinicScopeSql('u.ClinicId')}`;
+                const request = pool.request().input(TENANT_PARAM, sql.Int, tenantUserId);
                 if (utilityId) {
-                    query += ' WHERE UtilityId = @utilityId';
+                    query += ' AND t.UtilityId = @utilityId';
                     request.input('utilityId', sql.Int, parseInt(utilityId));
                 }
-                query += ' ORDER BY TicketDate DESC, CreatedDate DESC';
+                query += ' ORDER BY t.TicketDate DESC, t.CreatedDate DESC';
                 const result = await request.query(query);
                 return jsonResponse(context, 200, result.recordset);
             }

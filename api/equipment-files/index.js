@@ -1,5 +1,6 @@
 const { sql, getPool } = require('../shared/database');
 const { successResponse, errorResponse, handleOptions } = require('../shared/response');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 function toSafeString(value, maxLen = 500) {
     if (value == null) return null;
@@ -50,9 +51,18 @@ module.exports = async function (context, req) {
                 context.res = { status: 400, headers, body: { error: 'documentId is required.' } };
                 return;
             }
+            const tenantUserId = getRequestUserId(req);
+            if (!tenantUserId) {
+                context.res = { status: 404, headers, body: { error: 'File not found.' } };
+                return;
+            }
             const result = await pool.request()
                 .input('documentId', sql.NVarChar(255), documentId)
-                .query('SELECT DocumentId, EquipmentId, Name, MimeType, Data, UploadedAt, CreatedDate FROM EquipmentFiles WHERE DocumentId = @documentId');
+                .input(TENANT_PARAM, sql.Int, tenantUserId)
+                .query(`SELECT ef.DocumentId, ef.EquipmentId, ef.Name, ef.MimeType, ef.Data, ef.UploadedAt, ef.CreatedDate
+                        FROM EquipmentFiles ef
+                        INNER JOIN Equipment e ON e.Id = ef.EquipmentId
+                        WHERE ef.DocumentId = @documentId AND ${tenantClinicScopeSql('e.ClinicId')}`);
             if (!result.recordset.length) {
                 context.res = { status: 404, headers, body: { error: 'File not found.' } };
                 return;

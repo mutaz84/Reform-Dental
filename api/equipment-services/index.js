@@ -1,5 +1,6 @@
 const { execute } = require('../shared/database');
 const { successResponse, errorResponse, handleOptions } = require('../shared/response');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 function toNullableInt(value) {
     if (value === null || value === undefined || value === '') return null;
@@ -83,13 +84,19 @@ module.exports = async function (context, req) {
 
         if (req.method === 'GET') {
             const equipmentId = toNullableInt(req.query.equipmentId || req.query.EquipmentId);
+            const tenantUserId = getRequestUserId(req);
+            if (!tenantUserId) {
+                context.res = successResponse(routeIdRaw ? null : []);
+                return;
+            }
 
             if (routeIdRaw) {
                 const result = await execute(
-                    `SELECT *
-                     FROM EquipmentServiceTickets
-                     WHERE Id = @id`,
-                    { id: routeIdRaw }
+                    `SELECT t.*
+                     FROM EquipmentServiceTickets t
+                     INNER JOIN Equipment e ON e.Id = t.EquipmentId
+                     WHERE t.Id = @id AND ${tenantClinicScopeSql('e.ClinicId')}`,
+                    { id: routeIdRaw, [TENANT_PARAM]: tenantUserId }
                 );
 
                 const row = (result.recordset || [])[0] || null;
@@ -99,11 +106,13 @@ module.exports = async function (context, req) {
 
             const hasEquipmentFilter = Number.isInteger(equipmentId) && equipmentId > 0;
             const result = await execute(
-                `SELECT *
-                 FROM EquipmentServiceTickets
-                 WHERE (@equipmentId IS NULL OR EquipmentId = @equipmentId)
-                 ORDER BY CreatedAt DESC`,
-                { equipmentId: hasEquipmentFilter ? equipmentId : null }
+                `SELECT t.*
+                 FROM EquipmentServiceTickets t
+                 INNER JOIN Equipment e ON e.Id = t.EquipmentId
+                 WHERE (@equipmentId IS NULL OR t.EquipmentId = @equipmentId)
+                   AND ${tenantClinicScopeSql('e.ClinicId')}
+                 ORDER BY t.CreatedAt DESC`,
+                { equipmentId: hasEquipmentFilter ? equipmentId : null, [TENANT_PARAM]: tenantUserId }
             );
 
             context.res = successResponse((result.recordset || []).map(normalizeTicket));

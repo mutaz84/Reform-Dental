@@ -1,4 +1,5 @@
 const { sql, getPool } = require('../shared/database');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 function toSafeString(value, maxLen = 500) {
     if (value == null) return null;
@@ -100,14 +101,20 @@ module.exports = async function (context, req) {
         const tsParam = toSafeString(req.params && req.params.timestamp, 50);
 
         if (req.method === 'GET') {
-            const r = pool.request();
-            let q = 'SELECT * FROM InstrumentAdjustments';
-            const where = [];
-            if (tsParam) { where.push('Timestamp = @ts'); r.input('ts', sql.NVarChar(50), tsParam); }
+            const tenantUserId = getRequestUserId(req);
+            if (!tenantUserId) {
+                context.res = { status: 200, headers, body: [] };
+                return;
+            }
+            const r = pool.request().input(TENANT_PARAM, sql.Int, tenantUserId);
+            let q = `SELECT a.* FROM InstrumentAdjustments a
+                     INNER JOIN Instruments i ON i.Id = a.InstrumentId`;
+            const where = [tenantClinicScopeSql('i.ClinicId')];
+            if (tsParam) { where.push('a.Timestamp = @ts'); r.input('ts', sql.NVarChar(50), tsParam); }
             const instrumentId = req.query && req.query.instrumentId ? parseInt(req.query.instrumentId, 10) : null;
-            if (instrumentId) { where.push('InstrumentId = @instrumentId'); r.input('instrumentId', sql.Int, instrumentId); }
-            if (where.length) q += ' WHERE ' + where.join(' AND ');
-            q += ' ORDER BY CAST(Timestamp AS BIGINT) DESC';
+            if (instrumentId) { where.push('a.InstrumentId = @instrumentId'); r.input('instrumentId', sql.Int, instrumentId); }
+            q += ' WHERE ' + where.join(' AND ');
+            q += ' ORDER BY CAST(a.Timestamp AS BIGINT) DESC';
             const result = await r.query(q);
             context.res = { status: 200, headers, body: result.recordset.map(mapRow) };
             return;
