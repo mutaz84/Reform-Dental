@@ -17,16 +17,18 @@
 </head>
 <body>
 <h1>Tenant Diagnostic</h1>
-<div class="hint">You must be logged in as the platform admin (Username='admin'). The X-User-Id header is auto-injected by the app shell.</div>
+<div class="hint">Set "Act as UserId" to <b>1</b> (admin) to authenticate the diag endpoint, then put the subscriber id you want to inspect (43, 44, etc.) in the second box.</div>
 <div class="row">
-  <input id="uid" type="number" placeholder="Subscriber UserId (e.g. 43)" value="43" />
+  <input id="actAs" type="number" placeholder="Act as UserId (use 1 for admin)" value="1" style="width:220px" />
+  <input id="uid" type="number" placeholder="Inspect UserId (e.g. 43)" value="43" style="width:220px" />
   <button id="run">Run diag</button>
   <button id="copy">Copy JSON</button>
 </div>
 <pre id="out">Click "Run diag" to fetch /api/tenant-diag?userId=&lt;id&gt;.</pre>
 
 <script>
-// Mirror the X-User-Id injection from the main app shell so this standalone page works.
+// Override X-User-Id from the "Act as" input so this page works even if
+// localStorage.currentUser is a non-admin (the diag endpoint requires admin).
 (function () {
   const originalFetch = window.fetch;
   window.fetch = async function (resource, init) {
@@ -34,21 +36,27 @@
     const isApi = /\/api\//.test(url);
     if (!isApi) return originalFetch(resource, init);
     let uid = null;
-    try {
-      const cu = JSON.parse(localStorage.getItem('currentUser') || 'null');
-      if (cu) uid = cu.id || cu.Id || cu.userId || cu.UserId || null;
-    } catch (_) {}
+    const actAsEl = document.getElementById('actAs');
+    if (actAsEl && actAsEl.value && actAsEl.value.trim()) {
+      uid = actAsEl.value.trim();
+    } else {
+      try {
+        const cu = JSON.parse(localStorage.getItem('currentUser') || 'null');
+        if (cu) uid = cu.id || cu.Id || cu.userId || cu.UserId || null;
+      } catch (_) {}
+    }
     if (!uid) return originalFetch(resource, init);
     const baseInit = init || {};
     const baseHeaders = baseInit.headers || {};
     let merged;
     if (baseHeaders instanceof Headers) {
       merged = new Headers(baseHeaders);
-      if (!merged.has('X-User-Id')) merged.set('X-User-Id', String(uid));
+      merged.set('X-User-Id', String(uid));
     } else {
       merged = { ...baseHeaders };
-      const hasIt = Object.keys(merged).some(k => k.toLowerCase() === 'x-user-id');
-      if (!hasIt) merged['X-User-Id'] = String(uid);
+      // strip any existing case-variant of X-User-Id, then set ours
+      Object.keys(merged).forEach(k => { if (k.toLowerCase() === 'x-user-id') delete merged[k]; });
+      merged['X-User-Id'] = String(uid);
     }
     return originalFetch(resource, { ...baseInit, headers: merged });
   };
