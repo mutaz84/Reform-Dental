@@ -165,6 +165,8 @@ module.exports = async function (context, req) {
     }
 
     try {
+        const { getRequestUserId } = require('../shared/tenant');
+        const callerUserId = getRequestUserId(req);
         const pool = await sql.connect(getConfig());
         const method = req.method;
         const action = req.query.action || '';
@@ -173,9 +175,14 @@ module.exports = async function (context, req) {
         // GET - Fetch conversations or messages
         if (method === 'GET') {
             if (action === 'copilotConversations') {
-                const userId = toInt(req.query.userId);
+                const queryUserId = toInt(req.query.userId);
+                const userId = callerUserId || queryUserId;
                 if (!Number.isInteger(userId)) {
                     context.res = { status: 400, headers, body: { error: 'userId required' } };
+                    return;
+                }
+                if (callerUserId && Number.isInteger(queryUserId) && queryUserId !== callerUserId) {
+                    context.res = { status: 403, headers, body: { error: 'Cannot access another user\'s conversations.' } };
                     return;
                 }
 
@@ -205,10 +212,15 @@ module.exports = async function (context, req) {
             }
 
             if (action === 'copilotConversation') {
-                const userId = toInt(req.query.userId);
+                const queryUserId = toInt(req.query.userId);
+                const userId = callerUserId || queryUserId;
                 const conversationId = String(req.query.conversationId || '').trim();
                 if (!Number.isInteger(userId) || !conversationId) {
                     context.res = { status: 400, headers, body: { error: 'userId and conversationId required' } };
+                    return;
+                }
+                if (callerUserId && Number.isInteger(queryUserId) && queryUserId !== callerUserId) {
+                    context.res = { status: 403, headers, body: { error: 'Cannot access another user\'s conversations.' } };
                     return;
                 }
 

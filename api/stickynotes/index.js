@@ -52,8 +52,16 @@ module.exports = async function (context, req) {
 
         await sql.connect(config);
 
+        const { getRequestUserId } = require('../shared/tenant');
+        const callerUserId = getRequestUserId(req);
         const rawUserId = (req.query && req.query.userId) || (req.body && req.body.userId);
-        const userId = rawUserId !== undefined && rawUserId !== null && rawUserId !== '' ? parseInt(rawUserId, 10) : null;
+        const requestedUserId = rawUserId !== undefined && rawUserId !== null && rawUserId !== '' ? parseInt(rawUserId, 10) : null;
+        // Enforce caller-only: trust the X-User-Id header, reject mismatched query/body userId.
+        if (callerUserId && Number.isInteger(requestedUserId) && requestedUserId !== callerUserId) {
+            context.res = { status: 403, headers, body: { error: 'Cannot access another user\'s sticky notes.' } };
+            return;
+        }
+        const userId = callerUserId || requestedUserId;
 
         const includeDeleted = String(req.query?.includeDeleted || '').toLowerCase() === 'true';
         const deletedOnly = String(req.query?.deletedOnly || '').toLowerCase() === 'true';

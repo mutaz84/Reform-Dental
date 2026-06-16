@@ -1,5 +1,6 @@
 const { execute } = require('../shared/database');
 const { successResponse, errorResponse, handleOptions } = require('../shared/response');
+const { getRequestUserId, tenantVisibleUsernamesClause, isPlatformAdminRequest, TENANT_PARAM } = require('../shared/tenant');
 
 const ONLINE_WINDOW_MINUTES = 10;
 const MAX_HISTORY_LIMIT = 500;
@@ -79,9 +80,16 @@ async function writeAuditEvent(payload = {}) {
     );
 }
 
-async function getSnapshot(params = {}, tables = { hasSessions: true, hasAudit: true }) {
+async function getSnapshot(params = {}, tables = { hasSessions: true, hasAudit: true }, tenantUserId = null, isPlatform = false) {
     const historyLimit = toHistoryLimit(params.historyLimit);
     const sessionId = toSafeString(params.sessionId, 120);
+
+    // Platform admin sees everything; everyone else is scoped to "visible users".
+    const tenantClauseSessions = (!isPlatform && tenantUserId) ? `AND ${tenantVisibleUsernamesClause('Username')}` : '';
+    const tenantClauseAudit = (!isPlatform && tenantUserId) ? `WHERE ${tenantVisibleUsernamesClause('Username')}` : '';
+
+    const onlineParams = { onlineWindowMin: ONLINE_WINDOW_MINUTES };
+    if (!isPlatform && tenantUserId) onlineParams[TENANT_PARAM] = tenantUserId;
 
     const onlineResult = tables.hasSessions
         ? await execute(
@@ -97,12 +105,14 @@ async function getSnapshot(params = {}, tables = { hasSessions: true, hasAudit: 
             FROM UserLoginSessions
             WHERE IsActive = 1
               AND LastSeenAt >= DATEADD(MINUTE, -@onlineWindowMin, SYSUTCDATETIME())
+              ${tenantClauseSessions}
             ORDER BY LastSeenAt DESC`,
-            {
-                onlineWindowMin: ONLINE_WINDOW_MINUTES
-            }
+            onlineParams
         )
         : { recordset: [] };
+
+    const historyParams = { historyLimit };
+    if (!isPlatform && tenantUserId) historyParams[TENANT_PARAM] = tenantUserId;
 
     const historyResult = tables.hasAudit
         ? await execute(
@@ -117,10 +127,9 @@ async function getSnapshot(params = {}, tables = { hasSessions: true, hasAudit: 
                 ForcedBy,
                 Note
             FROM UserLoginAudit
+            ${tenantClauseAudit}
             ORDER BY EventAt DESC`,
-            {
-                historyLimit
-            }
+            historyParams
         )
         : { recordset: [] };
 
@@ -484,7 +493,9 @@ module.exports = async function (context, req) {
         const tables = await getLoginTableAvailability();
 
         if (req.method === 'GET') {
-            const snapshot = await getSnapshot(req.query || {}, tables);
+            const tenantUserId = getRequestUserId(req);
+            const isPlatform = await isPlatformAdminRequest(req);
+            const snapshot = await getSnapshot(req.query || {}, tables, tenantUserId, isPlatform);
             context.res = successResponse(snapshot, 200);
             return;
         }
