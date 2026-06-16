@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 function isConnectionError(error) {
     const message = String(error?.message || '').toLowerCase();
@@ -201,15 +202,23 @@ module.exports = async function (context, req) {
             && hasColumn(workingHoursColumns, 'IsOpen');
 
         const id = req.params.id;
+        const tenantUserId = getRequestUserId(req);
 
         if (req.method === 'GET') {
+            // Tenant scope: caller must be a member of the clinic (UserClinics)
+            // OR own a Subscription that includes it (SubscriptionClinics).
+            if (!tenantUserId) {
+                context.res = { status: 200, headers, body: id ? null : [] };
+                return;
+            }
             if (id) {
-                const where = ['Id = @id'];
+                const where = ['Id = @id', tenantClinicScopeSql('Id')];
                 if (hasIsActive) {
                     where.push('(IsActive = 1 OR IsActive IS NULL)');
                 }
                 const result = await pool.request()
                     .input('id', sql.Int, id)
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
                     .query(`SELECT * FROM Clinics WHERE ${where.join(' AND ')}`);
                 const clinic = result.recordset[0] || null;
                 if (clinic) {
@@ -228,8 +237,11 @@ module.exports = async function (context, req) {
                 }
                 context.res = { status: 200, headers, body: clinic };
             } else {
-                const whereClause = hasIsActive ? 'WHERE (IsActive = 1 OR IsActive IS NULL)' : '';
+                const whereParts = [tenantClinicScopeSql('Id')];
+                if (hasIsActive) whereParts.push('(IsActive = 1 OR IsActive IS NULL)');
+                const whereClause = `WHERE ${whereParts.join(' AND ')}`;
                 const result = await pool.request()
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
                     .query(`SELECT * FROM Clinics ${whereClause} ${orderBy}`);
 
                 const clinics = result.recordset || [];
