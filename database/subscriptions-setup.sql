@@ -127,6 +127,112 @@ ELSE
     PRINT 'SubscriptionPlans already has rows; skipping seed';
 GO
 
+-- =============================================
+-- 6. HOUSE SUBSCRIPTION + TENANT BACKFILL (idempotent)
+--    Goal: every existing clinic + every legacy data row becomes owned by ONE
+--    "house" subscription so the original organization keeps seeing all of its
+--    data after we turn on per-tenant filtering. Brand-new self-signup
+--    subscribers (with their own Subscription + ClinicId) will see only their
+--    own data.
+--
+--    What this section does:
+--      a) Picks the user with the lowest Id as the house owner.
+--      b) Picks the highest-tier active plan (or the lowest-Id one) for the house.
+--      c) Creates a single 'house' subscription if none yet exists for that user.
+--      d) Links EVERY existing clinic to the house subscription via SubscriptionClinics
+--         (skipping clinics that are already linked to ANY subscription).
+--      e) Backfills NULL ClinicId on tenant-scoped tables to MIN(Clinics.Id).
+-- =============================================
+DECLARE @houseOwnerId INT, @housePlanId INT, @houseSubId INT, @houseClinicId INT;
+
+SELECT TOP 1 @houseOwnerId = Id FROM Users ORDER BY Id ASC;
+IF @houseOwnerId IS NULL
+BEGIN
+    PRINT '[Backfill] No users found - skipping house subscription setup.';
+END
+ELSE
+BEGIN
+    -- Highest-priced active plan (tie broken by lowest Id) so the house gets the most generous limits.
+    SELECT TOP 1 @housePlanId = Id FROM SubscriptionPlans
+        WHERE IsActive = 1 ORDER BY Price DESC, Id ASC;
+    IF @housePlanId IS NULL
+        SELECT TOP 1 @housePlanId = Id FROM SubscriptionPlans ORDER BY Id ASC;
+
+    IF @housePlanId IS NULL
+    BEGIN
+        PRINT '[Backfill] No subscription plans found - run section 5 seed first. Skipping.';
+    END
+    ELSE
+    BEGIN
+        -- Find or create the house subscription owned by the lowest-Id user.
+        SELECT TOP 1 @houseSubId = Id FROM Subscriptions
+            WHERE OwnerUserId = @houseOwnerId
+            ORDER BY Id ASC;
+
+        IF @houseSubId IS NULL
+        BEGIN
+            INSERT INTO Subscriptions (OwnerUserId, PlanId, Status, RequestedAt, ApprovedAt, Notes, IsActive)
+            VALUES (@houseOwnerId, @housePlanId, 'active', GETUTCDATE(), GETUTCDATE(),
+                    'House subscription - owns all pre-existing data (auto-created by backfill).', 1);
+            SET @houseSubId = SCOPE_IDENTITY();
+            PRINT '[Backfill] Created house Subscription Id=' + CAST(@houseSubId AS NVARCHAR) +
+                  ' for owner UserId=' + CAST(@houseOwnerId AS NVARCHAR) +
+                  ' on PlanId=' + CAST(@housePlanId AS NVARCHAR);
+        END
+        ELSE
+            PRINT '[Backfill] Reusing existing house Subscription Id=' + CAST(@houseSubId AS NVARCHAR);
+
+        -- Link EVERY existing clinic to the house subscription IF it isn't already linked to ANY subscription.
+        DECLARE @linked INT;
+        INSERT INTO SubscriptionClinics (SubscriptionId, ClinicId)
+        SELECT @houseSubId, c.Id
+            FROM Clinics c
+            WHERE NOT EXISTS (SELECT 1 FROM SubscriptionClinics sc WHERE sc.ClinicId = c.Id);
+        SET @linked = @@ROWCOUNT;
+        PRINT '[Backfill] Linked ' + CAST(@linked AS NVARCHAR) + ' existing clinic(s) to the house subscription.';
+
+        -- Pick the lowest-Id clinic as the default owner for legacy NULL-ClinicId rows.
+        SELECT TOP 1 @houseClinicId = Id FROM Clinics ORDER BY Id ASC;
+        IF @houseClinicId IS NULL
+        BEGIN
+            PRINT '[Backfill] No clinics exist yet - cannot backfill ClinicId. Create at least one clinic and re-run.';
+        END
+        ELSE
+        BEGIN
+            PRINT '[Backfill] Backfilling NULL ClinicId rows to ClinicId=' + CAST(@houseClinicId AS NVARCHAR);
+
+            -- Helper: walk every tenant-scoped table that has a ClinicId column and set NULLs to @houseClinicId.
+            DECLARE @tbl NVARCHAR(128);
+            DECLARE @sqlText NVARCHAR(MAX);
+            DECLARE @rowCnt INT;
+
+            DECLARE tenant_cur CURSOR LOCAL FAST_FORWARD FOR
+                SELECT t.TABLE_NAME
+                  FROM INFORMATION_SCHEMA.COLUMNS t
+                 WHERE t.COLUMN_NAME = 'ClinicId'
+                   AND t.IS_NULLABLE = 'YES'
+                   -- skip the membership table itself; it's the source of truth.
+                   AND t.TABLE_NAME NOT IN ('SubscriptionClinics', 'UserClinics', 'Clinics')
+                 ORDER BY t.TABLE_NAME;
+
+            OPEN tenant_cur;
+            FETCH NEXT FROM tenant_cur INTO @tbl;
+            WHILE @@FETCH_STATUS = 0
+            BEGIN
+                SET @sqlText = N'UPDATE [' + @tbl + N'] SET ClinicId = @cid WHERE ClinicId IS NULL';
+                EXEC sp_executesql @sqlText, N'@cid INT', @cid = @houseClinicId;
+                SET @rowCnt = @@ROWCOUNT;
+                IF @rowCnt > 0
+                    PRINT '  [' + @tbl + '] backfilled ' + CAST(@rowCnt AS NVARCHAR) + ' row(s).';
+                FETCH NEXT FROM tenant_cur INTO @tbl;
+            END;
+            CLOSE tenant_cur;
+            DEALLOCATE tenant_cur;
+        END
+    END
+END
+GO
+
 PRINT '=============================================';
 PRINT 'Subscription tables setup complete.';
 PRINT '=============================================';
