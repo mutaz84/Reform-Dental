@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Tenant Diagnostic</title>
+<style>
+  body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 16px; background: #0b0d12; color: #e6e9ef; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  .row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  input, button { font: inherit; padding: 6px 10px; background: #1b2030; color: #e6e9ef; border: 1px solid #2a3144; border-radius: 6px; }
+  button { cursor: pointer; }
+  button:hover { background: #232a3d; }
+  pre { background: #0f131a; border: 1px solid #1f2535; padding: 12px; border-radius: 8px; white-space: pre-wrap; word-break: break-word; font-size: 12px; max-height: 70vh; overflow: auto; }
+  .hint { color: #9aa3b8; font-size: 12px; margin: 4px 0 12px; }
+  .err { color: #ff6b6b; }
+</style>
+</head>
+<body>
+<h1>Tenant Diagnostic</h1>
+<div class="hint">You must be logged in as the platform admin (Username='admin'). The X-User-Id header is auto-injected by the app shell.</div>
+<div class="row">
+  <input id="uid" type="number" placeholder="Subscriber UserId (e.g. 43)" value="43" />
+  <button id="run">Run diag</button>
+  <button id="copy">Copy JSON</button>
+</div>
+<pre id="out">Click "Run diag" to fetch /api/tenant-diag?userId=&lt;id&gt;.</pre>
+
+<script>
+// Mirror the X-User-Id injection from the main app shell so this standalone page works.
+(function () {
+  const originalFetch = window.fetch;
+  window.fetch = async function (resource, init) {
+    const url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
+    const isApi = /\/api\//.test(url);
+    if (!isApi) return originalFetch(resource, init);
+    let uid = null;
+    try {
+      const cu = JSON.parse(localStorage.getItem('currentUser') || 'null');
+      if (cu) uid = cu.id || cu.Id || cu.userId || cu.UserId || null;
+    } catch (_) {}
+    if (!uid) return originalFetch(resource, init);
+    const baseInit = init || {};
+    const baseHeaders = baseInit.headers || {};
+    let merged;
+    if (baseHeaders instanceof Headers) {
+      merged = new Headers(baseHeaders);
+      if (!merged.has('X-User-Id')) merged.set('X-User-Id', String(uid));
+    } else {
+      merged = { ...baseHeaders };
+      const hasIt = Object.keys(merged).some(k => k.toLowerCase() === 'x-user-id');
+      if (!hasIt) merged['X-User-Id'] = String(uid);
+    }
+    return originalFetch(resource, { ...baseInit, headers: merged });
+  };
+})();
+
+const out = document.getElementById('out');
+document.getElementById('run').onclick = async () => {
+  const uid = document.getElementById('uid').value.trim();
+  out.textContent = 'Loading...';
+  try {
+    const r = await fetch('/api/tenant-diag' + (uid ? ('?userId=' + encodeURIComponent(uid)) : ''));
+    const text = await r.text();
+    let pretty = text;
+    try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch (_) {}
+    out.textContent = '[HTTP ' + r.status + ']\n\n' + pretty;
+  } catch (e) {
+    out.textContent = 'Error: ' + (e && e.message);
+    out.classList.add('err');
+  }
+};
+document.getElementById('copy').onclick = async () => {
+  try { await navigator.clipboard.writeText(out.textContent); alert('Copied'); }
+  catch (_) {
+    const r = document.createRange(); r.selectNode(out);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(r);
+  }
+};
+</script>
+</body>
+</html>
