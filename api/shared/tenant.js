@@ -146,6 +146,53 @@ function tenantClinicScopeSql(columnExpr = 'ClinicId') {
 }
 
 /**
+ * Returns a SQL subquery producing the set of UserIds the caller may "see":
+ *   - the caller themselves
+ *   - every user assigned to a clinic the caller can reach via tenantClinicScopeSql
+ * Caller must bind the userId via TENANT_PARAM.
+ *
+ * Use as: `WHERE ${columnExpr} IN (${tenantVisibleUserIdsSql()})`
+ * Or via convenience helper: tenantVisibleUserIdsClause('t.UserId').
+ */
+function tenantVisibleUserIdsSql() {
+    return `
+        SELECT @${TENANT_PARAM} AS UserId
+        UNION
+        SELECT DISTINCT uc.UserId
+            FROM UserClinics uc
+            WHERE uc.ClinicId IN (
+                SELECT ClinicId FROM UserClinics WHERE UserId = @${TENANT_PARAM}
+                UNION
+                SELECT sc.ClinicId
+                    FROM SubscriptionClinics sc
+                    INNER JOIN Subscriptions s ON s.Id = sc.SubscriptionId
+                    WHERE s.OwnerUserId = @${TENANT_PARAM} AND s.IsActive = 1
+            )
+    `;
+}
+
+function tenantVisibleUserIdsClause(columnExpr = 'UserId') {
+    return `${columnExpr} IN (${tenantVisibleUserIdsSql()})`;
+}
+
+/**
+ * Same as tenantVisibleUserIdsSql but returns Usernames (for tables that store
+ * a username string instead of a UserId — e.g. PurchaseOrders.CreatedBy,
+ * Requests.RequestedBy).
+ */
+function tenantVisibleUsernamesSql() {
+    return `
+        SELECT u.Username
+            FROM Users u
+            WHERE u.Id IN (${tenantVisibleUserIdsSql()})
+    `;
+}
+
+function tenantVisibleUsernamesClause(columnExpr = 'CreatedBy') {
+    return `${columnExpr} IN (${tenantVisibleUsernamesSql()})`;
+}
+
+/**
  * Builds a parameterized SQL fragment "ClinicId IN (@_tc0, @_tc1, ...)"
  * and binds values onto the provided sql.Request. Returns:
  *   - null if clinicIds is empty.
@@ -196,6 +243,10 @@ module.exports = {
     getUserClinicIds,
     getTenantContext,
     tenantClinicScopeSql,
+    tenantVisibleUserIdsSql,
+    tenantVisibleUserIdsClause,
+    tenantVisibleUsernamesSql,
+    tenantVisibleUsernamesClause,
     buildClinicInClause,
     isPlatformAdmin,
     isPlatformAdminRequest

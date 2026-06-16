@@ -1,4 +1,5 @@
 const sql = require('mssql');
+const { getRequestUserId, tenantVisibleUsernamesClause, TENANT_PARAM } = require('../shared/tenant');
 
 let sharedPoolPromise = null;
 
@@ -103,18 +104,30 @@ module.exports = async function (context, req) {
             const pool = await getPool();
 
             if (method === 'GET') {
+                const tenantUserId = getRequestUserId(req);
+                if (!tenantUserId) {
+                    context.res = { status: 200, headers, body: id ? null : [] };
+                    return;
+                }
+                const tenantClause = tenantVisibleUsernamesClause('Username');
                 const username = String(req.query?.username || req.query?.user || '').trim();
                 const limit = Math.min(Math.max(toIntOrNull(req.query?.limit) || 100, 1), 500);
 
-                const request = pool.request().input('limit', sql.Int, limit);
-                let where = '';
+                const request = pool.request()
+                    .input('limit', sql.Int, limit)
+                    .input(TENANT_PARAM, sql.Int, tenantUserId);
+                const whereParts = [tenantClause];
                 if (username) {
                     request.input('username', sql.NVarChar(150), username);
-                    where = 'WHERE Username = @username';
+                    whereParts.push('Username = @username');
                 }
+                const where = `WHERE ${whereParts.join(' AND ')}`;
 
                 if (id) {
-                    const one = await pool.request().input('id', sql.Int, id).query('SELECT * FROM AttendanceNotifications WHERE Id = @id');
+                    const one = await pool.request()
+                        .input('id', sql.Int, id)
+                        .input(TENANT_PARAM, sql.Int, tenantUserId)
+                        .query(`SELECT * FROM AttendanceNotifications WHERE Id = @id AND ${tenantClause}`);
                     context.res = { status: 200, headers, body: one.recordset[0] ? mapRow(one.recordset[0]) : null };
                     return;
                 }

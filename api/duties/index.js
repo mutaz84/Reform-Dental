@@ -1,4 +1,5 @@
 const sql = require('mssql');
+const { getRequestUserId, tenantVisibleUserIdsClause, TENANT_PARAM } = require('../shared/tenant');
 
 const config = {
     server: process.env.SQL_SERVER || '',
@@ -126,6 +127,12 @@ module.exports = async function (context, req) {
         }
 
         if (req.method === 'GET') {
+            const tenantUserId = getRequestUserId(req);
+            if (!tenantUserId) {
+                context.res = { status: 200, headers, body: id ? null : [] };
+                return;
+            }
+            const tenantClause = tenantVisibleUserIdsClause('UserId');
             if (id) {
                 // Get single duty
                 const result = await pool.request()
@@ -139,13 +146,22 @@ module.exports = async function (context, req) {
                 } else {
                     const assignmentResult = await pool.request()
                         .input('id', sql.Int, id)
-                        .query('SELECT DutyId, UserId FROM UserDutyAssignments WHERE DutyId = @id');
+                        .input(TENANT_PARAM, sql.Int, tenantUserId)
+                        .query(`SELECT DutyId, UserId FROM UserDutyAssignments WHERE DutyId = @id AND ${tenantClause}`);
                     const mapped = mapAssignments(result.recordset, assignmentResult.recordset || []);
                     context.res = { status: 200, headers, body: mapped[0] };
                 }
             } else if (userId) {
-                // Get duties for a specific user
+                // Get duties for a specific user — must be a visible user
                 const userIdNumber = Number(userId);
+                const visibilityCheck = await pool.request()
+                    .input('uid', sql.Int, userIdNumber)
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
+                    .query(`SELECT TOP 1 1 AS ok WHERE @uid IN (${require('../shared/tenant').tenantVisibleUserIdsSql()})`);
+                if (!visibilityCheck.recordset.length) {
+                    context.res = { status: 200, headers, body: [] };
+                    return;
+                }
                 const result = await pool.request()
                     .input('userId', sql.Int, userIdNumber)
                     .query(`SELECT d.Id, d.Name, d.Description, d.Schedule, d.ScheduleTime, d.ScheduleDay,
@@ -165,16 +181,20 @@ module.exports = async function (context, req) {
                 }));
                 context.res = { status: 200, headers, body: mapped };
             } else {
-                // Get all duties
+                // Get all duties — only those with at least one visible-user assignment
                 const dutiesResult = await pool.request()
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
                     .query(`SELECT Id, Name, Description, Schedule, ScheduleTime, ScheduleDay,
                             Location, Priority, CreatedDate, ModifiedDate, IsActive
                             FROM Duties
-                            WHERE IsActive = 1
+                            WHERE IsActive = 1 AND Id IN (
+                                SELECT DutyId FROM UserDutyAssignments WHERE ${tenantClause}
+                            )
                             ORDER BY Priority, Name`);
 
                 const assignmentsResult = await pool.request()
-                    .query('SELECT DutyId, UserId FROM UserDutyAssignments');
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
+                    .query(`SELECT DutyId, UserId FROM UserDutyAssignments WHERE ${tenantClause}`);
 
                 const mapped = mapAssignments(dutiesResult.recordset || [], assignmentsResult.recordset || []);
                 context.res = { status: 200, headers, body: mapped };

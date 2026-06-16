@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { getRequestUserId, tenantVisibleUsernamesClause, TENANT_PARAM } = require('../shared/tenant');
 
 function isConnectionError(error) {
     const message = String(error?.message || '').toLowerCase();
@@ -48,16 +49,25 @@ module.exports = async function (context, req) {
             const pool = await getPool();
 
             if (method === 'GET') {
+                const tenantUserId = getRequestUserId(req);
+                if (!tenantUserId) {
+                    context.res = { status: 200, headers, body: routeUsername ? null : [] };
+                    return;
+                }
+                const tenantClause = tenantVisibleUsernamesClause('Username');
                 const username = routeUsername || String(req.query?.username || '').trim();
                 if (username) {
                     const one = await pool.request()
                         .input('username', sql.NVarChar(150), username)
-                        .query('SELECT * FROM AttendancePolicies WHERE Username = @username');
+                        .input(TENANT_PARAM, sql.Int, tenantUserId)
+                        .query(`SELECT * FROM AttendancePolicies WHERE Username = @username AND ${tenantClause}`);
                     context.res = { status: 200, headers, body: one.recordset[0] ? mapRow(one.recordset[0]) : null };
                     return;
                 }
 
-                const all = await pool.request().query('SELECT * FROM AttendancePolicies ORDER BY Username');
+                const all = await pool.request()
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
+                    .query(`SELECT * FROM AttendancePolicies WHERE ${tenantClause} ORDER BY Username`);
                 context.res = { status: 200, headers, body: (all.recordset || []).map(mapRow) };
                 return;
             }

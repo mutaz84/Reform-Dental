@@ -1,4 +1,5 @@
 const sql = require('mssql');
+const { getRequestUserId, tenantVisibleUsernamesClause, TENANT_PARAM } = require('../shared/tenant');
 
 let sharedPoolPromise = null;
 
@@ -128,18 +129,25 @@ module.exports = async function (context, req) {
             const pool = await getPool();
 
             if (method === 'GET') {
+                const tenantUserId = getRequestUserId(req);
+                if (!tenantUserId) {
+                    context.res = { status: 200, headers, body: id ? null : [] };
+                    return;
+                }
+                const tenantClause = tenantVisibleUsernamesClause('Username');
                 if (id) {
                     const one = await pool.request()
                         .input('id', sql.Int, id)
-                        .query('SELECT * FROM PtoRequests WHERE Id = @id');
+                        .input(TENANT_PARAM, sql.Int, tenantUserId)
+                        .query(`SELECT * FROM PtoRequests WHERE Id = @id AND ${tenantClause}`);
                     context.res = { status: 200, headers, body: one.recordset[0] ? mapRow(one.recordset[0]) : null };
                     return;
                 }
 
                 const username = String(req.query?.username || '').trim();
                 const status = String(req.query?.status || '').trim();
-                const request = pool.request();
-                const where = [];
+                const request = pool.request().input(TENANT_PARAM, sql.Int, tenantUserId);
+                const where = [tenantClause];
 
                 if (username) {
                     request.input('username', sql.NVarChar(150), username);
@@ -150,7 +158,7 @@ module.exports = async function (context, req) {
                     where.push('Status = @status');
                 }
 
-                const result = await request.query(`SELECT * FROM PtoRequests ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY CreatedAt DESC, Id DESC`);
+                const result = await request.query(`SELECT * FROM PtoRequests WHERE ${where.join(' AND ')} ORDER BY CreatedAt DESC, Id DESC`);
                 context.res = { status: 200, headers, body: (result.recordset || []).map(mapRow) };
                 return;
             }

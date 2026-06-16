@@ -203,18 +203,26 @@ module.exports = async function (context, req) {
         }
 
         if (req.method === 'GET') {
+            const { getRequestUserId, tenantVisibleUsernamesClause, TENANT_PARAM } = require('../shared/tenant');
+            const tenantUserId = getRequestUserId(req);
+            if (!tenantUserId) {
+                context.res = { status: 200, headers, body: clientId ? null : [] };
+                return;
+            }
+            const tenantPoFilter = tenantVisibleUsernamesClause('CreatedBy');
             if (clientId) {
                 const result = await pool.request()
                     .input('clientId', sql.NVarChar(100), clientId)
-                    .query('SELECT * FROM PurchaseOrders WHERE ClientId = @clientId');
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
+                    .query(`SELECT * FROM PurchaseOrders WHERE ClientId = @clientId AND ${tenantPoFilter}`);
                 if (!result.recordset[0]) { context.res = { status: 200, headers, body: null }; return; }
                 const row = mapRow(result.recordset[0]);
                 await attachItems(pool, [row]);
                 context.res = { status: 200, headers, body: row };
                 return;
             }
-            const r = pool.request();
-            const filters = [];
+            const r = pool.request().input(TENANT_PARAM, sql.Int, tenantUserId);
+            const filters = [tenantPoFilter];
             const instrumentIdRaw = req.query && req.query.instrumentId ? parseInt(req.query.instrumentId, 10) : null;
             const instrumentId = Number.isInteger(instrumentIdRaw) && instrumentIdRaw > 0 && instrumentIdRaw <= 2147483647 ? instrumentIdRaw : null;
             const supplyType = req.query && req.query.supplyType ? String(req.query.supplyType).slice(0, 20) : null;

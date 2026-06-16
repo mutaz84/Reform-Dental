@@ -1,4 +1,5 @@
 const sql = require('mssql');
+const { getRequestUserId, tenantVisibleUsernamesClause, TENANT_PARAM } = require('../shared/tenant');
 
 let sharedPoolPromise = null;
 
@@ -291,10 +292,17 @@ module.exports = async function (context, req) {
         const method = req.method;
 
         if (method === 'GET') {
+            const tenantUserId = getRequestUserId(req);
+            if (!tenantUserId) {
+                context.res = { status: 200, headers, body: id ? null : [] };
+                return;
+            }
+            const tenantClause = tenantVisibleUsernamesClause('Username');
             if (id) {
                 const one = await pool.request()
                     .input('id', sql.Int, id)
-                    .query('SELECT * FROM AttendanceRecords WHERE Id = @id');
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
+                    .query(`SELECT * FROM AttendanceRecords WHERE Id = @id AND ${tenantClause}`);
                 context.res = { status: 200, headers, body: one.recordset[0] ? mapRecord(one.recordset[0]) : null };
                 return;
             }
@@ -304,8 +312,8 @@ module.exports = async function (context, req) {
             const from = toDateOnly(req.query?.fromDate);
             const to = toDateOnly(req.query?.toDate);
 
-            const request = pool.request();
-            const where = [];
+            const request = pool.request().input(TENANT_PARAM, sql.Int, tenantUserId);
+            const where = [tenantClause];
             if (username) {
                 request.input('username', sql.NVarChar(150), username);
                 where.push('Username = @username');
@@ -323,7 +331,7 @@ module.exports = async function (context, req) {
                 where.push('WorkDate <= @toDate');
             }
 
-            const sqlText = `SELECT * FROM AttendanceRecords ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY WorkDate DESC, Id DESC`;
+            const sqlText = `SELECT * FROM AttendanceRecords WHERE ${where.join(' AND ')} ORDER BY WorkDate DESC, Id DESC`;
             const all = await request.query(sqlText);
             context.res = { status: 200, headers, body: (all.recordset || []).map(mapRecord) };
             return;

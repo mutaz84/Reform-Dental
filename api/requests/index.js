@@ -64,9 +64,17 @@ module.exports = async function (context, req) {
         const body = req.body || {};
 
         if (method === 'GET') {
+            const { getRequestUserId, tenantVisibleUsernamesClause, TENANT_PARAM } = require('../shared/tenant');
+            const tenantUserId = getRequestUserId(req);
+            if (!tenantUserId) {
+                context.res = { status: 200, headers, body: id !== null ? null : [] };
+                return;
+            }
+            const tenantClause = `(${tenantVisibleUsernamesClause('RequestedBy')} OR ${tenantVisibleUsernamesClause('AssignedTo')})`;
             if (id !== null) {
                 const result = await pool.request()
                     .input('id', sql.Int, id)
+                    .input(TENANT_PARAM, sql.Int, tenantUserId)
                     .query(`
                         SELECT
                           Id AS id,
@@ -82,7 +90,7 @@ module.exports = async function (context, req) {
                           RequestedAt AS requestedAt,
                           UpdatedAt AS updatedAt
                         FROM Requests
-                        WHERE Id = @id
+                        WHERE Id = @id AND ${tenantClause}
                     `);
 
                 context.res = {
@@ -93,7 +101,9 @@ module.exports = async function (context, req) {
                 return;
             }
 
-            const result = await pool.request().query(`
+            const result = await pool.request()
+                .input(TENANT_PARAM, sql.Int, tenantUserId)
+                .query(`
                 SELECT
                   Id AS id,
                   Title AS title,
@@ -108,6 +118,7 @@ module.exports = async function (context, req) {
                   RequestedAt AS requestedAt,
                   UpdatedAt AS updatedAt
                 FROM Requests
+                WHERE ${tenantClause}
                 ORDER BY RequestedAt DESC
             `);
 
