@@ -1,9 +1,115 @@
 const sql = require('mssql');
 
 let poolPromise = null;
+let tenantSchemaEnsured = false;
 
 function isPoolUsable(pool) {
     return Boolean(pool) && (pool.connected === true || pool.connecting === true);
+}
+
+// Phase 7 tenant migration. Runs once per cold-start. Idempotent (NULL-only updates).
+// Adds Users.SubscriptionId, Clinics.SubscriptionId, Vendors.SubscriptionId and
+// backfills via existing relations. See tenant.js for filter semantics.
+async function ensureTenantSchema(pool) {
+    if (tenantSchemaEnsured) return;
+    try {
+        await pool.request().batch(`
+            -- Users.SubscriptionId column
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'SubscriptionId' AND Object_ID = Object_ID(N'Users'))
+                ALTER TABLE Users ADD SubscriptionId INT NULL;
+        `);
+        await pool.request().batch(`
+            -- Clinics.SubscriptionId column
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'SubscriptionId' AND Object_ID = Object_ID(N'Clinics'))
+                ALTER TABLE Clinics ADD SubscriptionId INT NULL;
+        `);
+        await pool.request().batch(`
+            -- Vendors.SubscriptionId column
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = N'SubscriptionId' AND Object_ID = Object_ID(N'Vendors'))
+                ALTER TABLE Vendors ADD SubscriptionId INT NULL;
+        `);
+
+        // Owners: each Subscriptions.OwnerUserId gets that subscription's Id.
+        await pool.request().query(`
+            UPDATE u SET u.SubscriptionId = s.Id
+            FROM Users u
+            INNER JOIN Subscriptions s ON s.OwnerUserId = u.Id AND s.IsActive = 1
+            WHERE u.SubscriptionId IS NULL;
+        `);
+
+        // Sub-users: derive via UserClinics -> SubscriptionClinics, prefer non-admin sub.
+        await pool.request().query(`
+            ;WITH AdminUser AS (
+                SELECT TOP 1 Id FROM Users WHERE LOWER(Username) = 'admin'
+            ),
+            NonAdminMap AS (
+                SELECT uc.UserId, MIN(sc.SubscriptionId) AS SubId
+                FROM UserClinics uc
+                INNER JOIN SubscriptionClinics sc ON sc.ClinicId = uc.ClinicId
+                INNER JOIN Subscriptions sub ON sub.Id = sc.SubscriptionId
+                CROSS JOIN AdminUser a
+                WHERE sub.OwnerUserId <> a.Id
+                GROUP BY uc.UserId
+            ),
+            AnyMap AS (
+                SELECT uc.UserId, MIN(sc.SubscriptionId) AS SubId
+                FROM UserClinics uc
+                INNER JOIN SubscriptionClinics sc ON sc.ClinicId = uc.ClinicId
+                GROUP BY uc.UserId
+            )
+            UPDATE u SET u.SubscriptionId = COALESCE(n.SubId, a.SubId)
+            FROM Users u
+            LEFT JOIN NonAdminMap n ON n.UserId = u.Id
+            LEFT JOIN AnyMap a ON a.UserId = u.Id
+            WHERE u.SubscriptionId IS NULL
+              AND COALESCE(n.SubId, a.SubId) IS NOT NULL;
+        `);
+
+        // Clinics: prefer non-admin subscription owner over admin's house sub.
+        await pool.request().query(`
+            ;WITH AdminUser AS (
+                SELECT TOP 1 Id FROM Users WHERE LOWER(Username) = 'admin'
+            ),
+            NonAdminClinic AS (
+                SELECT sc.ClinicId, MIN(sc.SubscriptionId) AS SubId
+                FROM SubscriptionClinics sc
+                INNER JOIN Subscriptions sub ON sub.Id = sc.SubscriptionId
+                CROSS JOIN AdminUser a
+                WHERE sub.OwnerUserId <> a.Id
+                GROUP BY sc.ClinicId
+            ),
+            AnyClinic AS (
+                SELECT sc.ClinicId, MIN(sc.SubscriptionId) AS SubId
+                FROM SubscriptionClinics sc
+                GROUP BY sc.ClinicId
+            )
+            UPDATE c SET c.SubscriptionId = COALESCE(n.SubId, a.SubId)
+            FROM Clinics c
+            LEFT JOIN NonAdminClinic n ON n.ClinicId = c.Id
+            LEFT JOIN AnyClinic a ON a.ClinicId = c.Id
+            WHERE c.SubscriptionId IS NULL
+              AND COALESCE(n.SubId, a.SubId) IS NOT NULL;
+        `);
+
+        // Vendors: existing rows -> admin's house subscription.
+        await pool.request().query(`
+            ;WITH AdminSub AS (
+                SELECT TOP 1 s.Id AS Id FROM Subscriptions s
+                INNER JOIN Users u ON u.Id = s.OwnerUserId
+                WHERE LOWER(u.Username) = 'admin'
+                ORDER BY s.Id ASC
+            )
+            UPDATE Vendors SET SubscriptionId = (SELECT Id FROM AdminSub)
+            WHERE SubscriptionId IS NULL
+              AND EXISTS (SELECT 1 FROM AdminSub);
+        `);
+
+        tenantSchemaEnsured = true;
+    } catch (err) {
+        // Don't crash the app if migration fails (e.g. permission issues);
+        // surface in logs but allow handlers to continue with old behaviour.
+        try { console.error('ensureTenantSchema failed:', err && err.message); } catch (_) {}
+    }
 }
 
 function parseConnectionString(connStr) {
@@ -94,6 +200,11 @@ async function getPool() {
     const pool = await poolPromise;
 
     if (isPoolUsable(pool)) {
+        if (!tenantSchemaEnsured) {
+            // Fire-and-forget: don't block first request; subsequent requests
+            // will see the migrated schema once the promise resolves.
+            ensureTenantSchema(pool).catch(() => {});
+        }
         return pool;
     }
 
@@ -158,5 +269,6 @@ module.exports = {
     execute,
     getConfig,
     getPool,
-    resetPool
+    resetPool,
+    ensureTenantSchema
 };

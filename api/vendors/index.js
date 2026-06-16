@@ -1,4 +1,5 @@
 ﻿const { sql, getPool, resetPool } = require('../shared/database');
+const { TENANT_PARAM, getRequestUserId, tenantSubscriptionScope } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -33,23 +34,28 @@ module.exports = async function (context, req) {
         }
 
         const hasIsActive = hasColumn(vendorColumns, 'IsActive');
+        const hasSubscriptionId = hasColumn(vendorColumns, 'SubscriptionId');
         const orderBy = hasColumn(vendorColumns, 'Name') ? 'ORDER BY Name' : 'ORDER BY Id';
         const id = req.params.id;
+        const callerUserId = getRequestUserId(req);
 
         if (req.method === 'GET') {
             if (id) {
                 const where = ['Id = @id'];
-                if (hasIsActive) {
-                    where.push('IsActive = 1');
-                }
-                const result = await pool.request()
-                    .input('id', sql.Int, id)
-                    .query(`SELECT * FROM Vendors WHERE ${where.join(' AND ')}`);
+                if (hasIsActive) where.push('IsActive = 1');
+                if (hasSubscriptionId) where.push(tenantSubscriptionScope('SubscriptionId'));
+                const r = pool.request().input('id', sql.Int, id);
+                if (hasSubscriptionId) r.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                const result = await r.query(`SELECT * FROM Vendors WHERE ${where.join(' AND ')}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
-                const whereClause = hasIsActive ? 'WHERE IsActive = 1' : '';
-                const result = await pool.request()
-                    .query(`SELECT * FROM Vendors ${whereClause} ${orderBy}`);
+                const where = [];
+                if (hasIsActive) where.push('IsActive = 1');
+                if (hasSubscriptionId) where.push(tenantSubscriptionScope('SubscriptionId'));
+                const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+                const r = pool.request();
+                if (hasSubscriptionId) r.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+                const result = await r.query(`SELECT * FROM Vendors ${whereClause} ${orderBy}`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {
@@ -58,6 +64,10 @@ module.exports = async function (context, req) {
             const cols = ['Name', 'VendorType', 'ContactName', 'Phone', 'AlternatePhone', 'Email', 'Address', 'City', 'State', 'ZipCode', 'Website', 'PortalUsername', 'PortalPassword', 'Notes', 'IsActive', 'CreatedDate'];
             const vals = ['@name', '@vendorType', '@contactName', '@phone', '@alternatePhone', '@email', '@address', '@city', '@state', '@zipCode', '@website', '@portalUsername', '@portalPassword', '@notes', '@isActive', 'GETDATE()'];
             if (hasImageUrl) { cols.push('ImageUrl'); vals.push('@imageUrl'); }
+            if (hasSubscriptionId) {
+                cols.push('SubscriptionId');
+                vals.push('(SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @' + TENANT_PARAM + ')');
+            }
             const request = pool.request()
                 .input('name', sql.NVarChar, body.name || '')
                 .input('vendorType', sql.NVarChar, body.vendorType || '')
@@ -76,6 +86,9 @@ module.exports = async function (context, req) {
                 .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0);
             if (hasImageUrl) {
                 request.input('imageUrl', sql.NVarChar(sql.MAX), body.imageUrl || body.ImageUrl || null);
+            }
+            if (hasSubscriptionId) {
+                request.input(TENANT_PARAM, sql.Int, callerUserId || -1);
             }
             const result = await request.query(`INSERT INTO Vendors (${cols.join(', ')}) OUTPUT INSERTED.Id VALUES (${vals.join(', ')})`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id, message: 'Vendor created successfully' } };
@@ -106,12 +119,21 @@ module.exports = async function (context, req) {
                 const incoming = (body.imageUrl !== undefined) ? body.imageUrl : body.ImageUrl;
                 request.input('imageUrl', sql.NVarChar(sql.MAX), incoming || null);
             }
-            await request.query(`UPDATE Vendors SET ${setClauses.join(', ')} WHERE Id=@id`);
+            const updateWhere = hasSubscriptionId
+                ? `WHERE Id=@id AND ${tenantSubscriptionScope('SubscriptionId')}`
+                : 'WHERE Id=@id';
+            if (hasSubscriptionId) {
+                request.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+            }
+            await request.query(`UPDATE Vendors SET ${setClauses.join(', ')} ${updateWhere}`);
             context.res = { status: 200, headers, body: { message: 'Vendor updated successfully' } };
         } else if (req.method === 'DELETE' && id) {
-            await pool.request()
-                .input('id', sql.Int, id)
-                .query('DELETE FROM Vendors WHERE Id = @id');
+            const r = pool.request().input('id', sql.Int, id);
+            const deleteWhere = hasSubscriptionId
+                ? `WHERE Id = @id AND ${tenantSubscriptionScope('SubscriptionId')}`
+                : 'WHERE Id = @id';
+            if (hasSubscriptionId) r.input(TENANT_PARAM, sql.Int, callerUserId || -1);
+            await r.query(`DELETE FROM Vendors ${deleteWhere}`);
             context.res = { status: 200, headers, body: { message: 'Vendor deleted successfully' } };
         }
     } catch (err) {

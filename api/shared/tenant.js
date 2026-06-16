@@ -130,22 +130,27 @@ async function getTenantContext(req, pool) {
  * upstream if you prefer to short-circuit.
  */
 function tenantClinicScopeSql(columnExpr = 'ClinicId') {
-    // A user can reach a clinic three ways:
-    //   1. They are the platform admin (Username='admin') — sees everything across all subscriptions.
-    //   2. Explicit per-user assignment in UserClinics (sub-users).
-    //   3. They OWN a Subscription whose SubscriptionClinics include the clinic
-    //      (subscription owner / "house" admin who paid for it).
-    // All branches use the same @_tenantUserId binding.
+    // Phase 7: filter via Clinics.SubscriptionId chain.
+    //   - Platform admin (Username='admin') sees everything.
+    //   - Everyone else sees clinics whose SubscriptionId equals the caller's
+    //     Users.SubscriptionId. The caller's SubscriptionId is set during signup
+    //     (owner) or backfilled from UserClinics->SubscriptionClinics (sub-users).
     return `(
         EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
         OR ${columnExpr} IN (
-            SELECT ClinicId FROM UserClinics WHERE UserId = @${TENANT_PARAM}
-            UNION
-            SELECT sc.ClinicId
-                FROM SubscriptionClinics sc
-                INNER JOIN Subscriptions s ON s.Id = sc.SubscriptionId
-                WHERE s.OwnerUserId = @${TENANT_PARAM} AND s.IsActive = 1
+            SELECT c.Id FROM Clinics c
+            WHERE c.SubscriptionId IS NOT NULL
+              AND c.SubscriptionId = (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})
         )
+    )`;
+}
+
+// Phase 7: direct SubscriptionId column filter for tables that don't have a
+// ClinicId (e.g. Vendors). Same admin bypass.
+function tenantSubscriptionScope(columnExpr = 'SubscriptionId') {
+    return `(
+        EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
+        OR ${columnExpr} = (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})
     )`;
 }
 
@@ -160,7 +165,7 @@ function tenantClinicScopeSql(columnExpr = 'ClinicId') {
  */
 function tenantVisibleUserIdsSql() {
     // Platform admin (Username='admin') sees ALL users across all subscriptions.
-    // Everyone else sees: themselves + every user assigned to a clinic they can reach.
+    // Everyone else sees: themselves + every user with the same Users.SubscriptionId.
     return `
         SELECT u_all.Id AS UserId
             FROM Users u_all
@@ -168,16 +173,10 @@ function tenantVisibleUserIdsSql() {
         UNION
         SELECT @${TENANT_PARAM} AS UserId
         UNION
-        SELECT DISTINCT uc.UserId
-            FROM UserClinics uc
-            WHERE uc.ClinicId IN (
-                SELECT ClinicId FROM UserClinics WHERE UserId = @${TENANT_PARAM}
-                UNION
-                SELECT sc.ClinicId
-                    FROM SubscriptionClinics sc
-                    INNER JOIN Subscriptions s ON s.Id = sc.SubscriptionId
-                    WHERE s.OwnerUserId = @${TENANT_PARAM} AND s.IsActive = 1
-            )
+        SELECT u2.Id
+            FROM Users u2
+            WHERE u2.SubscriptionId IS NOT NULL
+              AND u2.SubscriptionId = (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})
     `;
 }
 
@@ -253,6 +252,7 @@ module.exports = {
     getUserClinicIds,
     getTenantContext,
     tenantClinicScopeSql,
+    tenantSubscriptionScope,
     tenantVisibleUserIdsSql,
     tenantVisibleUserIdsClause,
     tenantVisibleUsernamesSql,
