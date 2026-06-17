@@ -32,6 +32,17 @@ function textOrNull(value) {
     return text || null;
 }
 
+async function getTableColumns(pool, tableName) {
+    const result = await pool.request()
+        .input('tableName', sql.NVarChar(128), tableName)
+        .query('SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @tableName');
+    return new Set((result.recordset || []).map((row) => String(row.COLUMN_NAME || '').toLowerCase()));
+}
+
+function hasColumn(columns, name) {
+    return columns.has(String(name).toLowerCase());
+}
+
 function normalizeRequestType(value) {
     const normalized = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
     return REQUEST_TYPES.has(normalized) ? normalized : 'other';
@@ -117,6 +128,58 @@ async function getCurrentPlanId(pool, subscriptionId) {
         .input('subId', sql.Int, subscriptionId)
         .query('SELECT TOP 1 PlanId FROM Subscriptions WHERE Id = @subId');
     return toIntOrNull(result.recordset[0] && result.recordset[0].PlanId);
+}
+
+async function getPlanLimits(pool, planId) {
+    const result = await pool.request()
+        .input('id', sql.Int, planId)
+        .query('SELECT TOP 1 Id, Name, MaxClinics, IsActive FROM SubscriptionPlans WHERE Id = @id');
+    return result.recordset[0] || null;
+}
+
+async function countSubscriptionClinics(pool, subscriptionId) {
+    const result = await pool.request()
+        .input('id', sql.Int, subscriptionId)
+        .query('SELECT COUNT(*) AS Count FROM SubscriptionClinics WHERE SubscriptionId = @id');
+    return result.recordset[0] ? Number(result.recordset[0].Count || 0) : 0;
+}
+
+async function applyApprovedRequest(pool, row, actorUserId) {
+    const requestType = String(row.RequestType || '').toLowerCase();
+    const subColumns = await getTableColumns(pool, 'Subscriptions');
+    const modifiedClause = hasColumn(subColumns, 'ModifiedDate') ? ', ModifiedDate = GETUTCDATE()' : '';
+
+    if (requestType === 'plan_change') {
+        const targetPlanId = toIntOrNull(row.TargetPlanId);
+        if (!targetPlanId) throw new Error('This plan change request has no target plan.');
+        const plan = await getPlanLimits(pool, targetPlanId);
+        if (!plan) throw new Error('Target plan not found.');
+        const clinicCount = await countSubscriptionClinics(pool, row.SubscriptionId);
+        if (Number(plan.MaxClinics || 1) < clinicCount) {
+            throw new Error(`Plan ${plan.Name} only allows ${plan.MaxClinics} clinic(s); subscription currently covers ${clinicCount}.`);
+        }
+        await pool.request()
+            .input('subId', sql.Int, row.SubscriptionId)
+            .input('planId', sql.Int, targetPlanId)
+            .query(`UPDATE Subscriptions SET PlanId = @planId${modifiedClause} WHERE Id = @subId`);
+        await insertEvent(pool, row.SubscriptionId, actorUserId, 'plan_changed', { requestId: row.Id, newPlanId: targetPlanId });
+        return;
+    }
+
+    if (requestType === 'cancellation') {
+        await pool.request()
+            .input('subId', sql.Int, row.SubscriptionId)
+            .query(`UPDATE Subscriptions SET Status = 'cancelled', CancelledAt = GETUTCDATE()${modifiedClause} WHERE Id = @subId`);
+        await insertEvent(pool, row.SubscriptionId, actorUserId, 'cancelled', { requestId: row.Id });
+        return;
+    }
+
+    if (requestType === 'pause') {
+        await pool.request()
+            .input('subId', sql.Int, row.SubscriptionId)
+            .query(`UPDATE Subscriptions SET Status = 'paused'${modifiedClause} WHERE Id = @subId`);
+        await insertEvent(pool, row.SubscriptionId, actorUserId, 'paused', { requestId: row.Id });
+    }
 }
 
 function mapRow(row) {
@@ -302,6 +365,9 @@ module.exports = async function (context, req) {
             }
 
             const resolved = ['approved', 'denied', 'completed', 'cancelled'].includes(requestedStatus);
+            if (callerIsPlatformAdmin && requestedStatus === 'approved') {
+                await applyApprovedRequest(pool, row, callerUserId);
+            }
             await pool.request()
                 .input('id', sql.Int, id)
                 .input('status', sql.NVarChar(30), requestedStatus)
