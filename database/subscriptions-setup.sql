@@ -111,6 +111,38 @@ ELSE
 GO
 
 -- =============================================
+-- 4c. SUBSCRIPTION REQUESTS TABLE (subscriber change/cancel/support requests)
+-- =============================================
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='SubscriptionRequests' AND xtype='U')
+BEGIN
+    CREATE TABLE SubscriptionRequests (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        SubscriptionId INT NOT NULL,
+        RequestedByUserId INT NOT NULL,
+        RequestType NVARCHAR(40) NOT NULL,
+            -- 'cancellation' | 'plan_change' | 'add_clinic' | 'billing' | 'pause' | 'contact_change' | 'other'
+        CurrentPlanId INT NULL,
+        TargetPlanId INT NULL,
+        Status NVARCHAR(30) NOT NULL DEFAULT 'open',
+            -- 'open' | 'in_review' | 'approved' | 'denied' | 'completed' | 'cancelled'
+        Reason NVARCHAR(MAX) NULL,
+        Notes NVARCHAR(MAX) NULL,
+        AdminResponse NVARCHAR(MAX) NULL,
+        CreatedAt DATETIME NOT NULL DEFAULT GETUTCDATE(),
+        UpdatedAt DATETIME NOT NULL DEFAULT GETUTCDATE(),
+        ResolvedAt DATETIME NULL,
+        ResolvedByUserId INT NULL,
+        CONSTRAINT FK_SubscriptionRequests_Sub FOREIGN KEY (SubscriptionId) REFERENCES Subscriptions(Id) ON DELETE CASCADE
+    );
+    CREATE INDEX IX_SubscriptionRequests_SubscriptionId ON SubscriptionRequests (SubscriptionId, CreatedAt DESC);
+    CREATE INDEX IX_SubscriptionRequests_Status ON SubscriptionRequests (Status, CreatedAt DESC);
+    PRINT 'Created SubscriptionRequests table';
+END
+ELSE
+    PRINT 'SubscriptionRequests table already exists';
+GO
+
+-- =============================================
 -- 5. SEED DEFAULT PLANS (only if SubscriptionPlans is empty)
 -- =============================================
 IF NOT EXISTS (SELECT TOP 1 1 FROM SubscriptionPlans)

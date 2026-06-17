@@ -181,6 +181,30 @@ async function ensureTenantSchema(pool) {
             END
         `);
 
+        await pool.request().batch(`
+            IF OBJECT_ID('dbo.SubscriptionRequests', 'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.SubscriptionRequests (
+                    Id INT IDENTITY(1,1) PRIMARY KEY,
+                    SubscriptionId INT NOT NULL,
+                    RequestedByUserId INT NOT NULL,
+                    RequestType NVARCHAR(40) NOT NULL,
+                    CurrentPlanId INT NULL,
+                    TargetPlanId INT NULL,
+                    Status NVARCHAR(30) NOT NULL DEFAULT 'open',
+                    Reason NVARCHAR(MAX) NULL,
+                    Notes NVARCHAR(MAX) NULL,
+                    AdminResponse NVARCHAR(MAX) NULL,
+                    CreatedAt DATETIME NOT NULL DEFAULT GETUTCDATE(),
+                    UpdatedAt DATETIME NOT NULL DEFAULT GETUTCDATE(),
+                    ResolvedAt DATETIME NULL,
+                    ResolvedByUserId INT NULL
+                );
+                CREATE INDEX IX_SubscriptionRequests_SubscriptionId ON dbo.SubscriptionRequests (SubscriptionId, CreatedAt DESC);
+                CREATE INDEX IX_SubscriptionRequests_Status ON dbo.SubscriptionRequests (Status, CreatedAt DESC);
+            END
+        `);
+
         tenantSchemaEnsured = true;
     } catch (err) {
         // Don't crash the app if migration fails (e.g. permission issues);
