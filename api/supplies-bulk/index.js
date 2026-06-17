@@ -80,7 +80,7 @@ module.exports = async function (context, req) {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id'
     };
     if (req.method === 'OPTIONS') { context.res = { status: 204, headers }; return; }
     if (req.method !== 'POST')    { context.res = { status: 405, headers, body: { error: 'Method not allowed' } }; return; }

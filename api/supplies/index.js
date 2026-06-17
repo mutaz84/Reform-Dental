@@ -1,5 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
-const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
+const { getRequestUserId, tenantClinicScopeSql, resolveVisibleClinicId, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -35,7 +35,7 @@ module.exports = async function (context, req) {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id'
     };
 
     if (req.method === 'OPTIONS') {
@@ -57,10 +57,10 @@ module.exports = async function (context, req) {
         const orderBy = hasColumn(supplyColumns, 'Name') ? 'ORDER BY Name' : 'ORDER BY Id';
         const id = req.params.id;
         const requestedType = normalizeSupplyType(req.query && req.query.type);
+        const tenantUserId = getRequestUserId(req);
+        const hasClinicCol = hasColumn(supplyColumns, 'ClinicId');
 
         if (req.method === 'GET') {
-            const tenantUserId = getRequestUserId(req);
-            const hasClinicCol = hasColumn(supplyColumns, 'ClinicId');
             if (id) {
                 const where = ['Id = @id'];
                 if (hasIsActive) {
@@ -108,6 +108,18 @@ module.exports = async function (context, req) {
         } else if (req.method === 'POST') {
             const body = req.body || {};
             const supplyType = normalizeSupplyType(body.supplyType) || 'Dental';
+            let visibleClinicId = body.clinicId || body.ClinicId || null;
+            if (hasClinicCol) {
+                if (!tenantUserId) {
+                    context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
+                    return;
+                }
+                visibleClinicId = await resolveVisibleClinicId(pool, visibleClinicId, tenantUserId);
+                if (!visibleClinicId) {
+                    context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
+                    return;
+                }
+            }
             const cols = ['Name', 'Category', 'SKU', 'Description', 'Unit', 'QuantityInStock', 'MinimumStock', 'ReorderPoint', 'UnitCost', 'ClinicId', 'Notes', 'Warnings', 'ImageUrl', 'DocumentUrl'];
             const params = ['@name', '@category', '@sku', '@description', '@unit', '@quantityInStock', '@minimumStock', '@reorderPoint', '@unitCost', '@clinicId', '@notes', '@warnings', '@imageUrl', '@documentUrl'];
             if (hasSupplyType) { cols.push('SupplyType'); params.push('@supplyType'); }
@@ -122,17 +134,32 @@ module.exports = async function (context, req) {
                 .input('minimumStock', sql.Int, body.minimumStock || 0)
                 .input('reorderPoint', sql.Int, body.reorderPoint || 0)
                 .input('unitCost', sql.Decimal, body.unitCost || null)
-                .input('clinicId', sql.Int, body.clinicId || null)
+                .input('clinicId', sql.Int, visibleClinicId)
                 .input('notes', sql.NVarChar, body.notes || null)
                 .input('warnings', sql.NVarChar, body.warnings || null)
                 .input('imageUrl', sql.NVarChar, body.imageUrl || null)
                 .input('documentUrl', sql.NVarChar, body.documentUrl || null);
             if (hasSupplyType) reqBuilder.input('supplyType', sql.NVarChar(20), supplyType);
-            if (hasIsActive) reqBuilder.input('isActive', sql.Bit, body.isActive === false ? 0 : 1); (${cols.join(', ')}) OUTPUT INSERTED.Id VALUES (${params.join(', ')})`);
+            if (hasIsActive) reqBuilder.input('isActive', sql.Bit, body.isActive === false ? 0 : 1);
+            const result = await reqBuilder.query(`INSERT INTO Supplies (${cols.join(', ')}) OUTPUT INSERTED.Id VALUES (${params.join(', ')})`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body || {};
             const supplyType = normalizeSupplyType(body.supplyType);
+            let visibleClinicId = body.clinicId || body.ClinicId || null;
+            let updateWhere = 'Id=@id';
+            if (hasClinicCol) {
+                if (!tenantUserId) {
+                    context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
+                    return;
+                }
+                visibleClinicId = await resolveVisibleClinicId(pool, visibleClinicId, tenantUserId);
+                if (!visibleClinicId) {
+                    context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
+                    return;
+                }
+                updateWhere += ` AND ${tenantClinicScopeSql('ClinicId')}`;
+            }
             const setParts = [
                 'Name=@name', 'Category=@category', 'SKU=@sku', 'Description=@description', 'Unit=@unit',
                 'QuantityInStock=@quantityInStock', 'MinimumStock=@minimumStock', 'ReorderPoint=@reorderPoint',
@@ -152,19 +179,36 @@ module.exports = async function (context, req) {
                 .input('minimumStock', sql.Int, body.minimumStock)
                 .input('reorderPoint', sql.Int, body.reorderPoint)
                 .input('unitCost', sql.Decimal, body.unitCost || null)
-                .input('clinicId', sql.Int, body.clinicId || null)
+                .input('clinicId', sql.Int, visibleClinicId)
                 .input('notes', sql.NVarChar, body.notes)
                 .input('warnings', sql.NVarChar, body.warnings)
                 .input('imageUrl', sql.NVarChar, body.imageUrl)
                 .input('documentUrl', sql.NVarChar, body.documentUrl);
             if (hasSupplyType && supplyType) reqBuilder.input('supplyType', sql.NVarChar(20), supplyType);
             if (hasIsActive && typeof body.isActive !== 'undefined') reqBuilder.input('isActive', sql.Bit, body.isActive === false ? 0 : 1);
-            await reqBuilder.query(`UPDATE Supplies SET ${setParts.join(', ')} WHERE Id=@id`);
+            if (hasClinicCol) reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
+            const result = await reqBuilder.query(`UPDATE Supplies SET ${setParts.join(', ')} WHERE ${updateWhere}`);
+            if (hasClinicCol && (!result.rowsAffected || result.rowsAffected[0] === 0)) {
+                context.res = { status: 404, headers, body: { error: 'Supply not found in current subscription.' } };
+                return;
+            }
             context.res = { status: 200, headers, body: { message: 'Supply updated' } };
         } else if (req.method === 'DELETE' && id) {
-            await pool.request()
-                .input('id', sql.Int, id)
-                .query('DELETE FROM Supplies WHERE Id = @id');
+            const request = pool.request().input('id', sql.Int, id);
+            let deleteWhere = 'Id = @id';
+            if (hasClinicCol) {
+                if (!tenantUserId) {
+                    context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
+                    return;
+                }
+                request.input(TENANT_PARAM, sql.Int, tenantUserId);
+                deleteWhere += ` AND ${tenantClinicScopeSql('ClinicId')}`;
+            }
+            const result = await request.query(`DELETE FROM Supplies WHERE ${deleteWhere}`);
+            if (hasClinicCol && (!result.rowsAffected || result.rowsAffected[0] === 0)) {
+                context.res = { status: 404, headers, body: { error: 'Supply not found in current subscription.' } };
+                return;
+            }
             context.res = { status: 200, headers, body: { message: 'Supply deleted' } };
         }
     } catch (err) {

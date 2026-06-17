@@ -128,7 +128,7 @@ module.exports = async function (context, req) {
         'Surrogate-Control': 'no-store',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id'
     };
     if (req.method === 'OPTIONS') { context.res = { status: 204, headers }; return; }
 

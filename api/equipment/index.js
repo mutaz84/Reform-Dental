@@ -34,6 +34,17 @@ function addColumnValue(request, columns, definitions, columnName, paramName, ty
     definitions.push({ columnName, paramName });
 }
 
+async function resolveVisibleClinicId(pool, requestedClinicId, tenantUserId) {
+    const request = pool.request().input(TENANT_PARAM, sql.Int, tenantUserId);
+    const where = [tenantClinicScopeSql('Id')];
+    if (requestedClinicId) {
+        request.input('clinicId', sql.Int, requestedClinicId);
+        where.push('Id = @clinicId');
+    }
+    const result = await request.query(`SELECT TOP 1 Id FROM Clinics WHERE ${where.join(' AND ')} ORDER BY Id`);
+    return result.recordset[0]?.Id || null;
+}
+
 function getBodyValue(body, ...keys) {
     for (const key of keys) {
         if (Object.prototype.hasOwnProperty.call(body, key) && body[key] !== undefined) {
@@ -83,7 +94,7 @@ module.exports = async function (context, req) {
         'Surrogate-Control': 'no-store',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id'
     };
 
     if (req.method === 'OPTIONS') {
@@ -136,6 +147,19 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'POST') {
             const body = req.body || {};
+            if (hasClinicCol) {
+                if (!tenantUserId) {
+                    context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
+                    return;
+                }
+                const visibleClinicId = await resolveVisibleClinicId(pool, toIntOrNull(getBodyValue(body, 'clinicId', 'ClinicId')), tenantUserId);
+                if (!visibleClinicId) {
+                    context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
+                    return;
+                }
+                body.clinicId = visibleClinicId;
+                body.ClinicId = visibleClinicId;
+            }
             const request = pool.request();
             const definitions = buildEquipmentColumnDefinitions(request, equipmentColumns, body);
             const columnList = definitions.map((definition) => definition.columnName).join(', ');
@@ -145,6 +169,22 @@ module.exports = async function (context, req) {
         } else if (req.method === 'PUT' && id) {
             const body = req.body || {};
             const request = pool.request().input('id', sql.Int, id);
+            let updateWhere = 'Id=@id';
+            if (hasClinicCol) {
+                if (!tenantUserId) {
+                    context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
+                    return;
+                }
+                const visibleClinicId = await resolveVisibleClinicId(pool, toIntOrNull(getBodyValue(body, 'clinicId', 'ClinicId')), tenantUserId);
+                if (!visibleClinicId) {
+                    context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
+                    return;
+                }
+                body.clinicId = visibleClinicId;
+                body.ClinicId = visibleClinicId;
+                request.input(TENANT_PARAM, sql.Int, tenantUserId);
+                updateWhere += ` AND ${tenantClinicScopeSql('ClinicId')}`;
+            }
             const definitions = buildEquipmentColumnDefinitions(request, equipmentColumns, body);
             if (definitions.length === 0 && !hasColumn(equipmentColumns, 'ModifiedDate')) {
                 context.res = { status: 400, headers, body: { error: 'No valid equipment fields were provided for update.' } };
@@ -154,12 +194,28 @@ module.exports = async function (context, req) {
                 .map((definition) => `${definition.columnName}=@${definition.paramName}`)
                 .concat(hasColumn(equipmentColumns, 'ModifiedDate') ? ['ModifiedDate=GETUTCDATE()'] : [])
                 .join(', ');
-            await request.query(`UPDATE Equipment SET ${setClause} WHERE Id=@id`);
+            const result = await request.query(`UPDATE Equipment SET ${setClause} WHERE ${updateWhere}`);
+            if (hasClinicCol && (!result.rowsAffected || result.rowsAffected[0] === 0)) {
+                context.res = { status: 404, headers, body: { error: 'Equipment not found in current subscription.' } };
+                return;
+            }
             context.res = { status: 200, headers, body: { message: 'Equipment updated' } };
         } else if (req.method === 'DELETE' && id) {
-            await pool.request()
-                .input('id', sql.Int, id)
-                .query('DELETE FROM Equipment WHERE Id = @id');
+            const request = pool.request().input('id', sql.Int, id);
+            let deleteWhere = 'Id = @id';
+            if (hasClinicCol) {
+                if (!tenantUserId) {
+                    context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
+                    return;
+                }
+                request.input(TENANT_PARAM, sql.Int, tenantUserId);
+                deleteWhere += ` AND ${tenantClinicScopeSql('ClinicId')}`;
+            }
+            const result = await request.query(`DELETE FROM Equipment WHERE ${deleteWhere}`);
+            if (hasClinicCol && (!result.rowsAffected || result.rowsAffected[0] === 0)) {
+                context.res = { status: 404, headers, body: { error: 'Equipment not found in current subscription.' } };
+                return;
+            }
             context.res = { status: 200, headers, body: { message: 'Equipment deleted' } };
         }
     } catch (err) {

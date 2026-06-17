@@ -1,5 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
-const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
+const { getRequestUserId, tenantClinicScopeSql, resolveVisibleClinicId, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -72,7 +72,7 @@ module.exports = async function (context, req) {
         'Surrogate-Control': 'no-store',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id'
     };
 
     if (req.method === 'OPTIONS') {
@@ -124,6 +124,20 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'POST') {
             const body = req.body || {};
+            if (hasColumn(utilityColumns, 'ClinicId')) {
+                const tenantUserId = getRequestUserId(req);
+                if (!tenantUserId) {
+                    context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
+                    return;
+                }
+                const visibleClinicId = await resolveVisibleClinicId(pool, getBodyValue(body, 'clinicId', 'ClinicId'), tenantUserId);
+                if (!visibleClinicId) {
+                    context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
+                    return;
+                }
+                body.clinicId = visibleClinicId;
+                body.ClinicId = visibleClinicId;
+            }
             const request = pool.request();
             const definitions = buildUtilityColumnDefinitions(request, utilityColumns, body);
             if (definitions.length === 0) {
@@ -139,6 +153,23 @@ module.exports = async function (context, req) {
         } else if (req.method === 'PUT' && id) {
             const body = req.body || {};
             const request = pool.request().input('id', sql.Int, id);
+            let updateWhere = 'Id=@id';
+            if (hasColumn(utilityColumns, 'ClinicId')) {
+                const tenantUserId = getRequestUserId(req);
+                if (!tenantUserId) {
+                    context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
+                    return;
+                }
+                const visibleClinicId = await resolveVisibleClinicId(pool, getBodyValue(body, 'clinicId', 'ClinicId'), tenantUserId);
+                if (!visibleClinicId) {
+                    context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
+                    return;
+                }
+                body.clinicId = visibleClinicId;
+                body.ClinicId = visibleClinicId;
+                request.input(TENANT_PARAM, sql.Int, tenantUserId);
+                updateWhere += ` AND ${tenantClinicScopeSql('ClinicId')}`;
+            }
             const definitions = buildUtilityColumnDefinitions(request, utilityColumns, body);
             if (definitions.length === 0) {
                 context.res = { status: 400, headers, body: { error: 'No valid utility fields were provided for update.' } };
@@ -148,12 +179,29 @@ module.exports = async function (context, req) {
                 .map((d) => `${d.columnName}=@${d.paramName}`)
                 .concat(hasColumn(utilityColumns, 'ModifiedDate') ? ['ModifiedDate=GETUTCDATE()'] : [])
                 .join(', ');
-            await request.query(`UPDATE Utilities SET ${setClause} WHERE Id=@id`);
+            const result = await request.query(`UPDATE Utilities SET ${setClause} WHERE ${updateWhere}`);
+            if (hasColumn(utilityColumns, 'ClinicId') && (!result.rowsAffected || result.rowsAffected[0] === 0)) {
+                context.res = { status: 404, headers, body: { error: 'Utility not found in current subscription.' } };
+                return;
+            }
             context.res = { status: 200, headers, body: { message: 'Utility updated' } };
         } else if (req.method === 'DELETE' && id) {
-            await pool.request()
-                .input('id', sql.Int, id)
-                .query('DELETE FROM Utilities WHERE Id = @id');
+            const request = pool.request().input('id', sql.Int, id);
+            let deleteWhere = 'Id = @id';
+            if (hasColumn(utilityColumns, 'ClinicId')) {
+                const tenantUserId = getRequestUserId(req);
+                if (!tenantUserId) {
+                    context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
+                    return;
+                }
+                request.input(TENANT_PARAM, sql.Int, tenantUserId);
+                deleteWhere += ` AND ${tenantClinicScopeSql('ClinicId')}`;
+            }
+            const result = await request.query(`DELETE FROM Utilities WHERE ${deleteWhere}`);
+            if (hasColumn(utilityColumns, 'ClinicId') && (!result.rowsAffected || result.rowsAffected[0] === 0)) {
+                context.res = { status: 404, headers, body: { error: 'Utility not found in current subscription.' } };
+                return;
+            }
             context.res = { status: 200, headers, body: { message: 'Utility deleted' } };
         } else {
             context.res = { status: 405, headers, body: { error: 'Method not allowed.' } };

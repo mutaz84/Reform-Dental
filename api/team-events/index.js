@@ -4,7 +4,7 @@ const { TENANT_PARAM, getRequestUserId, tenantSubscriptionScope } = require('../
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id'
 };
 
 function jsonResponse(context, status, body) {

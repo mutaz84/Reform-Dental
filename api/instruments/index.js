@@ -1,5 +1,5 @@
 const sql = require('mssql');
-const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
+const { getRequestUserId, tenantClinicScopeSql, resolveVisibleClinicId, TENANT_PARAM } = require('../shared/tenant');
 
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -25,7 +25,7 @@ module.exports = async function (context, req) {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id'
     };
 
     if (req.method === 'OPTIONS') {
@@ -43,9 +43,9 @@ module.exports = async function (context, req) {
             `);
         } catch (_) {}
         const id = req.params.id;
+        const tenantUserId = getRequestUserId(req);
 
         if (req.method === 'GET') {
-            const tenantUserId = getRequestUserId(req);
             if (id) {
                 if (!tenantUserId) {
                     context.res = { status: 200, headers, body: null };
@@ -68,6 +68,15 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'POST') {
             const body = req.body;
+            if (!tenantUserId) {
+                context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
+                return;
+            }
+            const visibleClinicId = await resolveVisibleClinicId(pool, body.clinicId || body.ClinicId, tenantUserId);
+            if (!visibleClinicId) {
+                context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
+                return;
+            }
             const result = await pool.request()
                 .input('name', sql.NVarChar, body.name)
                 .input('skuNumber', sql.NVarChar, body.skuNumber || null)
@@ -75,7 +84,7 @@ module.exports = async function (context, req) {
                 .input('description', sql.NVarChar(sql.MAX), body.description)
                 .input('quantity', sql.Int, body.quantity || 1)
                 .input('status', sql.NVarChar, body.status || 'available')
-                .input('clinicId', sql.Int, body.clinicId || null)
+                .input('clinicId', sql.Int, visibleClinicId)
                 .input('sterilizationRequired', sql.Bit, body.sterilizationRequired !== false)
                 .input('icon', sql.NVarChar, body.icon)
                 .input('notes', sql.NVarChar(sql.MAX), body.notes || null)
@@ -88,15 +97,25 @@ module.exports = async function (context, req) {
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
-            await pool.request()
+            if (!tenantUserId) {
+                context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
+                return;
+            }
+            const visibleClinicId = await resolveVisibleClinicId(pool, body.clinicId || body.ClinicId, tenantUserId);
+            if (!visibleClinicId) {
+                context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
+                return;
+            }
+            const result = await pool.request()
                 .input('id', sql.Int, id)
+                .input(TENANT_PARAM, sql.Int, tenantUserId)
                 .input('name', sql.NVarChar, body.name)
                 .input('skuNumber', sql.NVarChar, body.skuNumber || null)
                 .input('category', sql.NVarChar, body.category)
                 .input('description', sql.NVarChar(sql.MAX), body.description || null)
                 .input('quantity', sql.Int, body.quantity)
                 .input('status', sql.NVarChar, body.status)
-                .input('clinicId', sql.Int, body.clinicId || null)
+                .input('clinicId', sql.Int, visibleClinicId)
                 .input('sterilizationRequired', sql.Bit, body.sterilizationRequired !== false)
                 .input('icon', sql.NVarChar, body.icon || null)
                 .input('notes', sql.NVarChar(sql.MAX), body.notes)
@@ -104,12 +123,25 @@ module.exports = async function (context, req) {
                 .input('imageUrl', sql.NVarChar(sql.MAX), body.imageUrl)
                 .input('documentUrl', sql.NVarChar(sql.MAX), body.documentUrl)
                 .input('links', sql.NVarChar(sql.MAX), body.links == null ? null : body.links)
-                .query(`UPDATE Instruments SET Name=@name, SkuNumber=@skuNumber, Category=@category, Description=@description, Quantity=@quantity, Status=@status, ClinicId=@clinicId, SterilizationRequired=@sterilizationRequired, Icon=@icon, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, Links=@links, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+                .query(`UPDATE Instruments SET Name=@name, SkuNumber=@skuNumber, Category=@category, Description=@description, Quantity=@quantity, Status=@status, ClinicId=@clinicId, SterilizationRequired=@sterilizationRequired, Icon=@icon, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, Links=@links, ModifiedDate=GETUTCDATE() WHERE Id=@id AND ${tenantClinicScopeSql('ClinicId')}`);
+            if (!result.rowsAffected || result.rowsAffected[0] === 0) {
+                context.res = { status: 404, headers, body: { error: 'Instrument not found in current subscription.' } };
+                return;
+            }
             context.res = { status: 200, headers, body: { message: 'Instrument updated' } };
         } else if (req.method === 'DELETE' && id) {
-            await pool.request()
+            if (!tenantUserId) {
+                context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
+                return;
+            }
+            const result = await pool.request()
                 .input('id', sql.Int, id)
-                .query('DELETE FROM Instruments WHERE Id = @id');
+                .input(TENANT_PARAM, sql.Int, tenantUserId)
+                .query(`DELETE FROM Instruments WHERE Id = @id AND ${tenantClinicScopeSql('ClinicId')}`);
+            if (!result.rowsAffected || result.rowsAffected[0] === 0) {
+                context.res = { status: 404, headers, body: { error: 'Instrument not found in current subscription.' } };
+                return;
+            }
             context.res = { status: 200, headers, body: { message: 'Instrument deleted' } };
         }
 

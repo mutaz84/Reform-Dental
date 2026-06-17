@@ -145,6 +145,20 @@ function tenantClinicScopeSql(columnExpr = 'ClinicId') {
     )`;
 }
 
+async function resolveVisibleClinicId(pool, requestedClinicId, tenantUserId) {
+    const id = _toIntOrNull(tenantUserId);
+    if (!id) return null;
+    const clinicId = _toIntOrNull(requestedClinicId);
+    const request = pool.request().input(TENANT_PARAM, sql.Int, id);
+    const where = [tenantClinicScopeSql('Id')];
+    if (clinicId) {
+        request.input('clinicId', sql.Int, clinicId);
+        where.push('Id = @clinicId');
+    }
+    const result = await request.query(`SELECT TOP 1 Id FROM Clinics WHERE ${where.join(' AND ')} ORDER BY Id`);
+    return result.recordset[0]?.Id || null;
+}
+
 // Phase 7: direct SubscriptionId column filter for tables that don't have a
 // ClinicId (e.g. Vendors). Same admin bypass.
 function tenantSubscriptionScope(columnExpr = 'SubscriptionId') {
@@ -274,6 +288,7 @@ module.exports = {
     getUserClinicIds,
     getTenantContext,
     tenantClinicScopeSql,
+    resolveVisibleClinicId,
     tenantSubscriptionScope,
     tenantVisibleUserIdsSql,
     tenantVisibleUserIdsClause,
