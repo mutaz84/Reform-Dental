@@ -121,7 +121,6 @@ module.exports = async function (context, req) {
             // *** THE REAL TEST ***
             // Run the LIVE tenant filter (Phase 7+8 logic) as the target user
             // to confirm what they'd actually see when calling the API.
-            const clinicWhere = tenantClinicScopeSql('ClinicId');
             const subWhere = tenantSubscriptionScope('SubscriptionId');
             const visUsers = tenantVisibleUserIdsClause('Id');
 
@@ -134,19 +133,19 @@ module.exports = async function (context, req) {
 
             // 2) What Clinics filter resolves under the new logic
             out.LiveFilterAsTargetUser.visibleClinicsViaPhase7 = await safe(pool,
-                `SELECT Id, Name, SubscriptionId FROM Clinics WHERE ${clinicWhere}`,
+                `SELECT Id, Name, SubscriptionId FROM Clinics WHERE ${tenantClinicScopeSql('Id')}`,
                 { [TENANT_PARAM]: targetId });
 
             // 3) Equipment count visible to target user (via Clinics chain)
             out.LiveFilterAsTargetUser.equipmentCountVisible = await safe(pool,
                 `SELECT COUNT(*) AS visibleCount, (SELECT COUNT(*) FROM Equipment) AS totalCount
-                 FROM Equipment WHERE ${clinicWhere}`,
+                 FROM Equipment WHERE ${tenantClinicScopeSql('ClinicId')}`,
                 { [TENANT_PARAM]: targetId });
 
             // 4) Supplies
             out.LiveFilterAsTargetUser.suppliesCountVisible = await safe(pool,
                 `SELECT COUNT(*) AS visibleCount, (SELECT COUNT(*) FROM Supplies) AS totalCount
-                 FROM Supplies WHERE ${clinicWhere}`,
+                 FROM Supplies WHERE ${tenantClinicScopeSql('ClinicId')}`,
                 { [TENANT_PARAM]: targetId });
 
             // 5) Tasks (uses direct SubscriptionId column)
