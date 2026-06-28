@@ -1,4 +1,27 @@
 const sql = require('mssql');
+const { getRequestUserId, isPlatformAdmin } = require('../shared/tenant');
+
+const PLATFORM_BRANDING_KEYS = new Set(['companyName', 'tagline', 'logoData']);
+const OFFICE_PLAN_KEYS = new Set([
+    'officePlanTitle',
+    'officePlanDescription',
+    'officePlanImageUrl',
+    'officePlanUploadDate'
+]);
+
+function getScopedOfficePlanKey(key, subscriptionId) {
+    return `${key}:subscription:${subscriptionId}`;
+}
+
+async function getSubscriptionIdForUser(pool, userId) {
+    const id = Number(userId || 0);
+    if (!Number.isInteger(id) || id <= 0) return null;
+    const result = await pool.request()
+        .input('userId', sql.Int, id)
+        .query('SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @userId');
+    const subscriptionId = Number(result.recordset?.[0]?.SubscriptionId || 0);
+    return Number.isInteger(subscriptionId) && subscriptionId > 0 ? subscriptionId : null;
+}
 
 async function upsertSetting(pool, key, value, useMax = false) {
     const inputType = useMax ? sql.NVarChar(sql.MAX) : sql.NVarChar(4000);
@@ -88,6 +111,10 @@ module.exports = async function (context, req) {
     try {
         pool = await sql.connect(getConfig());
 
+        const requestUserId = getRequestUserId(req);
+        const isPlatformOwner = await isPlatformAdmin(pool, requestUserId);
+        const subscriptionId = isPlatformOwner ? null : await getSubscriptionIdForUser(pool, requestUserId);
+
         if (req.method === 'GET') {
             // Get all settings
             const result = await pool.request()
@@ -96,8 +123,23 @@ module.exports = async function (context, req) {
             // Convert to object format
             const settings = {};
             result.recordset.forEach(row => {
-                settings[row.SettingKey] = parseSettingValue(row.SettingValue);
+                const key = String(row.SettingKey || '');
+                if (!key) return;
+                if (key.includes(':subscription:')) return;
+                if (OFFICE_PLAN_KEYS.has(key) && !isPlatformOwner) return;
+                settings[key] = parseSettingValue(row.SettingValue);
             });
+
+            if (subscriptionId) {
+                result.recordset.forEach(row => {
+                    const key = String(row.SettingKey || '');
+                    for (const baseKey of OFFICE_PLAN_KEYS) {
+                        if (key === getScopedOfficePlanKey(baseKey, subscriptionId)) {
+                            settings[baseKey] = parseSettingValue(row.SettingValue);
+                        }
+                    }
+                });
+            }
             
             context.res = { status: 200, headers, body: settings };
             
@@ -114,6 +156,16 @@ module.exports = async function (context, req) {
                 'officePlanUploadDate'
             ]);
             
+            if ([...PLATFORM_BRANDING_KEYS].some(key => body[key] !== undefined) && !isPlatformOwner) {
+                context.res = { status: 403, headers, body: { error: 'Only the platform owner can manage app branding.' } };
+                return;
+            }
+
+            if ([...OFFICE_PLAN_KEYS].some(key => body[key] !== undefined) && !isPlatformOwner && !subscriptionId) {
+                context.res = { status: 403, headers, body: { error: 'A subscription is required to manage an office plan.' } };
+                return;
+            }
+
             // Upsert each setting
             if (body.companyName !== undefined) {
                 await upsertSetting(pool, 'companyName', body.companyName);
@@ -128,18 +180,19 @@ module.exports = async function (context, req) {
             }
 
             // Office Plan settings (used by Office Plan viewer/management UI)
+            const officePlanKey = (key) => subscriptionId ? getScopedOfficePlanKey(key, subscriptionId) : key;
             if (body.officePlanTitle !== undefined) {
-                await upsertSetting(pool, 'officePlanTitle', body.officePlanTitle);
+                await upsertSetting(pool, officePlanKey('officePlanTitle'), body.officePlanTitle);
             }
             if (body.officePlanDescription !== undefined) {
-                await upsertSetting(pool, 'officePlanDescription', body.officePlanDescription, true);
+                await upsertSetting(pool, officePlanKey('officePlanDescription'), body.officePlanDescription, true);
             }
             if (body.officePlanImageUrl !== undefined) {
                 // Can be a URL or a data URL (base64) if user uploaded a file
-                await upsertSetting(pool, 'officePlanImageUrl', body.officePlanImageUrl, true);
+                await upsertSetting(pool, officePlanKey('officePlanImageUrl'), body.officePlanImageUrl, true);
             }
             if (body.officePlanUploadDate !== undefined) {
-                await upsertSetting(pool, 'officePlanUploadDate', body.officePlanUploadDate);
+                await upsertSetting(pool, officePlanKey('officePlanUploadDate'), body.officePlanUploadDate);
             }
 
             // Persist all additional settings keys to avoid silent drops for new features.
