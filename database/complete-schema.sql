@@ -552,10 +552,19 @@ INSERT INTO ComplianceTypes (Name, Description, Category, RequiresEmployee, Requ
 ('HVAC Maintenance', 'Heating, ventilation, and air conditioning maintenance certification', 'facility', 0, 1, 12, '#7c2d12', 'fas fa-wind');
 GO
 
-DROP VIEW IF EXISTS vw_ActiveEmployees;
 -- =============================================
 -- HELPFUL VIEWS
 -- =============================================
+
+DROP VIEW IF EXISTS vw_EmployeeCompliances;
+DROP VIEW IF EXISTS vw_ExpiredCompliances;
+DROP VIEW IF EXISTS vw_ExpiringCompliances;
+DROP VIEW IF EXISTS vw_ActiveCompliances;
+DROP VIEW IF EXISTS vw_LowStockSupplies;
+DROP VIEW IF EXISTS vw_PendingTasks;
+DROP VIEW IF EXISTS vw_TodaySchedules;
+DROP VIEW IF EXISTS vw_ActiveEmployees;
+GO
 
 -- View: Active Employees with details
 CREATE VIEW vw_ActiveEmployees AS
@@ -568,7 +577,6 @@ SELECT
     u.Role,
     u.WorkEmail,
     u.CellPhone,
-DROP VIEW IF EXISTS vw_TodaySchedules;
     u.Color
 FROM Users u
 WHERE u.IsActive = 1 AND u.EmployeeStatus = 'active';
@@ -588,7 +596,6 @@ FROM Schedules s
 JOIN Users u ON s.UserId = u.Id
 JOIN Clinics c ON s.ClinicId = c.Id
 LEFT JOIN Rooms r ON s.RoomId = r.Id
-DROP VIEW IF EXISTS vw_PendingTasks;
 WHERE s.IsActive = 1
     AND CAST(GETDATE() AS DATE) BETWEEN s.StartDate AND ISNULL(s.EndDate, '2099-12-31')
     AND s.DaysOfWeek LIKE '%' + LEFT(DATENAME(WEEKDAY, GETDATE()), 3) + '%';
@@ -604,7 +611,6 @@ SELECT
     t.DueDate,
     u.FirstName + ' ' + ISNULL(u.LastName, '') AS AssignedTo,
     c.Name AS ClinicName
-DROP VIEW IF EXISTS vw_LowStockSupplies;
 FROM Tasks t
 LEFT JOIN Users u ON t.AssignedToId = u.Id
 LEFT JOIN Clinics c ON t.ClinicId = c.Id
@@ -619,7 +625,6 @@ SELECT
     s.Category,
     s.QuantityInStock,
     s.MinimumStock,
-DROP VIEW IF EXISTS vw_ActiveCompliances;
     s.ReorderPoint,
     c.Name AS ClinicName
 FROM Supplies s
@@ -645,29 +650,24 @@ SELECT
     END AS AssignedTo,
     c.AttachmentUrl,
     c.ReferenceNumber,
-DROP VIEW IF EXISTS vw_ExpiringCompliances;
     DATEDIFF(DAY, GETDATE(), c.ExpiryDate) AS DaysUntilExpiry
 FROM Compliances c
 JOIN ComplianceTypes ct ON c.ComplianceTypeId = ct.Id
 LEFT JOIN Users u ON c.UserId = u.Id
 LEFT JOIN Clinics cl ON c.ClinicId = cl.Id
 WHERE c.Status = 'active' AND ct.IsActive = 1;
-DROP VIEW IF EXISTS vw_ExpiredCompliances;
 GO
 
 -- View: Expiring Compliances (next 30 days)
 CREATE VIEW vw_ExpiringCompliances AS
 SELECT * FROM vw_ActiveCompliances
-WHERE DaysUntilExpiry <= 30 AND DaysUntilExpiry >= 0
-DROP VIEW IF EXISTS vw_EmployeeCompliances;
-ORDER BY DaysUntilExpiry ASC;
+WHERE DaysUntilExpiry <= 30 AND DaysUntilExpiry >= 0;
 GO
 
 -- View: Expired Compliances
 CREATE VIEW vw_ExpiredCompliances AS
 SELECT * FROM vw_ActiveCompliances
-WHERE DaysUntilExpiry < 0
-ORDER BY DaysUntilExpiry ASC;
+WHERE DaysUntilExpiry < 0;
 GO
 
 -- View: Compliances by Employee
