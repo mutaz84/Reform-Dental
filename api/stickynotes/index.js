@@ -1,23 +1,4 @@
-const sql = require('mssql');
-
-const config = {
-    server: process.env.SQL_SERVER,
-    database: process.env.SQL_DATABASE,
-    user: process.env.SQL_USER,
-    password: process.env.SQL_PASSWORD,
-    options: {
-        encrypt: true,
-        trustServerCertificate: false
-    }
-};
-
-function getMissingSqlEnvVars() {
-    const required = ['SQL_SERVER', 'SQL_DATABASE', 'SQL_USER', 'SQL_PASSWORD'];
-    return required.filter((key) => {
-        const v = process.env[key];
-        return v === undefined || v === null || String(v).trim() === '';
-    });
-}
+const { sql, getPool, resetPool } = require('../shared/database');
 
 module.exports = async function (context, req) {
     context.log('Sticky Notes API triggered');
@@ -36,21 +17,7 @@ module.exports = async function (context, req) {
     }
 
     try {
-        const missingEnv = getMissingSqlEnvVars();
-        if (missingEnv.length > 0) {
-            context.log.error('Sticky Notes API misconfigured. Missing env vars:', missingEnv);
-            context.res = {
-                status: 500,
-                headers,
-                body: {
-                    error: 'Server misconfiguration',
-                    details: `Missing required environment variables: ${missingEnv.join(', ')}`
-                }
-            };
-            return;
-        }
-
-        await sql.connect(config);
+        const pool = await getPool();
 
         const { getRequestUserId } = require('../shared/tenant');
         const callerUserId = getRequestUserId(req);
@@ -85,7 +52,7 @@ module.exports = async function (context, req) {
                 whereClause += ' AND ISNULL(IsDeleted, 0) = 0';
             }
 
-            const result = await new sql.Request()
+            const result = await pool.request()
                 .input('userId', sql.Int, userId)
                 .query(`SELECT * FROM StickyNotes WHERE ${whereClause} ORDER BY Id DESC`);
             
@@ -121,7 +88,7 @@ module.exports = async function (context, req) {
                 return;
             }
 
-            const result = await new sql.Request()
+            const result = await pool.request()
                 .input('content', sql.NVarChar(sql.MAX), text || '')
                 .input('color', sql.NVarChar(50), color || 'yellow')
                 .input('positionX', sql.Int, Number.isFinite(positionX) ? positionX : null)
@@ -172,7 +139,7 @@ module.exports = async function (context, req) {
                 return;
             }
 
-            const result = await new sql.Request()
+            const result = await pool.request()
                 .input('id', sql.Int, id)
                 .input('userId', sql.Int, userId)
                 .input('content', sql.NVarChar(sql.MAX), text)
@@ -231,7 +198,7 @@ module.exports = async function (context, req) {
 
             if (!id) {
                 if (permanent && deletedOnly) {
-                    const deleteAllDeleted = await new sql.Request()
+                    const deleteAllDeleted = await pool.request()
                         .input('userId', sql.Int, userId)
                         .query('DELETE FROM StickyNotes WHERE UserId = @userId AND ISNULL(IsDeleted, 0) = 1');
                     context.res = {
@@ -243,7 +210,7 @@ module.exports = async function (context, req) {
                 }
 
                 if (permanent) {
-                    const deleteAllResult = await new sql.Request()
+                    const deleteAllResult = await pool.request()
                         .input('userId', sql.Int, userId)
                         .query('DELETE FROM StickyNotes WHERE UserId = @userId');
                     context.res = {
@@ -255,7 +222,7 @@ module.exports = async function (context, req) {
                 }
 
                 // Soft-delete all active notes (move to recycle bin)
-                const softDeleteAll = await new sql.Request()
+                const softDeleteAll = await pool.request()
                     .input('userId', sql.Int, userId)
                     .query(`
                         UPDATE StickyNotes
@@ -273,11 +240,11 @@ module.exports = async function (context, req) {
             }
 
             const deleteResult = permanent
-                ? await new sql.Request()
+                ? await pool.request()
                     .input('id', sql.Int, id)
                     .input('userId', sql.Int, userId)
                     .query('DELETE FROM StickyNotes WHERE Id = @id AND UserId = @userId')
-                : await new sql.Request()
+                : await pool.request()
                     .input('id', sql.Int, id)
                     .input('userId', sql.Int, userId)
                     .query(`
@@ -312,12 +279,11 @@ module.exports = async function (context, req) {
 
     } catch (error) {
         context.log.error('Sticky Notes API error:', error);
+        try { resetPool(); } catch (_) {}
         context.res = {
             status: 500,
             headers,
             body: { error: 'Internal server error', details: error.message }
         };
-    } finally {
-        await sql.close();
     }
 };
