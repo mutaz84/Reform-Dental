@@ -47,6 +47,18 @@ async function ensureTenantSchema(pool) {
                 ALTER TABLE TeamEvents ADD SubscriptionId INT NULL;
         `);
 
+        const subscriptionTables = await pool.request().query(`
+            SELECT CASE
+                WHEN OBJECT_ID(N'dbo.Subscriptions', N'U') IS NOT NULL
+                 AND OBJECT_ID(N'dbo.SubscriptionClinics', N'U') IS NOT NULL
+                THEN 1 ELSE 0 END AS HasSubscriptionTables
+        `);
+        const hasSubscriptionTables = subscriptionTables.recordset?.[0]?.HasSubscriptionTables === 1;
+        if (!hasSubscriptionTables) {
+            tenantSchemaEnsured = true;
+            return;
+        }
+
         // Owners: each Subscriptions.OwnerUserId gets that subscription's Id.
         await pool.request().query(`
             UPDATE u SET u.SubscriptionId = s.Id
@@ -182,7 +194,8 @@ async function ensureTenantSchema(pool) {
         `);
 
         await pool.request().batch(`
-            IF OBJECT_ID('dbo.SubscriptionRequests', 'U') IS NULL
+            IF OBJECT_ID('dbo.Subscriptions', 'U') IS NOT NULL
+            AND OBJECT_ID('dbo.SubscriptionRequests', 'U') IS NULL
             BEGIN
                 CREATE TABLE dbo.SubscriptionRequests (
                     Id INT IDENTITY(1,1) PRIMARY KEY,

@@ -80,19 +80,11 @@ async function getUserClinicIds(pool, userId) {
         const result = await pool.request()
             .input('userId', sql.Int, id)
             .query(`
-                SELECT DISTINCT clinics_for_user.ClinicId
-                FROM (
-                    SELECT uc.ClinicId
-                        FROM UserClinics uc
-                        WHERE uc.UserId = @userId
-                    UNION
-                    SELECT sc.ClinicId
-                        FROM SubscriptionClinics sc
-                        INNER JOIN Subscriptions s ON s.Id = sc.SubscriptionId
-                        WHERE s.OwnerUserId = @userId AND s.IsActive = 1
-                ) AS clinics_for_user
-                INNER JOIN Clinics c ON c.Id = clinics_for_user.ClinicId
-                WHERE c.IsActive = 1`);
+                SELECT DISTINCT uc.ClinicId
+                FROM UserClinics uc
+                INNER JOIN Clinics c ON c.Id = uc.ClinicId
+                WHERE uc.UserId = @userId
+                  AND ISNULL(c.IsActive, 1) = 1`);
         return (result.recordset || [])
             .map((r) => _toIntOrNull(r.ClinicId))
             .filter((n) => n !== null);
@@ -130,17 +122,13 @@ async function getTenantContext(req, pool) {
  * upstream if you prefer to short-circuit.
  */
 function tenantClinicScopeSql(columnExpr = 'ClinicId') {
-    // Phase 7: filter via Clinics.SubscriptionId chain.
-    //   - Platform admin (Username='admin') sees everything.
-    //   - Everyone else sees clinics whose SubscriptionId equals the caller's
-    //     Users.SubscriptionId. The caller's SubscriptionId is set during signup
-    //     (owner) or backfilled from UserClinics->SubscriptionClinics (sub-users).
+    // Black Sky starter mode is subscription-free, so clinic visibility is based
+    // on direct UserClinics membership. Platform admin still sees everything.
     return `(
         EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
         OR ${columnExpr} IN (
-            SELECT c.Id FROM Clinics c
-            WHERE c.SubscriptionId IS NOT NULL
-              AND c.SubscriptionId = (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})
+            SELECT uc.ClinicId FROM UserClinics uc
+            WHERE uc.UserId = @${TENANT_PARAM}
         )
     )`;
 }
@@ -179,7 +167,7 @@ function tenantSubscriptionScope(columnExpr = 'SubscriptionId') {
  */
 function tenantVisibleUserIdsSql() {
     // Platform admin (Username='admin') sees ALL users across all subscriptions.
-    // Everyone else sees: themselves + every user with the same Users.SubscriptionId.
+    // Everyone else sees: themselves + users sharing at least one clinic membership.
     return `
         SELECT u_all.Id AS UserId
             FROM Users u_all
@@ -189,8 +177,10 @@ function tenantVisibleUserIdsSql() {
         UNION
         SELECT u2.Id
             FROM Users u2
-            WHERE u2.SubscriptionId IS NOT NULL
-              AND u2.SubscriptionId = (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})
+            INNER JOIN UserClinics uc2 ON uc2.UserId = u2.Id
+            WHERE uc2.ClinicId IN (
+                SELECT uc.ClinicId FROM UserClinics uc WHERE uc.UserId = @${TENANT_PARAM}
+            )
     `;
 }
 
