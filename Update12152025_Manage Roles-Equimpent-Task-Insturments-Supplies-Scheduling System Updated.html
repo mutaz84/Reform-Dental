@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260707-dashboard-landing-v31">
+    <link rel="stylesheet" href="dental-rail.css?v=20260707-manager-dashboard-role-v32">
     <script>
         (function() {
-                const buildVersion = '20260707-dashboard-landing-v31';
+                const buildVersion = '20260707-manager-dashboard-role-v32';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -33969,6 +33969,7 @@
             // Set data-role attribute on HTML element for CSS-based hiding
             const root = document.documentElement;
             root.setAttribute('data-role', userRole || 'user');
+            if (typeof renderDashboardLanding === 'function') renderDashboardLanding();
             
             const masterSettingsMenuItem = document.getElementById('masterSettingsMenuItem');
             const manageOfficesMenuItem = document.getElementById('manageOfficesMenuItem');
@@ -76129,16 +76130,54 @@
 
         // Dashboard Landing
         function getDashboardLandingRole() {
-            let role = String(localStorage.getItem('userRole') || '').trim().toLowerCase();
+            const roleCandidates = [];
+            const addRoleCandidate = (value) => {
+                const normalized = String(value || '').trim().toLowerCase();
+                if (normalized) roleCandidates.push(normalized);
+            };
+
+            addRoleCandidate(localStorage.getItem('userRole'));
+            addRoleCandidate(localStorage.getItem('currentUserRole'));
+            if (document.documentElement) addRoleCandidate(document.documentElement.getAttribute('data-role'));
+
             try {
                 const raw = localStorage.getItem('currentUser');
                 const parsed = raw ? JSON.parse(raw) : null;
-                if (parsed && (parsed.role || parsed.Role || parsed.userRole)) {
-                    role = String(parsed.role || parsed.Role || parsed.userRole || role).trim().toLowerCase();
+                if (parsed) {
+                    addRoleCandidate(parsed.role);
+                    addRoleCandidate(parsed.Role);
+                    addRoleCandidate(parsed.userRole);
+                    addRoleCandidate(parsed.UserRole);
+                    addRoleCandidate(parsed.roleName);
+                    addRoleCandidate(parsed.RoleName);
+                    addRoleCandidate(parsed.roleType);
+                    addRoleCandidate(parsed.RoleType);
+                    addRoleCandidate(parsed.type);
+                    addRoleCandidate(parsed.userType);
+                    if (parsed.isManager || parsed.IsManager || parsed.canManage || parsed.CanManage) roleCandidates.push('manager');
                 }
             } catch (_) {}
-            if (!role && document.documentElement) role = String(document.documentElement.getAttribute('data-role') || '').trim().toLowerCase();
-            return /^(admin|owner|manager|administrator|superadmin|manager-admin|manageradmin)$/.test(role) ? 'manager' : 'user';
+
+            try {
+                if (typeof getCurrentUserRole === 'function') addRoleCandidate(getCurrentUserRole());
+            } catch (_) {}
+
+            const managerRolePattern = /(^|[^a-z])(admin|owner|manager|administrator|superadmin|super-admin|manager-admin|manageradmin|office-manager|clinic-manager|practice-manager)([^a-z]|$)/i;
+            const explicitEmployeePattern = /^(user|employee|staff|assistant|provider|doctor|dentist|hygienist)$/i;
+            const hasManagerRole = roleCandidates.some(role => managerRolePattern.test(role.replace(/[_\s]+/g, '-')));
+            if (hasManagerRole) return 'manager';
+
+            try {
+                const canManage = (typeof hasPermission === 'function') && (
+                    hasPermission('system', 'settings') ||
+                    hasPermission('users', 'manage') ||
+                    hasPermission('tasks', 'manage') ||
+                    hasPermission('schedule', 'manage')
+                );
+                if (canManage) return 'manager';
+            } catch (_) {}
+
+            return roleCandidates.some(role => explicitEmployeePattern.test(role)) ? 'user' : 'user';
         }
 
         function getDashboardLandingUserName() {
