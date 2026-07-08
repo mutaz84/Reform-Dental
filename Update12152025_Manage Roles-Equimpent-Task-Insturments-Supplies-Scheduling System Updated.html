@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260707-dashboard-insights-v33">
+    <link rel="stylesheet" href="dental-rail.css?v=20260707-rail-calendar-v34">
     <script>
         (function() {
-                const buildVersion = '20260707-dashboard-insights-v33';
+                const buildVersion = '20260707-rail-calendar-v34';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -18825,6 +18825,41 @@
         }
     }
     /* ========================================================================= */
+
+    .unified-right-rail .urr-quick-calendar-host {
+        flex: 0 0 auto;
+        padding: 0.6rem 0.75rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--card-bg);
+        position: relative;
+        z-index: 5;
+    }
+
+    .unified-right-rail .urr-quick-calendar-host > button[data-quick-calendar-toggle="true"] {
+        width: 100%;
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.75rem;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        cursor: pointer;
+        color: var(--text-primary);
+        transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .unified-right-rail .urr-quick-calendar-host > button[data-quick-calendar-toggle="true"]:hover {
+        background: var(--bg-tertiary);
+        border-color: var(--accent-primary);
+        box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+    }
+
+    .unified-right-rail .urr-content .urr-panel div:has(> button[data-quick-calendar-toggle="true"]) {
+        display: none !important;
+    }
 
     .unified-right-rail .urr-content {
         flex: 1 1 auto;
@@ -118880,7 +118915,7 @@ console.log('? Global functions exported to window object');
     }
 
     function getTabToolsMarkup() {
-        return '<div id="rdViewTabsTools" class="rd-view-tabs-tools" aria-label="Quick tools"><button type="button" class="rd-view-tabs-tool" onclick="openChat(); return false;" title="Team Chat" aria-label="Open Team Chat"><i class="fas fa-comments"></i><span class="chat-unread-badge" style="display: none;">0</span></button><button type="button" class="rd-view-tabs-tool" onclick="if(window.ReformCopilot && typeof window.ReformCopilot.toggle === \'function\'){ window.ReformCopilot.toggle(); } return false;" title="DentaBrain AI" aria-label="Open DentaBrain AI"><i class="fas fa-brain"></i></button><button type="button" class="rd-view-tabs-tool" onclick="toggleFloatingCalendar(); return false;" title="Quick Calendar" aria-label="Open Quick Calendar"><i class="fas fa-calendar-alt"></i></button></div>';
+        return '<div id="rdViewTabsTools" class="rd-view-tabs-tools" aria-label="Quick tools"><button type="button" class="rd-view-tabs-tool" onclick="openChat(); return false;" title="Team Chat" aria-label="Open Team Chat"><i class="fas fa-comments"></i><span class="chat-unread-badge" style="display: none;">0</span></button><button type="button" class="rd-view-tabs-tool" onclick="if(window.ReformCopilot && typeof window.ReformCopilot.toggle === \'function\'){ window.ReformCopilot.toggle(); } return false;" title="DentaBrain AI" aria-label="Open DentaBrain AI"><i class="fas fa-brain"></i></button><button type="button" class="rd-view-tabs-tool" onclick="if(window.switchContentView){ window.switchContentView(\'calendar\', event); } return false;" title="Open Calendar" aria-label="Open Calendar"><i class="fas fa-calendar-alt"></i></button></div>';
     }
 
     function ensureBar(targetHost) {
@@ -120125,6 +120160,29 @@ console.log('? Global functions exported to window object');
                     <div class="urr-top-right">
                     </div>
                 </div>
+                <div class="urr-quick-calendar-host" id="urrQuickCalendarHost">
+                    <button data-quick-calendar-toggle="true" onclick="toggleQuickCalendar(this)" type="button">
+                        <div style="display:flex;align-items:center;gap:0.55rem;min-width:0;">
+                            <i class="fas fa-calendar-alt" style="color:var(--accent-primary);font-size:1.1rem;flex:0 0 auto;"></i>
+                            <div style="min-width:0;">
+                                <div style="font-size:0.7rem;font-weight:700;color:var(--text-secondary);text-align:left;letter-spacing:0.01em;">QUICK CALENDAR</div>
+                                <div style="font-size:0.78rem;font-weight:650;color:var(--text-primary);text-align:left;" id="quickCalendarButtonDate">July 2026</div>
+                            </div>
+                        </div>
+                        <i class="fas fa-chevron-up" id="quickCalendarChevron" style="transition:transform 0.2s;color:var(--text-secondary);"></i>
+                    </button>
+                    <div class="quick-calendar-dropdown" id="quickCalendarDropdown">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;gap:0.5rem;">
+                            <button onclick="quickCalendarPrevMonth()" type="button" style="background:transparent;border:1px solid var(--border-color);padding:0.4rem 0.6rem;border-radius:6px;cursor:pointer;color:var(--text-primary);"><i class="fas fa-chevron-left"></i></button>
+                            <div style="display:flex;align-items:center;gap:0.5rem;flex:1;justify-content:center;">
+                                <div style="font-weight:700;color:var(--accent-primary);text-align:center;font-size:0.85rem;" id="quickCalendarMonth">July 2026</div>
+                                <button onclick="quickCalendarToday()" type="button" title="Jump to Today" style="background:var(--accent-primary);color:white;border:none;padding:0.35rem 0.6rem;border-radius:6px;cursor:pointer;font-size:0.75rem;font-weight:650;">Today</button>
+                            </div>
+                            <button onclick="quickCalendarNextMonth()" type="button" style="background:transparent;border:1px solid var(--border-color);padding:0.4rem 0.6rem;border-radius:6px;cursor:pointer;color:var(--text-primary);"><i class="fas fa-chevron-right"></i></button>
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(7,1fr);text-align:center;" id="quickCalendarGrid"></div>
+                    </div>
+                </div>
                 <div class="urr-content">
                 <div class="urr-panel" id="urrMenuPanel"></div>
                 <div class="urr-panel" id="urrPanelPanel"></div>
@@ -120209,6 +120267,7 @@ console.log('? Global functions exported to window object');
         state.panelTabBtn = rail.querySelector('#urrTabPanel');
         state.managerTabBtn = rail.querySelector('#urrTabManager');
         state.managerHost = rail.querySelector('#urrManagerPanel');
+        try { if (typeof renderQuickCalendar === 'function') renderQuickCalendar(); } catch (_) {}
 
         // Show/hide Manager tab based on role
         (function updateManagerTabVisibility() {
