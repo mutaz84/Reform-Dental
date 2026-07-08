@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260707-rail-calendar-bottom-v35">
+    <link rel="stylesheet" href="dental-rail.css?v=20260707-quick-calendar-search-v36">
     <script>
         (function() {
-                const buildVersion = '20260707-rail-calendar-bottom-v35';
+                const buildVersion = '20260707-quick-calendar-search-v36';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -83852,6 +83852,82 @@ window.initializeCalendar = initializeCalendar;
                         populateTable();
                     }
                 }
+        function parseQuickCalendarSearch(value) {
+            const query = String(value || '').trim();
+            if (!query) return null;
+
+            const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+            const monthAliases = monthNames.reduce((map, name, index) => {
+                map[name] = index;
+                map[name.slice(0, 3)] = index;
+                return map;
+            }, {});
+            const now = new Date();
+            const currentYear = quickCalendarDate instanceof Date && !Number.isNaN(quickCalendarDate.getTime()) ? quickCalendarDate.getFullYear() : now.getFullYear();
+            const clean = query.replace(/,/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+
+            const numericDate = clean.match(/^(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?$/);
+            if (numericDate) {
+                const first = Number.parseInt(numericDate[1], 10);
+                const second = Number.parseInt(numericDate[2], 10);
+                let year = numericDate[3] ? Number.parseInt(numericDate[3], 10) : currentYear;
+                if (year < 100) year += 2000;
+                const month = first >= 1 && first <= 12 ? first - 1 : second - 1;
+                const day = first >= 1 && first <= 12 ? second : first;
+                const date = new Date(year, month, day);
+                if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) return date;
+                return null;
+            }
+
+            const isoDate = clean.match(/^(\d{4})[\/\-.](\d{1,2})(?:[\/\-.](\d{1,2}))?$/);
+            if (isoDate) {
+                const year = Number.parseInt(isoDate[1], 10);
+                const month = Number.parseInt(isoDate[2], 10) - 1;
+                const day = isoDate[3] ? Number.parseInt(isoDate[3], 10) : 1;
+                const date = new Date(year, month, day);
+                if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) return date;
+                return null;
+            }
+
+            const monthNumber = clean.match(/^\d{1,2}$/);
+            if (monthNumber) {
+                const month = Number.parseInt(monthNumber[0], 10) - 1;
+                if (month >= 0 && month <= 11) return new Date(currentYear, month, 1);
+            }
+
+            const words = clean.split(' ').filter(Boolean);
+            const monthToken = words.find(word => Object.prototype.hasOwnProperty.call(monthAliases, word));
+            const yearToken = words.find(word => /^\d{4}$/.test(word));
+            const dayToken = words.find(word => /^\d{1,2}$/.test(word) && word !== yearToken);
+            if (monthToken) {
+                const year = yearToken ? Number.parseInt(yearToken, 10) : currentYear;
+                const day = dayToken ? Number.parseInt(dayToken, 10) : 1;
+                const month = monthAliases[monthToken];
+                const date = new Date(year, month, day);
+                if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) return date;
+                return null;
+            }
+
+            if (/^\d{4}$/.test(clean)) return new Date(Number.parseInt(clean, 10), 0, 1);
+            return null;
+        }
+
+        function quickCalendarSearch(event) {
+            if (event && typeof event.preventDefault === 'function') event.preventDefault();
+            if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+            const input = (event && event.target && event.target.querySelector) ? event.target.querySelector('#quickCalendarSearchInput') : document.getElementById('quickCalendarSearchInput');
+            const targetDate = parseQuickCalendarSearch(input ? input.value : '');
+            if (!targetDate) {
+                if (typeof showNotification === 'function') showNotification('Enter a date like 07/20/2026, July 2026, March, or 2027.', 'error');
+                return false;
+            }
+
+            quickCalendarDate = new Date(targetDate);
+            goToCalendarDate(targetDate.getDate());
+            if (input) input.value = '';
+            return false;
+        }
+
         
         // Navigate to date from small calendar widget (original function)
         function goToCalendarDate(day) {
@@ -120221,6 +120297,10 @@ console.log('? Global functions exported to window object');
                         <i class="fas fa-chevron-up" id="quickCalendarChevron" style="transition:transform 0.2s;color:var(--text-secondary);"></i>
                     </button>
                     <div class="quick-calendar-dropdown" id="quickCalendarDropdown">
+                        <form onsubmit="quickCalendarSearch(event)" style="display:flex;gap:0.35rem;margin-bottom:0.65rem;align-items:center;">
+                            <input id="quickCalendarSearchInput" type="text" placeholder="Search date, month, year" aria-label="Search calendar date" style="flex:1;min-width:0;height:34px;padding:0.35rem 0.55rem;border:1px solid var(--border-color);border-radius:7px;background:var(--bg-secondary);color:var(--text-primary);font-size:0.76rem;">
+                            <button type="submit" title="Search calendar" style="width:34px;height:34px;border:1px solid var(--accent-primary);border-radius:7px;background:var(--accent-primary);color:white;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;"><i class="fas fa-search"></i></button>
+                        </form>
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;gap:0.5rem;">
                             <button onclick="quickCalendarPrevMonth()" type="button" style="background:transparent;border:1px solid var(--border-color);padding:0.4rem 0.6rem;border-radius:6px;cursor:pointer;color:var(--text-primary);"><i class="fas fa-chevron-left"></i></button>
                             <div style="display:flex;align-items:center;gap:0.5rem;flex:1;justify-content:center;">
