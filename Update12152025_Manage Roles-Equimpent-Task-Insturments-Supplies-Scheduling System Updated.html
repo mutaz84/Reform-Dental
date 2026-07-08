@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260708-drag-handle-49px-v46">
+    <link rel="stylesheet" href="dental-rail.css?v=20260708-copilot-history-guard-v47">
     <script>
         (function() {
-                const buildVersion = '20260708-drag-handle-49px-v46';
+                const buildVersion = '20260708-copilot-history-guard-v47';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -121271,6 +121271,20 @@ console.log('? Global functions exported to window object');
         return `${list.length}|${String(last?.timestamp || '')}|${String(last?.role || '')}|${String(last?.content || '').slice(0, 120)}`;
     }
 
+    function shouldKeepLocalActiveCopilotHistory(localHistory, remoteHistory) {
+        const local = trimConversationHistory(localHistory);
+        const remote = trimConversationHistory(remoteHistory);
+        if (!local.length) return false;
+        if (!remote.length) return true;
+        if (local.length > remote.length) return true;
+        if (local.length < remote.length) return false;
+
+        const localLast = local[local.length - 1] || null;
+        const remoteLast = remote[remote.length - 1] || null;
+        const localTime = new Date(localLast?.timestamp || 0).getTime() || 0;
+        const remoteTime = new Date(remoteLast?.timestamp || 0).getTime() || 0;
+        return localTime > remoteTime && getHistorySignature(local) !== getHistorySignature(remote);
+    }
     function shouldRetainLocalConversationDuringServerSync(session, serverIdSet) {
         if (!session || !session.id) return false;
         const id = String(session.id || '').trim();
@@ -121962,10 +121976,23 @@ console.log('? Global functions exported to window object');
                 }
             }
 
-            const nextHistory = trimConversationHistory(activeSession?.messages || []);
-            const currentHistorySig = getHistorySignature(copilotState.conversationHistory || []);
+            let nextHistory = trimConversationHistory(activeSession?.messages || []);
+            const currentHistory = trimConversationHistory(copilotState.conversationHistory || []);
+            const activeStillCurrent = String(copilotState.activeConversationId || '') === String(activeId || '');
+            if (activeStillCurrent && shouldKeepLocalActiveCopilotHistory(currentHistory, nextHistory)) {
+                nextHistory = currentHistory;
+                const activeIdx = nextSessions.findIndex((row) => String(row?.id) === String(activeId));
+                if (activeIdx >= 0) {
+                    nextSessions[activeIdx] = {
+                        ...nextSessions[activeIdx],
+                        messages: nextHistory,
+                        messageCount: Math.max(Number(nextSessions[activeIdx]?.messageCount || 0), nextHistory.length),
+                        updatedAt: nextHistory[nextHistory.length - 1]?.timestamp || nextSessions[activeIdx]?.updatedAt || new Date().toISOString()
+                    };
+                }
+            }
+            const currentHistorySig = getHistorySignature(currentHistory);
             const nextHistorySig = getHistorySignature(nextHistory);
-
             const listChanged = nextListSig !== currentListSig;
             const activeChanged = String(copilotState.activeConversationId || '') !== String(activeId || '');
             const historyChanged = nextHistorySig !== currentHistorySig;
