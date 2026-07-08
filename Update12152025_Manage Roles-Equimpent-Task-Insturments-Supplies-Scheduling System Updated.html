@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260708-dashboard-tool-v39">
+    <link rel="stylesheet" href="dental-rail.css?v=20260708-vendor-favorites-v40">
     <script>
         (function() {
-                const buildVersion = '20260708-dashboard-tool-v39';
+                const buildVersion = '20260708-vendor-favorites-v40';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -9842,6 +9842,9 @@
         .vendor-action-btn.act-archive:hover  { background:#b91c1c10; border-color:#b91c1c; }
         .vendor-action-btn.act-restore  { color:#111827; border-color:#11182733; }
         .vendor-action-btn.act-restore:hover  { background:#1118270d; border-color:#111827; }
+        .vendor-favorite-btn { color:#64748b; border-color:#11182722; background:var(--bg-tertiary); }
+        .vendor-favorite-btn:hover { color:#d97706; border-color:#f59e0b66; background:#f59e0b12; }
+        .vendor-favorite-btn.is-favorite { color:#d97706; border-color:#f59e0b66; background:#f59e0b18; }
 
         /* Summary cards (clickable filters) */
         .vendor-summary-cards {
@@ -25521,6 +25524,10 @@
                                                 </select>
                                             </label>
                                             <label style="display:flex;flex-direction:row;align-items:center;gap:0.5rem;font-size:0.85rem;cursor:pointer;padding-top:0.25rem;">
+                                                <input type="checkbox" id="vendorsPageFavoritesOnly" onchange="renderVendorsPageList()" style="width:1rem;height:1rem;cursor:pointer;">
+                                                <span>Favorites only</span>
+                                            </label>
+                                            <label style="display:flex;flex-direction:row;align-items:center;gap:0.5rem;font-size:0.85rem;cursor:pointer;padding-top:0.25rem;">
                                                 <input type="checkbox" id="vendorsPageHideArchived" checked onchange="renderVendorsPageList()" style="width:1rem;height:1rem;cursor:pointer;">
                                                 <span>Hide archived vendors</span>
                                             </label>
@@ -25543,7 +25550,7 @@
                             </div>
 
                             <!-- Summary cards (clickable filters) -->
-                            <div style="display:grid; grid-template-columns:repeat(5, minmax(120px, 1fr)); gap:0.65rem; margin-bottom:0.8rem;" id="vendorsSummaryCards"></div>
+                            <div style="display:grid; grid-template-columns:repeat(6, minmax(110px, 1fr)); gap:0.65rem; margin-bottom:0.8rem;" id="vendorsSummaryCards"></div>
 
                             <div id="vendorsPageList"></div>
                         </div>
@@ -45129,7 +45136,8 @@
                 ? vendors.map(vendor => ({
                     ...vendor,
                     dbId: vendor?.dbId || vendor?.vendorID || vendor?.id || vendor?.Id || null,
-                    vendorID: vendor?.vendorID || vendor?.dbId || vendor?.id || vendor?.Id || null
+                    vendorID: vendor?.vendorID || vendor?.dbId || vendor?.id || vendor?.Id || null,
+                    isFavorite: vendor?.isFavorite === true || vendor?.favorite === true || vendor?.IsFavorite === true
                 }))
                 : [];
         }
@@ -57390,10 +57398,12 @@
             const status = document.getElementById('vendorsPageStatus');
             const sort = document.getElementById('vendorsPageSort');
             const hideArch = document.getElementById('vendorsPageHideArchived');
+            const favOnly = document.getElementById('vendorsPageFavoritesOnly');
             if (search) search.value = '';
             if (type) type.value = '';
             if (status) status.value = '';
             if (sort) sort.value = 'name';
+            if (favOnly) favOnly.checked = false;
             if (hideArch) hideArch.checked = true;
             window.__vendorsActiveSummary = null;
             renderVendorsSummaryCards();
@@ -57423,9 +57433,14 @@
             const statusFilter = (document.getElementById('vendorsPageStatus')?.value || '').toString().trim();
             const sortBy = (document.getElementById('vendorsPageSort')?.value || 'name').toString();
             const hideArchived = !!document.getElementById('vendorsPageHideArchived')?.checked;
+            const favoritesOnly = !!document.getElementById('vendorsPageFavoritesOnly')?.checked;
             const summaryFilter = window.__vendorsActiveSummary || null;
 
             let filtered = vendors;
+
+            if (favoritesOnly) {
+                filtered = filtered.filter(v => v.isFavorite === true);
+            }
 
             if (hideArchived && statusFilter !== 'Inactive') {
                 filtered = filtered.filter(v => v.isActive !== false);
@@ -57455,6 +57470,7 @@
 
             if (summaryFilter === 'active')   filtered = filtered.filter(v => v.isActive !== false);
             if (summaryFilter === 'archived') filtered = filtered.filter(v => v.isActive === false);
+            if (summaryFilter === 'favorites') filtered = filtered.filter(v => v.isFavorite === true);
             if (summaryFilter === 'orders')   filtered = filtered.filter(v => countVendorOrders(v) > 0);
             if (summaryFilter === 'tickets')  filtered = filtered.filter(v => countVendorServiceTickets(v) > 0);
 
@@ -57497,6 +57513,8 @@
                 const active = v.isActive !== false;
                 const statusColor = getVendorActiveStatusColor(active);
                 const statusText = active ? 'Active' : 'Archived';
+                const isFavorite = v.isFavorite === true;
+                const favoriteTitle = isFavorite ? 'Remove from favorites' : 'Add to favorites';
                 const typesLabel = (v.vendorType || '-').toString();
                 const contactLabel = (v.contactName || '-').toString();
                 const phoneLabel = (v.phone || '-').toString();
@@ -57519,6 +57537,9 @@
                         <div class="equipment-card-photo">${thumbnail}</div>
                         <div class="equipment-card-top">
                             <h3 class="equipment-card-title">${esc(v.vendorName || '')}</h3>
+                            <button type="button" class="equipment-action-btn vendor-favorite-btn ${isFavorite ? 'is-favorite' : ''}" onclick="event.stopPropagation(); toggleVendorFavorite(${v.vendorID});" title="${favoriteTitle}" aria-label="${favoriteTitle}">
+                                <i class="${isFavorite ? 'fas' : 'far'} fa-star"></i>
+                            </button>
                         </div>
                         <div class="equipment-card-meta">
                             ${typesLabel && typesLabel !== '-' ? `<span class="equipment-badge"><i class="fas fa-tag" style="opacity:0.8; margin-right:0.35rem;"></i>${esc(typesLabel)}</span>` : ''}
@@ -57762,6 +57783,7 @@
             const total = vendors.length;
             const active = vendors.filter(v => v.isActive !== false).length;
             const archived = total - active;
+            const favorites = vendors.filter(v => v.isFavorite === true).length;
             const withOrders = vendors.filter(v => countVendorOrders(v) > 0).length;
             const withTickets = vendors.filter(v => countVendorServiceTickets(v) > 0).length;
             const cur = window.__vendorsActiveSummary || null;
@@ -57776,6 +57798,7 @@
                 card('all',      total,      'All Vendors',  'var(--text-primary)'),
                 card('active',   active,     'Active',       '#10b981'),
                 card('archived', archived,   'Archived',     '#ef4444'),
+                card('favorites', favorites, 'Favorites',    '#f59e0b'),
                 card('orders',   withOrders, 'With Orders',  '#0ea5e9'),
                 card('tickets',  withTickets,'With Tickets', '#7c3aed')
             ].join('');
@@ -57783,14 +57806,31 @@
 
         function setVendorSummaryFilter(key) {
             window.__vendorsActiveSummary = (window.__vendorsActiveSummary === key || key === 'all') ? null : key;
+            const favSummaryToggle = document.getElementById('vendorsPageFavoritesOnly');
+            if (favSummaryToggle) favSummaryToggle.checked = window.__vendorsActiveSummary === 'favorites';
             // Sync derived filters where it makes sense
             if (key === 'archived') {
                 const hide = document.getElementById('vendorsPageHideArchived'); if (hide) hide.checked = false;
                 const status = document.getElementById('vendorsPageStatus'); if (status) status.value = 'Inactive';
             } else if (key === 'active') {
                 const status = document.getElementById('vendorsPageStatus'); if (status) status.value = 'Active';
+            } else if (key === 'favorites') {
+                const favOnly = document.getElementById('vendorsPageFavoritesOnly'); if (favOnly) favOnly.checked = window.__vendorsActiveSummary === 'favorites';
             } else if (key === 'all') {
                 const status = document.getElementById('vendorsPageStatus'); if (status) status.value = '';
+                const favOnly = document.getElementById('vendorsPageFavoritesOnly'); if (favOnly) favOnly.checked = false;
+            }
+            renderVendorsSummaryCards();
+            renderVendorsPageList();
+        }
+
+        function toggleVendorFavorite(vendorID) {
+            const v = findVendorById(vendorID);
+            if (!v) return;
+            const nextFavorite = v.isFavorite !== true;
+            _saveVendorRecord({ vendorID: v.vendorID, isFavorite: nextFavorite });
+            if (typeof showNotification === 'function') {
+                showNotification(nextFavorite ? 'Vendor added to favorites.' : 'Vendor removed from favorites.', 'success');
             }
             renderVendorsSummaryCards();
             renderVendorsPageList();
