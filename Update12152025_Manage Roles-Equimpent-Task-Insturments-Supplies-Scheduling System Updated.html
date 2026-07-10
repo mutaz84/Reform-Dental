@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260709-office-info-v51">
+    <link rel="stylesheet" href="dental-rail.css?v=20260709-office-info-card-v52">
     <script>
         (function() {
-                const buildVersion = '20260709-office-info-v51';
+                const buildVersion = '20260709-office-info-card-v52';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -109414,7 +109414,7 @@ document.addEventListener('keydown', function(e) {
                 Office Info
             </h3>
             <div style="display: flex; align-items: center; gap: 0.75rem;">
-                <button id="officePlanManageToggleBtn" type="button" onclick="toggleOfficeInfoManagement()" title="Show/Hide management">
+                <button id="officePlanManageToggleBtn" type="button" onclick="toggleOfficeInfoManagement()" title="Office Info is synced from Clinic Management" style="display: none;">
                     <i class="fas fa-cog"></i>
                     Manage
                 </button>
@@ -109427,7 +109427,7 @@ document.addEventListener('keydown', function(e) {
             <div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin: 0 0 1rem 0; gap: 1rem;">
                     <h4 style="margin: 0; color: var(--text-primary);">Office Info</h4>
-                    <div style="color: var(--text-tertiary); font-size: 0.85rem;">Click image to view full screen</div>
+                    <div style="color: var(--text-tertiary); font-size: 0.85rem;">Synced from clinic profile</div>
                 </div>
                 <div id="officePlanPreview" style="background: var(--card-bg); padding: 2rem; border-radius: 8px; text-align: center; border: 2px solid var(--border-color);">
                     <img id="officePlanImage" src="" alt="Office Info" style="max-width: 100%; max-height: 60vh; object-fit: contain; border-radius: 8px; cursor: pointer; display: none;" onclick="viewFullScreen()">
@@ -109438,7 +109438,7 @@ document.addEventListener('keydown', function(e) {
                     </div>
                     <div id="officePlanInfo" style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px; display: none;">
                         <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;" id="officePlanTitleDisplay">Office Info</div>
-                        <div style="font-size: 0.85rem; color: var(--text-secondary);" id="officePlanDescDisplay">Click image to view full screen</div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary);" id="officePlanDescDisplay">Synced from clinic profile</div>
                         <div id="officePlanUploadDateDisplay" style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-tertiary);"></div>
                     </div>
                 </div>
@@ -112873,42 +112873,139 @@ async function saveOfficeInfoViaAPI(plan) {
     }
 }
 
-function applyOfficeInfoToUI(plan) {
-    const img = document.getElementById('officePlanImage');
-    if (!img) return;
+function getClinicDisplayValue(value) {
+    const text = String(value || '').trim();
+    return text || '-';
+}
 
-    const uploadDateEl = document.getElementById('officePlanUploadDateDisplay');
-
-    if (plan && plan.imageUrl) {
-        img.src = plan.imageUrl;
-        img.style.display = 'block';
-        document.getElementById('noOfficeInfoPlaceholder').style.display = 'none';
-        document.getElementById('officePlanInfo').style.display = 'block';
-        document.getElementById('officePlanTitleDisplay').textContent = plan.title || 'Office Info';
-        document.getElementById('officePlanDescDisplay').textContent = plan.description || 'Click image to view full screen';
-
-        if (uploadDateEl) {
-            if (plan.uploadDate) {
-                const d = new Date(plan.uploadDate);
-                uploadDateEl.textContent = isNaN(d.getTime()) ? '' : `Last saved: ${d.toLocaleString()}`;
-            } else {
-                uploadDateEl.textContent = '';
-            }
-        }
-    } else {
-        img.style.display = 'none';
-        document.getElementById('noOfficeInfoPlaceholder').style.display = 'block';
-        document.getElementById('officePlanInfo').style.display = 'none';
-
-        if (uploadDateEl) uploadDateEl.textContent = '';
+function getOfficeInfoClinic() {
+    const offices = (typeof loadOffices === 'function') ? loadOffices() : [];
+    if (Array.isArray(offices) && offices.length) {
+        return offices.find((office) => office?.isActive !== false) || offices[0];
     }
+
+    const clinics = Array.isArray(window.masterData?.clinics) ? window.masterData.clinics : [];
+    if (clinics.length) {
+        const clinic = clinics.find((row) => row?.isActive !== false && row?.IsActive !== false) || clinics[0];
+        return {
+            officeName: clinic.name || clinic.Name,
+            phone: clinic.phone || clinic.Phone || clinic.mainPhone || clinic.MainPhone || '',
+            mainPhone: clinic.mainPhone || clinic.MainPhone || clinic.phone || clinic.Phone || '',
+            afterHoursPhone: clinic.afterHoursPhone || clinic.AfterHoursPhone || '',
+            fax: clinic.fax || clinic.Fax || '',
+            address: clinic.address || clinic.Address || '',
+            city: clinic.city || clinic.City || '',
+            state: clinic.state || clinic.State || '',
+            zipCode: clinic.zipCode || clinic.ZipCode || '',
+            email: clinic.email || clinic.Email || '',
+            website: clinic.website || clinic.Website || '',
+            defaultDentist: clinic.defaultDentist || clinic.DefaultDentist || '',
+            taxonomyNumber: clinic.taxonomyNumber || clinic.TaxonomyNumber || '',
+            clinicNPI: clinic.clinicNPI || clinic.ClinicNPI || '',
+            clinicTIN: clinic.clinicTIN || clinic.ClinicTIN || '',
+            legalName: clinic.legalName || clinic.LegalName || '',
+            legalAddress: clinic.legalAddress || clinic.LegalAddress || '',
+            description: clinic.description || clinic.Description || '',
+            operatingHours: clinic.operatingHours || clinic.OperatingHours || null,
+            status: clinic.status || clinic.Status || ((clinic.isActive !== false && clinic.IsActive !== false) ? 'Active' : 'Inactive'),
+            color: clinic.color || clinic.Color || '#06b6d4',
+            icon: clinic.icon || clinic.Icon || 'fa-hospital'
+        };
+    }
+
+    return null;
+}
+
+function renderOfficeInfoCard(clinic) {
+    const preview = document.getElementById('officePlanPreview');
+    if (!preview) return;
+
+    const buildAddress = (office) => [office?.address, office?.city, office?.state, office?.zipCode].filter(Boolean).join(', ');
+    const formatHours = (hours) => {
+        if (!hours || typeof hours !== 'object') return '-';
+        const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        return days.map((day) => {
+            const row = hours[day] || hours[day.charAt(0).toUpperCase() + day.slice(1)] || {};
+            const label = day.charAt(0).toUpperCase() + day.slice(1);
+            if (row.isOpen === false || row.IsOpen === false) return `${label}: Closed`;
+            const open = row.open || row.OpenTime || row.start || '';
+            const close = row.close || row.CloseTime || row.end || '';
+            return open || close ? `${label}: ${open || '-'} - ${close || '-'}` : `${label}: -`;
+        }).join('<br>');
+    };
+    const valueRow = (label, value) => `
+        <div style="min-width: 0;">
+            <div style="font-size: 0.78rem; color: var(--text-tertiary); margin-bottom: 0.2rem;">${label}</div>
+            <div style="font-size: 0.98rem; color: var(--text-primary); font-weight: 600; line-height: 1.35; word-break: break-word;">${getClinicDisplayValue(value)}</div>
+        </div>`;
+
+    if (!clinic) {
+        preview.style.textAlign = 'center';
+        preview.innerHTML = `
+            <div style="padding: 3rem; color: var(--text-tertiary);">
+                <i class="fas fa-hospital" style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.35;"></i>
+                <p style="margin: 0; font-size: 1.05rem;">No clinic information found</p>
+                <p style="font-size: 0.9rem; margin-top: 0.5rem;">Add the clinic in Clinic Management, then reopen Office Info.</p>
+            </div>`;
+        return;
+    }
+
+    const address = buildAddress(clinic);
+    const status = getClinicDisplayValue(clinic.status);
+    const badgeColor = String(status).toLowerCase() === 'active' ? '#10b981' : '#ef4444';
+
+    preview.style.textAlign = 'left';
+    preview.innerHTML = `
+        <div style="display: grid; gap: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; flex-wrap: wrap; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem;">
+                <div style="display: flex; gap: 0.9rem; align-items: center; min-width: 0;">
+                    <div style="width: 52px; height: 52px; border-radius: 10px; background: ${clinic.color || '#06b6d4'}; color: white; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        <i class="fas ${clinic.icon || 'fa-hospital'}" style="font-size: 1.35rem;"></i>
+                    </div>
+                    <div style="min-width: 0;">
+                        <div style="font-size: 1.55rem; color: var(--text-primary); font-weight: 700; line-height: 1.2; word-break: break-word;">${getClinicDisplayValue(clinic.officeName || clinic.name)}</div>
+                        <div style="font-size: 0.92rem; color: var(--text-secondary); margin-top: 0.25rem; word-break: break-word;">${getClinicDisplayValue(address)}</div>
+                    </div>
+                </div>
+                <span style="background: ${badgeColor}20; color: ${badgeColor}; padding: 0.3rem 0.8rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700;">${status}</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem 1.25rem;">
+                ${valueRow('Main phone', clinic.mainPhone || clinic.phone)}
+                ${valueRow('After hours phone', clinic.afterHoursPhone)}
+                ${valueRow('Fax', clinic.fax)}
+                ${valueRow('Email', clinic.email)}
+                ${valueRow('Website', clinic.website)}
+                ${valueRow('Default dentist', clinic.defaultDentist)}
+                ${valueRow('Taxonomy number', clinic.taxonomyNumber)}
+                ${valueRow('Clinic NPI', clinic.clinicNPI)}
+                ${valueRow('Clinic TIN', clinic.clinicTIN)}
+                ${valueRow('Legal name', clinic.legalName)}
+                ${valueRow('Legal address', clinic.legalAddress)}
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem 1.25rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                <div>
+                    <div style="font-size: 0.78rem; color: var(--text-tertiary); margin-bottom: 0.2rem;">Operating hours</div>
+                    <div style="font-size: 0.94rem; color: var(--text-primary); line-height: 1.45;">${formatHours(clinic.operatingHours)}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.78rem; color: var(--text-tertiary); margin-bottom: 0.2rem;">Description</div>
+                    <div style="font-size: 0.98rem; color: var(--text-primary); line-height: 1.45;">${getClinicDisplayValue(clinic.description)}</div>
+                </div>
+            </div>
+        </div>`;
+}
+
+function applyOfficeInfoToUI(plan) {
+    renderOfficeInfoCard(getOfficeInfoClinic());
 }
 
 function showOfficeInfo() {
     const modal = document.getElementById('officePlanModal');
     if (modal) {
         modal.style.display = 'flex';
-        // Default: show only the image (management hidden behind the small Manage button)
+        // Office Info is generated from the current clinic profile.
         setOfficeInfoManagementOpen(false);
         loadCurrentOfficeInfo();
     }
@@ -112918,7 +113015,7 @@ function closeOfficeInfo() {
     const modal = document.getElementById('officePlanModal');
     if (modal) {
         modal.style.display = 'none';
-        // Reset to view-only so next open is image-first
+        // Reset to view-only so the clinic card is the only visible surface.
         setOfficeInfoManagementOpen(false);
     }
 }
@@ -112928,29 +113025,13 @@ function setOfficeInfoManagementOpen(isOpen) {
     const toggleBtn = document.getElementById('officePlanManageToggleBtn');
     if (!modal) return;
 
-    const canManage = canManageOfficeInfoSettings();
+    modal.classList.add('office-plan-view-only');
     if (toggleBtn) {
-        toggleBtn.style.display = canManage ? 'inline-flex' : 'none';
-    }
-
-    if (isOpen && !canManage) {
-        isOpen = false;
-    }
-
-    const viewOnly = !isOpen;
-    modal.classList.toggle('office-plan-view-only', viewOnly);
-
-    if (toggleBtn) {
-        if (viewOnly) {
-            toggleBtn.innerHTML = '<i class="fas fa-cog"></i> Manage';
-            toggleBtn.title = 'Show management';
-        } else {
-            toggleBtn.innerHTML = '<i class="fas fa-eye"></i> View';
-            toggleBtn.title = 'Hide management';
-        }
+        toggleBtn.style.display = 'none';
+        toggleBtn.innerHTML = '<i class="fas fa-id-card"></i> Clinic Profile';
+        toggleBtn.title = 'Office Info is synced from Clinic Management';
     }
 }
-
 function toggleOfficeInfoManagement(forceOpen) {
     const modal = document.getElementById('officePlanModal');
     if (!modal) return;
@@ -113320,36 +113401,16 @@ function clearOfficeInfo() {
 }
 
 async function loadCurrentOfficeInfo() {
-    // Prefer database-backed settings if available
-    const settings = await fetchSettingsViaAPI();
-    if (settings && (settings.officePlanImageUrl || settings.officePlanTitle || settings.officePlanDescription)) {
-        currentOfficeInfo = {
-            title: settings.officePlanTitle || 'Office Info',
-            description: settings.officePlanDescription || 'Click image to view full screen',
-            imageUrl: settings.officePlanImageUrl || '',
-            uploadDate: settings.officePlanUploadDate || null
-        };
-        // Keep localStorage in sync for offline usage
-        localStorage.setItem(getOfficeInfoStorageKey(), JSON.stringify(currentOfficeInfo));
-        applyOfficeInfoToUI(currentOfficeInfo);
-        return;
-    }
-
-    // Fallback: load from localStorage
-    const savedPlan = localStorage.getItem(getOfficeInfoStorageKey());
-    if (savedPlan) {
+    if (typeof syncClinicsFromAPI === 'function') {
         try {
-            currentOfficeInfo = JSON.parse(savedPlan);
-        } catch (e) {
-            currentOfficeInfo = { title: '', description: '', imageUrl: '', uploadDate: null };
+            await syncClinicsFromAPI();
+        } catch (error) {
+            console.warn('Unable to refresh clinic data for Office Info:', error);
         }
-        applyOfficeInfoToUI(currentOfficeInfo);
-    } else {
-        currentOfficeInfo = { title: '', description: '', imageUrl: '', uploadDate: null };
-        applyOfficeInfoToUI(currentOfficeInfo);
     }
+    currentOfficeInfo = { title: 'Office Info', description: '', imageUrl: '', uploadDate: null };
+    applyOfficeInfoToUI(currentOfficeInfo);
 }
-
 function viewFullScreen() {
     const img = document.getElementById('officePlanImage');
     if (img.requestFullscreen) {
