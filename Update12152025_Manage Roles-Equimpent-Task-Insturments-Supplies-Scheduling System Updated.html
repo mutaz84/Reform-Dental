@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260710-service-vendor-dropdown-v59">
+    <link rel="stylesheet" href="dental-rail.css?v=20260710-vendor-tenant-sync-v60">
     <script>
         (function() {
-                const buildVersion = '20260710-service-vendor-dropdown-v59';
+                const buildVersion = '20260710-vendor-tenant-sync-v60';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -57047,19 +57047,20 @@
             };
             
             try {
+                await ensureVendorTenantUserId();
                 let response;
                 if (editId) {
                     // Update existing vendor via API
                     response = await fetch(`${API_BASE_URL}/vendors/${editId}`, {
                         method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: getVendorApiHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify(vendorData)
                     });
                 } else {
                     // Create new vendor via API
                     response = await fetch(`${API_BASE_URL}/vendors`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: getVendorApiHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify(vendorData)
                     });
                 }
@@ -57980,7 +57981,7 @@
                 if (typeof API_BASE_URL !== 'undefined') {
                     await fetch(`${API_BASE_URL}/vendors/${v.vendorID}`, {
                         method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: getVendorApiHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify({ ...v, isActive: !!makeActive, IsActive: !!makeActive })
                     });
                 }
@@ -58022,7 +58023,7 @@
                     };
                     await fetch(`${API_BASE_URL}/vendors/${v.vendorID}`, {
                         method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: getVendorApiHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify(payload)
                     });
                 }
@@ -58172,7 +58173,7 @@
                 if (typeof API_BASE_URL !== 'undefined') {
                     await fetch(`${API_BASE_URL}/vendors/${v.vendorID}`, {
                         method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: getVendorApiHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify({ ...v, isActive: false, IsActive: false })
                     });
                 }
@@ -58190,7 +58191,7 @@
                 if (typeof API_BASE_URL !== 'undefined') {
                     await fetch(`${API_BASE_URL}/vendors/${v.vendorID}`, {
                         method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: getVendorApiHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify({ ...v, isActive: true, IsActive: true })
                     });
                 }
@@ -118887,12 +118888,54 @@ function shiftLikelyFromDatabase(shift) {
 }
 
 // ============ VENDORS API FUNCTIONS ============
+function getVendorTenantUserId() {
+    try {
+        var currentUser = null;
+        try {
+            currentUser = (typeof safeParseLocalStorageJSON === 'function')
+                ? safeParseLocalStorageJSON('currentUser', null, { expect: 'objectOrNull' })
+                : JSON.parse(localStorage.getItem('currentUser') || 'null');
+        } catch (_) {}
+        var uid = (typeof getTenantUserIdCandidate === 'function') ? getTenantUserIdCandidate(currentUser) : '';
+        if (!uid && typeof window !== 'undefined' && window.currentDbUserId) uid = window.currentDbUserId;
+        if (!uid) uid = localStorage.getItem('currentDbUserId') || localStorage.getItem('currentUserId') || localStorage.getItem('userId') || '';
+        if (!uid) {
+            var username = String((currentUser && (currentUser.username || currentUser.Username)) || localStorage.getItem('loggedInUser') || '').trim().toLowerCase();
+            if (username === 'admin') uid = '1';
+        }
+        return String(uid || '').trim();
+    } catch (_) {
+        return '';
+    }
+}
+
+async function ensureVendorTenantUserId() {
+    var uid = getVendorTenantUserId();
+    if (!uid && typeof getCurrentChatUserId === 'function') {
+        try {
+            var resolved = await getCurrentChatUserId();
+            if (resolved) uid = String(resolved);
+        } catch (_) {}
+    }
+    return uid;
+}
+
+function getVendorApiHeaders(baseHeaders) {
+    var headers = Object.assign({}, baseHeaders || {});
+    var uid = getVendorTenantUserId();
+    if (uid && !Object.keys(headers).some(function(k) { return String(k).toLowerCase() === 'x-user-id'; })) {
+        headers['X-User-Id'] = uid;
+    }
+    return headers;
+}
+
 async function saveVendorToAPI(vendorData) {
     if (typeof API_BASE_URL === 'undefined') return;
     try {
+        await ensureVendorTenantUserId();
         const response = await fetch(`${API_BASE_URL}/vendors`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getVendorApiHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
                 name: vendorData.name,
                 contactPerson: vendorData.contactPerson || '',
@@ -118913,7 +118956,8 @@ async function saveVendorToAPI(vendorData) {
 
 async function syncVendorsFromAPI() {
     try {
-        const response = await fetch(`${API_BASE_URL}/vendors`);
+        await ensureVendorTenantUserId();
+        const response = await fetch(`${API_BASE_URL}/vendors`, { headers: getVendorApiHeaders(), cache: 'no-store' });
         if (!response.ok) return false;
         const apiVendors = await response.json();
         console.log('?? API Vendors:', apiVendors);
