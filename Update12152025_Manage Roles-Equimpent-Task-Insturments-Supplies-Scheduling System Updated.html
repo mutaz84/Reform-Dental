@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260709-vendor-status-card-v55">
+    <link rel="stylesheet" href="dental-rail.css?v=20260709-single-clinic-dropdown-v56">
     <script>
         (function() {
-                const buildVersion = '20260709-vendor-status-card-v55';
+                const buildVersion = '20260709-single-clinic-dropdown-v56';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -119305,10 +119305,8 @@ async function loadClinicFilterDropdown() {
         offices = safeParseLocalStorageJSON('clinics', [], { expect: 'array' });
     }
 
-    // Keep "All Clinics" option and add offices (value = clinic name to match filter logic)
-    clinicSelect.innerHTML = '<option value="">All Clinics</option>';
-
     const seen = new Set();
+    const clinicNames = [];
     (offices || []).forEach((office) => {
         const name = String(office?.officeName || office?.Name || office?.name || office?.clinicName || '').trim();
         if (!name) return;
@@ -119316,8 +119314,21 @@ async function loadClinicFilterDropdown() {
         const key = name.toLowerCase();
         if (seen.has(key)) return;
         seen.add(key);
-        clinicSelect.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
+        clinicNames.push(name);
     });
+
+    const options = clinicNames.length === 1 ? [] : ['<option value="">All Clinics</option>'];
+    clinicNames.forEach((name) => {
+        options.push(`<option value="${esc(name)}">${esc(name)}</option>`);
+    });
+    clinicSelect.innerHTML = options.join('');
+
+    if (!currentValue && clinicNames.length === 1) {
+        clinicSelect.value = clinicNames[0];
+        if (typeof applyClinicFilter === 'function') {
+            try { applyClinicFilter(clinicNames[0]); } catch (_) {}
+        }
+    }
 
     // Preserve selection if still present (including legacy ID-based selections)
     if (currentValue) {
