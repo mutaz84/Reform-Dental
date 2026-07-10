@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260709-office-info-plan-v53">
+    <link rel="stylesheet" href="dental-rail.css?v=20260709-office-info-manage-v54">
     <script>
         (function() {
-                const buildVersion = '20260709-office-info-plan-v53';
+                const buildVersion = '20260709-office-info-manage-v54';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -109414,7 +109414,7 @@ document.addEventListener('keydown', function(e) {
                 Office Info
             </h3>
             <div style="display: flex; align-items: center; gap: 0.75rem;">
-                <button id="officePlanManageToggleBtn" type="button" onclick="toggleOfficeInfoManagement()" title="Office Info is synced from Clinic Management" style="display: none;">
+                <button id="officePlanManageToggleBtn" type="button" onclick="toggleOfficeInfoManagement()" title="Manage office plan image">
                     <i class="fas fa-cog"></i>
                     Manage
                 </button>
@@ -112819,6 +112819,7 @@ let currentOfficeInfo = {
     imageUrl: '',
     uploadDate: null
 };
+let pendingOfficeInfoImageUrl = '';
 
 function getOfficeInfoStorageKey() {
     try {
@@ -113044,11 +113045,26 @@ function setOfficeInfoManagementOpen(isOpen) {
     const toggleBtn = document.getElementById('officePlanManageToggleBtn');
     if (!modal) return;
 
-    modal.classList.add('office-plan-view-only');
+    const canManage = canManageOfficeInfoSettings();
     if (toggleBtn) {
-        toggleBtn.style.display = 'none';
-        toggleBtn.innerHTML = '<i class="fas fa-id-card"></i> Clinic Profile';
-        toggleBtn.title = 'Office Info is synced from Clinic Management';
+        toggleBtn.style.display = canManage ? 'inline-flex' : 'none';
+    }
+
+    if (isOpen && !canManage) {
+        isOpen = false;
+    }
+
+    const viewOnly = !isOpen;
+    modal.classList.toggle('office-plan-view-only', viewOnly);
+
+    if (toggleBtn) {
+        if (viewOnly) {
+            toggleBtn.innerHTML = '<i class="fas fa-cog"></i> Manage';
+            toggleBtn.title = 'Manage office plan image';
+        } else {
+            toggleBtn.innerHTML = '<i class="fas fa-eye"></i> View';
+            toggleBtn.title = 'Hide management';
+        }
     }
 }
 function toggleOfficeInfoManagement(forceOpen) {
@@ -113079,24 +113095,28 @@ function previewOfficeInfo(event) {
     if (file) {
         const reader = new FileReader();
         reader.onload = function(e) {
-            const img = document.getElementById('officePlanImage');
-            img.src = e.target.result;
-            img.style.display = 'block';
-            document.getElementById('noOfficeInfoPlaceholder').style.display = 'none';
-            document.getElementById('officePlanInfo').style.display = 'block';
+            pendingOfficeInfoImageUrl = e.target.result;
+            applyOfficeInfoToUI({
+                ...currentOfficeInfo,
+                title: document.getElementById('officePlanTitle')?.value || currentOfficeInfo.title || 'Office Plan',
+                description: document.getElementById('officePlanDescription')?.value || currentOfficeInfo.description || '',
+                imageUrl: pendingOfficeInfoImageUrl
+            });
         };
         reader.readAsDataURL(file);
     }
 }
 
 function previewOfficeInfoUrl() {
-    const url = document.getElementById('officePlanUrl').value;
+    const url = document.getElementById('officePlanUrl').value.trim();
     if (url) {
-        const img = document.getElementById('officePlanImage');
-        img.src = url;
-        img.style.display = 'block';
-        document.getElementById('noOfficeInfoPlaceholder').style.display = 'none';
-        document.getElementById('officePlanInfo').style.display = 'block';
+        pendingOfficeInfoImageUrl = url;
+        applyOfficeInfoToUI({
+            ...currentOfficeInfo,
+            title: document.getElementById('officePlanTitle')?.value || currentOfficeInfo.title || 'Office Plan',
+            description: document.getElementById('officePlanDescription')?.value || currentOfficeInfo.description || '',
+            imageUrl: pendingOfficeInfoImageUrl
+        });
     }
 }
 
@@ -113141,14 +113161,13 @@ function useOfficeInfoTemplate(templateType) {
     document.getElementById('officePlanTitle').value = template.title;
     document.getElementById('officePlanDescription').value = template.description;
     
-    // Update preview
-    const img = document.getElementById('officePlanImage');
-    img.src = template.imageUrl;
-    img.style.display = 'block';
-    document.getElementById('noOfficeInfoPlaceholder').style.display = 'none';
-    document.getElementById('officePlanInfo').style.display = 'block';
-    document.getElementById('officePlanTitleDisplay').textContent = template.title;
-    document.getElementById('officePlanDescDisplay').textContent = template.description;
+    pendingOfficeInfoImageUrl = template.imageUrl;
+    applyOfficeInfoToUI({
+        ...currentOfficeInfo,
+        title: template.title,
+        description: template.description,
+        imageUrl: pendingOfficeInfoImageUrl
+    });
     
     // Switch to URL mode
     document.querySelector('input[name="uploadMethod"][value="url"]').checked = true;
@@ -113366,50 +113385,43 @@ async function saveOfficeInfo(event) {
         return;
     }
     
-    const title = document.getElementById('officePlanTitle').value || 'Office Info';
-    const description = document.getElementById('officePlanDescription').value || 'Click image to view full screen';
+    const title = document.getElementById('officePlanTitle').value || 'Office Plan';
+    const description = document.getElementById('officePlanDescription').value || '';
     const uploadMethod = document.querySelector('input[name="uploadMethod"]:checked').value;
-    const img = document.getElementById('officePlanImage');
+    const url = document.getElementById('officePlanUrl').value.trim();
+    const file = document.getElementById('officePlanFile').files[0];
+    const imageUrl = uploadMethod === 'url'
+        ? (url || pendingOfficeInfoImageUrl || currentOfficeInfo.imageUrl || '')
+        : (pendingOfficeInfoImageUrl || currentOfficeInfo.imageUrl || '');
     
-    if (uploadMethod === 'url') {
-        const url = document.getElementById('officePlanUrl').value;
-        if (!url && !img.src) {
-            showError('Please enter an image URL');
-            return;
-        }
-    } else {
-        const file = document.getElementById('officePlanFile').files[0];
-        if (!file && (!img.src || img.style.display === 'none')) {
-            showError('Please select an image file');
-            return;
-        }
+    if (uploadMethod === 'url' && !imageUrl) {
+        showError('Please enter an image URL');
+        return;
+    }
+    if (uploadMethod === 'file' && !file && !imageUrl) {
+        showError('Please select an image file');
+        return;
     }
     
-    // Update current office info data
     currentOfficeInfo = {
-        title: title,
-        description: description,
-        imageUrl: img.src,
+        title,
+        description,
+        imageUrl,
         uploadDate: new Date().toISOString()
     };
-    
-    // Save to localStorage
+    pendingOfficeInfoImageUrl = imageUrl;
     localStorage.setItem(getOfficeInfoStorageKey(), JSON.stringify(currentOfficeInfo));
 
-    // Best-effort: also save to database via Settings API
     const savedToDb = await saveOfficeInfoViaAPI(currentOfficeInfo);
-    
-    // Update display
     applyOfficeInfoToUI(currentOfficeInfo);
+    setOfficeInfoManagementOpen(false);
     
-    // Show success message
     if (savedToDb) {
-        showNotification('Office info saved to database!', 'success');
+        showNotification('Office plan saved to database!', 'success');
     } else {
-        showNotification('Office info saved locally (database unavailable)', 'warning');
+        showNotification('Office plan saved locally (database unavailable)', 'warning');
     }
     
-    // Clear form
     document.getElementById('officePlanForm').reset();
 }
 
@@ -113417,6 +113429,8 @@ function clearOfficeInfo() {
     document.getElementById('officePlanForm').reset();
     document.getElementById('officePlanFile').value = '';
     document.getElementById('officePlanUrl').value = '';
+    pendingOfficeInfoImageUrl = currentOfficeInfo.imageUrl || '';
+    applyOfficeInfoToUI(currentOfficeInfo);
 }
 
 async function loadCurrentOfficeInfo() {
@@ -113429,6 +113443,7 @@ async function loadCurrentOfficeInfo() {
     }
 
     currentOfficeInfo = { title: 'Office Plan', description: '', imageUrl: '', uploadDate: null };
+    pendingOfficeInfoImageUrl = '';
 
     const settings = await fetchSettingsViaAPI();
     if (settings && (settings.officePlanImageUrl || settings.officePlanTitle || settings.officePlanDescription)) {
@@ -113439,6 +113454,7 @@ async function loadCurrentOfficeInfo() {
             uploadDate: settings.officePlanUploadDate || null
         };
         localStorage.setItem(getOfficeInfoStorageKey(), JSON.stringify(currentOfficeInfo));
+        pendingOfficeInfoImageUrl = currentOfficeInfo.imageUrl || '';
         applyOfficeInfoToUI(currentOfficeInfo);
         return;
     }
@@ -113455,9 +113471,11 @@ async function loadCurrentOfficeInfo() {
             };
         } catch (_) {
             currentOfficeInfo = { title: 'Office Plan', description: '', imageUrl: '', uploadDate: null };
+            pendingOfficeInfoImageUrl = '';
         }
     }
 
+    pendingOfficeInfoImageUrl = currentOfficeInfo.imageUrl || '';
     applyOfficeInfoToUI(currentOfficeInfo);
 }
 function viewFullScreenImage(img) {
