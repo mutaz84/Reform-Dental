@@ -12,6 +12,19 @@ function hasColumn(columns, name) {
     return columns.has(String(name).toLowerCase());
 }
 
+function addColumnValue(columns, cols, vals, columnName, paramName, valueExpression) {
+    if (hasColumn(columns, columnName)) {
+        cols.push(columnName);
+        vals.push(valueExpression || `@${paramName}`);
+    }
+}
+
+function addSetClause(columns, setClauses, columnName, paramName, valueExpression) {
+    if (hasColumn(columns, columnName)) {
+        setClauses.push(`${columnName}=${valueExpression || `@${paramName}`}`);
+    }
+}
+
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
@@ -35,8 +48,6 @@ module.exports = async function (context, req) {
 
         const hasIsActive = hasColumn(vendorColumns, 'IsActive');
         const hasSubscriptionId = hasColumn(vendorColumns, 'SubscriptionId');
-        const hasPortalUsername = hasColumn(vendorColumns, 'PortalUsername');
-        const hasPortalPassword = hasColumn(vendorColumns, 'PortalPassword');
         const orderBy = hasColumn(vendorColumns, 'Name') ? 'ORDER BY Name' : 'ORDER BY Id';
         const id = req.params.id;
         const callerUserId = getRequestUserId(req);
@@ -63,10 +74,23 @@ module.exports = async function (context, req) {
         } else if (req.method === 'POST') {
             const body = req.body;
             const hasImageUrl = hasColumn(vendorColumns, 'ImageUrl');
-            const cols = ['Name', 'VendorType', 'ContactName', 'Phone', 'AlternatePhone', 'Email', 'Address', 'City', 'State', 'ZipCode', 'Website', 'Notes', 'IsActive', 'CreatedDate'];
-            const vals = ['@name', '@vendorType', '@contactName', '@phone', '@alternatePhone', '@email', '@address', '@city', '@state', '@zipCode', '@website', '@notes', '@isActive', 'GETDATE()'];
-            if (hasPortalUsername) { cols.push('PortalUsername'); vals.push('@portalUsername'); }
-            if (hasPortalPassword) { cols.push('PortalPassword'); vals.push('@portalPassword'); }
+            const cols = ['Name'];
+            const vals = ['@name'];
+            addColumnValue(vendorColumns, cols, vals, 'VendorType', 'vendorType');
+            addColumnValue(vendorColumns, cols, vals, 'ContactName', 'contactName');
+            addColumnValue(vendorColumns, cols, vals, 'Phone', 'phone');
+            addColumnValue(vendorColumns, cols, vals, 'AlternatePhone', 'alternatePhone');
+            addColumnValue(vendorColumns, cols, vals, 'Email', 'email');
+            addColumnValue(vendorColumns, cols, vals, 'Address', 'address');
+            addColumnValue(vendorColumns, cols, vals, 'City', 'city');
+            addColumnValue(vendorColumns, cols, vals, 'State', 'state');
+            addColumnValue(vendorColumns, cols, vals, 'ZipCode', 'zipCode');
+            addColumnValue(vendorColumns, cols, vals, 'Website', 'website');
+            addColumnValue(vendorColumns, cols, vals, 'PortalUsername', 'portalUsername');
+            addColumnValue(vendorColumns, cols, vals, 'PortalPassword', 'portalPassword');
+            addColumnValue(vendorColumns, cols, vals, 'Notes', 'notes');
+            addColumnValue(vendorColumns, cols, vals, 'IsActive', 'isActive');
+            addColumnValue(vendorColumns, cols, vals, 'CreatedDate', null, 'GETDATE()');
             if (hasImageUrl) { cols.push('ImageUrl'); vals.push('@imageUrl'); }
             if (hasSubscriptionId) {
                 cols.push('SubscriptionId');
@@ -99,9 +123,22 @@ module.exports = async function (context, req) {
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
             const hasImageUrl = hasColumn(vendorColumns, 'ImageUrl');
-            const setClauses = ['Name=@name', 'VendorType=@vendorType', 'ContactName=@contactName', 'Phone=@phone', 'AlternatePhone=@alternatePhone', 'Email=@email', 'Address=@address', 'City=@city', 'State=@state', 'ZipCode=@zipCode', 'Website=@website', 'Notes=@notes', 'IsActive=@isActive', 'ModifiedDate=GETDATE()'];
-            if (hasPortalUsername) setClauses.push('PortalUsername=@portalUsername');
-            if (hasPortalPassword) setClauses.push('PortalPassword=@portalPassword');
+            const setClauses = ['Name=@name'];
+            addSetClause(vendorColumns, setClauses, 'VendorType', 'vendorType');
+            addSetClause(vendorColumns, setClauses, 'ContactName', 'contactName');
+            addSetClause(vendorColumns, setClauses, 'Phone', 'phone');
+            addSetClause(vendorColumns, setClauses, 'AlternatePhone', 'alternatePhone');
+            addSetClause(vendorColumns, setClauses, 'Email', 'email');
+            addSetClause(vendorColumns, setClauses, 'Address', 'address');
+            addSetClause(vendorColumns, setClauses, 'City', 'city');
+            addSetClause(vendorColumns, setClauses, 'State', 'state');
+            addSetClause(vendorColumns, setClauses, 'ZipCode', 'zipCode');
+            addSetClause(vendorColumns, setClauses, 'Website', 'website');
+            addSetClause(vendorColumns, setClauses, 'PortalUsername', 'portalUsername');
+            addSetClause(vendorColumns, setClauses, 'PortalPassword', 'portalPassword');
+            addSetClause(vendorColumns, setClauses, 'Notes', 'notes');
+            addSetClause(vendorColumns, setClauses, 'IsActive', 'isActive');
+            addSetClause(vendorColumns, setClauses, 'ModifiedDate', null, 'GETDATE()');
             const hasImageInBody = Object.prototype.hasOwnProperty.call(body, 'imageUrl') || Object.prototype.hasOwnProperty.call(body, 'ImageUrl');
             if (hasImageUrl && hasImageInBody) setClauses.push('ImageUrl=@imageUrl');
             const request = pool.request()
