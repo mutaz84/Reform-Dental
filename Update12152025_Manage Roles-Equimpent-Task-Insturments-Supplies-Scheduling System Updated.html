@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260709-office-info-card-v52">
+    <link rel="stylesheet" href="dental-rail.css?v=20260709-office-info-plan-v53">
     <script>
         (function() {
-                const buildVersion = '20260709-office-info-card-v52';
+                const buildVersion = '20260709-office-info-plan-v53';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -112916,7 +112916,7 @@ function getOfficeInfoClinic() {
     return null;
 }
 
-function renderOfficeInfoCard(clinic) {
+function renderOfficeInfoCard(clinic, plan = {}) {
     const preview = document.getElementById('officePlanPreview');
     if (!preview) return;
 
@@ -112938,6 +112938,24 @@ function renderOfficeInfoCard(clinic) {
             <div style="font-size: 0.78rem; color: var(--text-tertiary); margin-bottom: 0.2rem;">${label}</div>
             <div style="font-size: 0.98rem; color: var(--text-primary); font-weight: 600; line-height: 1.35; word-break: break-word;">${getClinicDisplayValue(value)}</div>
         </div>`;
+    const planTitle = String(plan?.title || 'Office Plan').trim() || 'Office Plan';
+    const planDescription = String(plan?.description || '').trim();
+    const planImageUrl = String(plan?.imageUrl || '').trim();
+    const planDate = plan?.uploadDate ? new Date(plan.uploadDate) : null;
+    const planDateText = planDate && !isNaN(planDate.getTime()) ? `Last saved: ${planDate.toLocaleString()}` : '';
+    const planImageSection = `
+            <div style="border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
+                    <div>
+                        <div style="font-size: 1.05rem; color: var(--text-primary); font-weight: 700;">${getClinicDisplayValue(planTitle)}</div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.2rem;">${planDescription || 'Office plan image'}</div>
+                    </div>
+                    ${planDateText ? `<div style="font-size: 0.78rem; color: var(--text-tertiary);">${planDateText}</div>` : ''}
+                </div>
+                ${planImageUrl
+                    ? `<div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; text-align: center;"><img src="${planImageUrl}" alt="Office Plan" style="max-width: 100%; max-height: 52vh; object-fit: contain; border-radius: 8px; cursor: pointer;" onclick="viewFullScreenImage(this)"></div>`
+                    : `<div style="padding: 2rem; text-align: center; color: var(--text-tertiary); background: var(--bg-secondary); border: 1px dashed var(--border-color); border-radius: 8px;"><i class="fas fa-map-marked-alt" style="font-size: 2rem; margin-bottom: 0.75rem; opacity: 0.35;"></i><div>No office plan image saved yet.</div></div>`}
+            </div>`;
 
     if (!clinic) {
         preview.style.textAlign = 'center';
@@ -112994,11 +113012,12 @@ function renderOfficeInfoCard(clinic) {
                     <div style="font-size: 0.98rem; color: var(--text-primary); line-height: 1.45;">${getClinicDisplayValue(clinic.description)}</div>
                 </div>
             </div>
+            ${planImageSection}
         </div>`;
 }
 
 function applyOfficeInfoToUI(plan) {
-    renderOfficeInfoCard(getOfficeInfoClinic());
+    renderOfficeInfoCard(getOfficeInfoClinic(), plan || currentOfficeInfo || {});
 }
 
 function showOfficeInfo() {
@@ -113408,11 +113427,41 @@ async function loadCurrentOfficeInfo() {
             console.warn('Unable to refresh clinic data for Office Info:', error);
         }
     }
-    currentOfficeInfo = { title: 'Office Info', description: '', imageUrl: '', uploadDate: null };
+
+    currentOfficeInfo = { title: 'Office Plan', description: '', imageUrl: '', uploadDate: null };
+
+    const settings = await fetchSettingsViaAPI();
+    if (settings && (settings.officePlanImageUrl || settings.officePlanTitle || settings.officePlanDescription)) {
+        currentOfficeInfo = {
+            title: settings.officePlanTitle || 'Office Plan',
+            description: settings.officePlanDescription || '',
+            imageUrl: settings.officePlanImageUrl || '',
+            uploadDate: settings.officePlanUploadDate || null
+        };
+        localStorage.setItem(getOfficeInfoStorageKey(), JSON.stringify(currentOfficeInfo));
+        applyOfficeInfoToUI(currentOfficeInfo);
+        return;
+    }
+
+    const savedPlan = localStorage.getItem(getOfficeInfoStorageKey());
+    if (savedPlan) {
+        try {
+            const parsedPlan = JSON.parse(savedPlan);
+            currentOfficeInfo = {
+                title: parsedPlan?.title || 'Office Plan',
+                description: parsedPlan?.description || '',
+                imageUrl: parsedPlan?.imageUrl || '',
+                uploadDate: parsedPlan?.uploadDate || null
+            };
+        } catch (_) {
+            currentOfficeInfo = { title: 'Office Plan', description: '', imageUrl: '', uploadDate: null };
+        }
+    }
+
     applyOfficeInfoToUI(currentOfficeInfo);
 }
-function viewFullScreen() {
-    const img = document.getElementById('officePlanImage');
+function viewFullScreenImage(img) {
+    if (!img) return;
     if (img.requestFullscreen) {
         img.requestFullscreen();
     } else if (img.webkitRequestFullscreen) {
@@ -113420,6 +113469,10 @@ function viewFullScreen() {
     } else if (img.msRequestFullscreen) {
         img.msRequestFullscreen();
     }
+}
+
+function viewFullScreen() {
+    viewFullScreenImage(document.getElementById('officePlanImage'));
 }
 
 function showError(message) {
