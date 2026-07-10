@@ -180,6 +180,9 @@ module.exports = async function (context, req) {
         const hasColor = hasColumn(clinicColumns, 'Color');
         const hasIcon = hasColumn(clinicColumns, 'Icon');
         const hasDescription = hasColumn(clinicColumns, 'Description');
+        const hasMainPhone = hasColumn(clinicColumns, 'MainPhone');
+        const hasAfterHoursPhone = hasColumn(clinicColumns, 'AfterHoursPhone');
+        const hasFax = hasColumn(clinicColumns, 'Fax');
         const hasWebsite = hasColumn(clinicColumns, 'Website');
         const hasDefaultDentist = hasColumn(clinicColumns, 'DefaultDentist');
         const hasTaxonomyNumber = hasColumn(clinicColumns, 'TaxonomyNumber');
@@ -280,18 +283,24 @@ module.exports = async function (context, req) {
             }
 
             const normalizedOperatingHours = normalizeOperatingHoursPayload(body.operatingHours ?? body.OperatingHours);
+            const mainPhone = body.mainPhone || body.MainPhone || body.phone || body.Phone || null;
+            const afterHoursPhone = body.afterHoursPhone || body.AfterHoursPhone || null;
+            const fax = body.fax || body.Fax || null;
 
             const request = pool.request();
             request.input('name', sql.NVarChar, body.name);
             request.input('address', sql.NVarChar, body.address || null);
             request.input('city', sql.NVarChar, body.city || null);
             request.input('state', sql.NVarChar, body.state || null);
-            request.input('phone', sql.NVarChar, body.phone || null);
+            request.input('phone', sql.NVarChar, body.phone || body.Phone || mainPhone || null);
             request.input('email', sql.NVarChar, body.email || null);
             if (hasZipCode) request.input('zipCode', sql.NVarChar, body.zipCode || null);
             if (hasColor) request.input('color', sql.NVarChar, body.color || null);
             if (hasIcon) request.input('icon', sql.NVarChar, body.icon || null);
             if (hasDescription) request.input('description', sql.NVarChar, body.description || null);
+            if (hasMainPhone) request.input('mainPhone', sql.NVarChar, mainPhone);
+            if (hasAfterHoursPhone) request.input('afterHoursPhone', sql.NVarChar, afterHoursPhone);
+            if (hasFax) request.input('fax', sql.NVarChar, fax);
             if (hasWebsite) request.input('website', sql.NVarChar, body.website || null);
             if (hasDefaultDentist) request.input('defaultDentist', sql.NVarChar, body.defaultDentist || null);
             if (hasTaxonomyNumber) request.input('taxonomyNumber', sql.NVarChar, body.taxonomyNumber || null);
@@ -310,6 +319,9 @@ module.exports = async function (context, req) {
             if (hasColor) { columns.push('Color'); values.push('@color'); }
             if (hasIcon) { columns.push('Icon'); values.push('@icon'); }
             if (hasDescription) { columns.push('Description'); values.push('@description'); }
+            if (hasMainPhone) { columns.push('MainPhone'); values.push('@mainPhone'); }
+            if (hasAfterHoursPhone) { columns.push('AfterHoursPhone'); values.push('@afterHoursPhone'); }
+            if (hasFax) { columns.push('Fax'); values.push('@fax'); }
             if (hasWebsite) { columns.push('Website'); values.push('@website'); }
             if (hasDefaultDentist) { columns.push('DefaultDentist'); values.push('@defaultDentist'); }
             if (hasTaxonomyNumber) { columns.push('TaxonomyNumber'); values.push('@taxonomyNumber'); }
@@ -346,6 +358,9 @@ module.exports = async function (context, req) {
             }
 
             const normalizedOperatingHours = normalizeOperatingHoursPayload(body.operatingHours ?? body.OperatingHours);
+            const mainPhone = body.mainPhone || body.MainPhone || body.phone || body.Phone || null;
+            const afterHoursPhone = body.afterHoursPhone || body.AfterHoursPhone || null;
+            const fax = body.fax || body.Fax || null;
 
             const request = pool.request();
             request.input('id', sql.Int, clinicId);
@@ -353,12 +368,15 @@ module.exports = async function (context, req) {
             request.input('address', sql.NVarChar, body.address || null);
             request.input('city', sql.NVarChar, body.city || null);
             request.input('state', sql.NVarChar, body.state || null);
-            request.input('phone', sql.NVarChar, body.phone || null);
+            request.input('phone', sql.NVarChar, body.phone || body.Phone || mainPhone || null);
             request.input('email', sql.NVarChar, body.email || null);
             if (hasZipCode) request.input('zipCode', sql.NVarChar, body.zipCode || null);
             if (hasColor) request.input('color', sql.NVarChar, body.color || null);
             if (hasIcon) request.input('icon', sql.NVarChar, body.icon || null);
             if (hasDescription) request.input('description', sql.NVarChar, body.description || null);
+            if (hasMainPhone) request.input('mainPhone', sql.NVarChar, mainPhone);
+            if (hasAfterHoursPhone) request.input('afterHoursPhone', sql.NVarChar, afterHoursPhone);
+            if (hasFax) request.input('fax', sql.NVarChar, fax);
             if (hasWebsite) request.input('website', sql.NVarChar, body.website || null);
             if (hasDefaultDentist) request.input('defaultDentist', sql.NVarChar, body.defaultDentist || null);
             if (hasTaxonomyNumber) request.input('taxonomyNumber', sql.NVarChar, body.taxonomyNumber || null);
@@ -383,6 +401,9 @@ module.exports = async function (context, req) {
             if (hasColor) setClauses.push('Color=@color');
             if (hasIcon) setClauses.push('Icon=@icon');
             if (hasDescription) setClauses.push('Description=@description');
+            if (hasMainPhone) setClauses.push('MainPhone=@mainPhone');
+            if (hasAfterHoursPhone) setClauses.push('AfterHoursPhone=@afterHoursPhone');
+            if (hasFax) setClauses.push('Fax=@fax');
             if (hasWebsite) setClauses.push('Website=@website');
             if (hasDefaultDentist) setClauses.push('DefaultDentist=@defaultDentist');
             if (hasTaxonomyNumber) setClauses.push('TaxonomyNumber=@taxonomyNumber');
