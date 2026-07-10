@@ -35,6 +35,7 @@ module.exports = async function (context, req) {
 
         const hasIsActive = hasColumn(vendorColumns, 'IsActive');
         const hasSubscriptionId = hasColumn(vendorColumns, 'SubscriptionId');
+        const hasPortalUsername = hasColumn(vendorColumns, 'PortalUsername');
         const hasPortalPassword = hasColumn(vendorColumns, 'PortalPassword');
         const orderBy = hasColumn(vendorColumns, 'Name') ? 'ORDER BY Name' : 'ORDER BY Id';
         const id = req.params.id;
@@ -62,8 +63,9 @@ module.exports = async function (context, req) {
         } else if (req.method === 'POST') {
             const body = req.body;
             const hasImageUrl = hasColumn(vendorColumns, 'ImageUrl');
-            const cols = ['Name', 'VendorType', 'ContactName', 'Phone', 'AlternatePhone', 'Email', 'Address', 'City', 'State', 'ZipCode', 'Website', 'PortalUsername', 'Notes', 'IsActive', 'CreatedDate'];
-            const vals = ['@name', '@vendorType', '@contactName', '@phone', '@alternatePhone', '@email', '@address', '@city', '@state', '@zipCode', '@website', '@portalUsername', '@notes', '@isActive', 'GETDATE()'];
+            const cols = ['Name', 'VendorType', 'ContactName', 'Phone', 'AlternatePhone', 'Email', 'Address', 'City', 'State', 'ZipCode', 'Website', 'Notes', 'IsActive', 'CreatedDate'];
+            const vals = ['@name', '@vendorType', '@contactName', '@phone', '@alternatePhone', '@email', '@address', '@city', '@state', '@zipCode', '@website', '@notes', '@isActive', 'GETDATE()'];
+            if (hasPortalUsername) { cols.push('PortalUsername'); vals.push('@portalUsername'); }
             if (hasPortalPassword) { cols.push('PortalPassword'); vals.push('@portalPassword'); }
             if (hasImageUrl) { cols.push('ImageUrl'); vals.push('@imageUrl'); }
             if (hasSubscriptionId) {
@@ -97,7 +99,8 @@ module.exports = async function (context, req) {
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
             const hasImageUrl = hasColumn(vendorColumns, 'ImageUrl');
-            const setClauses = ['Name=@name', 'VendorType=@vendorType', 'ContactName=@contactName', 'Phone=@phone', 'AlternatePhone=@alternatePhone', 'Email=@email', 'Address=@address', 'City=@city', 'State=@state', 'ZipCode=@zipCode', 'Website=@website', 'PortalUsername=@portalUsername', 'Notes=@notes', 'IsActive=@isActive', 'ModifiedDate=GETDATE()'];
+            const setClauses = ['Name=@name', 'VendorType=@vendorType', 'ContactName=@contactName', 'Phone=@phone', 'AlternatePhone=@alternatePhone', 'Email=@email', 'Address=@address', 'City=@city', 'State=@state', 'ZipCode=@zipCode', 'Website=@website', 'Notes=@notes', 'IsActive=@isActive', 'ModifiedDate=GETDATE()'];
+            if (hasPortalUsername) setClauses.push('PortalUsername=@portalUsername');
             if (hasPortalPassword) setClauses.push('PortalPassword=@portalPassword');
             const hasImageInBody = Object.prototype.hasOwnProperty.call(body, 'imageUrl') || Object.prototype.hasOwnProperty.call(body, 'ImageUrl');
             if (hasImageUrl && hasImageInBody) setClauses.push('ImageUrl=@imageUrl');
