@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260709-equipment-condition-purchase-v58">
+    <link rel="stylesheet" href="dental-rail.css?v=20260710-service-vendor-dropdown-v59">
     <script>
         (function() {
-                const buildVersion = '20260709-equipment-condition-purchase-v58';
+                const buildVersion = '20260710-service-vendor-dropdown-v59';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -110883,8 +110883,15 @@ document.addEventListener('keydown', function(e) {
                             </select>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newUtilityService">Service <span style="color: var(--text-tertiary); font-size: 0.78rem;">(optional) e.g., Express Computer Services</span></label>
-                            <input type="text" id="newUtilityService" placeholder="e.g., Express Computer Services" maxlength="200">
+                            <label for="newUtilityService" style="display: flex; align-items: center; gap: 0.5rem;">
+                                Service Vendor <span style="color: var(--text-tertiary); font-size: 0.78rem;">(optional)</span>
+                                <button type="button" onclick="openVendorsManagementFromGear('utilities')" class="category-gear-btn" style="display: none; background: none; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 0.85rem; padding: 0;" title="Manage Vendors (Admin)">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </label>
+                            <select id="newUtilityService" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <option value="">Select Service Vendor</option>
+                            </select>
                         </div>
                     </div>
 
@@ -137390,19 +137397,33 @@ console.log('? Global functions exported to window object');
         }
 
         function populateUtilityVendorDropdown() {
-            var sel = document.getElementById('newUtilityProvider');
-            if (!sel) return;
-            var cur = sel.value;
             var vendors = typeof loadVendors === 'function' ? loadVendors() : [];
             var active  = vendors.filter(function(v) { return v.isActive !== false; });
             active.sort(function(a, b) { return (a.vendorName || '').localeCompare(b.vendorName || ''); });
-            sel.innerHTML = '<option value="">Select Provider</option>'
-                + active.map(function(v) {
-                    var name = v.vendorName || '';
-                    var label = name + (v.vendorType ? ' (' + v.vendorType + ')' : '');
-                    return '<option value="' + name.replace(/"/g, '&quot;') + '">' + label + '</option>';
-                }).join('');
-            if (cur) sel.value = cur;
+
+            function fillVendorSelect(sel, placeholder) {
+                if (!sel) return;
+                var cur = sel.value;
+                sel.innerHTML = '<option value="">' + placeholder + '</option>'
+                    + active.map(function(v) {
+                        var name = v.vendorName || '';
+                        var label = name + (v.vendorType ? ' (' + v.vendorType + ')' : '');
+                        return '<option value="' + name.replace(/"/g, '&quot;') + '">' + label + '</option>';
+                    }).join('');
+                if (cur) {
+                    sel.value = cur;
+                    if (sel.value !== cur) {
+                        var opt = document.createElement('option');
+                        opt.value = cur;
+                        opt.textContent = cur;
+                        sel.appendChild(opt);
+                        sel.value = cur;
+                    }
+                }
+            }
+
+            fillVendorSelect(document.getElementById('newUtilityProvider'), 'Select Provider');
+            fillVendorSelect(document.getElementById('newUtilityService'), 'Select Service Vendor');
         }
 
         function closeUtilitiesManagement() {
