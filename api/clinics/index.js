@@ -30,16 +30,6 @@ function hasColumn(columns, name) {
     return columns.has(String(name).toLowerCase());
 }
 
-function isBlackSkyRequest(req) {
-    const hostParts = [
-        process.env.WEBSITE_HOSTNAME,
-        process.env.SWA_HOSTNAME,
-        req.headers && req.headers.host,
-        req.headers && req.headers['x-forwarded-host']
-    ];
-    return hostParts.some((part) => /black-sky-06e87aa10/i.test(String(part || '')));
-}
-
 function requestJson(url, options, body) {
     return new Promise((resolve, reject) => {
         const data = body === undefined ? undefined : JSON.stringify(body || {});
@@ -223,10 +213,8 @@ module.exports = async function (context, req) {
         return;
     }
 
-    if (isBlackSkyRequest(req)) {
-        await proxyClinicToGrayForest(context, req, headers);
-        return;
-    }
+    await proxyClinicToGrayForest(context, req, headers);
+    return;
 
     try {
         const pool = await getPool();
