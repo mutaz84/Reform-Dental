@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260710-clinic-identity-fields-v64">
+    <link rel="stylesheet" href="dental-rail.css?v=20260710-clinic-form-status-v65">
     <script>
         (function() {
-                const buildVersion = '20260710-clinic-identity-fields-v64';
+                const buildVersion = '20260710-clinic-form-status-v65';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -43961,9 +43961,7 @@
             const clinicTIN = document.getElementById('newClinicTIN').value.trim();
             const legalName = document.getElementById('newLegalName').value.trim();
             const legalAddress = document.getElementById('newLegalAddress').value.trim();
-            const status = document.getElementById('newOfficeStatus').value;
             const description = document.getElementById('newOfficeDescription').value.trim();
-            const isActive = document.getElementById('newOfficeIsActive').checked;
             const errorDiv = document.getElementById('createOfficeError');
             
             // Collect operating hours
@@ -44006,7 +44004,7 @@
             };
             
             // Validate required fields
-            if (!officeName || !status) {
+            if (!officeName) {
                 errorDiv.style.display = 'block';
                 errorDiv.textContent = 'Please fill in all required fields.';
                 return;
@@ -44019,6 +44017,9 @@
 
             // Load existing offices from API-synced cache
             const offices = loadOffices();
+            const existingOfficeForStatus = isEdit ? offices.find(o => o.officeID === parseInt(editId) || o.officeID == editId) : null;
+            const isActive = isEdit ? (existingOfficeForStatus?.isActive !== false) : true;
+            const status = isEdit ? (existingOfficeForStatus?.status || (isActive ? 'Active' : 'Inactive')) : 'Active';
             
             if (isEdit) {
                 // Update existing office
@@ -44217,7 +44218,6 @@
             document.getElementById('officeSubmitBtn').innerHTML = '<i class="fas fa-plus-circle" style="margin-right: 0.5rem;"></i>Add Clinic';
             document.getElementById('editOfficeId').value = '';
             document.getElementById('createOfficeForm').reset();
-            document.getElementById('newOfficeIsActive').checked = true;
             // Reset logo preview
             const logoPreview = document.getElementById('officeLogoPreview');
             if (logoPreview) {
@@ -44278,9 +44278,7 @@
             document.getElementById('newClinicTIN').value = office.clinicTIN || '';
             document.getElementById('newLegalName').value = office.legalName || '';
             document.getElementById('newLegalAddress').value = office.legalAddress || '';
-            document.getElementById('newOfficeStatus').value = office.status || 'Active';
             document.getElementById('newOfficeDescription').value = office.description || '';
-            document.getElementById('newOfficeIsActive').checked = office.isActive !== false;
             if (typeof applyClinicIdentityFieldVisibility === 'function') applyClinicIdentityFieldVisibility(document.getElementById('officeFormSection'));
             
             // Load logo if exists
@@ -109239,16 +109237,6 @@ document.addEventListener('keydown', function(e) {
                             <input type="text" id="newLegalAddress" placeholder="Legal address" maxlength="300">
                         </div>
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newOfficeStatus">Status *</label>
-                            <select id="newOfficeStatus" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
-                                <option value="Active">Active</option>
-                                <option value="Inactive">Inactive</option>
-                            </select>
-                        </div>
-                    </div>
-                    
                     <!-- Operating Hours Section -->
                     <div style="margin-bottom: 1rem; padding: 1rem; background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border-color);">
                         <h5 style="margin: 0 0 1rem 0; color: var(--accent-primary); font-size: 0.95rem;">
@@ -109326,7 +109314,6 @@ document.addEventListener('keydown', function(e) {
                         <label for="newOfficeDescription">Description</label>
                         <textarea id="newOfficeDescription" placeholder="Additional information about this office..." style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); min-height: 80px; resize: vertical;"></textarea>
                     </div>
-                    <input type="checkbox" id="newOfficeIsActive" checked style="display: none;">
 <div id="createOfficeError" class="login-error" style="display: none;"></div>
                     <div style="display: flex; gap: 1rem;">
                         <button type="submit" id="officeSubmitBtn" class="login-btn" style="width: auto; padding: 0.75rem 2rem;">
