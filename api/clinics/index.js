@@ -1,5 +1,8 @@
 const { sql, getPool, resetPool } = require('../shared/database');
 const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
+const https = require('https');
+
+const GRAY_FOREST_CLINIC_API_BASE = 'https://gray-forest-05ad14f10.3.azurestaticapps.net/api/clinics';
 
 function isConnectionError(error) {
     const message = String(error?.message || '').toLowerCase();
@@ -25,6 +28,59 @@ async function getTableColumns(pool, tableName) {
 
 function hasColumn(columns, name) {
     return columns.has(String(name).toLowerCase());
+}
+
+function isBlackSkyRequest(req) {
+    const hostParts = [
+        process.env.WEBSITE_HOSTNAME,
+        process.env.SWA_HOSTNAME,
+        req.headers && req.headers.host,
+        req.headers && req.headers['x-forwarded-host']
+    ];
+    return hostParts.some((part) => /black-sky-06e87aa10/i.test(String(part || '')));
+}
+
+function requestJson(url, options, body) {
+    return new Promise((resolve, reject) => {
+        const data = body === undefined ? undefined : JSON.stringify(body || {});
+        const req = https.request(url, {
+            method: options.method,
+            headers: {
+                ...options.headers,
+                ...(data !== undefined ? { 'Content-Length': Buffer.byteLength(data) } : {})
+            }
+        }, (res) => {
+            const chunks = [];
+            res.on('data', (chunk) => chunks.push(chunk));
+            res.on('end', () => {
+                const raw = Buffer.concat(chunks).toString('utf8');
+                let parsed = raw;
+                try { parsed = raw ? JSON.parse(raw) : null; } catch (_) {}
+                resolve({ status: res.statusCode || 500, body: parsed });
+            });
+        });
+        req.on('error', reject);
+        if (data !== undefined) req.write(data);
+        req.end();
+    });
+}
+
+async function proxyClinicToGrayForest(context, req, responseHeaders) {
+    const id = req.params && req.params.id ? String(req.params.id).trim() : '';
+    const url = new URL(id ? `${GRAY_FOREST_CLINIC_API_BASE}/${encodeURIComponent(id)}` : GRAY_FOREST_CLINIC_API_BASE);
+    Object.entries(req.query || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+    });
+
+    const proxyHeaders = { 'Content-Type': 'application/json' };
+    const userId = req.headers && (req.headers['x-user-id'] || req.headers['X-User-Id']);
+    if (userId) proxyHeaders['X-User-Id'] = String(userId);
+    const authorization = req.headers && (req.headers.authorization || req.headers.Authorization);
+    if (authorization) proxyHeaders.Authorization = String(authorization);
+
+    const hasBody = !['GET', 'DELETE'].includes(String(req.method || '').toUpperCase());
+    const result = await requestJson(url, { method: req.method, headers: proxyHeaders }, hasBody ? req.body : undefined);
+    context.res = { status: result.status, headers: responseHeaders, body: result.body };
 }
 
 const WORKING_HOURS_DAYS = [
@@ -164,6 +220,11 @@ module.exports = async function (context, req) {
 
     if (req.method === 'OPTIONS') {
         context.res = { status: 204, headers };
+        return;
+    }
+
+    if (isBlackSkyRequest(req)) {
+        await proxyClinicToGrayForest(context, req, headers);
         return;
     }
 
