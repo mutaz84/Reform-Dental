@@ -4,6 +4,19 @@ const https = require('https');
 
 const GRAY_FOREST_CLINIC_API_BASE = 'https://gray-forest-05ad14f10.3.azurestaticapps.net/api/clinics';
 const BLACK_SKY_GRAY_FOREST_CLINIC_USER_ID = '46';
+const CLINIC_SUPPLEMENT_FIELDS = [
+    'mainPhone',
+    'afterHoursPhone',
+    'fax',
+    'website',
+    'defaultDentist',
+    'taxonomyNumber',
+    'clinicNPI',
+    'clinicTIN',
+    'legalName',
+    'legalAddress',
+    'logo'
+];
 
 function isConnectionError(error) {
     const message = String(error?.message || '').toLowerCase();
@@ -56,6 +69,151 @@ function requestJson(url, options, body) {
     });
 }
 
+function getClinicId(row) {
+    return row?.Id ?? row?.id ?? row?.ClinicId ?? row?.clinicId ?? row?.clinicID ?? row?.ClinicID ?? null;
+}
+
+function getSupplementClinicId(req, proxyResult) {
+    const routeId = req.params && req.params.id ? String(req.params.id).trim() : '';
+    if (routeId) return routeId;
+    const resultId = getClinicId(proxyResult?.body || {});
+    return resultId === null || resultId === undefined ? '' : String(resultId).trim();
+}
+
+function pickClinicSupplement(body) {
+    const source = body || {};
+    const supplement = {};
+    CLINIC_SUPPLEMENT_FIELDS.forEach((field) => {
+        const pascal = field.charAt(0).toUpperCase() + field.slice(1);
+        const value = source[field] ?? source[pascal];
+        if (value !== undefined) supplement[field] = value;
+    });
+    return supplement;
+}
+
+async function ensureClinicSupplementTable(pool) {
+    await pool.request().query(`
+        IF OBJECT_ID('dbo.ClinicSupplementFields', 'U') IS NULL
+        BEGIN
+            CREATE TABLE dbo.ClinicSupplementFields (
+                ClinicId NVARCHAR(64) NOT NULL PRIMARY KEY,
+                Payload NVARCHAR(MAX) NOT NULL,
+                ModifiedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+            )
+        END
+    `);
+}
+
+async function saveClinicSupplement(context, clinicId, body) {
+    if (!clinicId) return;
+    const supplement = pickClinicSupplement(body);
+    if (Object.keys(supplement).length === 0) return;
+
+    try {
+        const pool = await getPool();
+        await ensureClinicSupplementTable(pool);
+        await pool.request()
+            .input('clinicId', sql.NVarChar(64), String(clinicId))
+            .input('payload', sql.NVarChar(sql.MAX), JSON.stringify(supplement))
+            .query(`
+                MERGE dbo.ClinicSupplementFields AS target
+                USING (SELECT @clinicId AS ClinicId, @payload AS Payload) AS source
+                ON target.ClinicId = source.ClinicId
+                WHEN MATCHED THEN UPDATE SET Payload = source.Payload, ModifiedDate = SYSUTCDATETIME()
+                WHEN NOT MATCHED THEN INSERT (ClinicId, Payload) VALUES (source.ClinicId, source.Payload);
+            `);
+    } catch (error) {
+        context.log.warn('Could not save clinic supplemental fields:', error?.message || error);
+    }
+}
+
+async function deleteClinicSupplement(context, clinicId) {
+    if (!clinicId) return;
+    try {
+        const pool = await getPool();
+        await ensureClinicSupplementTable(pool);
+        await pool.request()
+            .input('clinicId', sql.NVarChar(64), String(clinicId))
+            .query('DELETE FROM dbo.ClinicSupplementFields WHERE ClinicId = @clinicId');
+    } catch (error) {
+        context.log.warn('Could not delete clinic supplemental fields:', error?.message || error);
+    }
+}
+
+async function loadClinicSupplements(context, clinicIds) {
+    const ids = [...new Set((clinicIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+    if (ids.length === 0) return new Map();
+
+    try {
+        const pool = await getPool();
+        await ensureClinicSupplementTable(pool);
+        const values = ids.map((_, index) => `(@id${index})`).join(', ');
+        const request = pool.request();
+        ids.forEach((id, index) => request.input(`id${index}`, sql.NVarChar(64), id));
+        const result = await request.query(`
+            SELECT ClinicId, Payload
+            FROM dbo.ClinicSupplementFields
+            WHERE ClinicId IN (SELECT ClinicId FROM (VALUES ${values}) AS ids(ClinicId))
+        `);
+
+        const map = new Map();
+        (result.recordset || []).forEach((row) => {
+            try {
+                map.set(String(row.ClinicId), JSON.parse(row.Payload || '{}'));
+            } catch (_) {}
+        });
+        return map;
+    } catch (error) {
+        context.log.warn('Could not load clinic supplemental fields:', error?.message || error);
+        return new Map();
+    }
+}
+
+function applyClinicSupplement(row, supplements) {
+    if (!row || typeof row !== 'object') return row;
+    const clinicId = getClinicId(row);
+    const supplement = supplements.get(String(clinicId || ''));
+    if (!supplement) return row;
+
+    return {
+        ...row,
+        MainPhone: supplement.mainPhone ?? row.MainPhone,
+        mainPhone: supplement.mainPhone ?? row.mainPhone,
+        AfterHoursPhone: supplement.afterHoursPhone ?? row.AfterHoursPhone,
+        afterHoursPhone: supplement.afterHoursPhone ?? row.afterHoursPhone,
+        Fax: supplement.fax ?? row.Fax,
+        fax: supplement.fax ?? row.fax,
+        Website: supplement.website ?? row.Website,
+        website: supplement.website ?? row.website,
+        DefaultDentist: supplement.defaultDentist ?? row.DefaultDentist,
+        defaultDentist: supplement.defaultDentist ?? row.defaultDentist,
+        TaxonomyNumber: supplement.taxonomyNumber ?? row.TaxonomyNumber,
+        taxonomyNumber: supplement.taxonomyNumber ?? row.taxonomyNumber,
+        ClinicNPI: supplement.clinicNPI ?? row.ClinicNPI,
+        clinicNPI: supplement.clinicNPI ?? row.clinicNPI,
+        ClinicTIN: supplement.clinicTIN ?? row.ClinicTIN,
+        clinicTIN: supplement.clinicTIN ?? row.clinicTIN,
+        LegalName: supplement.legalName ?? row.LegalName,
+        legalName: supplement.legalName ?? row.legalName,
+        LegalAddress: supplement.legalAddress ?? row.LegalAddress,
+        legalAddress: supplement.legalAddress ?? row.legalAddress,
+        Logo: supplement.logo ?? row.Logo,
+        logo: supplement.logo ?? row.logo
+    };
+}
+
+async function mergeClinicSupplements(context, body) {
+    if (Array.isArray(body)) {
+        const ids = body.map(getClinicId).filter((id) => id !== null && id !== undefined);
+        const supplements = await loadClinicSupplements(context, ids);
+        return body.map((row) => applyClinicSupplement(row, supplements));
+    }
+
+    const clinicId = getClinicId(body || {});
+    const supplements = await loadClinicSupplements(context, [clinicId]);
+    return applyClinicSupplement(body, supplements);
+}
+
 async function proxyClinicToGrayForest(context, req, responseHeaders) {
     const id = req.params && req.params.id ? String(req.params.id).trim() : '';
     const url = new URL(id ? `${GRAY_FOREST_CLINIC_API_BASE}/${encodeURIComponent(id)}` : GRAY_FOREST_CLINIC_API_BASE);
@@ -71,8 +229,21 @@ async function proxyClinicToGrayForest(context, req, responseHeaders) {
     const authorization = req.headers && (req.headers.authorization || req.headers.Authorization);
     if (authorization) proxyHeaders.Authorization = String(authorization);
 
-    const hasBody = !['GET', 'DELETE'].includes(String(req.method || '').toUpperCase());
+    const method = String(req.method || '').toUpperCase();
+    const hasBody = !['GET', 'DELETE'].includes(method);
     const result = await requestJson(url, { method: req.method, headers: proxyHeaders }, hasBody ? req.body : undefined);
+
+    if (result.status >= 200 && result.status < 300) {
+        if (method === 'GET') {
+            result.body = await mergeClinicSupplements(context, result.body);
+        } else if (method === 'POST' || method === 'PUT') {
+            await saveClinicSupplement(context, getSupplementClinicId(req, result), req.body);
+            result.body = await mergeClinicSupplements(context, result.body);
+        } else if (method === 'DELETE') {
+            await deleteClinicSupplement(context, id);
+        }
+    }
+
     context.res = { status: result.status, headers: responseHeaders, body: result.body };
 }
 
