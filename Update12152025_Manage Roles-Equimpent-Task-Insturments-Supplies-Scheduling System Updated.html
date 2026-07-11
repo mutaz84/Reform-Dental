@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260710-clinic-form-status-v65">
+    <link rel="stylesheet" href="dental-rail.css?v=20260710-clinic-save-errors-v66">
     <script>
         (function() {
-                const buildVersion = '20260710-clinic-form-status-v65';
+                const buildVersion = '20260710-clinic-save-errors-v66';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -44083,7 +44083,7 @@
                 
                 // Create new clinic via API
                 try {
-                    await createClinicViaAPI({
+                    const createdClinic = await createClinicViaAPI({
                         name: officeName,
                         address,
                         city,
@@ -44108,13 +44108,15 @@
                         operatingHours,
                         logo: uploadedOfficeLogo
                     });
+                    if (!createdClinic) throw new Error('Clinic API did not return a created clinic.');
                     
                     // Refresh clinics from API
                     await syncClinicsFromAPI();
                 } catch (err) {
                     console.error('Error creating clinic:', err);
+                    const detail = String(err?.message || '').trim();
                     errorDiv.style.display = 'block';
-                    errorDiv.textContent = 'Failed to create clinic. Please try again.';
+                    errorDiv.textContent = detail ? `Failed to create clinic: ${detail}` : 'Failed to create clinic. Please try again.';
                     return;
                 }
                 
@@ -114798,7 +114800,7 @@ async function createClinicViaAPI(clinicData) {
         return result;
     } catch (error) {
         console.error('? Error creating clinic via API:', error);
-        return null;
+        throw error;
     }
 }
 
