@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260710-black-sky-vendor-api-v63">
+    <link rel="stylesheet" href="dental-rail.css?v=20260710-clinic-identity-fields-v64">
     <script>
         (function() {
-                const buildVersion = '20260710-black-sky-vendor-api-v63';
+                const buildVersion = '20260710-clinic-identity-fields-v64';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -33256,6 +33256,7 @@
                 color: '#10b981',
                 permissions: {
                     view: { label: 'View Clinics', description: 'See clinic list and details' },
+                    view_identity_fields: { label: 'View Legal/ID Fields', description: 'See clinic Taxonomy, NPI, TIN, Legal Name, and Legal Address' },
                     create: { label: 'Create Clinics', description: 'Add new clinics' },
                     edit: { label: 'Edit Clinics', description: 'Modify clinic information' },
                     delete: { label: 'Delete Clinics', description: 'Remove clinics' }
@@ -33527,6 +33528,22 @@
             
             return user.permissions[category]?.[permission] || 'hidden';
         }
+
+        function canViewClinicIdentityFields() {
+            try {
+                return hasPermission('clinics', 'view_identity_fields', 'readonly');
+            } catch (_) {
+                return true;
+            }
+        }
+
+        function applyClinicIdentityFieldVisibility(root) {
+            const scope = root && typeof root.querySelectorAll === 'function' ? root : document;
+            const canView = canViewClinicIdentityFields();
+            scope.querySelectorAll('.clinic-identity-field').forEach((element) => {
+                element.style.display = canView ? '' : 'none';
+            });
+        }
         
         // Migrate permissions - add any new permission categories to existing users
         function migrateUserPermissions() {
@@ -33547,13 +33564,22 @@
                 } else {
                     // Check for missing categories and add them
                     for (const category of currentCategories) {
+                        const defaults = getDefaultPermissions(user.role || 'user');
                         if (!user.permissions[category]) {
                             // Add missing category with default permissions for user's role
-                            const defaults = getDefaultPermissions(user.role || 'user');
                             user.permissions[category] = defaults[category];
                             updated = true;
                             console.log(`Added missing '${category}' permissions for user: ${username}`);
+                            continue;
                         }
+
+                        Object.keys(PERMISSION_CATEGORIES[category].permissions).forEach((permissionKey) => {
+                            if (!Object.prototype.hasOwnProperty.call(user.permissions[category], permissionKey)) {
+                                user.permissions[category][permissionKey] = defaults[category]?.[permissionKey] || 'hidden';
+                                updated = true;
+                                console.log(`Added missing '${category}.${permissionKey}' permission for user: ${username}`);
+                            }
+                        });
                     }
                 }
             }
@@ -43213,6 +43239,7 @@
                 localStorage.setItem('currentUser', JSON.stringify(currentUser));
                 // Refresh UI to reflect permission changes
                 updateUIForRole();
+                if (typeof applyClinicIdentityFieldVisibility === 'function') applyClinicIdentityFieldVisibility();
             }
             
             showNotification(`Permissions saved for ${users[selectedPermissionUser].firstName || selectedPermissionUser}`, 'success');
@@ -44197,6 +44224,7 @@
                 logoPreview.innerHTML = '<i class="fas fa-hospital" style="font-size: 3rem; color: var(--text-tertiary);"></i>';
             }
             uploadedOfficeLogo = null;
+            if (typeof applyClinicIdentityFieldVisibility === 'function') applyClinicIdentityFieldVisibility(document.getElementById('officeFormSection'));
             document.getElementById('officeFormSection').scrollIntoView({ behavior: 'smooth' });
         }
 
@@ -44253,6 +44281,7 @@
             document.getElementById('newOfficeStatus').value = office.status || 'Active';
             document.getElementById('newOfficeDescription').value = office.description || '';
             document.getElementById('newOfficeIsActive').checked = office.isActive !== false;
+            if (typeof applyClinicIdentityFieldVisibility === 'function') applyClinicIdentityFieldVisibility(document.getElementById('officeFormSection'));
             
             // Load logo if exists
             const logoPreview = document.getElementById('officeLogoPreview');
@@ -44280,6 +44309,7 @@
                 });
             }
             
+            if (typeof applyClinicIdentityFieldVisibility === 'function') applyClinicIdentityFieldVisibility(document.getElementById('officeFormSection'));
             document.getElementById('officeFormSection').scrollIntoView({ behavior: 'smooth' });
         }
 
@@ -45169,6 +45199,7 @@
             setOfficeField('officeViewClinicLegalName', office.legalName || '');
             setOfficeField('officeViewClinicLegalAddress', office.legalAddress || '');
             setOfficeField('officeViewClinicDescription', office.description || '');
+            if (typeof applyClinicIdentityFieldVisibility === 'function') applyClinicIdentityFieldVisibility(document.getElementById('officeViewSection'));
 
             const officeAddressEl = document.getElementById('officeViewClinicAddress');
             if (officeAddressEl) {
@@ -109056,24 +109087,24 @@ document.addEventListener('keydown', function(e) {
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Default dentist:</div>
                                     <div id="officeViewClinicDefaultDentist" style="font-size: 1.15rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
-                                <div>
+                                <div class="clinic-identity-field">
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Taxonomy number:</div>
                                     <div id="officeViewClinicTaxonomy" style="font-size: 1.15rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
 
-                                <div>
+                                <div class="clinic-identity-field">
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Clinic NPI:</div>
                                     <div id="officeViewClinicNPI" style="font-size: 1.15rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
-                                <div>
+                                <div class="clinic-identity-field">
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Clinic TIN:</div>
                                     <div id="officeViewClinicTIN" style="font-size: 1.15rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
-                                <div>
+                                <div class="clinic-identity-field">
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Legal name:</div>
                                     <div id="officeViewClinicLegalName" style="font-size: 1rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
-                                <div style="grid-column: 1 / -1;">
+                                <div class="clinic-identity-field" style="grid-column: 1 / -1;">
                                     <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-bottom: 0.15rem;">Legal address:</div>
                                     <div id="officeViewClinicLegalAddress" style="font-size: 1rem; line-height: 1.25; color: var(--text-primary); font-weight: 500;">-</div>
                                 </div>
@@ -109185,25 +109216,25 @@ document.addEventListener('keydown', function(e) {
                         </div>
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                        <div class="form-group" style="margin-bottom: 0;">
+                        <div class="form-group clinic-identity-field" style="margin-bottom: 0;">
                             <label for="newTaxonomyNumber">Taxonomy Number</label>
                             <input type="text" id="newTaxonomyNumber" placeholder="Taxonomy #" maxlength="200">
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
+                        <div class="form-group clinic-identity-field" style="margin-bottom: 0;">
                             <label for="newClinicNPI">Clinic NPI</label>
                             <input type="text" id="newClinicNPI" placeholder="NPI Number" maxlength="200">
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
+                        <div class="form-group clinic-identity-field" style="margin-bottom: 0;">
                             <label for="newClinicTIN">Clinic TIN</label>
                             <input type="text" id="newClinicTIN" placeholder="TIN Number" maxlength="200">
                         </div>
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                        <div class="form-group" style="margin-bottom: 0;">
+                        <div class="form-group clinic-identity-field" style="margin-bottom: 0;">
                             <label for="newLegalName">Legal Name</label>
                             <input type="text" id="newLegalName" placeholder="Legal business name" maxlength="200">
                         </div>
-                        <div class="form-group" style="margin-bottom: 0;">
+                        <div class="form-group clinic-identity-field" style="margin-bottom: 0;">
                             <label for="newLegalAddress">Legal Address</label>
                             <input type="text" id="newLegalAddress" placeholder="Legal address" maxlength="300">
                         </div>
