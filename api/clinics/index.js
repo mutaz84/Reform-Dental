@@ -3,6 +3,7 @@ const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../sha
 const https = require('https');
 
 const GRAY_FOREST_CLINIC_API_BASE = 'https://gray-forest-05ad14f10.3.azurestaticapps.net/api/clinics';
+const BLACK_SKY_GRAY_FOREST_CLINIC_USER_ID = '46';
 
 function isConnectionError(error) {
     const message = String(error?.message || '').toLowerCase();
@@ -64,7 +65,9 @@ async function proxyClinicToGrayForest(context, req, responseHeaders) {
 
     const proxyHeaders = { 'Content-Type': 'application/json' };
     const userId = req.headers && (req.headers['x-user-id'] || req.headers['X-User-Id']);
-    if (userId) proxyHeaders['X-User-Id'] = String(userId);
+    proxyHeaders['X-User-Id'] = String(userId || '1') === '1'
+        ? BLACK_SKY_GRAY_FOREST_CLINIC_USER_ID
+        : String(userId);
     const authorization = req.headers && (req.headers.authorization || req.headers.Authorization);
     if (authorization) proxyHeaders.Authorization = String(authorization);
 
