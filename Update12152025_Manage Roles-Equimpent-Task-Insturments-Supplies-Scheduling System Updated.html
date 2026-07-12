@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260711-clinic-sync-fields-v70">
+    <link rel="stylesheet" href="dental-rail.css?v=20260711-rooms-persist-v71">
     <script>
         (function() {
-                const buildVersion = '20260711-clinic-sync-fields-v70';
+                const buildVersion = '20260711-rooms-persist-v71';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -42838,12 +42838,8 @@
         }
 
         // Save rooms to localStorage and sync to API
-        function saveRooms(rooms, newItem = null) {
+        function saveRooms(rooms) {
             localStorage.setItem('rooms', JSON.stringify(rooms));
-            // Sync new item to API if provided
-            if (newItem && typeof saveRoomToAPI === 'function') {
-                saveRoomToAPI(newItem);
-            }
         }
 
         // ============ RESET DATA FUNCTIONS ============
@@ -43501,7 +43497,7 @@
             customInput.value = '';
         }
         
-        function createRoom(event) {
+        async function createRoom(event) {
             event.preventDefault();
             
             const editId = document.getElementById('editRoomId').value;
@@ -43540,12 +43536,40 @@
             
             // Load existing rooms
             const rooms = loadRooms();
+            const roomPayload = {
+                name: roomName,
+                clinicId: officeID ? parseInt(officeID) : null,
+                type: roomType,
+                roomType,
+                notes,
+                description: notes,
+                color
+            };
+
+            async function saveRoomToDatabase(localRoom) {
+                try {
+                    if (isEdit && typeof updateRoomToAPI === 'function') {
+                        return await updateRoomToAPI({ ...localRoom, ...roomPayload });
+                    }
+                    if (!isEdit && typeof saveRoomToAPI === 'function') {
+                        return await saveRoomToAPI(roomPayload);
+                    }
+                    throw new Error('Room API is not available.');
+                } catch (error) {
+                    errorDiv.style.display = 'block';
+                    errorDiv.style.background = '#fee';
+                    errorDiv.style.borderColor = '#fcc';
+                    errorDiv.style.color = '#c33';
+                    errorDiv.textContent = error.message || 'Room could not be saved to database.';
+                    return null;
+                }
+            }
             
             if (isEdit) {
                 // Update existing room
                 const index = rooms.findIndex(r => r.roomID === parseInt(editId));
                 if (index > -1) {
-                    rooms[index] = {
+                    const updatedRoom = {
                         ...rooms[index],
                         officeID,
                         roomNumber,
@@ -43559,6 +43583,16 @@
                         isActive,
                         modifiedDate: new Date().toISOString()
                     };
+                    const savedRoom = await saveRoomToDatabase(updatedRoom);
+                    if (!savedRoom) return;
+                    const savedId = savedRoom.id || savedRoom.Id || savedRoom.roomId || savedRoom.RoomId || updatedRoom.dbId || updatedRoom.roomID;
+                    rooms[index] = savedId ? {
+                        ...updatedRoom,
+                        roomID: savedId,
+                        dbId: savedId,
+                        apiId: String(savedId),
+                        id: `room-${savedId}`
+                    } : updatedRoom;
                     saveRooms(rooms);
                     
                     errorDiv.style.display = 'block';
@@ -43590,14 +43624,17 @@
                     createdDate: new Date().toISOString()
                 };
                 
+                const savedRoom = await saveRoomToDatabase(newRoom);
+                if (!savedRoom) return;
+                const savedId = savedRoom.id || savedRoom.Id || savedRoom.roomId || savedRoom.RoomId;
+                if (savedId) {
+                    newRoom.roomID = savedId;
+                    newRoom.dbId = savedId;
+                    newRoom.apiId = String(savedId);
+                    newRoom.id = `room-${savedId}`;
+                }
                 rooms.push(newRoom);
-                saveRooms(rooms, {
-                    name: roomName,
-                    clinicId: officeID ? parseInt(officeID) : null,
-                    type: roomType,
-                    color: color,
-                    status: status
-                });
+                saveRooms(rooms);
                 
                 errorDiv.style.display = 'block';
                 errorDiv.style.background = '#d4edda';
@@ -43625,8 +43662,6 @@
             displayRoomsList();
             if (window._gearSourceForm) {
                 closeRoomsManagement();
-            } else {
-                scheduleAppHardRefresh(260);
             }
             
             // Hide success message after 3 seconds
@@ -117389,8 +117424,7 @@ async function syncTasksFromAPI() {
 // ============ ROOMS API FUNCTIONS ============
 async function saveRoomToAPI(roomData) {
     if (typeof API_BASE_URL === 'undefined') {
-        console.log('?? API_BASE_URL not defined, skipping room API save');
-        return;
+        throw new Error('API_BASE_URL not defined, cannot save room to database.');
     }
     try {
         console.log('?? Saving room to API:', roomData);
@@ -117400,25 +117434,61 @@ async function saveRoomToAPI(roomData) {
             body: JSON.stringify({
                 name: roomData.name,
                 clinicId: roomData.clinicId || null,
-                roomType: roomData.type || 'operatory',
-                description: roomData.notes || '',
+                roomType: roomData.type || roomData.roomType || 'operatory',
+                description: roomData.description || roomData.notes || '',
                 color: roomData.color || '#3b82f6'
             })
         });
-        if (response.ok) {
-            const result = await response.json();
-            console.log('? Room saved to database:', result);
-            showNotification('Room saved to database', 'success');
-            // Sync rooms from API to update local list
-            await syncRoomsFromAPI();
-        } else {
+        if (!response.ok) {
             const error = await response.text();
             console.error('? Error saving room:', error);
             showNotification('Failed to save room to database', 'error');
+            throw new Error(error || 'Failed to save room to database');
         }
+        const result = await response.json();
+        console.log('? Room saved to database:', result);
+        showNotification('Room saved to database', 'success');
+        return result;
     } catch (error) {
         console.error('? Error saving room to API:', error);
         showNotification('Failed to save room to database', 'error');
+        throw error;
+    }
+}
+
+async function updateRoomToAPI(roomData) {
+    if (typeof API_BASE_URL === 'undefined') {
+        throw new Error('API_BASE_URL not defined, cannot update room in database.');
+    }
+    const apiRoomId = Number(roomData.apiId || roomData.dbId || roomData.roomID);
+    if (!Number.isFinite(apiRoomId) || apiRoomId <= 0 || !roomData.apiId) {
+        return saveRoomToAPI(roomData);
+    }
+    try {
+        console.log('?? Updating room in API:', roomData);
+        const response = await fetch(`${API_BASE_URL}/rooms/${apiRoomId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: roomData.name || roomData.roomName,
+                roomType: roomData.type || roomData.roomType || 'operatory',
+                description: roomData.description || roomData.notes || '',
+                color: roomData.color || '#3b82f6'
+            })
+        });
+        if (!response.ok) {
+            const error = await response.text();
+            console.error('? Error updating room:', error);
+            showNotification('Failed to update room in database', 'error');
+            throw new Error(error || 'Failed to update room in database');
+        }
+        const result = await response.json().catch(() => ({}));
+        showNotification('Room updated in database', 'success');
+        return { ...result, id: apiRoomId };
+    } catch (error) {
+        console.error('? Error updating room in API:', error);
+        showNotification('Failed to update room in database', 'error');
+        throw error;
     }
 }
 
