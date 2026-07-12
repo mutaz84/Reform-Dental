@@ -5,9 +5,19 @@ const https = require('https');
 const GRAY_FOREST_CLINIC_API_BASE = 'https://gray-forest-05ad14f10.3.azurestaticapps.net/api/clinics';
 const BLACK_SKY_GRAY_FOREST_CLINIC_USER_ID = '46';
 const CLINIC_SUPPLEMENT_FIELDS = [
+    'name',
+    'address',
+    'city',
+    'state',
+    'zipCode',
+    'phone',
     'mainPhone',
     'afterHoursPhone',
     'fax',
+    'email',
+    'color',
+    'description',
+    'icon',
     'website',
     'defaultDentist',
     'taxonomyNumber',
@@ -15,6 +25,8 @@ const CLINIC_SUPPLEMENT_FIELDS = [
     'clinicTIN',
     'legalName',
     'legalAddress',
+    'status',
+    'isActive',
     'operatingHours',
     'logo'
 ];
@@ -84,7 +96,10 @@ function getSupplementClinicId(req, proxyResult) {
 function pickClinicSupplement(body) {
     const source = body || {};
     const supplement = {};
-    CLINIC_SUPPLEMENT_FIELDS.forEach((field) => {
+    const requestedFields = Array.isArray(source._clinicSupplementFields)
+        ? source._clinicSupplementFields.filter((field) => CLINIC_SUPPLEMENT_FIELDS.includes(field))
+        : CLINIC_SUPPLEMENT_FIELDS;
+    requestedFields.forEach((field) => {
         const pascal = field.charAt(0).toUpperCase() + field.slice(1);
         const value = source[field] ?? source[pascal];
         if (value !== undefined) supplement[field] = value;
@@ -113,9 +128,19 @@ async function saveClinicSupplement(context, clinicId, body) {
     try {
         const pool = await getPool();
         await ensureClinicSupplementTable(pool);
+        const existingResult = await pool.request()
+            .input('clinicId', sql.NVarChar(64), String(clinicId))
+            .query('SELECT Payload FROM dbo.ClinicSupplementFields WHERE ClinicId = @clinicId');
+        let existingSupplement = {};
+        try {
+            existingSupplement = JSON.parse(existingResult?.recordset?.[0]?.Payload || '{}') || {};
+        } catch (_) {
+            existingSupplement = {};
+        }
+        const mergedSupplement = { ...existingSupplement, ...supplement };
         await pool.request()
             .input('clinicId', sql.NVarChar(64), String(clinicId))
-            .input('payload', sql.NVarChar(sql.MAX), JSON.stringify(supplement))
+            .input('payload', sql.NVarChar(sql.MAX), JSON.stringify(mergedSupplement))
             .query(`
                 MERGE dbo.ClinicSupplementFields AS target
                 USING (SELECT @clinicId AS ClinicId, @payload AS Payload) AS source
@@ -178,12 +203,32 @@ function applyClinicSupplement(row, supplements) {
 
     return {
         ...row,
+        Name: supplement.name ?? row.Name,
+        name: supplement.name ?? row.name,
+        Address: supplement.address ?? row.Address,
+        address: supplement.address ?? row.address,
+        City: supplement.city ?? row.City,
+        city: supplement.city ?? row.city,
+        State: supplement.state ?? row.State,
+        state: supplement.state ?? row.state,
+        ZipCode: supplement.zipCode ?? row.ZipCode,
+        zipCode: supplement.zipCode ?? row.zipCode,
+        Phone: supplement.phone ?? row.Phone,
+        phone: supplement.phone ?? row.phone,
         MainPhone: supplement.mainPhone ?? row.MainPhone,
         mainPhone: supplement.mainPhone ?? row.mainPhone,
         AfterHoursPhone: supplement.afterHoursPhone ?? row.AfterHoursPhone,
         afterHoursPhone: supplement.afterHoursPhone ?? row.afterHoursPhone,
         Fax: supplement.fax ?? row.Fax,
         fax: supplement.fax ?? row.fax,
+        Email: supplement.email ?? row.Email,
+        email: supplement.email ?? row.email,
+        Color: supplement.color ?? row.Color,
+        color: supplement.color ?? row.color,
+        Description: supplement.description ?? row.Description,
+        description: supplement.description ?? row.description,
+        Icon: supplement.icon ?? row.Icon,
+        icon: supplement.icon ?? row.icon,
         Website: supplement.website ?? row.Website,
         website: supplement.website ?? row.website,
         DefaultDentist: supplement.defaultDentist ?? row.DefaultDentist,
@@ -198,6 +243,10 @@ function applyClinicSupplement(row, supplements) {
         legalName: supplement.legalName ?? row.legalName,
         LegalAddress: supplement.legalAddress ?? row.LegalAddress,
         legalAddress: supplement.legalAddress ?? row.legalAddress,
+        Status: supplement.status ?? row.Status,
+        status: supplement.status ?? row.status,
+        IsActive: supplement.isActive ?? row.IsActive,
+        isActive: supplement.isActive ?? row.isActive,
         OperatingHours: supplement.operatingHours ?? row.OperatingHours,
         operatingHours: supplement.operatingHours ?? row.operatingHours,
         Logo: supplement.logo ?? row.Logo,
