@@ -1,5 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
-const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
+const { getRequestUserId, getUserClinicIds, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -10,6 +10,38 @@ async function getTableColumns(pool, tableName) {
 
 function hasColumn(columns, name) {
     return columns.has(String(name).toLowerCase());
+}
+
+function toIntOrNull(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function resolveRoomClinicId(pool, body, tenantUserId) {
+    const requestedClinicId = toIntOrNull(body?.clinicId ?? body?.ClinicId ?? body?.officeID ?? body?.officeId);
+    if (requestedClinicId) {
+        const exact = await pool.request()
+            .input('clinicId', sql.Int, requestedClinicId)
+            .query('SELECT TOP 1 Id FROM Clinics WHERE Id = @clinicId');
+        if (exact.recordset[0]?.Id) return exact.recordset[0].Id;
+    }
+
+    const clinicName = String(body?.clinicName || body?.ClinicName || body?.officeName || body?.OfficeName || '').trim();
+    if (clinicName) {
+        const request = pool.request().input('clinicName', sql.NVarChar, clinicName);
+        const where = ['LOWER(Name) = LOWER(@clinicName)'];
+        if (tenantUserId) {
+            request.input(TENANT_PARAM, sql.Int, tenantUserId);
+            where.push(tenantClinicScopeSql('Id'));
+        }
+        const byName = await request.query(`SELECT TOP 1 Id FROM Clinics WHERE ${where.join(' AND ')} ORDER BY Id`);
+        if (byName.recordset[0]?.Id) return byName.recordset[0].Id;
+    }
+
+    const visibleClinicIds = await getUserClinicIds(pool, tenantUserId);
+    if (visibleClinicIds.length === 1) return visibleClinicIds[0];
+    return null;
 }
 
 module.exports = async function (context, req) {
@@ -90,9 +122,14 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'POST') {
             const body = req.body;
+            const clinicId = hasClinicCol ? await resolveRoomClinicId(pool, body, tenantUserId) : null;
+            if (hasClinicCol && !clinicId) {
+                context.res = { status: 400, headers, body: { error: 'Selected clinic could not be matched to a local clinic record. Please refresh clinics and try again.' } };
+                return;
+            }
             const result = await pool.request()
                 .input('name', sql.NVarChar, body.name)
-                .input('clinicId', sql.Int, body.clinicId)
+                .input('clinicId', sql.Int, clinicId)
                 .input('roomType', sql.NVarChar, body.roomType)
                 .input('description', sql.NVarChar, body.description)
                 .input('color', sql.NVarChar, body.color)
