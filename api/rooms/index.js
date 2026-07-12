@@ -18,6 +18,54 @@ function toIntOrNull(value) {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+async function linkUserToClinicIfPossible(pool, userId, clinicId) {
+    const safeUserId = toIntOrNull(userId);
+    const safeClinicId = toIntOrNull(clinicId);
+    if (!safeUserId || !safeClinicId) return;
+
+    const userClinicColumns = await getTableColumns(pool, 'UserClinics');
+    if (!hasColumn(userClinicColumns, 'UserId') || !hasColumn(userClinicColumns, 'ClinicId')) return;
+
+    try {
+        await pool.request()
+            .input('userId', sql.Int, safeUserId)
+            .input('clinicId', sql.Int, safeClinicId)
+            .query(`
+                IF NOT EXISTS (SELECT 1 FROM UserClinics WHERE UserId = @userId AND ClinicId = @clinicId)
+                BEGIN
+                    INSERT INTO UserClinics (UserId, ClinicId) VALUES (@userId, @clinicId)
+                END
+            `);
+    } catch (_) {
+        // Room saving can still proceed for platform admin or unscoped fallback rows.
+    }
+}
+
+async function createLocalClinicFromRoomPayload(pool, clinicName, tenantUserId) {
+    const name = String(clinicName || '').trim();
+    if (!name) return null;
+
+    const clinicColumns = await getTableColumns(pool, 'Clinics');
+    if (!hasColumn(clinicColumns, 'Name')) return null;
+
+    const request = pool.request().input('name', sql.NVarChar, name);
+    const columns = ['Name'];
+    const values = ['@name'];
+    if (hasColumn(clinicColumns, 'IsActive')) {
+        columns.push('IsActive');
+        values.push('1');
+    }
+    if (hasColumn(clinicColumns, 'CreatedDate')) {
+        columns.push('CreatedDate');
+        values.push('GETUTCDATE()');
+    }
+
+    const result = await request.query(`INSERT INTO Clinics (${columns.join(', ')}) OUTPUT INSERTED.Id VALUES (${values.join(', ')})`);
+    const clinicId = result.recordset[0]?.Id || null;
+    await linkUserToClinicIfPossible(pool, tenantUserId, clinicId);
+    return clinicId;
+}
+
 async function resolveRoomClinicId(pool, body, tenantUserId) {
     const requestedClinicId = toIntOrNull(body?.clinicId ?? body?.ClinicId ?? body?.officeID ?? body?.officeId);
     if (requestedClinicId) {
@@ -37,11 +85,19 @@ async function resolveRoomClinicId(pool, body, tenantUserId) {
         }
         const byName = await request.query(`SELECT TOP 1 Id FROM Clinics WHERE ${where.join(' AND ')} ORDER BY Id`);
         if (byName.recordset[0]?.Id) return byName.recordset[0].Id;
+
+        const anyByName = await pool.request()
+            .input('clinicName', sql.NVarChar, clinicName)
+            .query('SELECT TOP 1 Id FROM Clinics WHERE LOWER(Name) = LOWER(@clinicName) ORDER BY Id');
+        if (anyByName.recordset[0]?.Id) {
+            await linkUserToClinicIfPossible(pool, tenantUserId, anyByName.recordset[0].Id);
+            return anyByName.recordset[0].Id;
+        }
     }
 
     const visibleClinicIds = await getUserClinicIds(pool, tenantUserId);
     if (visibleClinicIds.length === 1) return visibleClinicIds[0];
-    return null;
+    return createLocalClinicFromRoomPayload(pool, clinicName, tenantUserId);
 }
 
 module.exports = async function (context, req) {
