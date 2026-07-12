@@ -15,6 +15,7 @@ const CLINIC_SUPPLEMENT_FIELDS = [
     'clinicTIN',
     'legalName',
     'legalAddress',
+    'operatingHours',
     'logo'
 ];
 
@@ -197,6 +198,8 @@ function applyClinicSupplement(row, supplements) {
         legalName: supplement.legalName ?? row.legalName,
         LegalAddress: supplement.legalAddress ?? row.LegalAddress,
         legalAddress: supplement.legalAddress ?? row.legalAddress,
+        OperatingHours: supplement.operatingHours ?? row.OperatingHours,
+        operatingHours: supplement.operatingHours ?? row.operatingHours,
         Logo: supplement.logo ?? row.Logo,
         logo: supplement.logo ?? row.logo
     };
