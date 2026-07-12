@@ -1,5 +1,5 @@
 const sql = require('mssql');
-const { getRequestUserId, tenantClinicScopeSql, resolveVisibleClinicId, TENANT_PARAM } = require('../shared/tenant');
+const { getRequestUserId, tenantClinicScopeSql, resolveWritableClinicId, TENANT_PARAM } = require('../shared/tenant');
 
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -72,7 +72,7 @@ module.exports = async function (context, req) {
                 context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
                 return;
             }
-            const visibleClinicId = await resolveVisibleClinicId(pool, body.clinicId || body.ClinicId, tenantUserId);
+            const visibleClinicId = await resolveWritableClinicId(pool, body, tenantUserId);
             if (!visibleClinicId) {
                 context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
                 return;
@@ -101,7 +101,7 @@ module.exports = async function (context, req) {
                 context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
                 return;
             }
-            const visibleClinicId = await resolveVisibleClinicId(pool, body.clinicId || body.ClinicId, tenantUserId);
+            const visibleClinicId = await resolveWritableClinicId(pool, body, tenantUserId);
             if (!visibleClinicId) {
                 context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
                 return;

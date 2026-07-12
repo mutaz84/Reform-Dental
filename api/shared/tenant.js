@@ -147,6 +147,102 @@ async function resolveVisibleClinicId(pool, requestedClinicId, tenantUserId) {
     return result.recordset[0]?.Id || null;
 }
 
+async function _getTableColumns(pool, tableName) {
+    const result = await pool.request()
+        .input('tableName', sql.NVarChar(128), tableName)
+        .query('SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @tableName');
+    return new Set((result.recordset || []).map((r) => String(r.COLUMN_NAME || '').toLowerCase()));
+}
+
+function _hasColumn(columns, name) {
+    return columns.has(String(name).toLowerCase());
+}
+
+function _pickClinicName(source) {
+    const body = source || {};
+    return String(
+        body.clinicName || body.ClinicName ||
+        body.officeName || body.OfficeName ||
+        body.clinic || body.Clinic ||
+        body.office || body.Office ||
+        ''
+    ).trim();
+}
+
+async function linkUserToClinicIfPossible(pool, userId, clinicId) {
+    const safeUserId = _toIntOrNull(userId);
+    const safeClinicId = _toIntOrNull(clinicId);
+    if (!safeUserId || !safeClinicId) return;
+    const columns = await _getTableColumns(pool, 'UserClinics');
+    if (!_hasColumn(columns, 'UserId') || !_hasColumn(columns, 'ClinicId')) return;
+    try {
+        await pool.request()
+            .input('userId', sql.Int, safeUserId)
+            .input('clinicId', sql.Int, safeClinicId)
+            .query(`
+                IF NOT EXISTS (SELECT 1 FROM UserClinics WHERE UserId = @userId AND ClinicId = @clinicId)
+                BEGIN
+                    INSERT INTO UserClinics (UserId, ClinicId) VALUES (@userId, @clinicId)
+                END
+            `);
+    } catch (_) {}
+}
+
+async function createLocalClinicFromPayload(pool, source, tenantUserId) {
+    const name = _pickClinicName(source);
+    if (!name) return null;
+    const columns = await _getTableColumns(pool, 'Clinics');
+    if (!_hasColumn(columns, 'Name')) return null;
+    const request = pool.request().input('name', sql.NVarChar, name);
+    const colNames = ['Name'];
+    const values = ['@name'];
+    if (_hasColumn(columns, 'IsActive')) {
+        colNames.push('IsActive');
+        values.push('1');
+    }
+    if (_hasColumn(columns, 'CreatedDate')) {
+        colNames.push('CreatedDate');
+        values.push('GETUTCDATE()');
+    }
+    const result = await request.query(`INSERT INTO Clinics (${colNames.join(', ')}) OUTPUT INSERTED.Id VALUES (${values.join(', ')})`);
+    const clinicId = result.recordset[0]?.Id || null;
+    await linkUserToClinicIfPossible(pool, tenantUserId, clinicId);
+    return clinicId;
+}
+
+async function resolveWritableClinicId(pool, source, tenantUserId) {
+    const body = (source && typeof source === 'object') ? source : { clinicId: source };
+    const requestedClinicId = _toIntOrNull(body.clinicId ?? body.ClinicId ?? body.officeId ?? body.officeID ?? body.OfficeId ?? body.OfficeID);
+    const visibleClinicId = await resolveVisibleClinicId(pool, requestedClinicId, tenantUserId);
+    if (visibleClinicId) return visibleClinicId;
+
+    const clinicName = _pickClinicName(body);
+    if (clinicName) {
+        const visibleByNameRequest = pool.request()
+            .input('clinicName', sql.NVarChar, clinicName)
+            .input(TENANT_PARAM, sql.Int, _toIntOrNull(tenantUserId));
+        const visibleByName = await visibleByNameRequest.query(`
+            SELECT TOP 1 Id FROM Clinics
+            WHERE LOWER(Name) = LOWER(@clinicName)
+              AND ${tenantClinicScopeSql('Id')}
+            ORDER BY Id
+        `);
+        if (visibleByName.recordset[0]?.Id) return visibleByName.recordset[0].Id;
+
+        const anyByName = await pool.request()
+            .input('clinicName', sql.NVarChar, clinicName)
+            .query('SELECT TOP 1 Id FROM Clinics WHERE LOWER(Name) = LOWER(@clinicName) ORDER BY Id');
+        if (anyByName.recordset[0]?.Id) {
+            await linkUserToClinicIfPossible(pool, tenantUserId, anyByName.recordset[0].Id);
+            return anyByName.recordset[0].Id;
+        }
+    }
+
+    const visibleClinicIds = await getUserClinicIds(pool, tenantUserId);
+    if (visibleClinicIds.length === 1) return visibleClinicIds[0];
+    return createLocalClinicFromPayload(pool, body, tenantUserId);
+}
+
 // Phase 7: direct SubscriptionId column filter for tables that don't have a
 // ClinicId (e.g. Vendors). Same admin bypass.
 function tenantSubscriptionScope(columnExpr = 'SubscriptionId') {
@@ -279,6 +375,9 @@ module.exports = {
     getTenantContext,
     tenantClinicScopeSql,
     resolveVisibleClinicId,
+    resolveWritableClinicId,
+    linkUserToClinicIfPossible,
+    createLocalClinicFromPayload,
     tenantSubscriptionScope,
     tenantVisibleUserIdsSql,
     tenantVisibleUserIdsClause,

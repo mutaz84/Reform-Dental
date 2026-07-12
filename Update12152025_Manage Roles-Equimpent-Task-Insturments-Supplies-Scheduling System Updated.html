@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260712-room-clinic-fk-v72">
+    <link rel="stylesheet" href="dental-rail.css?v=20260712-clinic-linked-saves-v73">
     <script>
         (function() {
-                const buildVersion = '20260712-room-clinic-fk-v72';
+                const buildVersion = '20260712-clinic-linked-saves-v73';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -116211,6 +116211,24 @@ function deleteDutyType(dtId) {
     }, 600);
 })();
 
+
+function getClinicNameForApiPayload(clinicId, fallbackName = '') {
+    const fallback = String(fallbackName || '').trim();
+    const rawId = String(clinicId || '').trim();
+    if (!rawId && fallback) return fallback;
+    try {
+        const offices = (typeof loadOffices === 'function') ? loadOffices() : [];
+        const matched = Array.isArray(offices) ? offices.find((office) => {
+            const refs = [office?.officeID, office?.dbId, office?.id, office?.Id, office?.clinicId, office?.ClinicId]
+                .map((value) => String(value || '').trim())
+                .filter(Boolean);
+            return refs.includes(rawId) || refs.includes(rawId.replace(/^clinic-/i, '')) || refs.includes(`clinic-${rawId}`);
+        }) : null;
+        const name = String(matched?.officeName || matched?.name || matched?.Name || '').trim();
+        if (name) return name;
+    } catch (_) {}
+    return fallback;
+}
 // ============ EQUIPMENT API FUNCTIONS ============
 async function saveEquipmentToAPI(equipmentData) {
     if (typeof API_BASE_URL === 'undefined') return null;
@@ -116240,6 +116258,7 @@ async function saveEquipmentToAPI(equipmentData) {
                 status: normalizedStatus,
                 Status: normalizedStatus,
                 clinicId: equipmentData.clinicId || equipmentData.officeId ? parseInt(equipmentData.clinicId || equipmentData.officeId) : null,
+                clinicName: getClinicNameForApiPayload(equipmentData.clinicId || equipmentData.officeId, equipmentData.clinicName || equipmentData.officeName),
                 roomId: equipmentData.roomId ? parseInt(equipmentData.roomId, 10) : null,
                 vendorId: equipmentData.vendorId ? parseInt(equipmentData.vendorId, 10) : null,
                 purchaseDate: equipmentData.purchaseDate || null,
@@ -116669,6 +116688,7 @@ async function saveInstrumentToAPI(instrumentData) {
                 category: instrumentData.category || '',
                 description: instrumentData.instrumentType || instrumentData.description || '',
                 clinicId: instrumentData.clinicId || instrumentData.officeId ? parseInt(instrumentData.clinicId || instrumentData.officeId) : null,
+                clinicName: getClinicNameForApiPayload(instrumentData.clinicId || instrumentData.officeId, instrumentData.clinicName || instrumentData.officeName),
                 quantity: instrumentData.quantity || 1,
                 status: instrumentData.status || 'available',
                 sterilizationRequired: instrumentData.sterilizationRequired !== false,
@@ -117082,6 +117102,7 @@ async function saveSupplyToAPI(supplyData, ns) {
                 description: supplyData.manufacturer || supplyData.description || '',
                 unit: supplyData.unit || '',
                 clinicId: (supplyData.clinicId || supplyData.officeId) ? parseInt(supplyData.clinicId || supplyData.officeId) : null,
+                clinicName: getClinicNameForApiPayload(supplyData.clinicId || supplyData.officeId, supplyData.clinicName || supplyData.officeName),
                 roomId: supplyData.roomId ? parseInt(supplyData.roomId) : null,
                 quantityInStock: supplyData.quantity || supplyData.quantityInStock || 0,
                 minimumStock: supplyData.minQuantity || supplyData.reorderLevel || 0,
@@ -137059,6 +137080,7 @@ console.log('? Global functions exported to window object');
                 ServiceStartDate: data.serviceStartDate || null,
                 ContractTerm:     data.contractTerm   || '',
                 ClinicId:         data.officeId ? parseInt(data.officeId, 10) : null,
+                ClinicName:       getClinicNameForApiPayload(data.officeId, data.clinicName || data.officeName),
                 MonthlyCost:      data.monthlyCost ? parseFloat(data.monthlyCost) : null,
                 Notes:            data.notes          || '',
                 Warnings:         data.warnings       || '',
