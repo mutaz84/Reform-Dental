@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260712-clinic-linked-saves-v73">
+    <link rel="stylesheet" href="dental-rail.css?v=20260712-vendors-db-sync-v74">
     <script>
         (function() {
-                const buildVersion = '20260712-clinic-linked-saves-v73';
+                const buildVersion = '20260712-vendors-db-sync-v74';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -119141,42 +119141,38 @@ async function syncVendorsFromAPI() {
         if (!response.ok) return false;
         const apiVendors = await response.json();
         console.log('?? API Vendors:', apiVendors);
-        if (apiVendors && apiVendors.length > 0) {
-            const existingVendors = JSON.parse(localStorage.getItem('vendors') || '[]');
-            const localVendors = apiVendors.map(v => ({
-                ...((existingVendors || []).find(x => String(x.vendorID) === String(v.Id || v.id)) || {}),
-                vendorID: v.Id || v.id,
-                apiId: String(v.Id || v.id),
-                vendorName: v.Name || v.name || '',
-                vendorType: v.VendorType || v.vendorType || v.Category || v.category || '',
-                contactName: v.ContactName || v.contactName || '',
-                phone: v.Phone || v.phone || '',
-                alternatePhone: v.AlternatePhone || v.alternatePhone || '',
-                email: v.Email || v.email || '',
-                address: v.Address || v.address || '',
-                city: v.City || v.city || '',
-                state: v.State || v.state || '',
-                zipCode: v.ZipCode || v.zipCode || '',
-                website: v.Website || v.website || '',
-                portalUsername: v.PortalUsername || v.portalUsername || '',
-                portalPassword: v.PortalPassword || v.portalPassword || '',
-                notes: v.Notes || v.notes || '',
-                imageData: v.ImageUrl || v.imageUrl || v.ImageData || v.imageData || '',
-                imageUrl: v.ImageUrl || v.imageUrl || '',
-                isActive: v.IsActive === true || v.IsActive === 1 || v.isActive === true || v.isActive === 1,
-                createdDate: v.CreatedDate || v.createdDate || '',
-                modifiedDate: v.ModifiedDate || v.modifiedDate || ''
-            }));
-            // Preserve local-only vendors that were never pushed to API (no apiId)
-            const localOnlyVendors = existingVendors.filter(x => !x.apiId);
-            const merged = [...localVendors, ...localOnlyVendors];
-            localStorage.setItem('vendors', JSON.stringify(merged));
-            console.log('? Synced', localVendors.length, 'vendors from API (+', localOnlyVendors.length, 'local-only preserved):', merged);
-            
-            // Refresh vendors list if modal is open
-            if (typeof displayVendorsList === 'function') {
-                displayVendorsList();
-            }
+        const rows = Array.isArray(apiVendors) ? apiVendors : [];
+        const localVendors = rows.map(v => ({
+            vendorID: v.Id || v.id,
+            dbId: v.Id || v.id,
+            apiId: String(v.Id || v.id),
+            vendorName: v.Name || v.name || '',
+            vendorType: v.VendorType || v.vendorType || v.Category || v.category || '',
+            contactName: v.ContactName || v.contactName || '',
+            phone: v.Phone || v.phone || '',
+            alternatePhone: v.AlternatePhone || v.alternatePhone || '',
+            email: v.Email || v.email || '',
+            address: v.Address || v.address || '',
+            city: v.City || v.city || '',
+            state: v.State || v.state || '',
+            zipCode: v.ZipCode || v.zipCode || '',
+            website: v.Website || v.website || '',
+            portalUsername: v.PortalUsername || v.portalUsername || '',
+            portalPassword: v.PortalPassword || v.portalPassword || '',
+            notes: v.Notes || v.notes || '',
+            imageData: v.ImageUrl || v.imageUrl || v.ImageData || v.imageData || '',
+            imageUrl: v.ImageUrl || v.imageUrl || '',
+            isActive: v.IsActive === true || v.IsActive === 1 || v.isActive === true || v.isActive === 1,
+            createdDate: v.CreatedDate || v.createdDate || '',
+            modifiedDate: v.ModifiedDate || v.modifiedDate || ''
+        }));
+        localStorage.setItem('vendors', JSON.stringify(localVendors));
+        localStorage.setItem('vendorsLastSyncedAt', new Date().toISOString());
+        console.log('? Synced', localVendors.length, 'vendors from API (database authoritative):', localVendors);
+
+        // Refresh vendors list if modal is open
+        if (typeof displayVendorsList === 'function') {
+            displayVendorsList();
         }
         return true;
     } catch (error) {
