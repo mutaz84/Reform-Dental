@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260713-plan-photo-upload-v87">
+    <link rel="stylesheet" href="dental-rail.css?v=20260713-vendor-favorites-persist-v88">
     <script>
         (function() {
-                const buildVersion = '20260713-plan-photo-upload-v87';
+                const buildVersion = '20260713-vendor-favorites-persist-v88';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -45724,14 +45724,72 @@
         // Load vendors from localStorage
         function loadVendors() {
             const vendors = safeParseLocalStorageJSON('vendors', [], { expect: 'array' });
+            const favoritePrefs = loadVendorFavoritePreferences();
             return Array.isArray(vendors)
                 ? vendors.map(vendor => ({
                     ...vendor,
                     dbId: vendor?.dbId || vendor?.vendorID || vendor?.id || vendor?.Id || null,
                     vendorID: vendor?.vendorID || vendor?.dbId || vendor?.id || vendor?.Id || null,
-                    isFavorite: vendor?.isFavorite === true || vendor?.favorite === true || vendor?.IsFavorite === true
+                    isFavorite: isVendorFavoriteMarked(vendor, favoritePrefs)
                 }))
                 : [];
+        }
+
+        function getVendorFavoriteStorageKey(vendor) {
+            return String(vendor?.vendorID || vendor?.dbId || vendor?.apiId || vendor?.id || vendor?.Id || vendor?.vendorName || vendor?.Name || '').trim();
+        }
+
+        function loadVendorFavoritePreferences() {
+            try {
+                const parsed = JSON.parse(localStorage.getItem('vendorFavoritePreferences') || '{}');
+                return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+            } catch (error) {
+                return {};
+            }
+        }
+
+        function saveVendorFavoritePreferences(preferences) {
+            localStorage.setItem('vendorFavoritePreferences', JSON.stringify(preferences || {}));
+        }
+
+        function isVendorFavoriteMarked(vendor, preferences = loadVendorFavoritePreferences()) {
+            const key = getVendorFavoriteStorageKey(vendor);
+            if (key && preferences[key] === true) return true;
+            return vendor?.isFavorite === true || vendor?.favorite === true || vendor?.IsFavorite === true;
+        }
+
+        function setVendorFavoritePreference(vendor, isFavorite) {
+            const preferences = loadVendorFavoritePreferences();
+            const keys = [vendor?.vendorID, vendor?.dbId, vendor?.apiId, vendor?.id, vendor?.Id, vendor?.vendorName, vendor?.Name]
+                .map(value => String(value || '').trim())
+                .filter(Boolean);
+            keys.forEach(key => {
+                if (isFavorite) preferences[key] = true;
+                else delete preferences[key];
+            });
+            saveVendorFavoritePreferences(preferences);
+        }
+
+        function migrateVendorFavoritePreferencesFromStoredVendors() {
+            const vendors = safeParseLocalStorageJSON('vendors', [], { expect: 'array' });
+            if (!Array.isArray(vendors) || !vendors.length) return;
+
+            const preferences = loadVendorFavoritePreferences();
+            let changed = false;
+            vendors.forEach(vendor => {
+                if (!(vendor?.isFavorite === true || vendor?.favorite === true || vendor?.IsFavorite === true)) return;
+                [vendor?.vendorID, vendor?.dbId, vendor?.apiId, vendor?.id, vendor?.Id, vendor?.vendorName, vendor?.Name]
+                    .map(value => String(value || '').trim())
+                    .filter(Boolean)
+                    .forEach(key => {
+                        if (preferences[key] !== true) {
+                            preferences[key] = true;
+                            changed = true;
+                        }
+                    });
+            });
+
+            if (changed) saveVendorFavoritePreferences(preferences);
         }
 
         // Save vendors to localStorage
@@ -58447,6 +58505,7 @@
             const v = findVendorById(vendorID);
             if (!v) return;
             const nextFavorite = v.isFavorite !== true;
+            setVendorFavoritePreference(v, nextFavorite);
             _saveVendorRecord({ vendorID: v.vendorID, isFavorite: nextFavorite });
             if (typeof showNotification === 'function') {
                 showNotification(nextFavorite ? 'Vendor added to favorites.' : 'Vendor removed from favorites.', 'success');
@@ -119543,35 +119602,45 @@ async function saveVendorToAPI(vendorData) {
 async function syncVendorsFromAPI() {
     try {
         await ensureVendorTenantUserId();
+        if (typeof migrateVendorFavoritePreferencesFromStoredVendors === 'function') {
+            migrateVendorFavoritePreferencesFromStoredVendors();
+        }
         const response = await fetch(`${API_BASE_URL}/vendors`, { headers: getVendorApiHeaders(), cache: 'no-store' });
         if (!response.ok) return false;
         const apiVendors = await response.json();
         console.log('?? API Vendors:', apiVendors);
         const rows = Array.isArray(apiVendors) ? apiVendors : [];
-        const localVendors = rows.map(v => ({
-            vendorID: v.Id || v.id,
-            dbId: v.Id || v.id,
-            apiId: String(v.Id || v.id),
-            vendorName: v.Name || v.name || '',
-            vendorType: v.VendorType || v.vendorType || v.Category || v.category || '',
-            contactName: v.ContactName || v.contactName || '',
-            phone: v.Phone || v.phone || '',
-            alternatePhone: v.AlternatePhone || v.alternatePhone || '',
-            email: v.Email || v.email || '',
-            address: v.Address || v.address || '',
-            city: v.City || v.city || '',
-            state: v.State || v.state || '',
-            zipCode: v.ZipCode || v.zipCode || '',
-            website: v.Website || v.website || '',
-            portalUsername: v.PortalUsername || v.portalUsername || '',
-            portalPassword: v.PortalPassword || v.portalPassword || '',
-            notes: v.Notes || v.notes || '',
-            imageData: v.ImageUrl || v.imageUrl || v.ImageData || v.imageData || '',
-            imageUrl: v.ImageUrl || v.imageUrl || '',
-            isActive: v.IsActive === true || v.IsActive === 1 || v.isActive === true || v.isActive === 1,
-            createdDate: v.CreatedDate || v.createdDate || '',
-            modifiedDate: v.ModifiedDate || v.modifiedDate || ''
-        }));
+        const favoritePrefs = typeof loadVendorFavoritePreferences === 'function' ? loadVendorFavoritePreferences() : {};
+        const localVendors = rows.map(v => {
+            const mappedVendor = {
+                vendorID: v.Id || v.id,
+                dbId: v.Id || v.id,
+                apiId: String(v.Id || v.id),
+                vendorName: v.Name || v.name || '',
+                vendorType: v.VendorType || v.vendorType || v.Category || v.category || '',
+                contactName: v.ContactName || v.contactName || '',
+                phone: v.Phone || v.phone || '',
+                alternatePhone: v.AlternatePhone || v.alternatePhone || '',
+                email: v.Email || v.email || '',
+                address: v.Address || v.address || '',
+                city: v.City || v.city || '',
+                state: v.State || v.state || '',
+                zipCode: v.ZipCode || v.zipCode || '',
+                website: v.Website || v.website || '',
+                portalUsername: v.PortalUsername || v.portalUsername || '',
+                portalPassword: v.PortalPassword || v.portalPassword || '',
+                notes: v.Notes || v.notes || '',
+                imageData: v.ImageUrl || v.imageUrl || v.ImageData || v.imageData || '',
+                imageUrl: v.ImageUrl || v.imageUrl || '',
+                isActive: v.IsActive === true || v.IsActive === 1 || v.isActive === true || v.isActive === 1,
+                createdDate: v.CreatedDate || v.createdDate || '',
+                modifiedDate: v.ModifiedDate || v.modifiedDate || ''
+            };
+            mappedVendor.isFavorite = typeof isVendorFavoriteMarked === 'function'
+                ? isVendorFavoriteMarked(mappedVendor, favoritePrefs)
+                : (v.isFavorite === true || v.favorite === true || v.IsFavorite === true);
+            return mappedVendor;
+        });
         localStorage.setItem('vendors', JSON.stringify(localVendors));
         localStorage.setItem('vendorsLastSyncedAt', new Date().toISOString());
         console.log('? Synced', localVendors.length, 'vendors from API (database authoritative):', localVendors);
