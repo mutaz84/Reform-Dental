@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260713-office-info-shortcut-v79">
+    <link rel="stylesheet" href="dental-rail.css?v=20260713-office-hours-align-v80">
     <script>
         (function() {
-                const buildVersion = '20260713-office-info-shortcut-v79';
+                const buildVersion = '20260713-office-hours-align-v80';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -113243,14 +113243,17 @@ function renderOfficeInfoCard(clinic, plan = {}) {
     const formatHours = (hours) => {
         if (!hours || typeof hours !== 'object') return '-';
         const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-        return days.map((day) => {
+        return `<div style="display: grid; gap: 0.35rem; max-width: 340px;">${days.map((day) => {
             const row = hours[day] || hours[day.charAt(0).toUpperCase() + day.slice(1)] || {};
             const label = day.charAt(0).toUpperCase() + day.slice(1);
-            if (row.isOpen === false || row.IsOpen === false) return `${label}: Closed`;
+            if (row.isOpen === false || row.IsOpen === false) {
+                return `<div style="display: grid; grid-template-columns: 108px minmax(0, 1fr); align-items: baseline; gap: 0.75rem;"><span style="font-weight: 700; color: var(--text-primary);">${label}</span><span style="color: var(--text-tertiary);">Closed</span></div>`;
+            }
             const open = row.open || row.OpenTime || row.start || '';
             const close = row.close || row.CloseTime || row.end || '';
-            return open || close ? `${label}: ${open || '-'} - ${close || '-'}` : `${label}: -`;
-        }).join('<br>');
+            const value = open || close ? `${open || '-'} - ${close || '-'}` : '-';
+            return `<div style="display: grid; grid-template-columns: 108px minmax(0, 1fr); align-items: baseline; gap: 0.75rem;"><span style="font-weight: 700; color: var(--text-primary);">${label}</span><span style="color: ${value === '-' ? 'var(--text-tertiary)' : '#047857'}; font-weight: ${value === '-' ? '500' : '700'}; font-variant-numeric: tabular-nums; white-space: nowrap;">${value}</span></div>`;
+        }).join('')}</div>`;
     };
     const valueRow = (label, value) => `
         <div style="min-width: 0;">
@@ -113324,7 +113327,7 @@ function renderOfficeInfoCard(clinic, plan = {}) {
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem 1.25rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
                 <div>
                     <div style="font-size: 0.78rem; color: var(--text-tertiary); margin-bottom: 0.2rem;">Operating hours</div>
-                    <div style="font-size: 0.94rem; color: var(--text-primary); line-height: 1.45;">${formatHours(clinic.operatingHours)}</div>
+                    <div style="font-size: 0.94rem; color: var(--text-primary); line-height: 1.35;">${formatHours(clinic.operatingHours)}</div>
                 </div>
                 <div>
                     <div style="font-size: 0.78rem; color: var(--text-tertiary); margin-bottom: 0.2rem;">Description</div>
