@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260712-room-order-delete-v75">
+    <link rel="stylesheet" href="dental-rail.css?v=20260712-room-type-ui-v76">
     <script>
         (function() {
-                const buildVersion = '20260712-room-order-delete-v75';
+                const buildVersion = '20260712-room-type-ui-v76';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -42807,11 +42807,7 @@
         async function maybeRestoreRoomsDraft() {
             const draft = await loadManagementDraftCloud('rooms');
             if (!hasMeaningfulFormDraft(draft)) return;
-            if (!window.confirm('You have an unsaved Rooms draft. Restore it now?')) return;
-            applyRoomDraft(draft);
-            if (typeof window.showToast === 'function') {
-                window.showToast('Rooms draft restored.', 'success');
-            }
+            await saveManagementDraftCloud('rooms', null, true);
         }
 
         async function maybeRestoreRolesDraft() {
@@ -43468,6 +43464,92 @@
             }
         }
 
+        const DEFAULT_ROOM_TYPES = [
+            'Operatory', 'Hygiene', 'Exam Room', 'Surgery Room', 'Consultation Room', 'X-Ray Room',
+            'Sterilization', 'Lab', 'Office', 'Storage', 'Break Room', 'Front Desk', 'Conference Room',
+            'IT Room', 'Laundry Room', 'Mechanical Room'
+        ];
+
+        function loadRoomTypes() {
+            const savedRaw = localStorage.getItem('roomTypes');
+            const saved = savedRaw ? safeParseLocalStorageJSON('roomTypes', [], { expect: 'array' }) : null;
+            const sourceTypes = Array.isArray(saved) ? saved : DEFAULT_ROOM_TYPES;
+            return [...new Set(sourceTypes
+                .map(type => String(type || '').trim())
+                .filter(Boolean))].sort((a, b) => a.localeCompare(b));
+        }
+
+        function saveRoomTypes(types) {
+            const cleanTypes = [...new Set((types || []).map(type => String(type || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+            localStorage.setItem('roomTypes', JSON.stringify(cleanTypes));
+            populateRoomTypeDropdowns();
+        }
+
+        function populateRoomTypeDropdowns() {
+            const types = loadRoomTypes();
+            const roomTypeSelect = document.getElementById('newRoomType');
+            const esc = (typeof escapeHtml === 'function') ? escapeHtml : (value) => String(value || '');
+            if (roomTypeSelect) {
+                const current = roomTypeSelect.value;
+                roomTypeSelect.innerHTML = '<option value="">--Select Type--</option>' +
+                    types.map(type => `<option value="${esc(type)}">${esc(type)}</option>`).join('') +
+                    '<option value="Other">Other</option>';
+                if (current && [...types, 'Other'].includes(current)) roomTypeSelect.value = current;
+            }
+            const filter = document.getElementById('roomsTypeFilter');
+            if (filter) {
+                const current = filter.value;
+                const rooms = typeof loadRooms === 'function' ? loadRooms() : [];
+                const filterTypes = [...new Set([...types, ...rooms.map(room => room?.roomType || room?.type || '').filter(Boolean)])].sort((a, b) => a.localeCompare(b));
+                filter.innerHTML = '<option value="">All Room Types</option>' + filterTypes.map(type => `<option value="${esc(type)}">${esc(type)}</option>`).join('');
+                if (current && filterTypes.includes(current)) filter.value = current;
+            }
+            renderRoomTypesManager();
+        }
+
+        function openRoomTypesManagement() {
+            const panel = document.getElementById('roomTypesManagerPanel');
+            if (!panel) return;
+            panel.style.display = panel.style.display === 'none' || !panel.style.display ? 'block' : 'none';
+            renderRoomTypesManager();
+            const input = document.getElementById('roomTypeManagerInput');
+            if (panel.style.display === 'block' && input) input.focus();
+        }
+
+        function closeRoomTypesManagement() {
+            const panel = document.getElementById('roomTypesManagerPanel');
+            if (panel) panel.style.display = 'none';
+        }
+
+        function addRoomTypeFromManager() {
+            const input = document.getElementById('roomTypeManagerInput');
+            const value = String(input?.value || '').trim();
+            if (!value) return;
+            saveRoomTypes([...loadRoomTypes(), value]);
+            if (input) input.value = '';
+            displayRoomsList();
+        }
+
+        function deleteRoomTypeFromManager(typeName) {
+            const target = String(typeName || '').trim().toLowerCase();
+            if (!target) return;
+            saveRoomTypes(loadRoomTypes().filter(type => type.toLowerCase() !== target));
+            displayRoomsList();
+        }
+
+        function renderRoomTypesManager() {
+            const list = document.getElementById('roomTypesManagerList');
+            if (!list) return;
+            const esc = (typeof escapeHtml === 'function') ? escapeHtml : (value) => String(value || '');
+            const types = loadRoomTypes();
+            list.innerHTML = types.map(type => `
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border-color);">
+                    <span style="color: var(--text-primary);">${esc(type)}</span>
+                    <button type="button" onclick="deleteRoomTypeFromManager(decodeURIComponent('${encodeURIComponent(type)}'))" style="border: none; background: #ef4444; color: white; border-radius: 5px; width: 28px; height: 28px; cursor: pointer;" title="Delete Room Type"><i class="fas fa-trash"></i></button>
+                </div>
+            `).join('');
+        }
+
         // Create new room
         // Toggle custom room type input visibility
         function toggleCustomRoomType() {
@@ -43681,11 +43763,13 @@
             const rooms = loadRooms();
             const offices = loadOffices();
             const roomsList = document.getElementById('roomsList');
+            populateRoomTypeDropdowns();
             
             if (!roomsList) return;
 
                 const selectedClinic = String(clinicFilter || '').trim();
-                const filteredRooms = !selectedClinic
+                const selectedType = String(document.getElementById('roomsTypeFilter')?.value || '').trim();
+                const clinicFilteredRooms = !selectedClinic
                     ? rooms
                     : rooms.filter((room) => {
                         const roomOffice = (typeof resolveOfficeFromReference === 'function')
@@ -43699,6 +43783,9 @@
                         const roomClinicName = String(room.clinicName || room.officeName || '').trim().toLowerCase();
                         return roomClinicName && roomClinicName === selectedClinic.toLowerCase();
                     });
+                const filteredRooms = !selectedType
+                    ? clinicFilteredRooms
+                    : clinicFilteredRooms.filter(room => String(room.roomType || room.type || '').trim() === selectedType);
             
                 if (rooms.length === 0) {
                 roomsList.innerHTML = '<tr><td colspan="5" style="padding: 2rem; text-align: center; color: var(--text-tertiary);">No rooms added yet. Click "Add New Room" to get started.</td></tr>';
@@ -43706,7 +43793,7 @@
             }
 
                 if (filteredRooms.length === 0) {
-                    roomsList.innerHTML = '<tr><td colspan="5" style="padding: 2rem; text-align: center; color: var(--text-tertiary);">No rooms found for the selected clinic.</td></tr>';
+                    roomsList.innerHTML = '<tr><td colspan="5" style="padding: 2rem; text-align: center; color: var(--text-tertiary);">No rooms found for the selected filters.</td></tr>';
                     return;
                 }
             
@@ -43816,6 +43903,7 @@
             document.getElementById('createRoomForm').reset();
             document.getElementById('newIsActive').checked = true;
             populateRoomOfficeDropdown();
+            populateRoomTypeDropdowns();
             document.getElementById('roomFormSection').scrollIntoView({ behavior: 'smooth' });
         }
 
@@ -43844,6 +43932,7 @@
             document.getElementById('roomSubmitBtn').innerHTML = '<i class="fas fa-save" style="margin-right: 0.5rem;"></i>Save Changes';
             
             populateRoomOfficeDropdown();
+            populateRoomTypeDropdowns();
             
             document.getElementById('editRoomId').value = room.roomID;
             document.getElementById('newOfficeID').value = room.officeID || '';
@@ -108954,6 +109043,9 @@ document.addEventListener('keydown', function(e) {
             <div id="roomsListSection" style="margin-bottom: 1.5rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                     <h4 style="margin: 0; color: var(--text-primary);">Rooms</h4>
+                    <select id="roomsTypeFilter" onchange="displayRoomsList()" style="min-width: 190px; padding: 0.65rem 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                        <option value="">All Room Types</option>
+                    </select>
                     <button onclick="openAddRoomForm()" style="padding: 0.75rem 1.5rem; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; transition: all 0.3s ease; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.3);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(6, 182, 212, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(6, 182, 212, 0.3)'">
                         <i class="fas fa-plus-circle"></i>
                         Add New Room
@@ -108996,27 +109088,24 @@ document.addEventListener('keydown', function(e) {
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="newRoomType">Room Type *</label>
+                            <label for="newRoomType" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                                <span>Room Type *</span>
+                                <button type="button" onclick="openRoomTypesManagement()" style="width: 30px; height: 30px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;" title="Manage Room Types">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </label>
                             <select id="newRoomType" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);" onchange="toggleCustomRoomType()">
                                 <option value="">--Select Type--</option>
-                                <option value="Operatory">Operatory</option>
-                                <option value="Hygiene">Hygiene</option>
-                                <option value="Exam Room">Exam Room</option>
-                                <option value="Surgery Room">Surgery Room</option>
-                                <option value="Consultation Room">Consultation Room</option>
-                                <option value="X-Ray Room">X-Ray Room</option>
-                                <option value="Sterilization">Sterilization</option>
-                                <option value="Lab">Lab</option>
-                                <option value="Office">Office</option>
-                                <option value="Storage">Storage</option>
-                                <option value="Break Room">Break Room</option>
-                                <option value="Front Desk">Front Desk</option>
-                                <option value="Conference Room">Conference Room</option>
-                                <option value="IT Room">IT Room</option>
-                                <option value="Laundry Room">Laundry Room</option>
-                                <option value="Mechanical Room">Mechanical Room</option>
                                 <option value="Other">Other</option>
                             </select>
+                            <div id="roomTypesManagerPanel" style="display: none; margin-top: 0.75rem; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg);">
+                                <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem;">
+                                    <input type="text" id="roomTypeManagerInput" placeholder="Add room type" maxlength="50" onkeydown="if(event.key === 'Enter'){ event.preventDefault(); addRoomTypeFromManager(); }" style="flex: 1; padding: 0.65rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary);">
+                                    <button type="button" onclick="addRoomTypeFromManager()" style="padding: 0.65rem 0.9rem; background: var(--accent-color); color: white; border: none; border-radius: 8px; cursor: pointer;" title="Add Room Type"><i class="fas fa-plus"></i></button>
+                                    <button type="button" onclick="closeRoomTypesManagement()" style="padding: 0.65rem 0.9rem; background: #64748b; color: white; border: none; border-radius: 8px; cursor: pointer;" title="Close"><i class="fas fa-times"></i></button>
+                                </div>
+                                <div id="roomTypesManagerList" style="max-height: 180px; overflow-y: auto;"></div>
+                            </div>
                             <div id="customRoomTypeContainer" style="display: none; margin-top: 0.5rem;">
                                 <div style="display: flex; gap: 0.5rem; align-items: center;">
                                     <input type="text" id="newCustomRoomType" placeholder="Enter custom room type..." maxlength="50" style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
