@@ -84,9 +84,6 @@ module.exports = async function (context, req) {
         return;
     }
 
-    await proxyVendorToGrayForest(context, req, headers);
-    return;
-
     try {
         const pool = await getPool();
         const vendorColumns = await getTableColumns(pool, 'Vendors');
