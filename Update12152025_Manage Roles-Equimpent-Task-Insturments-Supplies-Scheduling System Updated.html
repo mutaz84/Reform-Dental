@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260713-clinic-hours-toggle-v86">
+    <link rel="stylesheet" href="dental-rail.css?v=20260713-plan-photo-upload-v87">
     <script>
         (function() {
-                const buildVersion = '20260713-clinic-hours-toggle-v86';
+                const buildVersion = '20260713-plan-photo-upload-v87';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -45122,6 +45122,7 @@
             const title = plan.title || 'Office Plan';
             const description = plan.description || '';
             const imageUrl = plan.imageUrl || '';
+            const imageUrlInputValue = isEmbeddedOfficePlanImageUrl(imageUrl) ? '' : imageUrl;
             const uploadDate = plan.uploadDate ? new Date(plan.uploadDate).toLocaleString() : '';
 
             return `
@@ -45151,7 +45152,12 @@
                             </div>
                             <div class="form-group" style="margin-bottom: 0.85rem;">
                                 <label for="officeViewPlanUrl">Image URL</label>
-                                <input id="officeViewPlanUrl" type="text" value="${esc(imageUrl)}" placeholder="https://..." style="width: 100%; padding: 0.7rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                                <input id="officeViewPlanUrl" type="text" value="${esc(imageUrlInputValue)}" placeholder="https://..." style="width: 100%; padding: 0.7rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0.85rem;">
+                                <label for="officeViewPlanUpload">Upload Image</label>
+                                <input id="officeViewPlanUpload" type="file" accept="image/*" style="width: 100%; padding: 0.7rem; border: 1px dashed var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); cursor: pointer;">
+                                ${isEmbeddedOfficePlanImageUrl(imageUrl) ? `<div style="margin-top: 0.45rem; color: var(--text-tertiary); font-size: 0.82rem;"><i class="fas fa-check-circle" style="color: #10b981; margin-right: 0.35rem;"></i>Uploaded image saved. Choose another file to replace it.</div>` : ''}
                             </div>
                             <div style="display: flex; justify-content: flex-end; gap: 0.6rem;">
                                 <button type="button" onclick="clearOfficeViewPlanInfo()" style="padding: 0.65rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); cursor: pointer; font-weight: 600;"><i class="fas fa-eraser" style="margin-right: 0.45rem;"></i>Clear</button>
@@ -45162,16 +45168,98 @@
                 </div>`;
         }
 
+        function isEmbeddedOfficePlanImageUrl(value) {
+            return /^data:image\//i.test(String(value || ''));
+        }
+
+        async function readOfficePlanPhotoUpload(inputId) {
+            const input = document.getElementById(inputId);
+            const file = input?.files?.[0];
+            if (!file) return '';
+
+            if (!String(file.type || '').startsWith('image/')) {
+                showNotification('Please choose an image file for the office plan.', 'error');
+                throw new Error('Invalid office plan image file type.');
+            }
+
+            const maxBytes = 10 * 1024 * 1024;
+            if (file.size > maxBytes) {
+                showNotification('Please choose an office plan image under 10 MB.', 'error');
+                throw new Error('Office plan image file is too large.');
+            }
+
+            const dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ''));
+                reader.onerror = () => reject(new Error('Unable to read office plan image.'));
+                reader.readAsDataURL(file);
+            });
+
+            return await resizeOfficePlanImageDataUrl(dataUrl);
+        }
+
+        function loadOfficePlanImageElement(dataUrl) {
+            return new Promise((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = () => reject(new Error('Unable to load office plan image.'));
+                image.src = dataUrl;
+            });
+        }
+
+        async function resizeOfficePlanImageDataUrl(dataUrl) {
+            const image = await loadOfficePlanImageElement(dataUrl);
+            const maxDimension = 1800;
+            const width = image.naturalWidth || image.width || maxDimension;
+            const height = image.naturalHeight || image.height || maxDimension;
+            const scale = Math.min(1, maxDimension / Math.max(width, height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(width * scale));
+            canvas.height = Math.max(1, Math.round(height * scale));
+            const context = canvas.getContext('2d');
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+            const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.86);
+            const maxSavedLength = 2.5 * 1024 * 1024;
+            if (resizedDataUrl.length > maxSavedLength) {
+                showNotification('Please choose a smaller office plan image. The compressed image is still too large.', 'error');
+                throw new Error('Compressed office plan image is too large.');
+            }
+
+            return resizedDataUrl;
+        }
+
+        async function getOfficePlanImageUrlForSave(urlInputId, uploadInputId) {
+            const uploadedImageUrl = await readOfficePlanPhotoUpload(uploadInputId);
+            if (uploadedImageUrl) return uploadedImageUrl;
+
+            const typedUrl = document.getElementById(urlInputId)?.value?.trim() || '';
+            if (typedUrl) return typedUrl;
+
+            const existingImageUrl = currentOfficeInfo?.imageUrl || '';
+            return isEmbeddedOfficePlanImageUrl(existingImageUrl) ? existingImageUrl : '';
+        }
+
         async function saveOfficeViewPlanInfo() {
             if (!canManageOfficeInfoSettings()) {
                 showNotification('You do not have permission to edit plan info.', 'error');
                 return;
             }
 
+            let imageUrl = '';
+            try {
+                imageUrl = await getOfficePlanImageUrlForSave('officeViewPlanUrl', 'officeViewPlanUpload');
+            } catch (error) {
+                console.warn('Office plan image upload skipped:', error);
+                return;
+            }
+
             const plan = {
                 title: document.getElementById('officeViewPlanTitle')?.value?.trim() || 'Office Plan',
                 description: document.getElementById('officeViewPlanDescription')?.value?.trim() || '',
-                imageUrl: document.getElementById('officeViewPlanUrl')?.value?.trim() || '',
+                imageUrl,
                 uploadDate: new Date().toISOString()
             };
 
@@ -45202,9 +45290,16 @@
             const titleInput = document.getElementById('clinicEditPlanTitle');
             const descriptionInput = document.getElementById('clinicEditPlanDescription');
             const urlInput = document.getElementById('clinicEditPlanUrl');
+            const uploadInput = document.getElementById('clinicEditPlanUpload');
+            const uploadStatus = document.getElementById('clinicEditPlanUploadStatus');
+            const hasUploadedImage = isEmbeddedOfficePlanImageUrl(plan.imageUrl);
             if (titleInput) titleInput.value = plan.title || 'Office Plan';
             if (descriptionInput) descriptionInput.value = plan.description || '';
-            if (urlInput) urlInput.value = plan.imageUrl || '';
+            if (urlInput) urlInput.value = hasUploadedImage ? '' : (plan.imageUrl || '');
+            if (uploadInput) uploadInput.value = '';
+            if (uploadStatus) {
+                uploadStatus.innerHTML = hasUploadedImage ? '<i class="fas fa-check-circle" style="color: #10b981; margin-right: 0.35rem;"></i>Uploaded image saved. Choose another file to replace it.' : '';
+            }
         }
 
         async function saveClinicEditPlanInfo() {
@@ -45213,10 +45308,18 @@
                 return;
             }
 
+            let imageUrl = '';
+            try {
+                imageUrl = await getOfficePlanImageUrlForSave('clinicEditPlanUrl', 'clinicEditPlanUpload');
+            } catch (error) {
+                console.warn('Clinic plan image upload skipped:', error);
+                return;
+            }
+
             const plan = {
                 title: document.getElementById('clinicEditPlanTitle')?.value?.trim() || 'Office Plan',
                 description: document.getElementById('clinicEditPlanDescription')?.value?.trim() || '',
-                imageUrl: document.getElementById('clinicEditPlanUrl')?.value?.trim() || '',
+                imageUrl,
                 uploadDate: new Date().toISOString()
             };
 
@@ -45234,9 +45337,14 @@
             const titleInput = document.getElementById('clinicEditPlanTitle');
             const descriptionInput = document.getElementById('clinicEditPlanDescription');
             const urlInput = document.getElementById('clinicEditPlanUrl');
+            const uploadInput = document.getElementById('clinicEditPlanUpload');
+            const uploadStatus = document.getElementById('clinicEditPlanUploadStatus');
             if (titleInput) titleInput.value = 'Office Plan';
             if (descriptionInput) descriptionInput.value = '';
             if (urlInput) urlInput.value = '';
+            if (uploadInput) uploadInput.value = '';
+            if (uploadStatus) uploadStatus.innerHTML = '';
+            currentOfficeInfo = { title: 'Office Plan', description: '', imageUrl: '', uploadDate: new Date().toISOString() };
             await saveClinicEditPlanInfo();
         }
 
@@ -109660,6 +109768,11 @@ document.addEventListener('keydown', function(e) {
                             <div class="form-group" style="margin-bottom: 0;">
                                 <label for="clinicEditPlanUrl">Plan Photo URL</label>
                                 <input type="text" id="clinicEditPlanUrl" maxlength="800" placeholder="https://...">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="clinicEditPlanUpload">Upload Image</label>
+                                <input type="file" id="clinicEditPlanUpload" accept="image/*" style="width: 100%; padding: 0.65rem; border: 1px dashed var(--border-color); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); cursor: pointer;">
+                                <div id="clinicEditPlanUploadStatus" style="margin-top: 0.45rem; color: var(--text-tertiary); font-size: 0.82rem;"></div>
                             </div>
                         </div>
                         <div class="form-group" style="margin-bottom: 1rem;">
