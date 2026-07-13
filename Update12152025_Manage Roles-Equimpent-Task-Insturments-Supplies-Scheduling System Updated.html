@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260712-vendors-db-sync-v74">
+    <link rel="stylesheet" href="dental-rail.css?v=20260712-room-order-delete-v75">
     <script>
         (function() {
-                const buildVersion = '20260712-vendors-db-sync-v74';
+                const buildVersion = '20260712-room-order-delete-v75';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -43771,16 +43771,23 @@
             const targetRow = e.target.closest('tr');
             if (!targetRow || targetRow === draggedRoomRow) return;
             
-            const fromIndex = parseInt(draggedRoomRow.dataset.index);
-            const toIndex = parseInt(targetRow.dataset.index);
+            const fromRoomId = String(draggedRoomRow.dataset.roomId || '');
+            const toRoomId = String(targetRow.dataset.roomId || '');
             
             // Reorder rooms array
             const rooms = loadRooms();
+            const fromIndex = rooms.findIndex(room => String(room.roomID) === fromRoomId || String(room.apiId) === fromRoomId || String(room.dbId) === fromRoomId);
+            const toIndex = rooms.findIndex(room => String(room.roomID) === toRoomId || String(room.apiId) === toRoomId || String(room.dbId) === toRoomId);
+            if (fromIndex < 0 || toIndex < 0) return;
             const [movedRoom] = rooms.splice(fromIndex, 1);
             rooms.splice(toIndex, 0, movedRoom);
+            rooms.forEach((room, index) => { room.sortOrder = index + 1; room.SortOrder = index + 1; });
             
             // Save new order
             saveRooms(rooms);
+            if (typeof persistRoomOrderToAPI === 'function') {
+                persistRoomOrderToAPI(rooms).catch(error => console.error('Room order API sync failed:', error));
+            }
             
             // Refresh display
             displayRoomsList();
@@ -43853,10 +43860,14 @@
         }
 
         // Delete room
-        function deleteRoom(roomID) {
+        async function deleteRoom(roomID) {
             if (confirm('Are you sure you want to delete this room?')) {
                 const rooms = loadRooms();
-                const updatedRooms = rooms.filter(r => r.roomID !== roomID);
+                const room = rooms.find(r => String(r.roomID) === String(roomID) || String(r.apiId) === String(roomID) || String(r.dbId) === String(roomID));
+                if (room && typeof deleteRoomFromAPI === 'function') {
+                    await deleteRoomFromAPI(room);
+                }
+                const updatedRooms = rooms.filter(r => String(r.roomID) !== String(roomID) && String(r.apiId) !== String(roomID) && String(r.dbId) !== String(roomID));
                 saveRooms(updatedRooms);
                 displayRoomsList();
             }
@@ -117461,7 +117472,8 @@ async function saveRoomToAPI(roomData) {
                 clinicName: roomData.clinicName || roomData.officeName || '',
                 roomType: roomData.type || roomData.roomType || 'operatory',
                 description: roomData.description || roomData.notes || '',
-                color: roomData.color || '#3b82f6'
+                color: roomData.color || '#3b82f6',
+                sortOrder: roomData.sortOrder || roomData.SortOrder || null
             })
         });
         if (!response.ok) {
@@ -117498,7 +117510,8 @@ async function updateRoomToAPI(roomData) {
                 name: roomData.name || roomData.roomName,
                 roomType: roomData.type || roomData.roomType || 'operatory',
                 description: roomData.description || roomData.notes || '',
-                color: roomData.color || '#3b82f6'
+                color: roomData.color || '#3b82f6',
+                sortOrder: roomData.sortOrder || roomData.SortOrder || null
             })
         });
         if (!response.ok) {
@@ -117517,48 +117530,66 @@ async function updateRoomToAPI(roomData) {
     }
 }
 
+async function deleteRoomFromAPI(roomData) {
+    if (typeof API_BASE_URL === 'undefined') {
+        throw new Error('API_BASE_URL not defined, cannot delete room from database.');
+    }
+    const apiRoomId = Number(roomData.apiId || roomData.dbId || roomData.roomID);
+    if (!Number.isFinite(apiRoomId) || apiRoomId <= 0 || !roomData.apiId) return true;
+    const response = await fetch(`${API_BASE_URL}/rooms/${apiRoomId}`, { method: 'DELETE' });
+    if (!response.ok) {
+        const error = await response.text();
+        showNotification('Failed to delete room from database', 'error');
+        throw new Error(error || 'Failed to delete room from database');
+    }
+    showNotification('Room deleted from database', 'success');
+    return true;
+}
+
+async function persistRoomOrderToAPI(rooms) {
+    if (typeof updateRoomToAPI !== 'function') return false;
+    const apiRooms = (rooms || []).filter(room => room && room.apiId);
+    await Promise.all(apiRooms.map((room, index) => updateRoomToAPI({ ...room, sortOrder: index + 1, SortOrder: index + 1 })));
+    return true;
+}
+
 async function syncRoomsFromAPI() {
     try {
         const response = await fetch(`${API_BASE_URL}/rooms`);
         if (!response.ok) return false;
         const apiRooms = await response.json();
         console.log('?? Rooms from API:', apiRooms);
-        if (apiRooms && apiRooms.length > 0) {
-            const existingRooms = JSON.parse(localStorage.getItem('rooms') || '[]');
-            const localRooms = apiRooms.map(r => ({
-                ...((existingRooms || []).find(x => String(x.apiId || x.roomID) === String(r.Id || r.id)) || {}),
-                roomID: r.Id || r.id,
-                apiId: String(r.Id || r.id),
-                id: `room-${r.Id || r.id}`,
-                roomName: r.Name || r.name,
-                name: r.Name || r.name,
-                officeID: r.ClinicId || r.clinicId || '',
-                clinicId: r.ClinicId || r.clinicId || '',
-                clinicName: r.ClinicName || '',
-                roomType: r.RoomType || r.roomType || 'operatory',
-                type: r.RoomType || r.roomType || 'operatory',
-                color: r.Color || r.color || '#3b82f6',
-                description: r.Description || r.description || '',
-                status: 'Active',
-                isActive: true
-            }));
-            // Preserve local-only rooms that were never pushed to API (no apiId)
-            const localOnlyRooms = existingRooms.filter(x => !x.apiId);
-            const merged = [...localRooms, ...localOnlyRooms];
-            localStorage.setItem('rooms', JSON.stringify(merged));
-            
-            // Also update masterData if available
-            if (window.masterData) {
-                window.masterData.rooms = merged;
-            }
-            
-            // Rebuild room resources for calendar
-            if (typeof buildRoomResources === 'function') {
-                buildRoomResources();
-            }
-            
-            console.log('? Synced', localRooms.length, 'rooms from API (+', localOnlyRooms.length, 'local-only preserved)');
+        const localRooms = (Array.isArray(apiRooms) ? apiRooms : []).map((r, index) => ({
+            roomID: r.Id || r.id,
+            dbId: r.Id || r.id,
+            apiId: String(r.Id || r.id),
+            id: `room-${r.Id || r.id}`,
+            roomName: r.Name || r.name,
+            name: r.Name || r.name,
+            officeID: r.ClinicId || r.clinicId || '',
+            clinicId: r.ClinicId || r.clinicId || '',
+            clinicName: r.ClinicName || '',
+            roomType: r.RoomType || r.roomType || 'operatory',
+            type: r.RoomType || r.roomType || 'operatory',
+            color: r.Color || r.color || '#3b82f6',
+            description: r.Description || r.description || '',
+            status: 'Active',
+            sortOrder: Number(r.SortOrder || r.sortOrder || index + 1) || index + 1,
+            isActive: true
+        }));
+        localStorage.setItem('rooms', JSON.stringify(localRooms));
+        
+        // Also update masterData if available
+        if (window.masterData) {
+            window.masterData.rooms = localRooms;
         }
+        
+        // Rebuild room resources for calendar
+        if (typeof buildRoomResources === 'function') {
+            buildRoomResources();
+        }
+        
+        console.log('? Synced', localRooms.length, 'rooms from API (database authoritative)');
         return true;
     } catch (error) {
         console.error('? Error syncing rooms:', error);
