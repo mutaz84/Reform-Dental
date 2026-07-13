@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260713-room-header-fix-v77">
+    <link rel="stylesheet" href="dental-rail.css?v=20260713-clinic-office-info-v78">
     <script>
         (function() {
-                const buildVersion = '20260713-room-header-fix-v77';
+                const buildVersion = '20260713-clinic-office-info-v78';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -45126,6 +45126,88 @@
             });
         }
 
+        function renderOfficeViewPlanInfo(office) {
+            const canManage = canManageOfficeInfoSettings();
+            const esc = (typeof escapeHtml === 'function') ? escapeHtml : (value) => String(value || '');
+            const plan = currentOfficeInfo || {};
+            const title = plan.title || 'Office Plan';
+            const description = plan.description || '';
+            const imageUrl = plan.imageUrl || '';
+            const uploadDate = plan.uploadDate ? new Date(plan.uploadDate).toLocaleString() : '';
+
+            return `
+                <div style="display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr); gap: 1rem; align-items: start;">
+                    <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; min-height: 240px;">
+                        <div style="display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; margin-bottom: 0.75rem; flex-wrap: wrap;">
+                            <div>
+                                <div style="color: var(--text-primary); font-weight: 700; font-size: 1.05rem;">${esc(title)}</div>
+                                <div style="color: var(--text-secondary); font-size: 0.88rem; margin-top: 0.2rem;">${esc(description || 'Clinic plan information')}</div>
+                            </div>
+                            ${uploadDate ? `<div style="color: var(--text-tertiary); font-size: 0.78rem;">${esc(uploadDate)}</div>` : ''}
+                        </div>
+                        ${imageUrl
+                            ? `<div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; text-align: center;"><img src="${esc(imageUrl)}" alt="Clinic Plan" style="max-width: 100%; max-height: 46vh; object-fit: contain; border-radius: 8px; cursor: pointer;" onclick="viewFullScreenImage(this)"></div>`
+                            : `<div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-tertiary); background: var(--bg-secondary); border: 1px dashed var(--border-color); border-radius: 8px;"><i class="fas fa-map-marked-alt" style="font-size: 2rem; margin-bottom: 0.75rem; opacity: 0.35;"></i><div>No plan info saved yet.</div></div>`}
+                    </div>
+                    <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; opacity: ${canManage ? '1' : '0.65'};">
+                        <h4 style="margin: 0 0 0.9rem 0; color: var(--text-primary);">Manage Plan Info</h4>
+                        ${!canManage ? `<div style="color: var(--text-tertiary); font-size: 0.9rem;">You do not have permission to edit plan info.</div>` : `
+                            <div class="form-group" style="margin-bottom: 0.85rem;">
+                                <label for="officeViewPlanTitle">Plan Title</label>
+                                <input id="officeViewPlanTitle" type="text" maxlength="100" value="${esc(title)}" style="width: 100%; padding: 0.7rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0.85rem;">
+                                <label for="officeViewPlanDescription">Description</label>
+                                <textarea id="officeViewPlanDescription" style="width: 100%; min-height: 86px; padding: 0.7rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); resize: vertical;">${esc(description)}</textarea>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0.85rem;">
+                                <label for="officeViewPlanUrl">Image URL</label>
+                                <input id="officeViewPlanUrl" type="text" value="${esc(imageUrl)}" placeholder="https://..." style="width: 100%; padding: 0.7rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary);">
+                            </div>
+                            <div style="display: flex; justify-content: flex-end; gap: 0.6rem;">
+                                <button type="button" onclick="clearOfficeViewPlanInfo()" style="padding: 0.65rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-primary); cursor: pointer; font-weight: 600;"><i class="fas fa-eraser" style="margin-right: 0.45rem;"></i>Clear</button>
+                                <button type="button" onclick="saveOfficeViewPlanInfo()" style="padding: 0.65rem 1rem; border: none; border-radius: 8px; background: #10b981; color: white; cursor: pointer; font-weight: 600;"><i class="fas fa-save" style="margin-right: 0.45rem;"></i>Save Plan Info</button>
+                            </div>
+                        `}
+                    </div>
+                </div>`;
+        }
+
+        async function saveOfficeViewPlanInfo() {
+            if (!canManageOfficeInfoSettings()) {
+                showNotification('You do not have permission to edit plan info.', 'error');
+                return;
+            }
+
+            const plan = {
+                title: document.getElementById('officeViewPlanTitle')?.value?.trim() || 'Office Plan',
+                description: document.getElementById('officeViewPlanDescription')?.value?.trim() || '',
+                imageUrl: document.getElementById('officeViewPlanUrl')?.value?.trim() || '',
+                uploadDate: new Date().toISOString()
+            };
+
+            currentOfficeInfo = plan;
+            pendingOfficeInfoImageUrl = plan.imageUrl || '';
+            localStorage.setItem(getOfficeInfoStorageKey(), JSON.stringify(plan));
+
+            const savedToDb = await saveOfficeInfoViaAPI(plan);
+            applyOfficeInfoToUI(plan);
+            renderOfficeViewContent();
+
+            showNotification(savedToDb ? 'Plan info saved to database.' : 'Plan info saved locally (database unavailable).', savedToDb ? 'success' : 'warning');
+        }
+
+        async function clearOfficeViewPlanInfo() {
+            if (!canManageOfficeInfoSettings()) return;
+            currentOfficeInfo = { title: 'Office Plan', description: '', imageUrl: '', uploadDate: new Date().toISOString() };
+            pendingOfficeInfoImageUrl = '';
+            localStorage.setItem(getOfficeInfoStorageKey(), JSON.stringify(currentOfficeInfo));
+            await saveOfficeInfoViaAPI(currentOfficeInfo);
+            applyOfficeInfoToUI(currentOfficeInfo);
+            renderOfficeViewContent();
+            showNotification('Plan info cleared.', 'success');
+        }
+
         function renderOfficeViewContent() {
             const content = document.getElementById('officeViewTabContent');
             if (!content) return;
@@ -45226,6 +45308,11 @@
                 return;
             }
 
+            if (currentOfficeViewTab === 'plan') {
+                content.innerHTML = renderOfficeViewPlanInfo(office);
+                return;
+            }
+
             if (currentOfficeViewTab === 'rooms') {
                 const relatedRooms = getOfficeRelatedRooms(office);
                 content.innerHTML = `
@@ -45302,6 +45389,15 @@
                 isOfficeViewHoursEditing = false;
             }
             updateOfficeViewTabStyles();
+
+            if (tabName === 'plan') {
+                loadCurrentOfficeInfo().finally(() => {
+                    if (currentOfficeViewTab === 'plan') {
+                        renderOfficeViewContent();
+                    }
+                });
+                return;
+            }
 
             if (tabName === 'employees') {
                 refreshOfficeViewEmployeesData().finally(() => {
@@ -109297,6 +109393,9 @@ document.addEventListener('keydown', function(e) {
                     <button type="button" data-tab="hours" onclick="switchOfficeViewTab('hours')" style="padding: 0.5rem 0.9rem; border: 1px solid var(--border-color); border-radius: 999px; background: var(--card-bg); color: var(--text-secondary); cursor: pointer; font-weight: 600;">
                         Working Hours
                     </button>
+                    <button type="button" data-tab="plan" onclick="switchOfficeViewTab('plan')" style="padding: 0.5rem 0.9rem; border: 1px solid var(--border-color); border-radius: 999px; background: var(--card-bg); color: var(--text-secondary); cursor: pointer; font-weight: 600;">
+                        Plan Info
+                    </button>
                     <button type="button" data-tab="rooms" onclick="switchOfficeViewTab('rooms')" style="padding: 0.5rem 0.9rem; border: 1px solid var(--border-color); border-radius: 999px; background: var(--card-bg); color: var(--text-secondary); cursor: pointer; font-weight: 600;">
                         Rooms Related
                     </button>
@@ -109643,7 +109742,7 @@ document.addEventListener('keydown', function(e) {
                     <div id="noOfficeInfoPlaceholder" style="padding: 3rem; color: var(--text-tertiary);">
                         <i class="fas fa-map-marked-alt" style="font-size: 4rem; margin-bottom: 1rem; opacity: 0.3;"></i>
                         <p style="margin: 0; font-size: 1.1rem;">No office info uploaded yet</p>
-                        <p style="font-size: 0.9rem; margin-top: 0.5rem;">Use the Manage button to upload one</p>
+                        <p style="font-size: 0.9rem; margin-top: 0.5rem;">Manage plan info from Clinic Management.</p>
                     </div>
                     <div id="officePlanInfo" style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px; display: none;">
                         <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;" id="officePlanTitleDisplay">Office Info</div>
@@ -113228,35 +113327,19 @@ function setOfficeInfoManagementOpen(isOpen) {
     const toggleBtn = document.getElementById('officePlanManageToggleBtn');
     if (!modal) return;
 
-    const canManage = canManageOfficeInfoSettings();
     if (toggleBtn) {
-        toggleBtn.style.display = canManage ? 'inline-flex' : 'none';
+        toggleBtn.style.display = 'none';
     }
 
-    if (isOpen && !canManage) {
-        isOpen = false;
-    }
-
-    const viewOnly = !isOpen;
-    modal.classList.toggle('office-plan-view-only', viewOnly);
+    modal.classList.add('office-plan-view-only');
 
     if (toggleBtn) {
-        if (viewOnly) {
-            toggleBtn.innerHTML = '<i class="fas fa-cog"></i> Manage';
-            toggleBtn.title = 'Manage office plan image';
-        } else {
-            toggleBtn.innerHTML = '<i class="fas fa-eye"></i> View';
-            toggleBtn.title = 'Hide management';
-        }
+        toggleBtn.innerHTML = '<i class="fas fa-cog"></i> Manage';
+        toggleBtn.title = 'Plan info is managed from Clinic Management';
     }
 }
 function toggleOfficeInfoManagement(forceOpen) {
-    const modal = document.getElementById('officePlanModal');
-    if (!modal) return;
-
-    const currentlyViewOnly = modal.classList.contains('office-plan-view-only');
-    const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : currentlyViewOnly;
-    setOfficeInfoManagementOpen(nextOpen);
+    setOfficeInfoManagementOpen(false);
 }
 
 function toggleUploadMethod() {
