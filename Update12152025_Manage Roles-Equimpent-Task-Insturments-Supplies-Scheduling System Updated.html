@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260713-vendor-star-crisp-v84">
+    <link rel="stylesheet" href="dental-rail.css?v=20260713-vendor-favorites-button-v85">
     <script>
         (function() {
-                const buildVersion = '20260713-vendor-star-crisp-v84';
+                const buildVersion = '20260713-vendor-favorites-button-v85';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -10301,6 +10301,12 @@
             box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
         }
 
+        .equipment-toolbar-trigger.is-active,
+        .equipment-toolbar-trigger[aria-pressed="true"] {
+            color: #d97706;
+            border-color: #f59e0b66;
+            background: #f59e0b12;
+        }
         .equipment-toolbar-trigger .caret {
             font-size: 0.72rem;
             color: var(--text-tertiary);
@@ -25657,6 +25663,10 @@
                                             <span>Expand</span>
                                         </button>
                                     </div>
+                                    <button type="button" id="vendorsFavoritesToggleBtn" class="equipment-toolbar-trigger" onclick="toggleVendorsFavoritesOnly()" title="Show favorite vendors only" aria-pressed="false">
+                                        <i class="far fa-star"></i>
+                                        <span>Favorites</span>
+                                    </button>
                                     <details class="equipment-toolbar-menu">
                                         <summary class="equipment-toolbar-trigger">
                                             <i class="fas fa-filter"></i>
@@ -25687,10 +25697,7 @@
                                                     <option value="orders">Most Orders</option>
                                                 </select>
                                             </label>
-                                            <label style="display:flex;flex-direction:row;align-items:center;gap:0.5rem;font-size:0.85rem;cursor:pointer;padding-top:0.25rem;">
-                                                <input type="checkbox" id="vendorsPageFavoritesOnly" onchange="renderVendorsPageList()" style="width:1rem;height:1rem;cursor:pointer;">
-                                                <span>Favorites only</span>
-                                            </label>
+                                            <input type="checkbox" id="vendorsPageFavoritesOnly" onchange="renderVendorsPageList()" style="display:none;" aria-hidden="true">
                                             <label style="display:flex;flex-direction:row;align-items:center;gap:0.5rem;font-size:0.85rem;cursor:pointer;padding-top:0.25rem;">
                                                 <input type="checkbox" id="vendorsPageHideArchived" checked onchange="renderVendorsPageList()" style="width:1rem;height:1rem;cursor:pointer;">
                                                 <span>Hide archived vendors</span>
@@ -57891,6 +57898,27 @@
             renderVendorsPageList();
         }
 
+        function syncVendorsFavoritesToggleButton() {
+            const favOnly = document.getElementById('vendorsPageFavoritesOnly');
+            const btn = document.getElementById('vendorsFavoritesToggleBtn');
+            const active = !!favOnly?.checked;
+            if (!btn) return;
+            btn.classList.toggle('is-active', active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+            btn.title = active ? 'Show all vendors' : 'Show favorite vendors only';
+            const icon = btn.querySelector('i');
+            if (icon) icon.className = active ? 'fas fa-star' : 'far fa-star';
+        }
+
+        function toggleVendorsFavoritesOnly() {
+            const favOnly = document.getElementById('vendorsPageFavoritesOnly');
+            if (!favOnly) return;
+            favOnly.checked = !favOnly.checked;
+            window.__vendorsActiveSummary = null;
+            renderVendorsSummaryCards();
+            renderVendorsPageList();
+        }
+
         function getVendorActiveStatusColor(isActive) {
             return (isActive === false) ? '#ef4444' : '#10b981';
         }
@@ -57916,6 +57944,8 @@
             const hideArchived = !!document.getElementById('vendorsPageHideArchived')?.checked;
             const favoritesOnly = !!document.getElementById('vendorsPageFavoritesOnly')?.checked;
             const summaryFilter = window.__vendorsActiveSummary || null;
+
+            syncVendorsFavoritesToggleButton();
 
             let filtered = vendors;
 
@@ -58797,6 +58827,7 @@
             window.removeVendorLink = removeVendorLink;
             window.renderVendorsSummaryCards = renderVendorsSummaryCards;
             window.setVendorSummaryFilter = setVendorSummaryFilter;
+            window.toggleVendorsFavoritesOnly = toggleVendorsFavoritesOnly;
             window.countVendorOrders = countVendorOrders;
             window.countVendorServiceTickets = countVendorServiceTickets;
         } catch (_) {}
