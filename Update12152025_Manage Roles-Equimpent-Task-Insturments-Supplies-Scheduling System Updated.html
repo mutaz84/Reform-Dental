@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-buttons-v92">
+    <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260714-view-tools-buttons-v92';
+                const buildVersion = '20260714-view-tools-menu-v93';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -120185,40 +120185,92 @@ console.log('? Global functions exported to window object');
                 margin-left: auto;
                 display: inline-flex;
                 align-items: center;
-                gap: 0.15rem;
                 padding-bottom: 0.2rem;
                 flex: 0 0 auto;
+                position: relative;
             }
-            .rd-view-tabs-tool {
-                width: 30px;
-                height: 30px;
-                padding: 0;
+            .rd-view-tools-menu-trigger {
+                min-width: 42px;
+                height: 32px;
+                padding: 0 0.55rem;
                 border: 1px solid var(--border-color);
-                border-radius: 7px;
+                border-radius: 8px;
                 background: var(--card-bg);
                 color: var(--text-secondary);
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
+                gap: 0.35rem;
                 line-height: 1;
                 cursor: pointer;
-                position: relative;
                 box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
                 transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
             }
-            .rd-view-tabs-tool:hover {
+            .rd-view-tools-menu-trigger:hover,
+            .rd-view-tabs-tools.open .rd-view-tools-menu-trigger {
                 background: var(--bg-secondary);
                 border-color: var(--accent-primary);
                 color: var(--text-primary);
                 box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
             }
-            .rd-view-tabs-tool i {
-                font-size: 0.88rem;
+            .rd-view-tools-menu-trigger i {
+                font-size: 0.9rem;
             }
-            .rd-view-tabs-tool .chat-unread-badge {
+            .rd-view-tools-menu-trigger .fa-chevron-down {
+                font-size: 0.62rem;
+                transition: transform 0.15s ease;
+            }
+            .rd-view-tabs-tools.open .rd-view-tools-menu-trigger .fa-chevron-down {
+                transform: rotate(180deg);
+            }
+            .rd-view-tools-menu {
                 position: absolute;
-                top: -4px;
-                right: -4px;
+                top: calc(100% + 0.4rem);
+                right: 0;
+                width: 190px;
+                display: none;
+                flex-direction: column;
+                gap: 0.25rem;
+                padding: 0.35rem;
+                border: 1px solid var(--border-color);
+                border-radius: 10px;
+                background: var(--card-bg);
+                box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+                z-index: 10170;
+            }
+            .rd-view-tabs-tools.open .rd-view-tools-menu {
+                display: flex;
+            }
+            .rd-view-tools-menu-item {
+                width: 100%;
+                min-height: 34px;
+                padding: 0.45rem 0.55rem;
+                border: 1px solid transparent;
+                border-radius: 8px;
+                background: transparent;
+                color: var(--text-secondary);
+                display: flex;
+                align-items: center;
+                gap: 0.55rem;
+                cursor: pointer;
+                font-weight: 650;
+                font-size: 0.82rem;
+                text-align: left;
+            }
+            .rd-view-tools-menu-item:hover,
+            .rd-view-tools-menu-item:focus-visible {
+                background: var(--bg-secondary);
+                border-color: var(--border-color);
+                color: var(--text-primary);
+                outline: none;
+            }
+            .rd-view-tools-menu-item i {
+                width: 1rem;
+                text-align: center;
+                font-size: 0.9rem;
+            }
+            .rd-view-tools-menu-item .chat-unread-badge {
+                margin-left: auto;
                 background: #ef4444;
                 color: #ffffff;
                 font-size: 0.58rem;
@@ -120348,8 +120400,52 @@ console.log('? Global functions exported to window object');
     }
 
     function getTabToolsMarkup() {
-        return '<div id="rdViewTabsTools" class="rd-view-tabs-tools" aria-label="Quick tools"><button type="button" class="rd-view-tabs-tool" onclick="if(window.switchContentView){ window.switchContentView(\'dashboard\', event); } return false;" title="Open Dashboard" aria-label="Open Dashboard"><i class="fas fa-chart-pie"></i></button><button type="button" class="rd-view-tabs-tool" onclick="showOfficeInfo(); return false;" title="Office Info" aria-label="Open Office Info"><i class="fas fa-map-marked-alt"></i></button><button type="button" class="rd-view-tabs-tool" onclick="openChat(); return false;" title="Team Chat" aria-label="Open Team Chat"><i class="fas fa-comments"></i><span class="chat-unread-badge" style="display: none;">0</span></button><button type="button" class="rd-view-tabs-tool" onclick="if(window.ReformCopilot && typeof window.ReformCopilot.toggle === \'function\'){ window.ReformCopilot.toggle(); } return false;" title="DentaBrain AI" aria-label="Open DentaBrain AI"><i class="fas fa-brain"></i></button><button type="button" class="rd-view-tabs-tool" onclick="if(window.switchContentView){ window.switchContentView(\'calendar\', event); } return false;" title="Open Calendar" aria-label="Open Calendar"><i class="fas fa-calendar-alt"></i></button></div>';
+        return `
+            <div id="rdViewTabsTools" class="rd-view-tabs-tools" aria-label="Quick tools">
+                <button type="button" class="rd-view-tools-menu-trigger" onclick="toggleRdViewToolsMenu(event); return false;" aria-haspopup="true" aria-expanded="false" title="Quick tools" aria-label="Open quick tools menu">
+                    <i class="fas fa-th-large"></i><i class="fas fa-chevron-down"></i>
+                </button>
+                <div class="rd-view-tools-menu" role="menu">
+                    <button type="button" class="rd-view-tools-menu-item" role="menuitem" onclick="closeRdViewToolsMenu(); if(window.switchContentView){ window.switchContentView('dashboard', event); } return false;"><i class="fas fa-chart-pie"></i><span>Dashboard</span></button>
+                    <button type="button" class="rd-view-tools-menu-item" role="menuitem" onclick="closeRdViewToolsMenu(); showOfficeInfo(); return false;"><i class="fas fa-map-marked-alt"></i><span>Office Info</span></button>
+                    <button type="button" class="rd-view-tools-menu-item" role="menuitem" onclick="closeRdViewToolsMenu(); openChat(); return false;"><i class="fas fa-comments"></i><span>Team Chat</span><span class="chat-unread-badge" style="display: none;">0</span></button>
+                    <button type="button" class="rd-view-tools-menu-item" role="menuitem" onclick="closeRdViewToolsMenu(); if(window.ReformCopilot && typeof window.ReformCopilot.toggle === 'function'){ window.ReformCopilot.toggle(); } return false;"><i class="fas fa-brain"></i><span>DentaBrain AI</span></button>
+                    <button type="button" class="rd-view-tools-menu-item" role="menuitem" onclick="closeRdViewToolsMenu(); if(window.switchContentView){ window.switchContentView('calendar', event); } return false;"><i class="fas fa-calendar-alt"></i><span>Calendar</span></button>
+                </div>
+            </div>`;
     }
+
+    function closeRdViewToolsMenu() {
+        const host = document.getElementById('rdViewTabsTools');
+        if (!host) return;
+        host.classList.remove('open');
+        const trigger = host.querySelector('.rd-view-tools-menu-trigger');
+        if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleRdViewToolsMenu(event) {
+        if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+        const host = document.getElementById('rdViewTabsTools');
+        if (!host) return;
+        const isOpen = host.classList.toggle('open');
+        const trigger = host.querySelector('.rd-view-tools-menu-trigger');
+        if (trigger) trigger.setAttribute('aria-expanded', String(isOpen));
+    }
+
+    if (typeof window !== 'undefined') {
+        window.closeRdViewToolsMenu = closeRdViewToolsMenu;
+        window.toggleRdViewToolsMenu = toggleRdViewToolsMenu;
+    }
+
+    document.addEventListener('click', (event) => {
+        if (event.target && event.target.closest && !event.target.closest('#rdViewTabsTools')) {
+            closeRdViewToolsMenu();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeRdViewToolsMenu();
+    });
 
     function ensureBar(targetHost) {
         const host = targetHost || resolveTabsHost();
