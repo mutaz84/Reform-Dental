@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260713-vendor-favorites-persist-v88">
+    <link rel="stylesheet" href="dental-rail.css?v=20260714-vendor-favorites-verify-v91">
     <script>
         (function() {
-                const buildVersion = '20260713-vendor-favorites-persist-v88';
+                const buildVersion = '20260714-vendor-favorites-verify-v91';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -57563,7 +57563,9 @@
                 portalUsername: vendorUsername,
                 portalPassword: vendorPassword,
                 notes: notes,
-                isActive: isActive
+                isActive: isActive,
+                isFavorite: existingVendor?.isFavorite === true,
+                IsFavorite: existingVendor?.isFavorite === true
             };
             
             try {
@@ -58452,6 +58454,96 @@
             return true;
         }
 
+        function buildVendorApiPayload(vendor, overrides = {}) {
+            const source = { ...(vendor || {}), ...(overrides || {}) };
+            const favorite = source.isFavorite === true || source.favorite === true || source.IsFavorite === true;
+            return {
+                name: source.vendorName || source.name || source.Name || '',
+                vendorType: source.vendorType || source.VendorType || source.type || source.category || '',
+                contactPerson: source.contactName || source.contactPerson || source.ContactName || source.contact || '',
+                email: source.email || source.Email || '',
+                phone: source.phone || source.Phone || '',
+                alternatePhone: source.alternatePhone || source.AlternatePhone || '',
+                address: source.address || source.Address || '',
+                city: source.city || source.City || '',
+                state: source.state || source.State || '',
+                zipCode: source.zipCode || source.ZipCode || '',
+                website: source.website || source.Website || '',
+                portalUsername: source.portalUsername || source.PortalUsername || '',
+                portalPassword: source.portalPassword || source.PortalPassword || '',
+                notes: source.notes || source.Notes || '',
+                isActive: source.isActive !== false && source.IsActive !== false,
+                isFavorite: favorite,
+                IsFavorite: favorite
+            };
+        }
+
+        function getVendorApiBaseCandidates() {
+            const candidates = [];
+            const addBase = (value) => {
+                const raw = String(value || '').trim();
+                if (!raw) return;
+                const normalized = raw.replace(/\/+$/, '');
+                if (normalized && !candidates.includes(normalized)) candidates.push(normalized);
+            };
+            if (typeof window !== 'undefined' && typeof window.API_BASE_URL === 'string') addBase(window.API_BASE_URL);
+            if (typeof API_BASE_URL !== 'undefined' && typeof API_BASE_URL === 'string') addBase(API_BASE_URL);
+            addBase('/api');
+            if (typeof window !== 'undefined' && window.location && window.location.origin) {
+                addBase(`${window.location.origin}/api`);
+            }
+            return candidates;
+        }
+
+        async function persistVendorFavoriteToAPI(vendor, nextFavorite) {
+            if (!vendor || !vendor.vendorID) return { ok: false, reason: 'missing vendor id' };
+            const payload = buildVendorApiPayload(vendor, { isFavorite: nextFavorite, IsFavorite: nextFavorite, favorite: nextFavorite });
+            const bases = getVendorApiBaseCandidates();
+            let lastError = '';
+            for (const base of bases) {
+                try {
+                    const url = `${base}/vendors/${encodeURIComponent(String(vendor.vendorID))}`;
+                    const putResponse = await fetch(url, {
+                        method: 'PUT',
+                        headers: getVendorApiHeaders({ 'Content-Type': 'application/json' }),
+                        body: JSON.stringify(payload)
+                    });
+                    if (!putResponse.ok) {
+                        const errText = await putResponse.text().catch(() => '');
+                        lastError = `${base} PUT ${putResponse.status}${errText ? ': ' + errText.slice(0, 160) : ''}`;
+                        continue;
+                    }
+
+                    const readResponse = await fetch(url, {
+                        headers: getVendorApiHeaders(),
+                        cache: 'no-store'
+                    });
+                    if (!readResponse.ok) {
+                        lastError = `${base} read-back ${readResponse.status}`;
+                        continue;
+                    }
+                    const row = await readResponse.json();
+                    const hasFavoriteColumn = row && (
+                        Object.prototype.hasOwnProperty.call(row, 'IsFavorite')
+                        || Object.prototype.hasOwnProperty.call(row, 'isFavorite')
+                        || Object.prototype.hasOwnProperty.call(row, 'favorite')
+                    );
+                    const serverFavorite = row && (
+                        row.IsFavorite === true || row.IsFavorite === 1
+                        || row.isFavorite === true || row.isFavorite === 1
+                        || row.favorite === true || row.favorite === 1
+                    );
+                    if (hasFavoriteColumn && serverFavorite === !!nextFavorite) {
+                        return { ok: true, base };
+                    }
+                    lastError = `${base} did not confirm IsFavorite=${!!nextFavorite}`;
+                } catch (error) {
+                    lastError = error && error.message ? error.message : String(error || 'unknown error');
+                }
+            }
+            return { ok: false, reason: lastError || 'no vendor API endpoint accepted favorite update' };
+        }
+
         // ----- Summary cards -----
         function renderVendorsSummaryCards() {
             const c = document.getElementById('vendorsSummaryCards');
@@ -58501,17 +58593,26 @@
             renderVendorsPageList();
         }
 
-        function toggleVendorFavorite(vendorID) {
+        async function toggleVendorFavorite(vendorID) {
             const v = findVendorById(vendorID);
             if (!v) return;
             const nextFavorite = v.isFavorite !== true;
             setVendorFavoritePreference(v, nextFavorite);
             _saveVendorRecord({ vendorID: v.vendorID, isFavorite: nextFavorite });
-            if (typeof showNotification === 'function') {
-                showNotification(nextFavorite ? 'Vendor added to favorites.' : 'Vendor removed from favorites.', 'success');
-            }
             renderVendorsSummaryCards();
             renderVendorsPageList();
+
+            const result = await persistVendorFavoriteToAPI(v, nextFavorite);
+            if (result.ok) {
+                if (typeof showNotification === 'function') {
+                    showNotification(nextFavorite ? 'Vendor favorite saved to SQL.' : 'Vendor favorite removed from SQL.', 'success');
+                }
+            } else {
+                console.warn('Vendor favorite SQL sync failed; local favorite retained:', result.reason);
+                if (typeof showNotification === 'function') {
+                    showNotification(`Favorite changed locally, but SQL sync failed: ${result.reason || 'API did not confirm IsFavorite'}`, 'warning');
+                }
+            }
         }
 
         // ----- Quick active/inactive toggle from card -----
@@ -58526,7 +58627,7 @@
                     await fetch(`${API_BASE_URL}/vendors/${v.vendorID}`, {
                         method: 'PUT',
                         headers: getVendorApiHeaders({ 'Content-Type': 'application/json' }),
-                        body: JSON.stringify({ ...v, isActive: !!makeActive, IsActive: !!makeActive })
+                        body: JSON.stringify(buildVendorApiPayload(v, { isActive: !!makeActive, IsActive: !!makeActive }))
                     });
                 }
             } catch (_) {}
@@ -58562,6 +58663,8 @@
                         portalPassword: fresh.portalPassword || '',
                         notes: fresh.notes || '',
                         isActive: fresh.isActive !== false,
+                        isFavorite: fresh.isFavorite === true,
+                        IsFavorite: fresh.isFavorite === true,
                         imageUrl: dataUrl,
                         ImageUrl: dataUrl
                     };
@@ -119636,9 +119739,18 @@ async function syncVendorsFromAPI() {
                 createdDate: v.CreatedDate || v.createdDate || '',
                 modifiedDate: v.ModifiedDate || v.modifiedDate || ''
             };
-            mappedVendor.isFavorite = typeof isVendorFavoriteMarked === 'function'
-                ? isVendorFavoriteMarked(mappedVendor, favoritePrefs)
-                : (v.isFavorite === true || v.favorite === true || v.IsFavorite === true);
+            const serverFavoriteProvided = Object.prototype.hasOwnProperty.call(v, 'IsFavorite')
+                || Object.prototype.hasOwnProperty.call(v, 'isFavorite')
+                || Object.prototype.hasOwnProperty.call(v, 'favorite');
+            const serverFavorite = v.IsFavorite === true || v.IsFavorite === 1 || v.isFavorite === true || v.isFavorite === 1 || v.favorite === true || v.favorite === 1;
+            mappedVendor.isFavorite = serverFavoriteProvided
+                ? serverFavorite
+                : (typeof isVendorFavoriteMarked === 'function'
+                    ? isVendorFavoriteMarked(mappedVendor, favoritePrefs)
+                    : serverFavorite);
+            if (serverFavoriteProvided && typeof setVendorFavoritePreference === 'function') {
+                setVendorFavoritePreference(mappedVendor, mappedVendor.isFavorite === true);
+            }
             return mappedVendor;
         });
         localStorage.setItem('vendors', JSON.stringify(localVendors));
@@ -124179,16 +124291,42 @@ console.log('? Global functions exported to window object');
 
         // Get vendors
         getVendorsData() {
-            const vendors = this.safeParse('vendors', []);
+            const vendors = typeof loadVendors === 'function'
+                ? loadVendors()
+                : this.safeParse('vendors', []);
+            const list = Array.isArray(vendors) ? vendors : [];
+            const normalized = list.map(v => {
+                const isActive = v?.isActive !== false && String(v?.status || '').toLowerCase() !== 'archived';
+                const city = v?.city || v?.vendorCity || '';
+                const state = v?.state || v?.vendorState || '';
+                return {
+                    id: v?.vendorID || v?.dbId || v?.apiId || v?.id || v?.Id || null,
+                    name: v?.vendorName || v?.name || v?.companyName || v?.Name || '(unnamed vendor)',
+                    contact: v?.contactPerson || v?.contactName || v?.contact || '',
+                    phone: v?.phone || v?.vendorPhone || v?.Phone || '',
+                    email: v?.email || v?.vendorEmail || v?.Email || '',
+                    website: v?.website || v?.vendorWebsite || v?.Website || '',
+                    type: v?.vendorType || v?.type || v?.category || '',
+                    address: [city, state].filter(Boolean).join(', '),
+                    isFavorite: v?.isFavorite === true || v?.favorite === true || v?.IsFavorite === true,
+                    isActive,
+                    status: isActive ? 'Active' : 'Archived'
+                };
+            });
+            const favorites = normalized.filter(v => v.isFavorite);
             return {
-                total: vendors.length,
-                vendors: vendors.slice(0, 20).map(v => ({
-                    name: v.name || v.companyName,
-                    contact: v.contact || v.phone,
-                    email: v.email,
-                    type: v.type || v.category,
-                    status: v.status
-                }))
+                total: normalized.length,
+                activeCount: normalized.filter(v => v.isActive).length,
+                archivedCount: normalized.filter(v => !v.isActive).length,
+                favoriteCount: favorites.length,
+                favoriteVendors: favorites.slice(0, 25),
+                vendors: normalized.slice(0, 75),
+                dataSourceHints: {
+                    sourcePriority: 'Use loadVendors() so Copilot sees the same favorite vendor markings as the Vendors page.',
+                    favoriteRule: 'Favorite vendors are rows where isFavorite is true after vendorFavoritePreferences are applied.',
+                    guardrail: 'deterministic_local_vendor_favorites',
+                    guardrailVersion: '2026-07-14.1'
+                }
             };
         },
 
@@ -125310,6 +125448,37 @@ console.log('? Global functions exported to window object');
             return {
                 reply: 'I could not find a matching snippet in uploaded documents yet. Try naming the file or asking with more specific keywords.',
                 suggestions: ['List my uploaded documents', 'Summarize my uploaded documents', 'How many documents are uploaded?']
+            };
+        }
+        const vendorsData = context?.vendorsData || {};
+        const vendorRows = Array.isArray(vendorsData?.vendors) ? vendorsData.vendors : [];
+        const favoriteVendors = Array.isArray(vendorsData?.favoriteVendors)
+            ? vendorsData.favoriteVendors
+            : vendorRows.filter((vendor) => vendor?.isFavorite === true);
+        const asksVendor = /\bvendor\b|\bvendors\b|\bsupplier\b|\bsuppliers\b/i.test(text);
+        const asksFavoriteVendor = asksVendor && /\bfavou?rite\b|\bstarred\b|\bpreferred\b/i.test(text);
+
+        if (asksFavoriteVendor) {
+            if (!favoriteVendors.length) {
+                const vendorTotal = Number(vendorsData?.total || vendorRows.length || 0);
+                return {
+                    reply: `I do not see any favorite vendors marked right now. You have ${vendorTotal} vendor${vendorTotal === 1 ? '' : 's'} total.`,
+                    suggestions: ['Show all vendors', 'Open Vendors', 'Which vendors are active?']
+                };
+            }
+
+            const lines = favoriteVendors.slice(0, 10).map((vendor) => {
+                const detailParts = [vendor?.type, vendor?.contact, vendor?.phone, vendor?.email]
+                    .map((part) => String(part || '').trim())
+                    .filter(Boolean);
+                return `- ${String(vendor?.name || '(unnamed vendor)').trim()}${detailParts.length ? ` (${detailParts.join(' | ')})` : ''}`;
+            });
+
+            return {
+                reply: favoriteVendors.length === 1
+                    ? `Your favorite vendor is:\n${lines[0]}`
+                    : `Your favorite vendors are:\n${lines.join('\n')}`,
+                suggestions: ['Show all vendors', 'Which vendors are active?', 'Open Vendors']
             };
         }
 

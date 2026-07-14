@@ -28,6 +28,22 @@ function addSetClause(columns, setClauses, columnName, paramName, valueExpressio
     }
 }
 
+function hasOwnAny(obj, names) {
+    return names.some((name) => Object.prototype.hasOwnProperty.call(obj || {}, name));
+}
+
+function bodyValue(obj, names, fallback = '') {
+    for (const name of names) {
+        if (Object.prototype.hasOwnProperty.call(obj || {}, name)) return obj[name];
+    }
+    return fallback;
+}
+
+function bodyBit(obj, names, fallback = false) {
+    const value = bodyValue(obj, names, fallback);
+    return value === true || value === 1 || String(value).toLowerCase() === 'true' ? 1 : 0;
+}
+
 function requestJson(url, options, body) {
     return new Promise((resolve, reject) => {
         const data = body === undefined ? undefined : JSON.stringify(body || {});
@@ -136,6 +152,7 @@ module.exports = async function (context, req) {
             addColumnValue(vendorColumns, cols, vals, 'PortalPassword', 'portalPassword');
             addColumnValue(vendorColumns, cols, vals, 'Notes', 'notes');
             addColumnValue(vendorColumns, cols, vals, 'IsActive', 'isActive');
+            addColumnValue(vendorColumns, cols, vals, 'IsFavorite', 'isFavorite');
             addColumnValue(vendorColumns, cols, vals, 'CreatedDate', null, 'GETDATE()');
             if (hasImageUrl) { cols.push('ImageUrl'); vals.push('@imageUrl'); }
             if (hasSubscriptionId) {
@@ -157,7 +174,8 @@ module.exports = async function (context, req) {
                 .input('portalUsername', sql.NVarChar, body.portalUsername || '')
                 .input('portalPassword', sql.NVarChar, body.portalPassword || '')
                 .input('notes', sql.NVarChar, body.notes || '')
-                .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0);
+                .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0)
+                .input('isFavorite', sql.Bit, bodyBit(body, ['isFavorite', 'IsFavorite', 'favorite'], false));
             if (hasImageUrl) {
                 request.input('imageUrl', sql.NVarChar(sql.MAX), body.imageUrl || body.ImageUrl || null);
             }
@@ -184,26 +202,30 @@ module.exports = async function (context, req) {
             addSetClause(vendorColumns, setClauses, 'PortalPassword', 'portalPassword');
             addSetClause(vendorColumns, setClauses, 'Notes', 'notes');
             addSetClause(vendorColumns, setClauses, 'IsActive', 'isActive');
+            if (hasOwnAny(body, ['isFavorite', 'IsFavorite', 'favorite'])) {
+                addSetClause(vendorColumns, setClauses, 'IsFavorite', 'isFavorite');
+            }
             addSetClause(vendorColumns, setClauses, 'ModifiedDate', null, 'GETDATE()');
             const hasImageInBody = Object.prototype.hasOwnProperty.call(body, 'imageUrl') || Object.prototype.hasOwnProperty.call(body, 'ImageUrl');
             if (hasImageUrl && hasImageInBody) setClauses.push('ImageUrl=@imageUrl');
             const request = pool.request()
                 .input('id', sql.Int, id)
-                .input('name', sql.NVarChar, body.name || '')
-                .input('vendorType', sql.NVarChar, body.vendorType || '')
-                .input('contactName', sql.NVarChar, body.contactPerson || '')
-                .input('phone', sql.NVarChar, body.phone || '')
-                .input('alternatePhone', sql.NVarChar, body.alternatePhone || '')
-                .input('email', sql.NVarChar, body.email || '')
-                .input('address', sql.NVarChar, body.address || '')
-                .input('city', sql.NVarChar, body.city || '')
-                .input('state', sql.NVarChar, body.state || '')
-                .input('zipCode', sql.NVarChar, body.zipCode || '')
-                .input('website', sql.NVarChar, body.website || '')
-                .input('portalUsername', sql.NVarChar, body.portalUsername || '')
-                .input('portalPassword', sql.NVarChar, body.portalPassword || '')
-                .input('notes', sql.NVarChar, body.notes || '')
-                .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0);
+                .input('name', sql.NVarChar, bodyValue(body, ['name', 'vendorName', 'Name'], ''))
+                .input('vendorType', sql.NVarChar, bodyValue(body, ['vendorType', 'VendorType', 'type', 'category'], ''))
+                .input('contactName', sql.NVarChar, bodyValue(body, ['contactPerson', 'contactName', 'ContactName', 'contact'], ''))
+                .input('phone', sql.NVarChar, bodyValue(body, ['phone', 'Phone'], ''))
+                .input('alternatePhone', sql.NVarChar, bodyValue(body, ['alternatePhone', 'AlternatePhone'], ''))
+                .input('email', sql.NVarChar, bodyValue(body, ['email', 'Email'], ''))
+                .input('address', sql.NVarChar, bodyValue(body, ['address', 'Address'], ''))
+                .input('city', sql.NVarChar, bodyValue(body, ['city', 'City'], ''))
+                .input('state', sql.NVarChar, bodyValue(body, ['state', 'State'], ''))
+                .input('zipCode', sql.NVarChar, bodyValue(body, ['zipCode', 'ZipCode'], ''))
+                .input('website', sql.NVarChar, bodyValue(body, ['website', 'Website'], ''))
+                .input('portalUsername', sql.NVarChar, bodyValue(body, ['portalUsername', 'PortalUsername'], ''))
+                .input('portalPassword', sql.NVarChar, bodyValue(body, ['portalPassword', 'PortalPassword'], ''))
+                .input('notes', sql.NVarChar, bodyValue(body, ['notes', 'Notes'], ''))
+                .input('isActive', sql.Bit, bodyValue(body, ['isActive', 'IsActive'], true) !== false ? 1 : 0)
+                .input('isFavorite', sql.Bit, bodyBit(body, ['isFavorite', 'IsFavorite', 'favorite'], false));
             if (hasImageUrl && hasImageInBody) {
                 const incoming = (body.imageUrl !== undefined) ? body.imageUrl : body.ImageUrl;
                 request.input('imageUrl', sql.NVarChar(sql.MAX), incoming || null);

@@ -388,6 +388,7 @@ CREATE TABLE Vendors (
     Category NVARCHAR(100), -- 'equipment', 'supplies', 'instruments'
     Notes NVARCHAR(MAX),
     IsActive BIT DEFAULT 1,
+    IsFavorite BIT DEFAULT 0,
     CreatedDate DATETIME2 DEFAULT GETUTCDATE(),
     ModifiedDate DATETIME2 DEFAULT GETUTCDATE()
 );
