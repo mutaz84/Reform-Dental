@@ -2,10 +2,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
-    <link rel="stylesheet" href="dental-rail.css?v=20260715-quick-calendar-nav-v97">
+    <link rel="stylesheet" href="dental-rail.css?v=20260715-quick-calendar-monthsafe-v98">
     <script>
         (function() {
-                const buildVersion = '20260715-quick-calendar-nav-v97';
+                const buildVersion = '20260715-quick-calendar-monthsafe-v98';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -84836,9 +84836,12 @@ window.initializeCalendar = initializeCalendar;
             });
         }
 
-        // Previous Month
-        function quickCalendarPrevMonth() {
-            quickCalendarDate.setMonth(quickCalendarDate.getMonth() - 1);
+        function shiftQuickCalendarMonth(delta) {
+            const year = quickCalendarDate.getFullYear();
+            const month = quickCalendarDate.getMonth();
+            quickCalendarDate = new Date(year, month + delta, 1);
+            quickCalendarYearPickerStart = null;
+            closeQuickCalendarPickerPanels();
             
             // Sync main calendar
             if (window.calendarInstance) {
@@ -84857,33 +84860,19 @@ window.initializeCalendar = initializeCalendar;
             if (typeof isTableView !== 'undefined' && isTableView && typeof populateTable === 'function') {
                 populateTable();
             }
+        }
+
+        // Previous Month
+        function quickCalendarPrevMonth() {
+            shiftQuickCalendarMonth(-1);
         }
 
         // Next Month
         function quickCalendarNextMonth() {
-            quickCalendarDate.setMonth(quickCalendarDate.getMonth() + 1);
-            
-            // Sync main calendar
-            if (window.calendarInstance) {
-                window.calendarInstance.currentDate = new Date(quickCalendarDate);
-                window.calendarInstance.render();
-            }
-
-            // Sync My Schedule calendar if it exists
-            if (typeof window.myScheduleGoToDate === 'function') {
-                window.myScheduleGoToDate(quickCalendarDate);
-            }
-            
-            renderQuickCalendar();
-            
-            // Refresh table view if active
-            if (typeof isTableView !== 'undefined' && isTableView && typeof populateTable === 'function') {
-                populateTable();
-            }
+            shiftQuickCalendarMonth(1);
         }
-        
-                // Jump quick calendar to today
-                function quickCalendarToday() {
+        // Jump quick calendar to today
+        function quickCalendarToday() {
                     const today = new Date();
                     quickCalendarDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
