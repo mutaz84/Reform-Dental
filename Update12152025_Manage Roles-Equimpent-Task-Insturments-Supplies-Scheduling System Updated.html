@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260717-calendar-resources-v88';
+                const buildVersion = '20260717-calendar-employees-v89';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -78588,7 +78588,11 @@
         function getClinicScopedResources(baseResources, viewMode) {
             if (!Array.isArray(baseResources) || !baseResources.length) return baseResources;
             if (!clinicFilter || viewMode === 'event') return baseResources;
-            return baseResources.filter(resource => isResourceInSelectedClinic(resource, viewMode));
+            const scopedResources = baseResources.filter(resource => isResourceInSelectedClinic(resource, viewMode));
+            if (!scopedResources.length && (viewMode === 'employee' || viewMode === 'provider')) {
+                return baseResources;
+            }
+            return scopedResources;
         }
 
         // Helper function to filter resources based on selected filter for current view
@@ -78982,6 +78986,22 @@
                             pushRef(matchedClinic?.dbId || matchedClinic?.clinicID || matchedClinic?.officeID || matchedClinic?.id);
                             pushRef(matchedClinic?.name || matchedClinic?.officeName || matchedClinic?.clinicName);
                         }
+                    }
+
+                    if (typeof getClinicsFromUser === 'function') {
+                        try {
+                            getClinicsFromUser(user).forEach(pushRef);
+                        } catch (_) {}
+                    }
+                    if (typeof getClinicIdsFromUser === 'function') {
+                        try {
+                            getClinicIdsFromUser(user).forEach(pushRef);
+                        } catch (_) {}
+                    }
+                    if (typeof getPrimaryClinicFromUser === 'function') {
+                        try {
+                            pushRef(getPrimaryClinicFromUser(user));
+                        } catch (_) {}
                     }
 
                     return Array.from(new Set(refs.map(r => String(r).trim()).filter(Boolean)));
@@ -115195,11 +115215,20 @@ async function syncUsersFromAPI(options = {}) {
         if (typeof buildProviderResources === 'function') {
             buildProviderResources();
         }
+        if (typeof initializeResourcesMap === 'function') {
+            initializeResourcesMap();
+        }
+        if (window.calendarInstance && typeof window.calendarInstance.render === 'function') {
+            const mode = window.calendarInstance.viewMode;
+            if (mode === 'employee' || mode === 'provider') {
+                window.calendarInstance.render();
+            }
+        }
     } catch (refreshErr) {
         console.warn('?? Could not rebuild employee/provider resources after user sync:', refreshErr?.message || refreshErr);
     }
     
-        // Do not auto-render UI here; callers decide when to re-render.
+        // User sync refreshes employee/provider calendar resources when that view is active.
         return true;
     } catch (error) {
         console.error('? syncUsersFromAPI failed:', error);
