@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260714-view-tools-menu-v93';
+                const buildVersion = '20260717-calendar-resources-v88';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -79619,21 +79619,27 @@
         
         function buildRoomResources() {
             const colors = ['#0ea5e9', '#6366f1', '#f97316', '#10b981', '#ec4899', '#a855f7', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16'];
+            const roomNameFromRecord = (room) => String(room?.name || room?.roomName || room?.RoomName || room?.roomType || room?.RoomType || room?.title || '').trim();
             
-            const baseRooms = masterData.rooms.map((room, index) => {
-                const initials = room.name.split(' ').map(word => word[0]).join('').toUpperCase();
-                return {
-                    id: 'room-' + room.name.toLowerCase().replace(/\s+/g, '-'),
-                    title: room.name,
-                    initials: initials,
-                    extendedProps: {
-                        role: 'Room',
-                        color: colors[index % colors.length],
-                        clinicId: room.clinicId,
-                        roomCategory: room.roomCategory
-                    }
-                };
-            });
+            const baseRooms = (Array.isArray(masterData.rooms) ? masterData.rooms : [])
+                .map((room, index) => {
+                    const roomName = roomNameFromRecord(room);
+                    if (!roomName) return null;
+                    const initials = roomName.split(' ').map(word => word[0]).join('').toUpperCase();
+                    return {
+                        id: 'room-' + roomName.toLowerCase().replace(/\s+/g, '-'),
+                        title: roomName,
+                        initials: initials,
+                        extendedProps: {
+                            role: 'Room',
+                            color: colors[index % colors.length],
+                            clinicId: room.clinicId || room.ClinicId || room.officeID || room.OfficeID || room.dbClinicId || room.clinicID,
+                            clinic: room.clinic || room.Clinic || room.office || room.Office || room.officeName || room.OfficeName || room.clinicName || room.ClinicName,
+                            roomCategory: room.roomCategory || room.RoomCategory
+                        }
+                    };
+                })
+                .filter(Boolean);
 
             const unassignedRoom = {
                 id: 'room-unassigned',
@@ -83195,8 +83201,15 @@ window.initializeCalendar = initializeCalendar;
                     // In assistants mode, still show provider columns (assistants will stack within cells)
                     
                     if (this.viewMode === 'employee') {
+                        if ((!Array.isArray(employeeResources) || employeeResources.length === 0) && typeof loadEmployeeResourcesFromUsers === 'function') {
+                            loadEmployeeResourcesFromUsers();
+                            if (typeof buildProviderResources === 'function') buildProviderResources();
+                        }
                         return getFilteredResources(employeeResources, 'employee');
                     } else if (this.viewMode === 'room') {
+                        if ((!Array.isArray(roomResources) || roomResources.length <= 1) && Array.isArray(masterData?.rooms) && masterData.rooms.length > 0 && typeof buildRoomResources === 'function') {
+                            buildRoomResources();
+                        }
                         return getFilteredResources(roomResources, 'room');
                     } else if (this.viewMode === 'provider') {
                         return getFilteredResources(providerResources, 'provider');
