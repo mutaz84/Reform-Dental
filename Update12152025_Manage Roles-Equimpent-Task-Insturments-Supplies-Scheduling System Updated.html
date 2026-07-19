@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260719-tenant-userid-v98';
+                const buildVersion = '20260719-import-clinic-filter-v99';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -116870,6 +116870,42 @@ function getClinicNameForApiPayload(clinicId, fallbackName = '') {
     } catch (_) {}
     return fallback;
 }
+
+function resolveClinicDisplayNameForImportedItem(clinicId, fallbackName = '') {
+    const fallback = String(fallbackName || '').trim();
+    const rawId = String(clinicId || '').trim();
+    if (!rawId) return fallback;
+    const normalizedId = rawId.replace(/^clinic-/i, '');
+    try {
+        const offices = (typeof loadOffices === 'function') ? loadOffices() : [];
+        const matchedOffice = Array.isArray(offices) ? offices.find((office) => {
+            const refs = [office?.officeID, office?.dbId, office?.id, office?.Id, office?.clinicId, office?.ClinicId]
+                .map((value) => String(value || '').trim())
+                .filter(Boolean);
+            return refs.includes(rawId) || refs.includes(normalizedId) || refs.includes(`clinic-${normalizedId}`);
+        }) : null;
+        const officeName = String(matchedOffice?.officeName || matchedOffice?.name || matchedOffice?.Name || '').trim();
+        if (officeName) return officeName;
+
+        const clinics = Array.isArray(window.masterData?.clinics) ? window.masterData.clinics : [];
+        const matchedClinic = clinics.find((clinic) => {
+            const refs = [clinic?.dbId, clinic?.clinicID, clinic?.officeID, clinic?.id, clinic?.Id]
+                .map((value) => String(value || '').trim())
+                .filter(Boolean);
+            return refs.includes(rawId) || refs.includes(normalizedId) || refs.includes(`clinic-${normalizedId}`);
+        });
+        const clinicName = String(matchedClinic?.name || matchedClinic?.Name || matchedClinic?.officeName || matchedClinic?.clinicName || '').trim();
+        if (clinicName) return clinicName;
+
+        if (typeof getSelectedClinicMetadata === 'function') {
+            const selected = getSelectedClinicMetadata();
+            if (selected?.selectedClinicId && String(selected.selectedClinicId) === normalizedId && selected.selectedClinicName) {
+                return selected.selectedClinicName;
+            }
+        }
+    } catch (_) {}
+    return fallback;
+}
 // ============ EQUIPMENT API FUNCTIONS ============
 async function saveEquipmentToAPI(equipmentData) {
     if (typeof API_BASE_URL === 'undefined') return null;
@@ -117229,7 +117265,7 @@ async function syncEquipmentFromAPI() {
                 officeName: (() => {
                     const officeId = e.ClinicId || e.clinicId || '';
                     const officeRecord = offices.find(office => String(office?.officeID ?? office?.dbId ?? office?.id ?? '') === String(officeId));
-                    return officeRecord?.officeName || officeRecord?.name || '';
+                    return officeRecord?.officeName || officeRecord?.name || (typeof resolveClinicDisplayNameForImportedItem === 'function' ? resolveClinicDisplayNameForImportedItem(officeId, e.ClinicName || e.clinicName || '') : '');
                 })(),
                 roomId: e.RoomId || e.roomId || '',
                 roomName: (() => {
@@ -117680,6 +117716,7 @@ async function syncInstrumentsFromAPI() {
                 category: i.Category || i.category || '',
                 instrumentType: i.Description || i.description || '',
                 officeId: i.ClinicId || i.clinicId || '',
+                officeName: (typeof resolveClinicDisplayNameForImportedItem === 'function') ? resolveClinicDisplayNameForImportedItem(i.ClinicId || i.clinicId || '', i.ClinicName || i.clinicName || '') : (i.ClinicName || i.clinicName || ''),
                 vendorId: i.VendorId || i.vendorId || '',
                 quantity: mergedQty,
                 status: i.Status || i.status || 'available',
@@ -117874,6 +117911,7 @@ async function _syncSuppliesForNs(ns) {
                 sku: s.SKU || s.sku || '',
                 manufacturer: s.Description || s.description || '',
                 officeId: s.ClinicId || s.clinicId || '',
+                officeName: (typeof resolveClinicDisplayNameForImportedItem === 'function') ? resolveClinicDisplayNameForImportedItem(s.ClinicId || s.clinicId || '', s.ClinicName || s.clinicName || '') : (s.ClinicName || s.clinicName || ''),
                 roomId: s.RoomId || s.roomId || '',
                 quantityInStock: s.QuantityInStock || s.quantityInStock || 0,
                 reorderLevel: s.MinimumStock || s.minimumStock || s.ReorderPoint || s.reorderPoint || 0,

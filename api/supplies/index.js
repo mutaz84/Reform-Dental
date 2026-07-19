@@ -65,7 +65,7 @@ module.exports = async function (context, req) {
 
         if (req.method === 'GET') {
             if (id) {
-                const where = ['Id = @id'];
+                const where = ['s.Id = @id'];
                 const reqBuilder = pool.request().input('id', sql.Int, id);
                 if (hasClinicCol) {
                     if (!tenantUserId) {
@@ -73,10 +73,10 @@ module.exports = async function (context, req) {
                         return;
                     }
                     reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                    where.push(tenantClinicScopeSql('ClinicId'));
+                    where.push(tenantClinicScopeSql('s.ClinicId'));
                 }
                 const result = await reqBuilder
-                    .query(`SELECT * FROM Supplies WHERE ${where.join(' AND ')}`);
+                    .query(`SELECT s.*, c.Name AS ClinicName FROM Supplies s LEFT JOIN Clinics c ON c.Id = s.ClinicId WHERE ${where.join(' AND ')}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 if (hasClinicCol && !tenantUserId) {
@@ -91,10 +91,10 @@ module.exports = async function (context, req) {
                 }
                 if (hasClinicCol) {
                     reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                    where.push(tenantClinicScopeSql('ClinicId'));
+                    where.push(tenantClinicScopeSql('s.ClinicId'));
                 }
                 const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-                const result = await reqBuilder.query(`SELECT * FROM Supplies ${whereClause} ${orderBy}`);
+                const result = await reqBuilder.query(`SELECT s.*, c.Name AS ClinicName FROM Supplies s LEFT JOIN Clinics c ON c.Id = s.ClinicId ${whereClause} ORDER BY s.${hasColumn(supplyColumns, 'Name') ? 'Name' : 'Id'}`);
                 let rows = result.recordset || [];
                 if (hasSupplyType && requestedType) {
                     rows = rows.filter(r => {

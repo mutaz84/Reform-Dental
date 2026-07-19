@@ -39,7 +39,7 @@ module.exports = async function (context, req) {
                 const result = await pool.request()
                     .input('id', sql.Int, id)
                     .input(TENANT_PARAM, sql.Int, tenantUserId)
-                    .query(`SELECT * FROM Instruments WHERE Id = @id AND ${tenantClinicScopeSql('ClinicId')}`);
+                    .query(`SELECT i.*, c.Name AS ClinicName FROM Instruments i LEFT JOIN Clinics c ON c.Id = i.ClinicId WHERE i.Id = @id AND ${tenantClinicScopeSql('i.ClinicId')}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 if (!tenantUserId) {
@@ -48,7 +48,7 @@ module.exports = async function (context, req) {
                 }
                 const result = await pool.request()
                     .input(TENANT_PARAM, sql.Int, tenantUserId)
-                    .query(`SELECT * FROM Instruments WHERE ${tenantClinicScopeSql('ClinicId')} ORDER BY Name`);
+                    .query(`SELECT i.*, c.Name AS ClinicName FROM Instruments i LEFT JOIN Clinics c ON c.Id = i.ClinicId WHERE ${tenantClinicScopeSql('i.ClinicId')} ORDER BY i.Name`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {

@@ -120,16 +120,16 @@ module.exports = async function (context, req) {
             if (id) {
                 // Single-row fetch is tenant-scoped: not found if outside the caller's clinics.
                 const reqBuilder = pool.request().input('id', sql.Int, id);
-                let whereSql = 'Id = @id';
+                let whereSql = 'e.Id = @id';
                 if (hasClinicCol) {
                     if (!tenantUserId) {
                         context.res = { status: 200, headers, body: null };
                         return;
                     }
                     reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                    whereSql += ` AND ${tenantClinicScopeSql('ClinicId')}`;
+                    whereSql += ` AND ${tenantClinicScopeSql('e.ClinicId')}`;
                 }
-                const result = await reqBuilder.query(`SELECT * FROM Equipment WHERE ${whereSql}`);
+                const result = await reqBuilder.query(`SELECT e.*, c.Name AS ClinicName FROM Equipment e LEFT JOIN Clinics c ON c.Id = e.ClinicId WHERE ${whereSql}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 if (hasClinicCol && !tenantUserId) {
@@ -140,9 +140,9 @@ module.exports = async function (context, req) {
                 let whereSql = '';
                 if (hasClinicCol) {
                     reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                    whereSql = `WHERE ${tenantClinicScopeSql('ClinicId')}`;
+                    whereSql = `WHERE ${tenantClinicScopeSql('e.ClinicId')}`;
                 }
-                const result = await reqBuilder.query(`SELECT * FROM Equipment ${whereSql} ${orderBy}`);
+                const result = await reqBuilder.query(`SELECT e.*, c.Name AS ClinicName FROM Equipment e LEFT JOIN Clinics c ON c.Id = e.ClinicId ${whereSql} ORDER BY e.${hasColumn(equipmentColumns, 'Name') ? 'Name' : 'Id'}`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {

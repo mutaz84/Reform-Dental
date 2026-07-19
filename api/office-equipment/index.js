@@ -110,19 +110,19 @@ module.exports = async function (context, req) {
                 return;
             }
             if (id) {
-                const where = ['Id = @id'];
-                if (hasClinicCol) where.push(tenantClinicScopeSql('ClinicId'));
+                const where = ['e.Id = @id'];
+                if (hasClinicCol) where.push(tenantClinicScopeSql('e.ClinicId'));
                 const reqBuilder = pool.request().input('id', sql.Int, id);
                 if (hasClinicCol) reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                const result = await reqBuilder.query(`SELECT * FROM OfficeEquipment WHERE ${where.join(' AND ')}`);
+                const result = await reqBuilder.query(`SELECT e.*, c.Name AS ClinicName FROM OfficeEquipment e LEFT JOIN Clinics c ON c.Id = e.ClinicId WHERE ${where.join(' AND ')}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 const where = [];
-                if (hasClinicCol) where.push(tenantClinicScopeSql('ClinicId'));
+                if (hasClinicCol) where.push(tenantClinicScopeSql('e.ClinicId'));
                 const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
                 const reqBuilder = pool.request();
                 if (hasClinicCol) reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                const result = await reqBuilder.query(`SELECT * FROM OfficeEquipment ${whereClause} ${orderBy}`);
+                const result = await reqBuilder.query(`SELECT e.*, c.Name AS ClinicName FROM OfficeEquipment e LEFT JOIN Clinics c ON c.Id = e.ClinicId ${whereClause} ORDER BY e.${hasColumn(equipmentColumns, 'Name') ? 'Name' : 'Id'}`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {
