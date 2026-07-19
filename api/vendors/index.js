@@ -140,6 +140,7 @@ module.exports = async function (context, req) {
             const cols = ['Name'];
             const vals = ['@name'];
             addColumnValue(vendorColumns, cols, vals, 'VendorType', 'vendorType');
+            addColumnValue(vendorColumns, cols, vals, 'Category', 'vendorType');
             addColumnValue(vendorColumns, cols, vals, 'ContactName', 'contactName');
             addColumnValue(vendorColumns, cols, vals, 'Phone', 'phone');
             addColumnValue(vendorColumns, cols, vals, 'AlternatePhone', 'alternatePhone');
@@ -162,10 +163,10 @@ module.exports = async function (context, req) {
             }
             const request = pool.request()
                 .input('name', sql.NVarChar, body.name || '')
-                .input('vendorType', sql.NVarChar, body.vendorType || '')
+                .input('vendorType', sql.NVarChar, bodyValue(body, ['vendorType', 'VendorType', 'type', 'category', 'Category'], ''))
                 .input('contactName', sql.NVarChar, body.contactPerson || '')
                 .input('phone', sql.NVarChar, body.phone || '')
-                .input('alternatePhone', sql.NVarChar, body.alternatePhone || '')
+                .input('alternatePhone', sql.NVarChar, bodyValue(body, ['alternatePhone', 'AlternatePhone', 'altPhone', 'AltPhone'], ''))
                 .input('email', sql.NVarChar, body.email || '')
                 .input('address', sql.NVarChar, body.address || '')
                 .input('city', sql.NVarChar, body.city || '')
@@ -190,6 +191,7 @@ module.exports = async function (context, req) {
             const hasImageUrl = hasColumn(vendorColumns, 'ImageUrl');
             const setClauses = ['Name=@name'];
             addSetClause(vendorColumns, setClauses, 'VendorType', 'vendorType');
+            addSetClause(vendorColumns, setClauses, 'Category', 'vendorType');
             addSetClause(vendorColumns, setClauses, 'ContactName', 'contactName');
             addSetClause(vendorColumns, setClauses, 'Phone', 'phone');
             addSetClause(vendorColumns, setClauses, 'AlternatePhone', 'alternatePhone');
@@ -212,10 +214,10 @@ module.exports = async function (context, req) {
             const request = pool.request()
                 .input('id', sql.Int, id)
                 .input('name', sql.NVarChar, bodyValue(body, ['name', 'vendorName', 'Name'], ''))
-                .input('vendorType', sql.NVarChar, bodyValue(body, ['vendorType', 'VendorType', 'type', 'category'], ''))
+                .input('vendorType', sql.NVarChar, bodyValue(body, ['vendorType', 'VendorType', 'type', 'category', 'Category'], ''))
                 .input('contactName', sql.NVarChar, bodyValue(body, ['contactPerson', 'contactName', 'ContactName', 'contact'], ''))
                 .input('phone', sql.NVarChar, bodyValue(body, ['phone', 'Phone'], ''))
-                .input('alternatePhone', sql.NVarChar, bodyValue(body, ['alternatePhone', 'AlternatePhone'], ''))
+                .input('alternatePhone', sql.NVarChar, bodyValue(body, ['alternatePhone', 'AlternatePhone', 'altPhone', 'AltPhone'], ''))
                 .input('email', sql.NVarChar, bodyValue(body, ['email', 'Email'], ''))
                 .input('address', sql.NVarChar, bodyValue(body, ['address', 'Address'], ''))
                 .input('city', sql.NVarChar, bodyValue(body, ['city', 'City'], ''))
