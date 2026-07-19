@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260719-room-category-filter-v96';
+                const buildVersion = '20260719-import-refresh-v97';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -68665,21 +68665,18 @@
         function initializeInstrumentsView() {
             const addBtn = document.getElementById('instrumentsAddBtn');
             if (addBtn) addBtn.style.display = (typeof hasPermission === 'function' && hasPermission('instruments', 'create')) ? 'inline-flex' : 'none';
-            const instruments = loadInstruments();
-            if (instruments.length === 0 && typeof syncInstrumentsFromAPI === 'function') {
-                syncInstrumentsFromAPI().then(() => {
-                    populateInstrumentsPageTypeFilter();
-                    renderInstrumentServiceSummaryCards();
-                    renderInstrumentsPageList();
-                }).catch(() => {
-                    populateInstrumentsPageTypeFilter();
-                    renderInstrumentServiceSummaryCards();
-                    renderInstrumentsPageList();
-                });
-            } else {
+            const renderInstrumentsViewFromCurrentState = () => {
                 populateInstrumentsPageTypeFilter();
                 renderInstrumentServiceSummaryCards();
                 renderInstrumentsPageList();
+            };
+            renderInstrumentsViewFromCurrentState();
+            if (typeof syncInstrumentsFromAPI === 'function') {
+                syncInstrumentsFromAPI().then(() => {
+                    renderInstrumentsViewFromCurrentState();
+                }).catch(() => {
+                    renderInstrumentsViewFromCurrentState();
+                });
             }
         }
 
@@ -69723,20 +69720,19 @@
                     : '<i class="fas fa-boxes" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>Dental Supplies';
             }
             updateSuppliesNsToggleUI();
-            const supplies = loadSupplies(ns);
             const syncFn = (ns === 'office') ? (typeof syncOfficeSuppliesFromAPI === 'function' ? syncOfficeSuppliesFromAPI : null)
                                              : (typeof syncDentalSuppliesFromAPI === 'function' ? syncDentalSuppliesFromAPI : null);
-            if (supplies.length === 0 && syncFn) {
-                syncFn().then(() => {
-                    populateSuppliesPageTypeFilter();
-                    renderSuppliesPageList();
-                }).catch(() => {
-                    populateSuppliesPageTypeFilter();
-                    renderSuppliesPageList();
-                });
-            } else {
+            const renderSuppliesViewFromCurrentState = () => {
                 populateSuppliesPageTypeFilter();
                 renderSuppliesPageList();
+            };
+            renderSuppliesViewFromCurrentState();
+            if (syncFn) {
+                syncFn().then(() => {
+                    renderSuppliesViewFromCurrentState();
+                }).catch(() => {
+                    renderSuppliesViewFromCurrentState();
+                });
             }
         }
 
@@ -117291,6 +117287,21 @@ async function syncEquipmentFromAPI() {
     }
 }
 
+async function syncAllEquipmentNamespacesFromAPI() {
+    if (typeof syncEquipmentFromAPI !== 'function') return false;
+    const previousNamespace = (typeof window !== 'undefined') ? window.__equipmentNamespace : undefined;
+    const results = [];
+    try {
+        if (typeof window !== 'undefined') window.__equipmentNamespace = 'dental';
+        results.push(await syncEquipmentFromAPI());
+        if (typeof window !== 'undefined') window.__equipmentNamespace = 'office';
+        results.push(await syncEquipmentFromAPI());
+    } finally {
+        if (typeof window !== 'undefined') window.__equipmentNamespace = previousNamespace;
+    }
+    return results.some(Boolean);
+}
+
 // ============ INSTRUMENTS API FUNCTIONS ============
 async function saveInstrumentToAPI(instrumentData) {
     if (typeof API_BASE_URL === 'undefined') return;
@@ -119932,9 +119943,10 @@ async function loadAllDataFromAPI(options = {}) {
             { name: 'users', fn: typeof syncUsersFromAPIWithRetry === 'function' ? (() => syncUsersFromAPIWithRetry({ attempts: 4, delayMs: 900 })) : (typeof syncUsersFromAPI === 'function' ? syncUsersFromAPI : null) },
             { name: 'clinics', fn: typeof syncClinicsFromAPI === 'function' ? syncClinicsFromAPI : null },
             { name: 'rooms', fn: typeof syncRoomsFromAPI === 'function' ? syncRoomsFromAPI : null },
-            { name: 'equipment', fn: typeof syncEquipmentFromAPI === 'function' ? syncEquipmentFromAPI : null },
+            { name: 'equipment', fn: typeof syncAllEquipmentNamespacesFromAPI === 'function' ? syncAllEquipmentNamespacesFromAPI : (typeof syncEquipmentFromAPI === 'function' ? syncEquipmentFromAPI : null) },
             { name: 'instruments', fn: typeof syncInstrumentsFromAPI === 'function' ? syncInstrumentsFromAPI : null },
             { name: 'supplies', fn: typeof syncSuppliesFromAPI === 'function' ? syncSuppliesFromAPI : null },
+            { name: 'utilities', fn: typeof syncUtilitiesFromAPI === 'function' ? syncUtilitiesFromAPI : null },
             { name: 'tasks', fn: typeof syncTasksFromAPI === 'function' ? syncTasksFromAPI : null },
             { name: 'schedules', fn: typeof syncSchedulesFromAPIWithRetry === 'function' ? (() => syncSchedulesFromAPIWithRetry({ attempts: 4, delayMs: 700 })) : (typeof syncSchedulesFromAPI === 'function' ? syncSchedulesFromAPI : null) },
             { name: 'vendors', fn: typeof syncVendorsFromAPI === 'function' ? syncVendorsFromAPI : null },
