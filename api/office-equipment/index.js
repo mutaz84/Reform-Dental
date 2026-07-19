@@ -99,7 +99,6 @@ module.exports = async function (context, req) {
             return;
         }
 
-        const hasIsActive = hasColumn(equipmentColumns, 'IsActive');
         const hasClinicCol = hasColumn(equipmentColumns, 'ClinicId');
         const orderBy = hasColumn(equipmentColumns, 'Name') ? 'ORDER BY Name' : 'ORDER BY Id';
         const id = req.params.id;
@@ -112,7 +111,6 @@ module.exports = async function (context, req) {
             }
             if (id) {
                 const where = ['Id = @id'];
-                if (hasIsActive) where.push('IsActive = 1');
                 if (hasClinicCol) where.push(tenantClinicScopeSql('ClinicId'));
                 const reqBuilder = pool.request().input('id', sql.Int, id);
                 if (hasClinicCol) reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
@@ -120,7 +118,6 @@ module.exports = async function (context, req) {
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 const where = [];
-                if (hasIsActive) where.push('IsActive = 1');
                 if (hasClinicCol) where.push(tenantClinicScopeSql('ClinicId'));
                 const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
                 const reqBuilder = pool.request();

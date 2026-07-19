@@ -33,6 +33,10 @@ function normalizeSupplyType(raw) {
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Surrogate-Control': 'no-store',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id'
@@ -52,7 +56,6 @@ module.exports = async function (context, req) {
         }
         supplyColumns = await ensureSupplyTypeColumn(pool, supplyColumns);
 
-        const hasIsActive = hasColumn(supplyColumns, 'IsActive');
         const hasSupplyType = hasColumn(supplyColumns, 'SupplyType');
         const orderBy = hasColumn(supplyColumns, 'Name') ? 'ORDER BY Name' : 'ORDER BY Id';
         const id = req.params.id;
@@ -63,9 +66,6 @@ module.exports = async function (context, req) {
         if (req.method === 'GET') {
             if (id) {
                 const where = ['Id = @id'];
-                if (hasIsActive) {
-                    where.push('IsActive = 1');
-                }
                 const reqBuilder = pool.request().input('id', sql.Int, id);
                 if (hasClinicCol) {
                     if (!tenantUserId) {
@@ -84,7 +84,6 @@ module.exports = async function (context, req) {
                     return;
                 }
                 const where = [];
-                if (hasIsActive) where.push('IsActive = 1');
                 const reqBuilder = pool.request();
                 if (hasSupplyType && requestedType) {
                     where.push('(SupplyType = @stype OR SupplyType IS NULL)');
@@ -122,6 +121,7 @@ module.exports = async function (context, req) {
             }
             const cols = ['Name', 'Category', 'SKU', 'Description', 'Unit', 'QuantityInStock', 'MinimumStock', 'ReorderPoint', 'UnitCost', 'ClinicId', 'Notes', 'Warnings', 'ImageUrl', 'DocumentUrl'];
             const params = ['@name', '@category', '@sku', '@description', '@unit', '@quantityInStock', '@minimumStock', '@reorderPoint', '@unitCost', '@clinicId', '@notes', '@warnings', '@imageUrl', '@documentUrl'];
+            const hasIsActive = hasColumn(supplyColumns, 'IsActive');
             if (hasSupplyType) { cols.push('SupplyType'); params.push('@supplyType'); }
             if (hasIsActive) { cols.push('IsActive'); params.push('@isActive'); }
             const reqBuilder = pool.request()

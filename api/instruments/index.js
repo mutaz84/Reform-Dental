@@ -1,28 +1,13 @@
-const sql = require('mssql');
+const { sql, getPool, resetPool } = require('../shared/database');
 const { getRequestUserId, tenantClinicScopeSql, resolveWritableClinicId, TENANT_PARAM } = require('../shared/tenant');
-
-function getConfig() {
-    const connStr = process.env.SQL_CONNECTION_STRING;
-    if (connStr) {
-        const serverMatch = connStr.match(/Server=(?:tcp:)?([^,;]+)/i);
-        const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
-        const userMatch = connStr.match(/User ID=([^;]+)/i);
-        const passMatch = connStr.match(/Password=([^;]+)/i);
-        
-        return {
-            server: serverMatch ? serverMatch[1] : '',
-            database: dbMatch ? dbMatch[1] : '',
-            user: userMatch ? userMatch[1] : '',
-            password: passMatch ? passMatch[1] : '',
-            options: { encrypt: true, trustServerCertificate: false }
-        };
-    }
-    return {};
-}
 
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Surrogate-Control': 'no-store',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id'
@@ -34,7 +19,7 @@ module.exports = async function (context, req) {
     }
 
     try {
-        const pool = await sql.connect(getConfig());
+        const pool = await getPool();
         // Ensure optional Links column exists for arbitrary external URLs per instrument.
         try {
             await pool.request().query(`
@@ -144,10 +129,9 @@ module.exports = async function (context, req) {
             }
             context.res = { status: 200, headers, body: { message: 'Instrument deleted' } };
         }
-
-        await pool.close();
     } catch (err) {
         context.log.error('Database error:', err);
+        await resetPool();
         context.res = { status: 500, headers, body: { error: err.message } };
     }
 };
