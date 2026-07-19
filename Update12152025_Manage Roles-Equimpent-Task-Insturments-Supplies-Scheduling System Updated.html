@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260719-import-refresh-v97';
+                const buildVersion = '20260719-tenant-userid-v98';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -31513,8 +31513,24 @@
                 'Unknown User'
             ).trim();
 
-            const resolvedDbId = knownUser.id || knownUser.Id || knownUser.userId || knownUser.UserId || knownUser.dbId || knownUser.DbId || knownUser.DBId
-                || seed.id || seed.Id || seed.userId || seed.UserId || seed.dbId || seed.DbId || seed.DBId;
+            const pickNumericUserId = (...values) => {
+                for (const value of values) {
+                    const raw = String(value || '').trim();
+                    if (!/^\d+$/.test(raw)) continue;
+                    const parsed = parseInt(raw, 10);
+                    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+                }
+                return null;
+            };
+
+            const resolvedDbId = pickNumericUserId(
+                seed.dbId, seed.DbId, seed.DBId,
+                seed.userId, seed.UserId,
+                seed.id, seed.Id,
+                knownUser.dbId, knownUser.DbId, knownUser.DBId,
+                knownUser.userId, knownUser.UserId,
+                knownUser.id, knownUser.Id
+            );
 
             return {
                 ...seed,
@@ -31524,9 +31540,9 @@
                 name: resolvedName,
                 firstName,
                 lastName,
-                dbId: resolvedDbId || seed.dbId,
-                id: resolvedDbId || seed.id,
-                userId: resolvedDbId || seed.userId
+                dbId: resolvedDbId || seed.dbId || knownUser.dbId,
+                id: resolvedDbId || seed.id || knownUser.id,
+                userId: resolvedDbId || seed.userId || knownUser.userId
             };
         }
 
@@ -114284,14 +114300,28 @@ if (typeof window !== 'undefined') {
 function getTenantUserIdCandidate(user) {
     try {
         const source = user && typeof user === 'object' ? user : {};
-        const candidate = source.id || source.Id || source.userId || source.UserId || source.dbId || source.DbId || source.DBId
-            || (typeof window !== 'undefined' ? window.currentDbUserId : null)
-            || localStorage.getItem('currentUserId')
-            || localStorage.getItem('userId')
-            || localStorage.getItem('loggedInUserId')
-            || localStorage.getItem('activeUserId')
-            || localStorage.getItem('currentDbUserId');
-        return String(candidate || '').trim();
+        const toPositiveIntString = (value) => {
+            const raw = String(value || '').trim();
+            if (!/^\d+$/.test(raw)) return '';
+            const parsed = parseInt(raw, 10);
+            return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : '';
+        };
+        const candidates = [
+            source.dbId, source.DbId, source.DBId,
+            source.userId, source.UserId,
+            source.id, source.Id,
+            (typeof window !== 'undefined' ? window.currentDbUserId : null),
+            localStorage.getItem('currentDbUserId'),
+            localStorage.getItem('currentUserId'),
+            localStorage.getItem('userId'),
+            localStorage.getItem('loggedInUserId'),
+            localStorage.getItem('activeUserId')
+        ];
+        for (const candidate of candidates) {
+            const numericId = toPositiveIntString(candidate);
+            if (numericId) return numericId;
+        }
+        return '';
     } catch (_) {
         return '';
     }
