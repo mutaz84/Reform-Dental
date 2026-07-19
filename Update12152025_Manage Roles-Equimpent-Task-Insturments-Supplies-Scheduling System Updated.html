@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260718-room-category-filter-v95';
+                const buildVersion = '20260719-room-category-filter-v96';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -42812,7 +42812,8 @@
                     ...room,
                     dbId: room?.dbId || room?.roomID || room?.id || null,
                     roomID: room?.roomID || room?.dbId || room?.id || null,
-                    clinicId: room?.clinicId || room?.ClinicId || room?.officeID || room?.officeId || null
+                    clinicId: room?.clinicId || room?.ClinicId || room?.officeID || room?.officeId || null,
+                    roomCategory: room?.roomCategory || room?.RoomCategory || room?.category || room?.Category || ''
                 }))
                 : [];
         }
@@ -43493,7 +43494,7 @@
                 const currentCategory = categoryFilter.value;
                 const rooms = typeof loadRooms === 'function' ? loadRooms() : [];
                 const baseCategories = ['clinical', 'non-clinical'];
-                const categories = [...new Set([...baseCategories, ...rooms.map(room => room?.roomCategory || room?.category || '').filter(Boolean)])].sort((a, b) => a.localeCompare(b));
+                const categories = [...new Set([...baseCategories, ...rooms.map(room => room?.roomCategory || room?.RoomCategory || room?.category || room?.Category || '').filter(Boolean).map(category => String(category).trim().toLowerCase())])].sort((a, b) => a.localeCompare(b));
                 const labelCategory = (category) => String(category || '').split('-').map(part => part ? part.charAt(0).toUpperCase() + part.slice(1) : '').join('-');
                 categoryFilter.innerHTML = '<option value="">All Categories</option>' + categories.map(category => `<option value="${esc(category)}">${esc(labelCategory(category))}</option>`).join('');
                 if (currentCategory && categories.includes(currentCategory)) categoryFilter.value = currentCategory;
@@ -43622,7 +43623,11 @@
                 roomType,
                 notes,
                 description: notes,
-                color
+                color,
+                roomCategory,
+                RoomCategory: roomCategory,
+                category: roomCategory,
+                Category: roomCategory
             };
 
             async function saveRoomToDatabase(localRoom) {
@@ -43783,7 +43788,7 @@
                     : clinicFilteredRooms.filter(room => String(room.roomType || room.type || '').trim() === selectedType);
                 const filteredRooms = !selectedCategory
                     ? typeFilteredRooms
-                    : typeFilteredRooms.filter(room => String(room.roomCategory || room.category || '').trim() === selectedCategory);
+                    : typeFilteredRooms.filter(room => String(room.roomCategory || room.RoomCategory || room.category || room.Category || '').trim().toLowerCase() === selectedCategory.toLowerCase());
             
                 if (rooms.length === 0) {
                 roomsList.innerHTML = '<tr><td colspan="5" style="padding: 2rem; text-align: center; color: var(--text-tertiary);">No rooms added yet. Click "Add New Room" to get started.</td></tr>';
@@ -118171,6 +118176,8 @@ async function syncRoomsFromAPI() {
             roomType: r.RoomType || r.roomType || 'operatory',
             type: r.RoomType || r.roomType || 'operatory',
             color: r.Color || r.color || '#3b82f6',
+            roomCategory: r.RoomCategory || r.roomCategory || r.Category || r.category || '',
+            category: r.RoomCategory || r.roomCategory || r.Category || r.category || '',
             description: r.Description || r.description || '',
             status: 'Active',
             sortOrder: Number(r.SortOrder || r.sortOrder || index + 1) || index + 1,

@@ -18,6 +18,13 @@ function toIntOrNull(value) {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+function bodyValue(obj, names, fallback = '') {
+    for (const name of names) {
+        if (Object.prototype.hasOwnProperty.call(obj || {}, name)) return obj[name];
+    }
+    return fallback;
+}
+
 async function linkUserToClinicIfPossible(pool, userId, clinicId) {
     const safeUserId = toIntOrNull(userId);
     const safeClinicId = toIntOrNull(clinicId);
@@ -194,6 +201,14 @@ module.exports = async function (context, req) {
             }
             const insertColumns = ['Name', 'ClinicId', 'RoomType', 'Description', 'Color'];
             const insertValues = ['@name', '@clinicId', '@roomType', '@description', '@color'];
+            if (hasColumn(roomColumns, 'RoomCategory')) {
+                insertColumns.push('RoomCategory');
+                insertValues.push('@roomCategory');
+            }
+            if (hasColumn(roomColumns, 'Category')) {
+                insertColumns.push('Category');
+                insertValues.push('@roomCategory');
+            }
             if (hasSortOrder) {
                 insertColumns.push('SortOrder');
                 insertValues.push('COALESCE(@sortOrder, (SELECT ISNULL(MAX(SortOrder), 0) + 1 FROM Rooms WHERE ClinicId = @clinicId))');
@@ -202,6 +217,7 @@ module.exports = async function (context, req) {
                 .input('name', sql.NVarChar, body.name)
                 .input('clinicId', sql.Int, clinicId)
                 .input('roomType', sql.NVarChar, body.roomType)
+                .input('roomCategory', sql.NVarChar, bodyValue(body, ['roomCategory', 'RoomCategory', 'category', 'Category'], ''))
                 .input('description', sql.NVarChar, body.description)
                 .input('color', sql.NVarChar, body.color)
                 .input('sortOrder', sql.Int, toIntOrNull(body.sortOrder ?? body.SortOrder))
@@ -210,6 +226,12 @@ module.exports = async function (context, req) {
         } else if (req.method === 'PUT' && id) {
             const body = req.body;
             const setClauses = ['Name=@name', 'RoomType=@roomType', 'Description=@description', 'Color=@color', 'ModifiedDate=GETUTCDATE()'];
+            if (hasColumn(roomColumns, 'RoomCategory')) {
+                setClauses.push('RoomCategory=@roomCategory');
+            }
+            if (hasColumn(roomColumns, 'Category')) {
+                setClauses.push('Category=@roomCategory');
+            }
             if (hasSortOrder && (body.sortOrder !== undefined || body.SortOrder !== undefined)) {
                 setClauses.push('SortOrder=@sortOrder');
             }
@@ -217,6 +239,7 @@ module.exports = async function (context, req) {
                 .input('id', sql.Int, id)
                 .input('name', sql.NVarChar, body.name)
                 .input('roomType', sql.NVarChar, body.roomType)
+                .input('roomCategory', sql.NVarChar, bodyValue(body, ['roomCategory', 'RoomCategory', 'category', 'Category'], ''))
                 .input('description', sql.NVarChar, body.description)
                 .input('color', sql.NVarChar, body.color)
                 .input('sortOrder', sql.Int, toIntOrNull(body.sortOrder ?? body.SortOrder))
