@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260717-calendar-employees-v89';
+                const buildVersion = '20260718-vendor-archive-v90';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -58815,7 +58815,7 @@
             const v = findVendorById(vendorID);
             if (!v) return;
             if (!confirm(`Archive vendor "${v.vendorName}"? You can restore it later.`)) return;
-            _saveVendorRecord({ vendorID: v.vendorID, isActive: false });
+            _saveVendorRecord({ vendorID: v.vendorID, isActive: false, archivedDate: new Date().toISOString() });
             try {
                 if (typeof API_BASE_URL !== 'undefined') {
                     await fetch(`${API_BASE_URL}/vendors/${v.vendorID}`, {
@@ -58833,7 +58833,7 @@
         async function restoreVendor(vendorID) {
             const v = findVendorById(vendorID);
             if (!v) return;
-            _saveVendorRecord({ vendorID: v.vendorID, isActive: true });
+            _saveVendorRecord({ vendorID: v.vendorID, isActive: true, archivedDate: null });
             try {
                 if (typeof API_BASE_URL !== 'undefined') {
                     await fetch(`${API_BASE_URL}/vendors/${v.vendorID}`, {
@@ -119750,7 +119750,7 @@ async function syncVendorsFromAPI() {
         if (typeof migrateVendorFavoritePreferencesFromStoredVendors === 'function') {
             migrateVendorFavoritePreferencesFromStoredVendors();
         }
-        const response = await fetch(`${API_BASE_URL}/vendors`, { headers: getVendorApiHeaders(), cache: 'no-store' });
+        const response = await fetch(`${API_BASE_URL}/vendors?includeInactive=true`, { headers: getVendorApiHeaders(), cache: 'no-store' });
         if (!response.ok) return false;
         const apiVendors = await response.json();
         console.log('?? API Vendors:', apiVendors);
@@ -119779,7 +119779,8 @@ async function syncVendorsFromAPI() {
                 imageUrl: v.ImageUrl || v.imageUrl || '',
                 isActive: v.IsActive === true || v.IsActive === 1 || v.isActive === true || v.isActive === 1,
                 createdDate: v.CreatedDate || v.createdDate || '',
-                modifiedDate: v.ModifiedDate || v.modifiedDate || ''
+                modifiedDate: v.ModifiedDate || v.modifiedDate || '',
+                archivedDate: (v.IsActive === false || v.IsActive === 0 || v.isActive === false || v.isActive === 0) ? (v.ArchivedDate || v.archivedDate || v.ModifiedDate || v.modifiedDate || '') : null
             };
             const serverFavoriteProvided = Object.prototype.hasOwnProperty.call(v, 'IsFavorite')
                 || Object.prototype.hasOwnProperty.call(v, 'isFavorite')

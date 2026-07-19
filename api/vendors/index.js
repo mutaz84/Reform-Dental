@@ -115,9 +115,10 @@ module.exports = async function (context, req) {
         const callerUserId = getRequestUserId(req);
 
         if (req.method === 'GET') {
+            const includeInactive = /^(1|true|yes|all)$/i.test(String((req.query && (req.query.includeInactive || req.query.includeArchived || req.query.all)) || '').trim());
             if (id) {
                 const where = ['Id = @id'];
-                if (hasIsActive) where.push('IsActive = 1');
+                if (hasIsActive && !includeInactive) where.push('IsActive = 1');
                 if (hasSubscriptionId) where.push(tenantSubscriptionScope('SubscriptionId'));
                 const r = pool.request().input('id', sql.Int, id);
                 if (hasSubscriptionId) r.input(TENANT_PARAM, sql.Int, callerUserId || -1);
@@ -125,7 +126,7 @@ module.exports = async function (context, req) {
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 const where = [];
-                if (hasIsActive) where.push('IsActive = 1');
+                if (hasIsActive && !includeInactive) where.push('IsActive = 1');
                 if (hasSubscriptionId) where.push(tenantSubscriptionScope('SubscriptionId'));
                 const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
                 const r = pool.request();
