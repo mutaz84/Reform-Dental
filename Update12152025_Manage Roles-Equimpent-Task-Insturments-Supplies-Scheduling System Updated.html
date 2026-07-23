@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260719-import-clinic-filter-v99';
+                const buildVersion = '20260723-equipment-assignment-archive-v100';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -67095,6 +67095,11 @@
                                 <button type="button" class="equipment-action-btn act-retire" onclick="event.stopPropagation(); openEquipmentRetirementLog('equipment', ${item.equipmentID}, event);" title="Retirement / Out-of-Service Log">
                                     <i class="fas fa-box-archive"></i>
                                 </button>
+                                ${canDeleteEquipment ? `
+                                <button type="button" class="equipment-action-btn danger act-archive" onclick="event.stopPropagation(); archiveEquipment(${item.equipmentID});" title="Archive equipment">
+                                    <i class="fas fa-box-archive"></i>
+                                </button>
+                                ` : ''}
                             </div>
                         </div>
                     </div>
@@ -68198,8 +68203,8 @@
                             </button>
                             ` : ''}
                             ${canDeleteEquipment ? `
-                            <button onclick="deleteEquipment(${item.equipmentID})" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete Equipment">
-                                <i class="fas fa-trash"></i>
+                            <button onclick="archiveEquipment(${item.equipmentID})" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Archive Equipment">
+                                <i class="fas fa-box-archive"></i>
                             </button>
                             ` : ''}
                         </div>
@@ -68640,6 +68645,27 @@
                 roomSelect.appendChild(option);
             });
         }
+
+        async function archiveEquipment(equipmentID) {
+            if (!hasPermission('equipment', 'delete')) {
+                if (typeof showNotification === 'function') showNotification('You do not have permission to archive equipment.', 'warning');
+                return;
+            }
+            if (!confirm('Move this equipment to Archive? You can restore it later from the retirement log.')) return;
+
+            if (typeof _commitEquipmentStatusChange === 'function') {
+                const today = new Date().toISOString().slice(0, 10);
+                const ok = await _commitEquipmentStatusChange('equipment', equipmentID, {
+                    newStatus: 'Retired',
+                    eventDate: today,
+                    reason: 'Archived from equipment card.'
+                });
+                if (ok) return;
+            }
+
+            if (typeof showNotification === 'function') showNotification('Unable to archive this equipment. Open the retirement log and try again.', 'warning');
+        }
+        if (typeof window !== 'undefined') window.archiveEquipment = archiveEquipment;
 
         // Delete equipment
         async function deleteEquipment(equipmentID) {
@@ -99887,14 +99913,14 @@ window.addEventListener('load', function() {
         }
         
         // Delete task assignment
-        function deleteTaskAssignment(assignmentId) {
+        function deleteTaskAssignment(assignmentId, options = {}) {
             const index = window.taskAssignments.findIndex(a => a.id === assignmentId);
             if (index !== -1) {
                 window.taskAssignments.splice(index, 1);
                 saveTaskAssignments();
                 renderTaskAssignmentsView();
                 if (typeof showNotification === 'function') {
-                    showNotification('Task assignment deleted', 'info');
+                    showNotification(options.archived ? 'Task assignment archived' : 'Task assignment deleted', 'info');
                 }
                 return true;
             }
@@ -100510,8 +100536,8 @@ window.addEventListener('load', function() {
                             <button onclick="quickUpdateAssignmentStatus('${assignment.id}')" style="background: var(--accent-primary); border: none; color: white; padding: 0.35rem 0.6rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem;" title="Update Status">
                                 <i class="fas fa-check"></i>
                             </button>
-                            <button onclick="confirmDeleteAssignment('${assignment.id}')" style="background: #fee2e2; border: none; color: #dc2626; padding: 0.35rem 0.6rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem;" title="Delete">
-                                <i class="fas fa-trash"></i>
+                            <button onclick="confirmArchiveAssignment('${assignment.id}')" style="background: #fee2e2; border: none; color: #dc2626; padding: 0.35rem 0.6rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem;" title="Archive">
+                                <i class="fas fa-box-archive"></i>
                             </button>
                         </div>
                     </div>
@@ -100565,6 +100591,12 @@ window.addEventListener('load', function() {
             showNotification(`Status updated to: ${statusName}`, 'success');
         }
         
+        function confirmArchiveAssignment(assignmentId) {
+            if (confirm('Move this task assignment to Archive?')) {
+                deleteTaskAssignment(assignmentId, { archived: true });
+            }
+        }
+
         // Confirm delete assignment
         function confirmDeleteAssignment(assignmentId) {
             if (confirm('Are you sure you want to delete this task assignment?')) {
