@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260719-import-clinic-filter-v99';
+                const buildVersion = '20260804-assignment-form-v101';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -12082,8 +12082,43 @@
             border: 1px solid var(--border-color);
             border-radius: 8px;
             background: var(--card-bg);
+            position: relative;
+        }
+        .team-member-picker-trigger {
+            width: 100%;
+            min-height: 44px;
+            padding: 0.65rem 0.75rem;
+            border: none;
+            background: var(--card-bg);
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            cursor: pointer;
+            font-size: 0.9rem;
+            text-align: left;
+        }
+        .team-member-picker-trigger span {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .team-member-picker-panel {
+            display: none;
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            z-index: 40;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--card-bg);
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
             overflow: hidden;
         }
+        .team-member-picker.open .team-member-picker-panel { display: block; }
         .team-member-picker-search {
             width: 100%;
             padding: 0.55rem 0.75rem;
@@ -12098,6 +12133,26 @@
             max-height: 160px;
             overflow-y: auto;
             padding: 0.35rem 0;
+        }
+        .team-schedule-controls {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
+            gap: 0.75rem;
+        }
+        .team-schedule-none {
+            margin-top: 0.55rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            user-select: none;
+        }
+        .team-schedule-none input { accent-color: var(--accent-primary); }
+        @media (max-width: 720px) {
+            .team-schedule-controls { grid-template-columns: 1fr; }
+            .team-member-picker-panel { position: static; margin-top: 0.4rem; box-shadow: none; }
         }
         .team-member-picker-item {
             display: flex;
@@ -111812,7 +111867,15 @@ document.addEventListener('keydown', function(e) {
                     </div>
                     <div>
                         <label class="form-label" style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: var(--text-secondary); font-size: 0.85rem;">Schedule</label>
-                        <input type="text" id="newTeamSchedule" class="form-input-enhanced" placeholder="e.g. Mon-Fri 8:00 AM" style="width: 100%;">
+                        <div class="team-schedule-controls">
+                            <input type="date" id="newTeamScheduleDate" class="form-input-enhanced" onchange="updateTeamScheduleControlState()" style="width: 100%;">
+                            <input type="time" id="newTeamScheduleTime" class="form-input-enhanced" onchange="updateTeamScheduleControlState()" style="width: 100%;">
+                        </div>
+                        <label class="team-schedule-none">
+                            <input type="checkbox" id="newTeamScheduleNone" onchange="updateTeamScheduleControlState()">
+                            <span>No date or time</span>
+                        </label>
+                        <input type="hidden" id="newTeamSchedule">
                     </div>
                     <select id="newTeamStatus" class="form-input-enhanced" style="display: none;">
                         <option value="1">Active</option>
@@ -111828,8 +111891,14 @@ document.addEventListener('keydown', function(e) {
                 <div style="margin-bottom: 1.25rem;">
                     <label class="form-label" style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: var(--text-secondary); font-size: 0.85rem;">Members</label>
                     <div class="team-member-picker">
-                        <input type="text" class="team-member-picker-search" id="teamMemberPickerSearch" placeholder="Search employees..." oninput="filterTeamMemberPicker()">
-                        <div class="team-member-picker-list" id="teamMemberPickerList"></div>
+                        <button type="button" class="team-member-picker-trigger" onclick="toggleTeamMemberPickerDropdown()">
+                            <span id="teamMemberPickerSummary">Select members...</span>
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                        <div class="team-member-picker-panel" id="teamMemberPickerPanel">
+                            <input type="text" class="team-member-picker-search" id="teamMemberPickerSearch" placeholder="Search employees..." oninput="filterTeamMemberPicker()">
+                            <div class="team-member-picker-list" id="teamMemberPickerList"></div>
+                        </div>
                     </div>
                     <div class="team-member-chips" id="teamMemberChips"></div>
                 </div>
@@ -140146,10 +140215,15 @@ console.log('? Global functions exported to window object');
             ['newTeamName','newTeamSchedule'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
             ['newTeamDescription','newTeamNotes','newTeamWarnings'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
             ['newTeamCategory','newTeamLead','newTeamOffice'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
+            ['newTeamScheduleDate','newTeamScheduleTime','teamMemberPickerSearch'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
+            var scheduleNone = document.getElementById('newTeamScheduleNone'); if (scheduleNone) scheduleNone.checked = false;
             var st=document.getElementById('newTeamStatus'); if(st) st.value='1';
             var ei=document.getElementById('editingTeamId'); if(ei) ei.value='';
             window._teamPhotoData=null; window._teamDocData=null; window._teamDocName=null;
             window._teamSelectedMembers=[];
+            window._teamLegacySchedule='';
+            var picker = document.querySelector('.team-member-picker'); if (picker) picker.classList.remove('open');
+            updateTeamScheduleControlState();
             refreshTeamMemberChips();
             var prev=document.getElementById('teamPhotoPreview'); if(prev) prev.innerHTML='<i class="fas fa-users" style="font-size:2rem;color:var(--text-tertiary);"></i>';
             var dn=document.getElementById('teamDocumentName'); if(dn) dn.textContent='';
@@ -140173,13 +140247,82 @@ console.log('? Global functions exported to window object');
         }
 
         window._teamSelectedMembers = window._teamSelectedMembers || [];
+        window._teamLegacySchedule = window._teamLegacySchedule || '';
+
+        function formatTeamScheduleDate(value) {
+            if (!value) return '';
+            var parts = String(value).split('-').map(function(part){ return parseInt(part, 10); });
+            if (parts.length !== 3 || parts.some(function(part){ return !Number.isFinite(part); })) return value;
+            var date = new Date(parts[0], parts[1] - 1, parts[2]);
+            if (isNaN(date.getTime())) return value;
+            return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        function formatTeamScheduleTime(value) {
+            if (!value) return '';
+            var parts = String(value).split(':');
+            var hours = parseInt(parts[0], 10);
+            var minutes = parseInt(parts[1] || '0', 10);
+            if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return value;
+            var date = new Date(2000, 0, 1, hours, minutes);
+            if (isNaN(date.getTime())) return value;
+            return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+        }
+
+        function buildTeamScheduleFromControls() {
+            var none = !!document.getElementById('newTeamScheduleNone')?.checked;
+            if (none) return '';
+            var dateValue = (document.getElementById('newTeamScheduleDate') || {}).value || '';
+            var timeValue = (document.getElementById('newTeamScheduleTime') || {}).value || '';
+            var dateLabel = formatTeamScheduleDate(dateValue);
+            var timeLabel = formatTeamScheduleTime(timeValue);
+            if (dateLabel && timeLabel) return dateLabel + ' at ' + timeLabel;
+            if (dateLabel) return dateLabel;
+            if (timeLabel) return timeLabel;
+            return window._teamLegacySchedule || '';
+        }
+
+        function updateTeamScheduleControlState() {
+            var none = !!document.getElementById('newTeamScheduleNone')?.checked;
+            ['newTeamScheduleDate','newTeamScheduleTime'].forEach(function(id){
+                var el = document.getElementById(id);
+                if (!el) return;
+                el.disabled = none;
+                if (none) el.value = '';
+            });
+            var hidden = document.getElementById('newTeamSchedule');
+            if (hidden) hidden.value = buildTeamScheduleFromControls();
+        }
+
+        function applyTeamScheduleToControls(team) {
+            var dateEl = document.getElementById('newTeamScheduleDate');
+            var timeEl = document.getElementById('newTeamScheduleTime');
+            var noneEl = document.getElementById('newTeamScheduleNone');
+            var scheduleText = String(team && team.schedule || '').trim();
+            window._teamLegacySchedule = scheduleText;
+            if (dateEl) dateEl.value = team && team.scheduleDate ? String(team.scheduleDate).slice(0, 10) : '';
+            if (timeEl) timeEl.value = team && team.scheduleTime ? String(team.scheduleTime).slice(0, 5) : '';
+            if (noneEl) noneEl.checked = !!(team && team.scheduleNoDateTime) || (!scheduleText && !(dateEl && dateEl.value) && !(timeEl && timeEl.value));
+            updateTeamScheduleControlState();
+        }
+
+        function toggleTeamMemberPickerDropdown(forceOpen) {
+            var picker = document.querySelector('.team-member-picker');
+            if (!picker) return;
+            var shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : !picker.classList.contains('open');
+            picker.classList.toggle('open', shouldOpen);
+            if (shouldOpen) {
+                buildTeamMemberPicker((document.getElementById('teamMemberPickerSearch') || {}).value || '');
+                setTimeout(function(){ var search = document.getElementById('teamMemberPickerSearch'); if (search) search.focus(); }, 0);
+            }
+        }
 
         function buildTeamMemberPicker(searchText) {
             var list = document.getElementById('teamMemberPickerList'); if (!list) return;
             var users = typeof loadUsers === 'function' ? loadUsers() : {};
             var q = (searchText || '').toLowerCase();
             var entries = Object.entries(users).filter(function(e){ var uname=e[0]; var u=e[1]; var name=u.name||[u.firstName,u.lastName].filter(Boolean).join(' ')||uname; return !q||name.toLowerCase().includes(q)||uname.toLowerCase().includes(q); });
-            list.innerHTML = entries.map(function(e){ var uname=e[0]; var u=e[1]; var name=u.name||[u.firstName,u.lastName].filter(Boolean).join(' ')||uname; var checked=(window._teamSelectedMembers||[]).some(function(m){return m.id===uname;}); return '<label class="team-member-picker-item"><input type="checkbox" '+(checked?'checked':'')+' onchange="toggleTeamMember(\''+esc(uname)+'\',\''+esc(name)+'\',this.checked)"> '+esc(name)+'</label>'; }).join('');
+            list.innerHTML = entries.length ? entries.map(function(e){ var uname=e[0]; var u=e[1]; var name=u.name||[u.firstName,u.lastName].filter(Boolean).join(' ')||uname; var checked=(window._teamSelectedMembers||[]).some(function(m){return m.id===uname;}); return '<label class="team-member-picker-item"><input type="checkbox" '+(checked?'checked':'')+' onchange="toggleTeamMember(\''+esc(uname)+'\',\''+esc(name)+'\',this.checked)"> <span>'+esc(name)+'</span></label>'; }).join('') : '<div style="padding:0.8rem;color:var(--text-tertiary);font-size:0.85rem;">No employees found.</div>';
         }
 
         function filterTeamMemberPicker() {
@@ -140192,11 +140335,15 @@ console.log('? Global functions exported to window object');
             if (checked) { if (!window._teamSelectedMembers.some(function(m){return m.id===id;})) window._teamSelectedMembers.push({id:id,name:name}); }
             else { window._teamSelectedMembers = window._teamSelectedMembers.filter(function(m){return m.id!==id;}); }
             refreshTeamMemberChips();
+            buildTeamMemberPicker((document.getElementById('teamMemberPickerSearch') || {}).value || '');
         }
 
         function refreshTeamMemberChips() {
-            var c = document.getElementById('teamMemberChips'); if (!c) return;
-            c.innerHTML = (window._teamSelectedMembers||[]).map(function(m){ return '<span class="team-member-chip">'+esc(m.name)+'<button type="button" onclick="toggleTeamMember(\''+esc(m.id)+'\',\''+esc(m.name)+'\',false);buildTeamMemberPicker();" title="Remove">&times;</button></span>'; }).join('');
+            var selected = window._teamSelectedMembers || [];
+            var c = document.getElementById('teamMemberChips');
+            if (c) c.innerHTML = selected.map(function(m){ return '<span class="team-member-chip">'+esc(m.name)+'<button type="button" onclick="toggleTeamMember(\''+esc(m.id)+'\',\''+esc(m.name)+'\',false);" title="Remove">&times;</button></span>'; }).join('');
+            var summary = document.getElementById('teamMemberPickerSummary');
+            if (summary) summary.textContent = selected.length ? (selected.length + ' member' + (selected.length === 1 ? '' : 's') + ' selected') : 'Select members...';
         }
 
         function handleTeamPhotoUpload(event) {
@@ -140229,6 +140376,7 @@ console.log('? Global functions exported to window object');
             function sv(elId, val) { var el=document.getElementById(elId); if(el) el.value=val||''; }
             sv('newTeamName', t.teamName); sv('newTeamCategory', t.category); sv('newTeamLead', t.teamLeadId);
             sv('newTeamOffice', t.officeId); sv('newTeamSchedule', t.schedule); sv('newTeamDescription', t.description);
+            applyTeamScheduleToControls(t);
             sv('newTeamNotes', t.notes); sv('newTeamWarnings', t.warnings);
             var st=document.getElementById('newTeamStatus'); if(st) st.value=t.isActive!==false?'1':'0';
             window._teamPhotoData=t.imageData||null; window._teamDocData=t.documentData||null; window._teamDocName=t.documentName||null;
@@ -140246,6 +140394,10 @@ console.log('? Global functions exported to window object');
             var leadId = leadSel ? leadSel.value : '';
             var leadName = '';
             if (leadId) { var users=typeof loadUsers==='function'?loadUsers():{}; var u=users[leadId]; leadName=u?(u.name||[u.firstName,u.lastName].filter(Boolean).join(' ')||leadId):leadId; }
+            var scheduleNone = !!document.getElementById('newTeamScheduleNone')?.checked;
+            var scheduleDate = (document.getElementById('newTeamScheduleDate') || {}).value || '';
+            var scheduleTime = (document.getElementById('newTeamScheduleTime') || {}).value || '';
+            var scheduleText = buildTeamScheduleFromControls();
             var team = {
                 id: editId || 'local_' + Date.now(),
                 teamName: name.trim(),
@@ -140253,7 +140405,10 @@ console.log('? Global functions exported to window object');
                 description: (document.getElementById('newTeamDescription')||{}).value||'',
                 teamLeadId: leadId, teamLeadName: leadName,
                 officeId: (document.getElementById('newTeamOffice')||{}).value||'',
-                schedule: (document.getElementById('newTeamSchedule')||{}).value||'',
+                schedule: scheduleText,
+                scheduleDate: scheduleNone ? '' : scheduleDate,
+                scheduleTime: scheduleNone ? '' : scheduleTime,
+                scheduleNoDateTime: scheduleNone,
                 notes: (document.getElementById('newTeamNotes')||{}).value||'',
                 warnings: (document.getElementById('newTeamWarnings')||{}).value||'',
                 isActive: (document.getElementById('newTeamStatus')||{}).value!=='0',
@@ -140405,6 +140560,9 @@ console.log('? Global functions exported to window object');
         window.filterTeamMemberPicker        = filterTeamMemberPicker;
         window.buildTeamMemberPicker         = buildTeamMemberPicker;
         window.toggleTeamMember              = toggleTeamMember;
+        window.toggleTeamMemberPickerDropdown = toggleTeamMemberPickerDropdown;
+        window.updateTeamScheduleControlState = updateTeamScheduleControlState;
+        window.buildTeamScheduleFromControls = buildTeamScheduleFromControls;
         window.syncTeamsFromAPI              = syncTeamsFromAPI;
         window.toggleTeamOpComplete          = toggleTeamOpComplete;
         window.openLogOperationForm          = openLogOperationForm;
