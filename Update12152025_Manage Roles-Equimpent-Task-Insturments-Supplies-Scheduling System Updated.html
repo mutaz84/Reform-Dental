@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260807-clinical-pages-v105';
+                const buildVersion = '20260807-calendar-views-v106';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -690,7 +690,7 @@
         else init();
     })();
     </script>
-    <link rel="stylesheet" href="reform-main.css?v=20260807-clinical-pages-v105"><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="reform-main.css?v=20260807-calendar-views-v106"><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
         // Safe localStorage JSON parsing (prevents app breakage when a stored value is malformed OR wrong-shaped)
@@ -60340,15 +60340,18 @@ window.initializeCalendar = initializeCalendar;
                     container.classList.toggle('calendar-resource-mode', this.viewMode !== 'date');
                     container.classList.toggle('calendar-employee-room-mode', this.viewMode === 'employee' || this.viewMode === 'room');
 
-                    // Date mode is Month-only (Week/Day removed)
-                    if (this.viewMode === 'date' && this.currentView !== 'month') {
+                    // Date mode supports the main month board and a focused daily agenda.
+                    if (this.viewMode === 'date' && this.currentView !== 'month' && this.currentView !== 'day') {
                         this.currentView = 'month';
                     }
                     
                     // Determine view buttons based on viewMode
                     let viewButtons = '';
                     if (this.viewMode === 'date') {
-                        viewButtons = ``;
+                        viewButtons = `
+                            <button class="view-btn ${this.currentView === 'month' ? 'active' : ''}" onclick="changeCalendarView('month')">Main</button>
+                            <button class="view-btn ${this.currentView === 'day' ? 'active' : ''}" onclick="changeCalendarView('day')">Daily</button>
+                        `;
                     } else {
                         viewButtons = `
                             <button class="view-btn ${this.currentView === 'resourceWeek' ? 'active' : ''}" onclick="changeCalendarView('resourceWeek')">Week</button>
@@ -60438,10 +60441,8 @@ window.initializeCalendar = initializeCalendar;
                     if (this.viewMode === 'date') {
                         if (this.currentView === 'month') {
                             body.appendChild(this.renderMonthView());
-                        } else if (this.currentView === 'week') {
-                            body.appendChild(this.renderWeekView());
                         } else {
-                            body.appendChild(this.renderDayView());
+                            body.appendChild(this.renderDailyAgendaView());
                         }
                     } else {
                         if (this.currentView === 'resourceWeek') {
@@ -61896,6 +61897,140 @@ window.initializeCalendar = initializeCalendar;
                     }
                     
                     return weeks;
+                },
+
+                renderDailyAgendaView: function() {
+                    const selectedDate = new Date(this.currentDate);
+                    const selectedDateKey = formatDateKey(selectedDate);
+                    const container = document.createElement('div');
+                    container.className = 'calendar-daily-agenda-view';
+
+                    let filteredEvents = [];
+                    if (showWorkingHours && currentEmployeeDataType === 'working-hours') {
+                        filteredEvents = generateWorkingHoursEventsForRange(selectedDate, selectedDate) || [];
+                    } else if (currentEmployeeDataType === 'duties') {
+                        filteredEvents = generateDutiesEventsForRange(selectedDate, selectedDate) || [];
+                    } else if (currentEmployeeDataType === 'assistants') {
+                        filteredEvents = generateAssistantsEventsForRange(selectedDate, selectedDate) || [];
+                    } else {
+                        filteredEvents = getFilteredEvents() || [];
+                    }
+
+                    const parseEventStart = (event) => {
+                        if (!event || !event.start) return { dateKey: '', minutes: null, allDay: true, label: 'All Day' };
+                        let rawDate = '';
+                        let rawTime = '';
+
+                        if (typeof event.start === 'string') {
+                            const parts = event.start.split('T');
+                            rawDate = (parts[0] || '').trim();
+                            rawTime = (parts[1] || '').trim();
+                        } else if (event.start instanceof Date) {
+                            rawDate = formatDateKey(event.start);
+                            rawTime = `${String(event.start.getHours()).padStart(2, '0')}:${String(event.start.getMinutes()).padStart(2, '0')}:00`;
+                        } else if (typeof event.start === 'object') {
+                            const dt = event.start.dateTime || event.start.date || '';
+                            if (typeof dt === 'string') {
+                                const parts = dt.split('T');
+                                rawDate = (parts[0] || '').trim();
+                                rawTime = (parts[1] || '').trim();
+                            } else if (dt instanceof Date) {
+                                rawDate = formatDateKey(dt);
+                                rawTime = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}:00`;
+                            }
+                        }
+
+                        const isAllDay = !rawTime || /^00:00(?::00)?(?:\.\d+)?(?:Z)?$/.test(rawTime);
+                        if (isAllDay) return { dateKey: rawDate, minutes: null, allDay: true, label: 'All Day' };
+
+                        const timeMatch = rawTime.match(/(\d{1,2}):(\d{2})/);
+                        if (!timeMatch) return { dateKey: rawDate, minutes: null, allDay: true, label: 'All Day' };
+
+                        const hour = parseInt(timeMatch[1], 10);
+                        const minute = parseInt(timeMatch[2], 10);
+                        if (Number.isNaN(hour) || Number.isNaN(minute)) {
+                            return { dateKey: rawDate, minutes: null, allDay: true, label: 'All Day' };
+                        }
+
+                        return {
+                            dateKey: rawDate,
+                            minutes: (hour * 60) + minute,
+                            allDay: false,
+                            label: this.formatTime(hour, minute)
+                        };
+                    };
+
+                    const dayEvents = filteredEvents
+                        .filter(event => parseEventStart(event).dateKey === selectedDateKey)
+                        .map(event => ({ event, startMeta: parseEventStart(event) }))
+                        .sort((a, b) => {
+                            if (a.startMeta.allDay && !b.startMeta.allDay) return -1;
+                            if (!a.startMeta.allDay && b.startMeta.allDay) return 1;
+                            return (a.startMeta.minutes || 0) - (b.startMeta.minutes || 0);
+                        });
+
+                    const header = document.createElement('div');
+                    header.className = 'daily-agenda-header';
+
+                    const title = document.createElement('div');
+                    title.className = 'daily-agenda-title';
+                    title.textContent = selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+                    const summary = document.createElement('div');
+                    summary.className = 'daily-agenda-summary';
+                    summary.textContent = `${dayEvents.length} linked ${dayEvents.length === 1 ? 'event' : 'events'}`;
+
+                    header.appendChild(title);
+                    header.appendChild(summary);
+                    container.appendChild(header);
+
+                    const list = document.createElement('div');
+                    list.className = 'daily-agenda-list';
+
+                    if (!dayEvents.length) {
+                        const empty = document.createElement('div');
+                        empty.className = 'daily-agenda-empty';
+                        empty.textContent = 'No linked events for this day';
+                        list.appendChild(empty);
+                    } else {
+                        dayEvents.forEach(({ event, startMeta }) => {
+                            const card = document.createElement('button');
+                            card.type = 'button';
+                            card.className = `daily-agenda-event priority-${event.priority || 'low'} ${event.isTask || event.eventCategory === 'task' ? 'is-task' : ''}`;
+                            card.onclick = (clickEvent) => {
+                                clickEvent.stopPropagation();
+                                handleEventClick({ event });
+                            };
+
+                            const time = document.createElement('span');
+                            time.className = 'daily-agenda-time';
+                            time.textContent = startMeta.label;
+
+                            const detail = document.createElement('span');
+                            detail.className = 'daily-agenda-detail';
+
+                            const eventTitle = document.createElement('span');
+                            eventTitle.className = 'daily-agenda-event-title';
+                            eventTitle.textContent = event.title || 'Untitled event';
+
+                            const meta = document.createElement('span');
+                            meta.className = 'daily-agenda-event-meta';
+                            const metaParts = [];
+                            if (event.isTask || event.eventCategory === 'task') metaParts.push('Task');
+                            if (event.location) metaParts.push(event.location);
+                            if (event.resourceId) metaParts.push(`Linked: ${event.resourceId}`);
+                            meta.textContent = metaParts.join(' • ');
+
+                            detail.appendChild(eventTitle);
+                            if (metaParts.length) detail.appendChild(meta);
+                            card.appendChild(time);
+                            card.appendChild(detail);
+                            list.appendChild(card);
+                        });
+                    }
+
+                    container.appendChild(list);
+                    return container;
                 },
                 
                 renderEventsForDate: function(date) {
