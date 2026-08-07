@@ -158,6 +158,7 @@ function mapEventRow(row, attendees = []) {
     const endTime = row.EndTime || row.endTime || toIsoTime(endDateTime, startTime);
 
     const organizerName = row.OrganizerName || row.organizerName || row.CreatedByName || null;
+    const clinicName = row.ClinicName || row.clinicName || null;
 
     return {
         id: row.Id,
@@ -172,6 +173,9 @@ function mapEventRow(row, attendees = []) {
         endTime,
         allDay: !!row.AllDay,
         clinicId: row.ClinicId || null,
+        clinicName,
+        clinic: clinicName,
+        office: clinicName,
         roomId: row.RoomId || null,
         location: row.Location || null,
         color: row.Color || null,
@@ -214,6 +218,10 @@ module.exports = async function (context, req) {
         const hasEndTime = hasColumn(eventColumns, 'EndTime');
         const hasModifiedDate = hasColumn(eventColumns, 'ModifiedDate');
         const hasClinicCol = hasColumn(eventColumns, 'ClinicId');
+        const clinicColumns = hasClinicCol ? await getTableColumns(pool, 'Clinics').catch(() => new Set()) : new Set();
+        const hasClinicName = hasColumn(clinicColumns, 'Name');
+        const clinicSelect = hasClinicName ? ', c.Name AS ClinicName' : '';
+        const clinicJoin = hasClinicName ? 'LEFT JOIN Clinics c ON c.Id = e.ClinicId' : '';
         const organizerJoinColumn = hasOrganizerUserId ? 'e.OrganizerUserId' : (hasCreatedBy ? 'e.CreatedBy' : 'NULL');
         const tenantUserId = getRequestUserId(req);
 
@@ -229,8 +237,10 @@ module.exports = async function (context, req) {
                         e.*,
                         u.Username AS CreatedByName,
                         LTRIM(RTRIM(CONCAT(COALESCE(u.FirstName, ''), ' ', COALESCE(u.LastName, '')))) AS CreatedByFullName
+                        ${clinicSelect}
                     FROM Events e
                     LEFT JOIN Users u ON u.Id = ${organizerJoinColumn}
+                    ${clinicJoin}
                     WHERE e.Id = @id${tenantClause}
                 `;
                 const reqBuilder = pool.request().input('id', sql.Int, id);
@@ -271,8 +281,10 @@ module.exports = async function (context, req) {
                     e.*,
                     u.Username AS CreatedByName,
                     LTRIM(RTRIM(CONCAT(COALESCE(u.FirstName, ''), ' ', COALESCE(u.LastName, '')))) AS CreatedByFullName
+                    ${clinicSelect}
                 FROM Events e
                 LEFT JOIN Users u ON u.Id = ${organizerJoinColumn}
+                ${clinicJoin}
                 WHERE 1=1 ${whereClause}
                 ORDER BY e.StartDateTime, e.Title
             `;
