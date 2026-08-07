@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260807-calendar-views-v106';
+                const buildVersion = '20260807-calendar-events-v107';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -690,7 +690,7 @@
         else init();
     })();
     </script>
-    <link rel="stylesheet" href="reform-main.css?v=20260807-calendar-views-v106"><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="reform-main.css?v=20260807-calendar-events-v107"><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
         // Safe localStorage JSON parsing (prevents app breakage when a stored value is malformed OR wrong-shaped)
@@ -58664,7 +58664,7 @@
         async function fetchEventsFromApi(query = '') {
             const base = getEventsApiBaseUrl();
             const url = `${base}/events${query ? `?${query}` : ''}`;
-            const response = await fetch(url, { cache: 'no-store' });
+            const response = await fetch(url, await getEventsTenantFetchInit({ cache: 'no-store' }));
             if (!response.ok) {
                 throw new Error(`Failed to load events (${response.status})`);
             }
@@ -58672,13 +58672,34 @@
             return Array.isArray(payload) ? payload : [];
         }
 
+        async function getEventsTenantFetchInit(init = {}) {
+            const headers = { ...(init.headers || {}) };
+            const hasTenantHeader = Object.keys(headers).some((key) => String(key).toLowerCase() === 'x-user-id');
+            if (hasTenantHeader) return { ...init, headers };
+
+            let tenantUserId = '';
+            try {
+                const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
+                tenantUserId = (typeof getTenantUserIdCandidate === 'function') ? getTenantUserIdCandidate(currentUser) : '';
+            } catch (_) {}
+
+            if (!tenantUserId && typeof getCurrentChatUserId === 'function') {
+                try {
+                    tenantUserId = await getCurrentChatUserId();
+                } catch (_) {}
+            }
+
+            if (tenantUserId) headers['X-User-Id'] = String(tenantUserId);
+            return { ...init, headers };
+        }
+
         async function createEventViaApi(eventData) {
             const base = getEventsApiBaseUrl();
-            const response = await fetch(`${base}/events`, {
+            const response = await fetch(`${base}/events`, await getEventsTenantFetchInit({
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(mapCalendarEventToApiPayload(eventData))
-            });
+            }));
             if (!response.ok) {
                 throw new Error(`Failed to create event (${response.status})`);
             }
@@ -58688,11 +58709,11 @@
 
         async function updateEventViaApi(eventId, eventData) {
             const base = getEventsApiBaseUrl();
-            const response = await fetch(`${base}/events/${encodeURIComponent(String(eventId))}`, {
+            const response = await fetch(`${base}/events/${encodeURIComponent(String(eventId))}`, await getEventsTenantFetchInit({
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(mapCalendarEventToApiPayload(eventData))
-            });
+            }));
             if (!response.ok) {
                 throw new Error(`Failed to update event (${response.status})`);
             }
@@ -58701,9 +58722,9 @@
 
         async function deleteEventViaApi(eventId) {
             const base = getEventsApiBaseUrl();
-            const response = await fetch(`${base}/events/${encodeURIComponent(String(eventId))}`, {
+            const response = await fetch(`${base}/events/${encodeURIComponent(String(eventId))}`, await getEventsTenantFetchInit({
                 method: 'DELETE'
-            });
+            }));
             if (!response.ok) {
                 throw new Error(`Failed to delete event (${response.status})`);
             }
