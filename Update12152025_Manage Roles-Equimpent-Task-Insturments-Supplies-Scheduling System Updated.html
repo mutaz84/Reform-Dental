@@ -56192,28 +56192,30 @@
             const users = typeof getUsersMap === 'function' ? getUsersMap() : {};
             const latestByUser = new Map();
             (typeof getRecords === 'function' ? getRecords() : []).forEach((record) => {
-                if (!record || String(record.date || '').slice(0, 10) !== today || !record.clockIn) return;
-                const key = String(record.username || record.displayName || '').trim().toLowerCase();
+                if (!record) return;
+                const clockIn = record.clockIn || record.ClockIn;
+                const clockOut = record.clockOut || record.ClockOut;
+                if (!clockIn) return;
+                const recordDate = String(record.date || record.Date || record.workDate || record.WorkDate || clockIn || clockOut || '').slice(0, 10);
+                const clockInMs = new Date(clockIn).getTime();
+                const isRecentOpenRecord = !clockOut && (!Number.isFinite(clockInMs) || (Date.now() - clockInMs) <= (36 * 60 * 60 * 1000));
+                if (recordDate !== today && !isRecentOpenRecord) return;
+                const key = String(record.username || record.Username || record.displayName || record.DisplayName || '').trim().toLowerCase();
                 if (!key) return;
                 const existing = latestByUser.get(key);
-                if (!existing || new Date(record.clockOut || record.clockIn).getTime() >= new Date(existing.clockOut || existing.clockIn).getTime()) {
-                    latestByUser.set(key, record);
-                }
+                const recordTime = new Date(clockOut || clockIn).getTime();
+                const existingTime = new Date(existing?.clockOut || existing?.ClockOut || existing?.clockIn || existing?.ClockIn || 0).getTime();
+                if (!existing || recordTime >= existingTime) latestByUser.set(key, record);
             });
             return Array.from(latestByUser.values()).map((record) => {
-                const username = String(record.username || '').trim();
+                const username = String(record.username || record.Username || '').trim();
                 const user = users[username] || Object.values(users).find((candidate) => String(candidate?.username || '').trim().toLowerCase() === username.toLowerCase()) || {};
-                const name = String(record.displayName || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.name || username || 'Unknown employee').trim();
-                const reason = String(record.clockOutReason || '').trim().toLowerCase();
-                const status = !record.clockOut ? 'Available' : reason === 'lunch' ? 'Lunch' : reason === 'break' ? 'Break' : 'Home';
+                const name = String(record.displayName || record.DisplayName || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.name || username || 'Unknown employee').trim();
+                const clockOut = record.clockOut || record.ClockOut;
+                const reason = String(record.clockOutReason || record.ClockOutReason || record.clockOutType || record.reason || '').trim().toLowerCase();
+                const status = !clockOut ? 'Available' : reason === 'lunch' ? 'Lunch' : reason === 'break' ? 'Break' : 'Home';
                 const color = status === 'Available' ? '#16a34a' : (status === 'Lunch' || status === 'Break') ? '#eab308' : '#dc2626';
-                return {
-                    name,
-                    jobTitle: String(user.jobTitle || user.title || user.position || user.role || 'Employee').trim(),
-                    status,
-                    color,
-                    clockIn: record.clockIn
-                };
+                return { name, jobTitle: String(user.jobTitle || user.JobTitle || user.title || user.position || user.role || 'Employee').trim(), status, color };
             }).sort((left, right) => left.name.localeCompare(right.name));
         }
 
