@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260904-dashboard-attendance-sync-v125';
+                const buildVersion = '20260904-dashboard-attendance-identity-v126';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -56200,7 +56200,8 @@
                 const clockInMs = new Date(clockIn).getTime();
                 const isRecentOpenRecord = !clockOut && (!Number.isFinite(clockInMs) || (Date.now() - clockInMs) <= (36 * 60 * 60 * 1000));
                 if (recordDate !== today && !isRecentOpenRecord) return;
-                const key = String(record.username || record.Username || record.displayName || record.DisplayName || '').trim().toLowerCase();
+                const identity = String(record.username || record.Username || record.displayName || record.DisplayName || record.employeeName || record.EmployeeName || record.name || record.Name || record.userName || record.employee || record.requestedFor || '').trim();
+                const key = identity.toLowerCase();
                 if (!key) return;
                 const existing = latestByUser.get(key);
                 const recordTime = new Date(clockOut || clockIn).getTime();
@@ -56208,9 +56209,12 @@
                 if (!existing || recordTime >= existingTime) latestByUser.set(key, record);
             });
             return Array.from(latestByUser.values()).map((record) => {
-                const username = String(record.username || record.Username || '').trim();
-                const user = users[username] || Object.values(users).find((candidate) => String(candidate?.username || '').trim().toLowerCase() === username.toLowerCase()) || {};
-                const name = String(record.displayName || record.DisplayName || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.name || username || 'Unknown employee').trim();
+                const identity = String(record.username || record.Username || record.displayName || record.DisplayName || record.employeeName || record.EmployeeName || record.name || record.Name || record.userName || record.employee || record.requestedFor || '').trim();
+                const user = Object.values(users).find((candidate) => {
+                    const candidateName = [candidate?.firstName, candidate?.lastName].filter(Boolean).join(' ').trim();
+                    return [candidate?.username, candidate?.name, candidateName].some((value) => String(value || '').trim().toLowerCase() === identity.toLowerCase());
+                }) || {};
+                const name = String(record.displayName || record.DisplayName || record.employeeName || record.EmployeeName || record.name || record.Name || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.name || identity || 'Unknown employee').trim();
                 const clockOut = record.clockOut || record.ClockOut;
                 const reason = String(record.clockOutReason || record.ClockOutReason || record.clockOutType || record.reason || '').trim().toLowerCase();
                 const status = !clockOut ? 'Available' : reason === 'lunch' ? 'Lunch' : reason === 'break' ? 'Break' : 'Home';
