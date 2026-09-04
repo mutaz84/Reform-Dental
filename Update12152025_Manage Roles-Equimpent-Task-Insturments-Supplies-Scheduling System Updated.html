@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260904-dashboard-attendance-compact-v131';
+                const buildVersion = '20260904-dashboard-attendance-right-panel-v132';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -56236,7 +56236,7 @@
                 const status = !clockOut ? 'Available' : reason === 'lunch' ? 'Lunch' : reason === 'break' ? 'Break' : 'Home';
                 const color = status === 'Available' ? '#16a34a' : (status === 'Lunch' || status === 'Break') ? '#eab308' : '#dc2626';
                 return { name, jobTitle: String(user.jobTitle || user.JobTitle || user.title || user.position || user.role || record.jobTitle || record.JobTitle || record.position || record.Position || 'Job title not set').trim(), status, color };
-            }).sort((left, right) => left.name.localeCompare(right.name));
+            }).sort((left, right) => { const statusOrder = { Available: 0, Lunch: 1, Break: 1, Home: 2 }; const byStatus = (statusOrder[left.status] ?? 3) - (statusOrder[right.status] ?? 3); return byStatus || left.jobTitle.localeCompare(right.jobTitle) || left.name.localeCompare(right.name); });
         }
 
         function renderAttendanceDashboard(target, clinic) {
@@ -56245,10 +56245,10 @@
                 <div class="rd-dashboard-topbar" style="margin-bottom:0.45rem;min-height:0;">
                     <div class="rd-dashboard-location" style="padding:0.55rem 0.75rem;"><i class="fas fa-map-marker-alt"></i><div><strong>${escapeDashboardHtml(clinic.name)}</strong><span>${escapeDashboardHtml(clinic.address)}</span></div></div>
                 </div>
-                <div class="rd-dashboard-panel" style="max-width:1100px;padding:0.65rem 1rem;">
+                <div class="rd-dashboard-panel" style="width:min(100%,360px);margin-left:auto;padding:0.55rem 0.7rem;">
                     <h3 style="margin:0 0 0.35rem;font-size:1rem;"><i class="fas fa-user-clock" style="color:#2563eb;margin-right:0.45rem;"></i>Today's Attendance</h3>
                     <div class="rd-dashboard-list">
-                        ${entries.length ? entries.map((entry) => `<div class="rd-dashboard-row" style="grid-template-columns:minmax(220px,1.2fr) minmax(150px,0.8fr) minmax(110px,0.45fr);min-height:0;padding:0.4rem 0;"><div class="rd-dashboard-task-title"><span class="rd-dashboard-dot" style="background:${entry.color};width:12px;height:12px;"></span><strong>${escapeDashboardHtml(entry.name)}</strong></div><div class="rd-dashboard-person">${escapeDashboardHtml(entry.jobTitle)}</div><div class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.25rem 0.65rem;font-size:0.82rem;line-height:1.1;">${escapeDashboardHtml(entry.status)}</div></div>`).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-clock" style="color:#64748b;"></i><span>No employees have clocked in today.</span></div>'}
+                        ${entries.length ? entries.map((entry) => `<div class="rd-dashboard-row" style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.35rem;align-items:center;min-height:0;padding:0.28rem 0;border:0;"><div class="rd-dashboard-task-title"><span class="rd-dashboard-dot" style="background:${entry.color};width:10px;height:10px;flex:0 0 10px;"></span><div style="min-width:0;"><strong style="display:block;font-size:0.84rem;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.name)}</strong><span style="display:block;font-size:0.72rem;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.jobTitle)}</span></div></div><div class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.2rem 0.45rem;font-size:0.75rem;line-height:1.05;">${escapeDashboardHtml(entry.status)}</div></div>`).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-clock" style="color:#64748b;"></i><span>No employees have clocked in today.</span></div>'}
                     </div>
                 </div>`;
         }
