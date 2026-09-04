@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260904-dashboard-attendance-loader-v128';
+                const buildVersion = '20260904-dashboard-attendance-cache-v129';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -56191,7 +56191,15 @@
             const today = typeof toISODateInTimeZone === 'function' ? toISODateInTimeZone(new Date()) : new Date().toISOString().slice(0, 10);
             const users = typeof getUsersMap === 'function' ? getUsersMap() : {};
             const latestByUser = new Map();
-            (typeof getRecords === 'function' ? getRecords() : []).forEach((record) => {
+            (() => {
+                try {
+                    const raw = localStorage.getItem('attendanceClockRecordsV1');
+                    const parsed = raw ? JSON.parse(raw) : [];
+                    return Array.isArray(parsed) ? parsed : [];
+                } catch (_) {
+                    return [];
+                }
+            })().forEach((record) => {
                 if (!record) return;
                 const clockIn = record.clockIn || record.ClockIn;
                 const clockOut = record.clockOut || record.ClockOut;
