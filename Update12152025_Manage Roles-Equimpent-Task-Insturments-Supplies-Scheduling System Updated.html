@@ -56187,46 +56187,57 @@
             return `<button class="rd-dashboard-kpi" type="button" onclick="if(window.switchContentView){window.switchContentView('${view}', event);}"><div class="rd-dashboard-kpi-icon" style="background:${colors.bg};color:${colors.fg};"><i class="${icon}"></i></div><div><div class="rd-dashboard-kpi-value" style="color:${colors.fg};">${Number(value) || 0}</div><div class="rd-dashboard-kpi-label">${escapeDashboardHtml(label)}</div></div></button>`;
         }
 
-        function renderManagerDashboardLanding(target, model, clinic) {
-            const rows = [
-                ...model.overdueTasks.slice(0, 3).map(task => dashboardTaskRow(task)),
-                ...model.dueTodayTasks.slice(0, 3).map(task => dashboardTaskRow(task)),
-                ...model.criticalRequests.slice(0, 2).map(req => dashboardRequestRow(req))
-            ].slice(0, 4);
-            const attention = [
-                ...model.criticalRequests.slice(0, 1).map(req => ({ icon: 'fas fa-exclamation-triangle', color: '#dc2626', title: req.title || req.Title, detail: `${req.priority || req.Priority || 'Open'} request` })),
-                ...model.maintenanceDue.slice(0, 1).map(item => ({ icon: 'fas fa-tools', color: '#ef4444', title: item.equipmentName || item.Name || item.name || 'Equipment service due', detail: 'Maintenance due' })),
-                ...model.lowSupplies.slice(0, 1).map(item => ({ icon: 'fas fa-cube', color: '#f59e0b', title: item.supplyName || item.Name || item.name || 'Supply below minimum', detail: 'Restock needed' })),
-                ...model.complianceTasks.slice(0, 1).map(task => ({ icon: 'fas fa-shield-alt', color: '#7c3aed', title: task.title || task.Title || 'Compliance due', detail: task.dueDate || task.DueDate || 'Open compliance task' }))
-            ];
+        function getDashboardAttendanceEntries() {
+            const today = typeof toISODateInTimeZone === 'function' ? toISODateInTimeZone(new Date()) : new Date().toISOString().slice(0, 10);
+            const users = typeof getUsersMap === 'function' ? getUsersMap() : {};
+            const latestByUser = new Map();
+            (typeof getRecords === 'function' ? getRecords() : []).forEach((record) => {
+                if (!record || String(record.date || '').slice(0, 10) !== today || !record.clockIn) return;
+                const key = String(record.username || record.displayName || '').trim().toLowerCase();
+                if (!key) return;
+                const existing = latestByUser.get(key);
+                if (!existing || new Date(record.clockOut || record.clockIn).getTime() >= new Date(existing.clockOut || existing.clockIn).getTime()) {
+                    latestByUser.set(key, record);
+                }
+            });
+            return Array.from(latestByUser.values()).map((record) => {
+                const username = String(record.username || '').trim();
+                const user = users[username] || Object.values(users).find((candidate) => String(candidate?.username || '').trim().toLowerCase() === username.toLowerCase()) || {};
+                const name = String(record.displayName || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.name || username || 'Unknown employee').trim();
+                const reason = String(record.clockOutReason || '').trim().toLowerCase();
+                const status = !record.clockOut ? 'Available' : reason === 'lunch' ? 'Lunch' : reason === 'break' ? 'Break' : 'Home';
+                const color = status === 'Available' ? '#16a34a' : (status === 'Lunch' || status === 'Break') ? '#eab308' : '#dc2626';
+                return {
+                    name,
+                    jobTitle: String(user.jobTitle || user.title || user.position || user.role || 'Employee').trim(),
+                    status,
+                    color,
+                    clockIn: record.clockIn
+                };
+            }).sort((left, right) => left.name.localeCompare(right.name));
+        }
+
+        function renderAttendanceDashboard(target, clinic) {
+            const entries = getDashboardAttendanceEntries();
             target.innerHTML = `
                 <div class="rd-dashboard-topbar">
-                    <div class="rd-dashboard-location"><i class="fas fa-map-marker-alt"></i><div><strong data-dashboard-clinic-name>${escapeDashboardHtml(clinic.name)}</strong><span data-dashboard-clinic-address>${escapeDashboardHtml(clinic.address)}</span></div><i class="fas fa-chevron-down" style="margin-left:auto;font-size:0.8rem;"></i></div>
-                    <div class="rd-dashboard-search"><i class="fas fa-search"></i><span>Search tasks, equipment, supplies, etc...</span></div>
-                    <div class="rd-dashboard-actions"><button class="rd-dashboard-action primary" type="button" onclick="if(window.openTaskFormSafeWithId){window.openTaskFormSafeWithId(null,{taskType:'Standard'});} else if(window.switchContentView){window.switchContentView('task-hub', event);}"><i class="fas fa-plus"></i> New Task</button><button class="rd-dashboard-action" type="button" onclick="if(window.switchContentView){window.switchContentView('requests', event);}"><i class="far fa-flag"></i> Report Issue</button></div>
+                    <div class="rd-dashboard-location"><i class="fas fa-map-marker-alt"></i><div><strong>${escapeDashboardHtml(clinic.name)}</strong><span>${escapeDashboardHtml(clinic.address)}</span></div></div>
                 </div>
-                <div class="rd-dashboard-kpis">
-                    ${dashboardKpi(model.criticalRequests.length, 'Critical', 'fas fa-exclamation-triangle', { bg: '#fef3f2', fg: '#b42318' }, 'requests')}
-                    ${dashboardKpi(model.overdueTasks.length, 'Overdue', 'far fa-clock', { bg: '#fff4e5', fg: '#b54708' }, 'task-hub')}
-                    ${dashboardKpi(model.dueTodayTasks.length, 'Due Today', 'far fa-calendar-alt', { bg: '#eff8ff', fg: '#155eef' }, 'schedule')}
-                    ${dashboardKpi(model.waitingTasks.length, 'Waiting Review', 'far fa-clipboard', { bg: '#f4f3ff', fg: '#6941c6' }, 'task-hub')}
-                </div>
-                <div class="rd-dashboard-body"><div class="rd-dashboard-stack"><div class="rd-dashboard-panel"><h3>Today</h3><div class="rd-dashboard-list">${rows.length ? rows.join('') : dashboardEmptyRow('No open dashboard items yet')}</div></div><div><h3 class="rd-dashboard-section-title">Category Health</h3><div class="rd-dashboard-health-grid">
-                    <button class="rd-dashboard-health-card" onclick="if(window.switchContentView){window.switchContentView('equipment', event);}"><span class="rd-dashboard-health-icon" style="background:#13a8c2;"><i class="fas fa-tools"></i></span><span><strong>Equipment</strong><ul><li>${model.equipmentIssues.length} Open Issues</li><li>${model.maintenanceDue.length} Maintenance Due</li></ul></span><i class="fas fa-chevron-right"></i></button>
-                    <button class="rd-dashboard-health-card" onclick="if(window.switchContentView){window.switchContentView('supplies', event);}"><span class="rd-dashboard-health-icon" style="background:#10a7a7;"><i class="fas fa-cube"></i></span><span><strong>Supplies</strong><ul><li>${model.lowSupplies.length} Low Stock</li><li>${model.pendingSupplyOrders.length} Pending Orders</li></ul></span><i class="fas fa-chevron-right"></i></button>
-                    <button class="rd-dashboard-health-card" onclick="if(window.switchContentView){window.switchContentView('compliances', event);}"><span class="rd-dashboard-health-icon" style="background:#0f9f9a;"><i class="fas fa-shield-alt"></i></span><span><strong>Compliance</strong><ul><li>${model.complianceTasks.length} Open Items</li><li>${model.myCompliance.length} Assigned To Me</li></ul></span><i class="fas fa-chevron-right"></i></button>
-                </div></div></div><div class="rd-dashboard-side"><div class="rd-dashboard-panel"><h3>Needs Attention</h3>${attention.length ? attention.map(item => `<div class="rd-dashboard-attention"><span class="rd-dashboard-attention-icon" style="background:${item.color};"><i class="${item.icon}"></i></span><div><strong>${escapeDashboardHtml(item.title)}</strong><span>${escapeDashboardHtml(item.detail)}</span></div></div>`).join('') : '<div class="rd-dashboard-attention"><span class="rd-dashboard-attention-icon" style="background:#64748b;"><i class="far fa-check-circle"></i></span><div><strong>No urgent records</strong><span>Open seeded tasks or requests will appear here.</span></div></div>'}<button class="rd-dashboard-quick-action" onclick="if(window.switchContentView){window.switchContentView('requests', event);}"><i class="fas fa-bell"></i><span>View all alerts</span><i class="fas fa-chevron-right"></i></button></div></div></div>`;
+                <div class="rd-dashboard-panel" style="max-width:1100px;">
+                    <h3><i class="fas fa-user-clock" style="color:#2563eb;margin-right:0.45rem;"></i>Today's Attendance</h3>
+                    <div class="rd-dashboard-list">
+                        ${entries.length ? entries.map((entry) => `<div class="rd-dashboard-row" style="grid-template-columns:minmax(250px,1.4fr) minmax(180px,1fr) minmax(130px,0.55fr);"><div class="rd-dashboard-task-title"><span class="rd-dashboard-dot" style="background:${entry.color};width:12px;height:12px;"></span><strong>${escapeDashboardHtml(entry.name)}</strong></div><div class="rd-dashboard-person">${escapeDashboardHtml(entry.jobTitle)}</div><div class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;">${escapeDashboardHtml(entry.status)}</div></div>`).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-clock" style="color:#64748b;"></i><span>No employees have clocked in today.</span></div>'}
+                    </div>
+                </div>`;
+        }
+
+        function renderManagerDashboardLanding(target, model, clinic) {
+            renderAttendanceDashboard(target, clinic);
         }
 
         function renderUserDashboardLanding(target, model) {
-            const rows = model.myTasks.slice().sort((a, b) => dashboardText(a.dueDate || a.DueDate).localeCompare(dashboardText(b.dueDate || b.DueDate))).slice(0, 4).map(task => dashboardTaskRow(task, { buttonLabel: /pending|open/i.test(task.status || '') ? 'Start' : 'Open' }));
-            target.innerHTML = `
-                <div class="rd-dashboard-topbar" style="grid-template-columns:minmax(280px,1fr) minmax(260px,360px) auto;"><div class="rd-dashboard-greeting"><h2>Good Morning, <span data-dashboard-user-name>${escapeDashboardHtml(getDashboardLandingUserName())}</span></h2><p>Here's what needs your attention today.</p></div><div class="rd-dashboard-search"><i class="fas fa-search"></i><span>Search tasks, supplies, equipment...</span></div><div class="rd-dashboard-actions"><button class="rd-dashboard-action primary" type="button" onclick="if(window.switchContentView){window.switchContentView('requests', event);}"><i class="fas fa-plus"></i> Report Issue</button><button class="rd-dashboard-action" type="button" onclick="if(window.switchContentView){window.switchContentView('supplies', event);}"><i class="fas fa-cube"></i> Request Supply</button></div></div>
-                <div class="rd-dashboard-kpis">${dashboardKpi(model.myTasks.filter(task => normalizeDashboardDate(task.dueDate || task.DueDate) === model.today).length, 'My Tasks Today', 'far fa-clipboard', { bg: '#eff8ff', fg: '#155eef' }, 'task-hub')}${dashboardKpi(model.myTasks.filter(task => normalizeDashboardDate(task.dueDate || task.DueDate) && normalizeDashboardDate(task.dueDate || task.DueDate) < model.today).length, 'Overdue', 'far fa-clock', { bg: '#fff4e5', fg: '#b54708' }, 'task-hub')}${dashboardKpi(model.myTasks.filter(task => /review|waiting|approval/i.test(task.status || task.Status || '')).length, 'Waiting Review', 'far fa-clipboard', { bg: '#f4f3ff', fg: '#6941c6' }, 'task-hub')}${dashboardKpi(model.myCompliance.length, 'Compliance Due', 'fas fa-shield-alt', { bg: '#f0fdfa', fg: '#0e9384' }, 'compliances')}</div>
-                <div class="rd-dashboard-body"><div class="rd-dashboard-stack"><div class="rd-dashboard-panel"><h3>My Tasks Today</h3><div class="rd-dashboard-list">${rows.length ? rows.join('') : dashboardEmptyRow('No assigned tasks yet')}</div></div><div class="rd-dashboard-split"><div class="rd-dashboard-panel"><h3>Upcoming This Week</h3>${model.myTasks.slice(0, 3).map(task => `<div class="rd-dashboard-mini-row"><i class="far fa-calendar-alt" style="color:#2563eb;"></i><span>${escapeDashboardHtml(task.title || task.Title)}</span><span>${escapeDashboardHtml(task.dueDate || task.DueDate || 'No date')}</span></div>`).join('') || '<div class="rd-dashboard-mini-row"><i class="far fa-calendar-alt" style="color:#64748b;"></i><span>No upcoming tasks</span><span>Synced</span></div>'}</div><div class="rd-dashboard-panel"><h3>Compliance</h3>${model.myCompliance.slice(0, 3).map(task => `<div class="rd-dashboard-mini-row"><i class="fas fa-shield-alt" style="color:#0e9384;"></i><span>${escapeDashboardHtml(task.title || task.Title)}</span><span>${escapeDashboardHtml(task.status || task.Status || 'Open')}</span></div>`).join('') || '<div class="rd-dashboard-mini-row"><i class="fas fa-shield-alt" style="color:#64748b;"></i><span>No compliance tasks</span><span>Clear</span></div>'}</div></div></div><div class="rd-dashboard-side"><div class="rd-dashboard-panel"><h3>Needs My Attention</h3>${model.myTasks.slice(0, 3).map(task => `<div class="rd-dashboard-attention"><span class="rd-dashboard-attention-icon" style="background:${dashboardDotColor(dashboardCategoryForTask(task), task.status || task.Status, task.priority || task.Priority)};"><i class="far fa-clipboard"></i></span><div><strong>${escapeDashboardHtml(task.title || task.Title)}</strong><span>${escapeDashboardHtml(task.dueDate || task.DueDate || task.status || 'Open')}</span></div></div>`).join('') || '<div class="rd-dashboard-attention"><span class="rd-dashboard-attention-icon" style="background:#64748b;"><i class="far fa-check-circle"></i></span><div><strong>No assigned attention items</strong><span>Seeded SQL tasks will appear here.</span></div></div>'}</div><div class="rd-dashboard-panel"><h3>Quick Actions</h3><button class="rd-dashboard-quick-action" onclick="if(window.switchContentView){window.switchContentView('requests', event);}"><i class="fas fa-wrench"></i><span>Report Equipment Issue</span><i class="fas fa-chevron-right"></i></button><button class="rd-dashboard-quick-action" onclick="if(window.switchContentView){window.switchContentView('supplies', event);}"><i class="fas fa-cube"></i><span>Request Supplies</span><i class="fas fa-chevron-right"></i></button><button class="rd-dashboard-quick-action" onclick="if(window.openChat){window.openChat();}"><i class="far fa-comments"></i><span>Message Manager</span><i class="fas fa-chevron-right"></i></button></div></div></div>`;
-        }
-
-        function refreshDashboardLandingDataInBackground() {
+            renderAttendanceDashboard(target, getDashboardLandingClinic());
+        }        function refreshDashboardLandingDataInBackground() {
             if (window.__rdDashboardLandingSyncStarted) return;
             window.__rdDashboardLandingSyncStarted = true;
             const jobs = [];
