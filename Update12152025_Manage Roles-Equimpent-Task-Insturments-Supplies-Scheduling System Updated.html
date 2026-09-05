@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260904-dashboard-attendance-right-panel-v132';
+                const buildVersion = '20260904-assignments-task-fields-v133';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -90913,6 +90913,36 @@ document.addEventListener('keydown', function(e) {
                         <option value="1">Active</option>
                         <option value="0">Inactive</option>
                     </select>
+                    <div>
+                        <label class="form-label">Work Status</label>
+                        <select id="newTeamWorkStatus" class="form-input-enhanced" style="width:100%;"><option value="Pending">Pending</option><option value="In Progress">In Progress</option><option value="Completed">Completed</option></select>
+                    </div>
+                    <div>
+                        <label class="form-label">Priority</label>
+                        <select id="newTeamPriority" class="form-input-enhanced" style="width:100%;"><option value="Low">Low</option><option value="Medium" selected>Medium</option><option value="High">High</option><option value="Critical">Critical</option></select>
+                    </div>
+                    <div>
+                        <label class="form-label">Assignment Type</label>
+                        <select id="newTeamTaskType" class="form-input-enhanced" style="width:100%;"><option value="Regular">Regular</option><option value="Floating">Floating</option><option value="Bonus">Bonus</option></select>
+                    </div>
+                    <div>
+                        <label class="form-label">Recurrence</label>
+                        <select id="newTeamRecurrence" class="form-input-enhanced" style="width:100%;"><option value="One-time">One-time</option><option value="Daily">Daily</option><option value="Weekly">Weekly</option><option value="Monthly">Monthly</option></select>
+                    </div>
+                    <div>
+                        <label class="form-label">Estimated Minutes</label>
+                        <input type="number" id="newTeamEstimatedTime" min="0" step="5" class="form-input-enhanced" placeholder="e.g. 30" style="width:100%;">
+                    </div>
+                    <div>
+                        <label class="form-label">Secondary Assignee</label>
+                        <select id="newTeamSecondaryAssignee" class="form-input-enhanced" style="width:100%;"><option value="">None</option></select>
+                    </div>
+                    <div>
+                        <label class="form-label">Pay Amount</label>
+                        <input type="number" id="newTeamPayAmount" min="0" step="0.01" class="form-input-enhanced" placeholder="Optional" style="width:100%;">
+                    </div>
+                    <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.85rem;color:var(--text-secondary);margin-top:1.7rem;"><input type="checkbox" id="newTeamIsPaid"> Paid assignment</label>
+                    <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.85rem;color:var(--text-secondary);margin-top:1.7rem;"><input type="checkbox" id="newTeamComplianceFlag"> Compliance assignment</label>
                 </div>
                 <div style="margin-bottom: 1.25rem;">
                     <label class="form-label" style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: var(--text-secondary); font-size: 0.85rem;">Description</label>
@@ -118769,6 +118799,9 @@ console.log('? Global functions exported to window object');
                 + '</div>'
                 + '<div class="equipment-card-meta">'
                 +   '<span class="equipment-badge">' + esc(t.category || 'Team') + '</span>'
+                +   '<span class="equipment-badge" style="color:' + (t.priority === 'Critical' ? '#dc2626' : t.priority === 'High' ? '#d97706' : t.priority === 'Low' ? '#059669' : '#2563eb') + ';">' + esc(t.priority || 'Medium') + '</span>'
+                +   (t.taskType && t.taskType !== 'Regular' ? '<span class="equipment-badge">' + esc(t.taskType) + '</span>' : '')
+                +   (t.complianceFlag ? '<span class="equipment-badge" style="color:#7c3aed;">Compliance</span>' : '')
                 +   '<span class="equipment-badge"><i class="fas fa-user-friends" style="margin-right:0.3rem;opacity:0.8;"></i>' + memberCount + ' member' + (memberCount !== 1 ? 's' : '') + '</span>'
                 +   (opCount > 0 ? '<span class="equipment-badge" style="color:#f59e0b;border-color:#fde68a;background:#fef3c7;"><i class="fas fa-clipboard-list" style="margin-right:0.25rem;"></i>' + opCount + ' pending</span>' : '')
                 + '</div>'
@@ -119213,7 +119246,9 @@ console.log('? Global functions exported to window object');
         function resetTeamForm() {
             ['newTeamName','newTeamSchedule'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
             ['newTeamDescription','newTeamNotes','newTeamWarnings'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
-            ['newTeamCategory','newTeamLead','newTeamOffice'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
+            ['newTeamCategory','newTeamLead','newTeamOffice','newTeamSecondaryAssignee','newTeamEstimatedTime','newTeamPayAmount'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
+            ['newTeamIsPaid','newTeamComplianceFlag'].forEach(function(id){ var el=document.getElementById(id); if(el) el.checked=false; });
+            [['newTeamWorkStatus','Pending'],['newTeamPriority','Medium'],['newTeamTaskType','Regular'],['newTeamRecurrence','One-time']].forEach(function(pair){ var el=document.getElementById(pair[0]); if(el) el.value=pair[1]; });
             ['newTeamScheduleDate','newTeamScheduleTime','teamMemberPickerSearch'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
             var scheduleNone = document.getElementById('newTeamScheduleNone'); if (scheduleNone) scheduleNone.checked = false;
             var st=document.getElementById('newTeamStatus'); if(st) st.value='1';
@@ -119234,8 +119269,10 @@ console.log('? Global functions exported to window object');
             var leadSel = document.getElementById('newTeamLead');
             if (leadSel) {
                 var users = typeof loadUsers === 'function' ? loadUsers() : {};
-                leadSel.innerHTML = '<option value="">No lead assigned</option>'
-                    + Object.entries(users).map(function(e){ var uname=e[0]; var u=e[1]; var name=u.name||[u.firstName,u.lastName].filter(Boolean).join(' ')||uname; return '<option value="' + esc(uname) + '">' + esc(name) + '</option>'; }).join('');
+                var userOptions = Object.entries(users).map(function(e){ var uname=e[0]; var u=e[1]; var name=u.name||[u.firstName,u.lastName].filter(Boolean).join(' ')||uname; return '<option value="' + esc(uname) + '">' + esc(name) + '</option>'; }).join('');
+                leadSel.innerHTML = '<option value="">No lead assigned</option>' + userOptions;
+                var secondarySel = document.getElementById('newTeamSecondaryAssignee');
+                if (secondarySel) secondarySel.innerHTML = '<option value="">None</option>' + userOptions;
             }
             var offSel = document.getElementById('newTeamOffice');
             if (offSel) {
@@ -119377,6 +119414,9 @@ console.log('? Global functions exported to window object');
             sv('newTeamOffice', t.officeId); sv('newTeamSchedule', t.schedule); sv('newTeamDescription', t.description);
             applyTeamScheduleToControls(t);
             sv('newTeamNotes', t.notes); sv('newTeamWarnings', t.warnings);
+            sv('newTeamWorkStatus', t.workStatus || 'Pending'); sv('newTeamPriority', t.priority || 'Medium'); sv('newTeamTaskType', t.taskType || 'Regular'); sv('newTeamRecurrence', t.recurrence || 'One-time'); sv('newTeamEstimatedTime', t.estimatedTime); sv('newTeamSecondaryAssignee', t.secondaryAssignee || ''); sv('newTeamPayAmount', t.payAmount);
+            var paid=document.getElementById('newTeamIsPaid'); if(paid) paid.checked=!!t.isPaid;
+            var compliance=document.getElementById('newTeamComplianceFlag'); if(compliance) compliance.checked=!!t.complianceFlag;
             var st=document.getElementById('newTeamStatus'); if(st) st.value=t.isActive!==false?'1':'0';
             window._teamPhotoData=t.imageData||null; window._teamDocData=t.documentData||null; window._teamDocName=t.documentName||null;
             if (t.imageData) { var prev=document.getElementById('teamPhotoPreview'); if(prev) prev.innerHTML='<img src="'+t.imageData+'" style="width:80px;height:80px;object-fit:cover;border-radius:8px;">'; }
@@ -119410,6 +119450,15 @@ console.log('? Global functions exported to window object');
                 scheduleNoDateTime: scheduleNone,
                 notes: (document.getElementById('newTeamNotes')||{}).value||'',
                 warnings: (document.getElementById('newTeamWarnings')||{}).value||'',
+                workStatus: (document.getElementById('newTeamWorkStatus')||{}).value||'Pending',
+                priority: (document.getElementById('newTeamPriority')||{}).value||'Medium',
+                taskType: (document.getElementById('newTeamTaskType')||{}).value||'Regular',
+                recurrence: (document.getElementById('newTeamRecurrence')||{}).value||'One-time',
+                estimatedTime: Number((document.getElementById('newTeamEstimatedTime')||{}).value||0) || 0,
+                secondaryAssignee: (document.getElementById('newTeamSecondaryAssignee')||{}).value||'',
+                isPaid: !!(document.getElementById('newTeamIsPaid')||{}).checked,
+                payAmount: Number((document.getElementById('newTeamPayAmount')||{}).value||0) || 0,
+                complianceFlag: !!(document.getElementById('newTeamComplianceFlag')||{}).checked,
                 isActive: (document.getElementById('newTeamStatus')||{}).value!=='0',
                 imageData: window._teamPhotoData||'', documentData: window._teamDocData||'', documentName: window._teamDocName||'',
                 members: window._teamSelectedMembers||[], operationsLog: []
