@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260904-assignments-remove-task-button-v134';
+                const buildVersion = '20260905-dashboard-operations-glance-v135';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -56239,6 +56239,71 @@
             }).sort((left, right) => { const statusOrder = { Available: 0, Lunch: 1, Break: 1, Home: 2 }; const byStatus = (statusOrder[left.status] ?? 3) - (statusOrder[right.status] ?? 3); return byStatus || left.jobTitle.localeCompare(right.jobTitle) || left.name.localeCompare(right.name); });
         }
 
+        function getDashboardOperationsEntries() {
+            const readArray = (key) => {
+                try {
+                    const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+                    return Array.isArray(parsed) ? parsed : [];
+                } catch (_) {
+                    return [];
+                }
+            };
+            const isClosed = (value) => /^(completed|complete|closed|cancelled|canceled|denied|dismissed)$/i.test(String(value || '').trim());
+            const priorityRank = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+            const equipment = [...readArray('equipment'), ...readArray('officeEquipment')]
+                .filter((item) => item && item.isActive !== false && item.IsActive !== false)
+                .map((item) => {
+                    const status = String(item.status || item.Status || item.condition || 'Operational').trim() || 'Operational';
+                    const needsAttention = !/^(operational|available|active|ok|good)$/i.test(status);
+                    return needsAttention ? {
+                        kind: 'Equipment',
+                        title: String(item.equipmentName || item.name || item.Name || 'Equipment').trim(),
+                        detail: status,
+                        color: /out.of.service|retired|broken/i.test(status) ? '#dc2626' : '#eab308',
+                        rank: /out.of.service|retired|broken/i.test(status) ? 0 : 1,
+                        view: 'equipment'
+                    } : null;
+                }).filter(Boolean);
+            const services = readArray('equipmentServiceTickets')
+                .filter((ticket) => ticket && !isClosed(ticket.status || ticket.Status))
+                .map((ticket) => {
+                    const priority = String(ticket.priority || ticket.Priority || 'Medium').trim();
+                    const status = String(ticket.status || ticket.Status || 'Open').trim();
+                    const due = String(ticket.scheduledDate || ticket.dueDate || ticket.ScheduleDate || '').slice(0, 10);
+                    const overdue = due && due < getDashboardTodayIso();
+                    return {
+                        kind: 'Service',
+                        title: String(ticket.title || ticket.Title || ticket.type || ticket.Type || 'Service ticket').trim(),
+                        detail: overdue ? 'Overdue' : `${priority} - ${status}`,
+                        color: overdue || /critical|high/i.test(priority) ? '#dc2626' : '#eab308',
+                        rank: overdue ? 0 : (priorityRank[priority] ?? 2),
+                        view: 'services'
+                    };
+                });
+            const assignments = readArray('teams')
+                .filter((assignment) => assignment && assignment.isActive !== false && assignment.IsActive !== false && !/^(completed|closed|cancelled)$/i.test(String(assignment.workStatus || assignment.status || '')))
+                .map((assignment) => {
+                    const priority = String(assignment.priority || 'Medium').trim();
+                    const status = String(assignment.workStatus || assignment.status || 'Pending').trim();
+                    return {
+                        kind: 'Assignment',
+                        title: String(assignment.teamName || assignment.name || assignment.Name || 'Assignment').trim(),
+                        detail: `${priority} - ${status}`,
+                        color: /critical|high/i.test(priority) ? '#dc2626' : /in progress/i.test(status) ? '#eab308' : '#16a34a',
+                        rank: priorityRank[priority] ?? 2,
+                        view: 'teams'
+                    };
+                });
+            return [...equipment, ...services, ...assignments]
+                .sort((left, right) => left.rank - right.rank || left.kind.localeCompare(right.kind) || left.title.localeCompare(right.title))
+                .slice(0, 8);
+        }
+
+        function renderDashboardOperationsPanel(target) {
+            const entries = getDashboardOperationsEntries();
+            const counts = entries.reduce((result, entry) => { result[entry.kind] = (result[entry.kind] || 0) + 1; return result; }, {});
+            target.innerHTML = `<div class="rd-dashboard-panel" style="width:min(100%,360px);margin-left:auto;margin-top:0.65rem;padding:0.55rem 0.7rem;"><h3 style="margin:0 0 0.35rem;font-size:1rem;"><i class="fas fa-briefcase" style="color:#2563eb;margin-right:0.45rem;"></i>Operations Glance</h3><div style="display:flex;gap:0.35rem;margin-bottom:0.45rem;font-size:0.72rem;color:var(--text-secondary);"><span>${counts.Equipment || 0} equipment</span><span>${counts.Service || 0} services</span><span>${counts.Assignment || 0} assignments</span></div><div class="rd-dashboard-list">${entries.length ? entries.map((entry) => `<button type="button" class="rd-dashboard-row" style="width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.35rem;align-items:center;min-height:0;padding:0.28rem 0;border:0;background:transparent;text-align:left;cursor:pointer;" onclick="if(window.switchContentView){window.switchContentView('${entry.view}', event);}"><div class="rd-dashboard-task-title" style="min-width:0;gap:0.45rem;"><span class="rd-dashboard-dot" style="background:${entry.color};width:10px;height:10px;flex:0 0 10px;"></span><div style="min-width:0;"><strong style="display:block;font-size:0.84rem;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.title)}</strong><span style="display:block;font-size:0.72rem;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.kind)}</span></div></div><span class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.2rem 0.45rem;font-size:0.75rem;line-height:1.05;white-space:nowrap;">${escapeDashboardHtml(entry.detail)}</span></button>`).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-check-circle" style="color:#16a34a;"></i><span>No active operational items.</span></div>'}</div></div>`;
+        }
         function renderAttendanceDashboard(target, clinic) {
             const entries = getDashboardAttendanceEntries();
             target.innerHTML = `
@@ -56250,7 +56315,9 @@
                     <div class="rd-dashboard-list">
                         ${entries.length ? entries.map((entry) => `<div class="rd-dashboard-row" style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.35rem;align-items:center;min-height:0;padding:0.28rem 0;border:0;"><div class="rd-dashboard-task-title"><span class="rd-dashboard-dot" style="background:${entry.color};width:10px;height:10px;flex:0 0 10px;"></span><div style="min-width:0;"><strong style="display:block;font-size:0.84rem;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.name)}</strong><span style="display:block;font-size:0.72rem;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.jobTitle)}</span></div></div><div class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.2rem 0.45rem;font-size:0.75rem;line-height:1.05;">${escapeDashboardHtml(entry.status)}</div></div>`).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-clock" style="color:#64748b;"></i><span>No employees have clocked in today.</span></div>'}
                     </div>
-                </div>`;
+                </div><div id="dashboardOperationsPanel"></div>`;
+            const operationsPanel = document.getElementById('dashboardOperationsPanel');
+            if (operationsPanel) renderDashboardOperationsPanel(operationsPanel);
         }
 
         function renderManagerDashboardLanding(target, model, clinic) {
