@@ -56305,7 +56305,9 @@
             target.innerHTML = `<div class="rd-dashboard-panel" style="width:min(100%,360px);margin-left:auto;margin-top:0.65rem;padding:0.55rem 0.7rem;"><h3 style="margin:0 0 0.35rem;font-size:1rem;"><i class="fas fa-briefcase" style="color:#2563eb;margin-right:0.45rem;"></i>Operations Glance</h3><div style="display:flex;gap:0.35rem;margin-bottom:0.45rem;font-size:0.72rem;color:var(--text-secondary);"><span>${counts.Equipment || 0} equipment</span><span>${counts.Service || 0} services</span><span>${counts.Assignment || 0} assignments</span></div><div class="rd-dashboard-list">${entries.length ? entries.map((entry) => `<button type="button" class="rd-dashboard-row" style="width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.35rem;align-items:center;min-height:0;padding:0.28rem 0;border:0;background:transparent;text-align:left;cursor:pointer;" onclick="if(window.switchContentView){window.switchContentView('${entry.view}', event);}"><div class="rd-dashboard-task-title" style="min-width:0;gap:0.45rem;"><span class="rd-dashboard-dot" style="background:${entry.color};width:10px;height:10px;flex:0 0 10px;"></span><div style="min-width:0;"><strong style="display:block;font-size:0.84rem;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.title)}</strong><span style="display:block;font-size:0.72rem;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.kind)}</span></div></div><span class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.2rem 0.45rem;font-size:0.75rem;line-height:1.05;white-space:nowrap;">${escapeDashboardHtml(entry.detail)}</span></button>`).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-check-circle" style="color:#16a34a;"></i><span>No active operational items.</span></div>'}</div></div>`;
         }
 
-        function getDashboardDeadlineEntries() {
+        let dashboardCalendarDate = new Date();
+
+        function getDashboardCalendarEntries(day = dashboardCalendarDate) {
             const readArray = (key) => {
                 try {
                     const parsed = JSON.parse(localStorage.getItem(key) || '[]');
@@ -56314,15 +56316,19 @@
                     return [];
                 }
             };
+            const targetDate = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+            const targetISO = targetDate.toISOString().slice(0, 10);
             const entries = [];
-            const add = (item, title, value, view, kind, tone) => {
+            const add = (item, title, value, view, kind, tone, defaultHour = 17) => {
                 const raw = String(value || '').trim();
                 if (!raw) return;
                 const parsed = new Date(raw);
                 if (Number.isNaN(parsed.getTime())) return;
                 const status = String(item?.status || item?.Status || '').trim().toLowerCase();
                 if (/^(completed|complete|closed|cancelled|canceled|denied|dismissed)$/.test(status)) return;
-                entries.push({ title: String(title || 'Untitled deadline').trim(), when: parsed, view, kind, tone });
+                if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) parsed.setHours(defaultHour, 0, 0, 0);
+                if (parsed.toISOString().slice(0, 10) !== targetISO) return;
+                entries.push({ title: String(title || 'Untitled operation').trim(), start: parsed, end: new Date(parsed.getTime() + 45 * 60000), view, kind, tone });
             };
             const tasks = Array.isArray(window.tasksData) && window.tasksData.length ? window.tasksData : readArray('tasksData');
             tasks.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.date, 'task-hub', 'Task', '#2563eb'));
@@ -56330,33 +56336,43 @@
             requests.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.requestedDate, 'requests', 'Request', '#b45309'));
             readArray('equipmentServiceTickets').forEach(item => add(item, item.title || item.Title || item.type || item.Type, item.scheduledDate || item.ScheduleDate || item.dueDate || item.DueDate, 'equipment', 'Service', '#dc2626'));
             readArray('calendarEvents').forEach(item => add(item, item.title || item.name || item.eventName || 'Calendar event', item.start || item.startDate || item.date || item.eventDate, 'calendar', 'Calendar', '#0e9384'));
-            return entries.sort((left, right) => left.when - right.when).slice(0, 8);
+            return entries.sort((left, right) => left.start - right.start).slice(0, 12);
         }
 
-        function renderDashboardDeadlinePanel(target) {
-            const entries = getDashboardDeadlineEntries();
-            const now = Date.now();
-            const formatDeadline = value => value.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-            target.innerHTML = `<div class="rd-dashboard-panel" style="width:min(100%,360px);margin-left:auto;margin-top:0.65rem;padding:0.55rem 0.7rem;"><h3 style="margin:0 0 0.35rem;font-size:1rem;"><i class="fas fa-calendar-days" style="color:#2563eb;margin-right:0.45rem;"></i>Deadline Calendar</h3><div class="rd-dashboard-list">${entries.length ? entries.map(entry => { const overdue = entry.when.getTime() < now; const tone = overdue ? '#dc2626' : entry.tone; const label = overdue ? 'Overdue' : formatDeadline(entry.when); return `<button type="button" class="rd-dashboard-row" style="width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.35rem;align-items:center;min-height:0;padding:0.28rem 0;border:0;background:transparent;text-align:left;cursor:pointer;" onclick="if(window.switchContentView){window.switchContentView('${entry.view}', event);}"><div class="rd-dashboard-task-title" style="min-width:0;gap:0.45rem;"><span class="rd-dashboard-dot" style="background:${tone};width:10px;height:10px;flex:0 0 10px;"></span><div style="min-width:0;"><strong style="display:block;font-size:0.84rem;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.title)}</strong><span style="display:block;font-size:0.72rem;line-height:1.15;color:var(--text-secondary);">${escapeDashboardHtml(entry.kind)}</span></div></div><span class="rd-dashboard-status" style="color:${tone};border-color:${tone};background:transparent;padding:0.2rem 0.45rem;font-size:0.75rem;line-height:1.05;white-space:nowrap;">${escapeDashboardHtml(label)}</span></button>`; }).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-calendar-check" style="color:#16a34a;"></i><span>No dated deadlines found.</span></div>'}</div></div>`;
+        function renderDashboardCalendarPanel(target) {
+            const entries = getDashboardCalendarEntries();
+            const startHour = 7;
+            const endHour = 19;
+            const minutes = value => value.getHours() * 60 + value.getMinutes();
+            const top = value => Math.max(0, Math.min(100, ((minutes(value) - startHour * 60) / ((endHour - startHour) * 60)) * 100));
+            const height = entry => Math.max(5, top(entry.end) - top(entry.start));
+            const dateLabel = dashboardCalendarDate.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+            const timeLabel = value => value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+            const hourRows = Array.from({ length: endHour - startHour }, (_, index) => { const hour = startHour + index; return `<div style="height:46px;border-top:1px solid var(--border-color,#e5e7eb);position:relative;"><span style="position:absolute;left:0;top:-9px;width:58px;color:var(--text-secondary,#64748b);font-size:.7rem;background:var(--card-bg,#fff);">${hour > 12 ? hour - 12 : hour}${hour >= 12 ? ' PM' : ' AM'}</span></div>`; }).join('');
+            const blocks = entries.map(entry => `<button type="button" title="${escapeDashboardHtml(entry.title)}" onclick="if(window.switchContentView){window.switchContentView('${entry.view}', event);}" style="position:absolute;left:66px;right:8px;top:${top(entry)}%;height:${height(entry)}%;min-height:25px;border:0;border-left:4px solid ${entry.tone};border-radius:5px;background:${entry.tone}1f;color:var(--text-primary,#111827);padding:3px 7px;text-align:left;overflow:hidden;cursor:pointer;z-index:2;"><strong style="display:block;font-size:.72rem;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeDashboardHtml(entry.title)}</strong><span style="display:block;font-size:.65rem;color:var(--text-secondary,#64748b);">${escapeDashboardHtml(entry.kind)} · ${escapeDashboardHtml(timeLabel(entry.start))}</span></button>`).join('');
+            target.innerHTML = `<div class="rd-dashboard-panel" style="width:100%;padding:.7rem .8rem;"><div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.55rem;flex-wrap:wrap;"><h3 style="margin:0;font-size:1rem;"><i class="fas fa-calendar-days" style="color:#2563eb;margin-right:.45rem;"></i>Operations Calendar</h3><span style="margin-left:auto;color:var(--text-secondary,#64748b);font-size:.75rem;">${escapeDashboardHtml(dateLabel)}</span><button type="button" aria-label="Previous day" title="Previous day" onclick="window.shiftDashboardCalendar(-1)" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;cursor:pointer;padding:.2rem .45rem;">‹</button><button type="button" onclick="window.resetDashboardCalendar()" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;cursor:pointer;padding:.2rem .45rem;font-size:.7rem;">Today</button><button type="button" aria-label="Next day" title="Next day" onclick="window.shiftDashboardCalendar(1)" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;cursor:pointer;padding:.2rem .45rem;">›</button></div><div style="position:relative;padding-left:0;min-height:${(endHour - startHour) * 46}px;overflow:hidden;"><div>${hourRows}</div>${blocks}${entries.length ? '' : '<div style="position:absolute;left:66px;top:45%;color:var(--text-secondary,#64748b);font-size:.8rem;">No operations scheduled for this date.</div>'}</div></div>`;
         }
+
+        window.shiftDashboardCalendar = function (offset) { dashboardCalendarDate.setDate(dashboardCalendarDate.getDate() + Number(offset || 0)); renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel')); };
+        window.resetDashboardCalendar = function () { dashboardCalendarDate = new Date(); renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel')); };
         function renderAttendanceDashboard(target, clinic) {
             const entries = getDashboardAttendanceEntries();
             target.innerHTML = `
                 <div class="rd-dashboard-topbar" style="margin-bottom:0.45rem;min-height:0;">
                     <div class="rd-dashboard-location" style="padding:0.55rem 0.75rem;"><i class="fas fa-map-marker-alt"></i><div><strong>${escapeDashboardHtml(clinic.name)}</strong><span>${escapeDashboardHtml(clinic.address)}</span></div></div>
                 </div>
-                <div class="rd-dashboard-panel" style="width:min(100%,360px);margin-left:auto;padding:0.55rem 0.7rem;">
+                <div style="display:grid;grid-template-columns:minmax(0,1.55fr) minmax(300px,360px);gap:.8rem;align-items:start;">
+                    <div id="dashboardCalendarPanel"></div>
+                    <div>
+                <div class="rd-dashboard-panel" style="width:100%;padding:0.55rem 0.7rem;">
                     <h3 style="margin:0 0 0.35rem;font-size:1rem;"><i class="fas fa-user-clock" style="color:#2563eb;margin-right:0.45rem;"></i>Today's Attendance</h3>
                     <div class="rd-dashboard-list">
                         ${entries.length ? entries.map((entry) => `<div class="rd-dashboard-row" style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.35rem;align-items:center;min-height:0;padding:0.28rem 0;border:0;"><div class="rd-dashboard-task-title"><span class="rd-dashboard-dot" style="background:${entry.color};width:10px;height:10px;flex:0 0 10px;"></span><div style="min-width:0;display:flex;align-items:baseline;gap:0.35rem;overflow:hidden;"><strong style="font-size:0.84rem;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.name)}</strong><span style="font-size:0.72rem;line-height:1.15;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">- ${escapeDashboardHtml(entry.jobTitle)}</span></div></div><div class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.2rem 0.45rem;font-size:0.75rem;line-height:1.05;">${escapeDashboardHtml(entry.status)}</div></div>`).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-clock" style="color:#64748b;"></i><span>No employees have clocked in today.</span></div>'}
                     </div>
-                </div><div id="dashboardOperationsPanel"></div>`;
+                </div><div id="dashboardOperationsPanel"></div></div></div>`;
             const operationsPanel = document.getElementById('dashboardOperationsPanel');
             if (operationsPanel) renderDashboardOperationsPanel(operationsPanel);
-            const deadlinePanel = document.createElement('div');
-            deadlinePanel.id = 'dashboardDeadlinePanel';
-            target.appendChild(deadlinePanel);
-            renderDashboardDeadlinePanel(deadlinePanel);
+            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
         }
 
         function renderManagerDashboardLanding(target, model, clinic) {
