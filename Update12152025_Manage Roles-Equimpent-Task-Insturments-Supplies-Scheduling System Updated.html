@@ -128637,7 +128637,52 @@ console.log('? Global functions exported to window object');
     'use strict';
     if (window.__rdRoleDashboardsInstalled) return;
     window.__rdRoleDashboardsInstalled = true;
-    const PREVIEW_KEY = 'dashboardRolePreview';
+    const PREVIEW_KEY = 'dashboardRolePreview';    let demoMode = true;
+    function demoData() {
+        const user = getUser();
+        const day = new Date();
+        const stamp = hours => { const value = new Date(day); value.setHours(hours, 0, 0, 0); return value.toISOString(); };
+        const previous = offset => { const value = new Date(day); value.setDate(value.getDate() - offset); return value.toISOString().slice(0, 10); };
+        const owner = user.username || 'demo.user';
+        return {
+            records: [
+                { id:'demo-att-1', username:owner, displayName:user.displayName || 'Demo Employee', date:day.toISOString().slice(0,10), clockIn:stamp(8), clockOut:null, employeeClinic:'Red Oak', minutesWorked:360, flags:[] },
+                { id:'demo-att-2', username:'sara.nolan', displayName:'Sara Nolan', date:day.toISOString().slice(0,10), clockIn:stamp(7), clockOut:null, employeeClinic:'Red Oak', minutesWorked:420, flags:[] },
+                { id:'demo-att-3', username:'mike.ortiz', displayName:'Mike Ortiz', date:day.toISOString().slice(0,10), clockIn:stamp(9), clockOut:null, employeeClinic:'Red Oak', minutesWorked:300, flags:['late_to_work'] },
+                { id:'demo-att-4', username:'dr.farouk', displayName:'Dr. Nadia Farouk', date:day.toISOString().slice(0,10), clockIn:stamp(7), clockOut:null, employeeClinic:'Waxahachie', minutesWorked:420, flags:[] }
+            ],
+            tasks: [
+                { id:'demo-task-1', title:'Chair 2 afternoon setup', category:'Duties', assignee:owner, dueDate:previous(1), status:'Open' },
+                { id:'demo-task-2', title:'Endo kit pull for 2:15 PM case', category:'Instruments', assignee:owner, dueDate:day.toISOString(), status:'Open' },
+                { id:'demo-task-3', title:'Infection control refresher', category:'Compliance', assignee:owner, dueDate:new Date(day.getTime()+28*86400000).toISOString(), status:'Waiting Review' },
+                { id:'demo-task-4', title:'Restock composite A2', category:'Supplies', assignee:'mike.ortiz', dueDate:day.toISOString(), status:'Open' },
+                { id:'demo-task-5', title:'Weekly operatory deep clean', category:'Duties', assignee:'', dueDate:day.toISOString(), status:'Open' },
+                { id:'demo-task-6', title:'Renew DEA registration', category:'Compliance', assignee:'dr.farouk', dueDate:new Date(day.getTime()+14*86400000).toISOString(), status:'Open' },
+                { id:'demo-task-7', title:'Review vendor service quote', category:'Equipment', assignee:'manager', dueDate:previous(4), status:'Open' },
+                { id:'demo-task-8', title:'Close monthly supply count', category:'Inventory', assignee:'manager', dueDate:new Date(day.getTime()+2*86400000).toISOString(), status:'Submitted' }
+            ],
+            requests: [
+                { id:'demo-request-1', title:'Chair 1 light flickering', type:'Equipment issue', priority:'High', status:'Open', requestedBy:'Dr. Farouk' },
+                { id:'demo-request-2', title:'Patterson order approval', type:'Purchase request', priority:'Medium', status:'Waiting Review', requestedBy:'Sara Nolan' },
+                { id:'demo-request-3', title:'Sick day coverage for Lina', type:'Time off', priority:'High', status:'Open', requestedBy:'Lina Haddad' },
+                { id:'demo-request-4', title:'New patient forms running low', type:'Supply request', priority:'Medium', status:'Open', requestedBy:'Omar Rahal' },
+                { id:'demo-request-5', title:'Autoclave B service ticket', type:'Service', priority:'Critical', status:'Open', requestedBy:'Dana Whitfield' }
+            ],
+            equipment: [
+                { id:'demo-eq-1', name:'Autoclave B', equipmentName:'Autoclave B', status:'Out of service' },
+                { id:'demo-eq-2', name:'Chair 1 light', equipmentName:'Chair 1 light', status:'Needs service' },
+                { id:'demo-eq-3', name:'Digital sensor #2', equipmentName:'Digital sensor #2', status:'Operational' },
+                { id:'demo-eq-4', name:'Ultrasonic cleaner', equipmentName:'Ultrasonic cleaner', status:'Maintenance due' }
+            ],
+            supplies: [
+                { id:'demo-supply-1', name:'Prophy paste - mint', supplyName:'Prophy paste - mint', quantity:4, reorderLevel:10 },
+                { id:'demo-supply-2', name:'Fluoride varnish', supplyName:'Fluoride varnish', quantity:9, reorderLevel:12 },
+                { id:'demo-supply-3', name:'Barrier film', supplyName:'Barrier film', quantity:18, reorderLevel:30 },
+                { id:'demo-supply-4', name:'Prophy angles', supplyName:'Prophy angles', quantity:62, reorderLevel:40 },
+                { id:'demo-supply-5', name:'Saliva ejectors', supplyName:'Saliva ejectors', quantity:180, reorderLevel:100 }
+            ]
+        };
+    }
     const T = { ok: '#059669', warn: '#b45309', bad: '#dc2626', info: '#2563eb', violet: '#7c3aed', teal: '#0e9384', grey: '#64748b' };
     const labels = { owner: 'Owner / Admin', manager: 'Office manager', dentist: 'Dentist', hygienist: 'Hygienist', assistant: 'Dental assistant', sterilization: 'Sterilization', frontdesk: 'Front desk', employee: 'Employee' };
     const esc = value => String(value ?? '').replace(/[&<>\"]/g, value => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[value]));
@@ -128694,11 +128739,12 @@ console.log('? Global functions exported to window object');
     function buildDashboardModel() {
         if (cachedModel && Date.now() - cachedAt < 3000) return cachedModel;
         const users = typeof window.loadUsers === 'function' ? window.loadUsers() || {} : read('appUsers', {});
-        const records = array(read('attendanceClockRecordsV1', []));
-        const tasks = array(window.tasksData).length ? array(window.tasksData) : array(read('tasksData', []));
-        const requests = array(window.__dashboardRequestsCache).length ? array(window.__dashboardRequestsCache) : array(read('requestsDatabase', []));
-        const equipment = [...array(window.__equipmentApiSnapshot), ...array(read('equipment', [])), ...array(read('officeEquipment', []))];
-        const supplies = [...array(read('dentalSupplies', [])), ...array(read('officeSupplies', []))];
+        const demo = demoMode ? demoData() : { records:[], tasks:[], requests:[], equipment:[], supplies:[] };
+        const records = [...array(read('attendanceClockRecordsV1', [])), ...demo.records];
+        const tasks = [...(array(window.tasksData).length ? array(window.tasksData) : array(read('tasksData', []))), ...demo.tasks];
+        const requests = [...(array(window.__dashboardRequestsCache).length ? array(window.__dashboardRequestsCache) : array(read('requestsDatabase', []))), ...demo.requests];
+        const equipment = [...array(window.__equipmentApiSnapshot), ...array(read('equipment', [])), ...array(read('officeEquipment', [])), ...demo.equipment];
+        const supplies = [...array(read('dentalSupplies', [])), ...array(read('officeSupplies', [])), ...demo.supplies];
         const activeTasks = tasks.filter(item => !closed(item.status || item.Status));
         const activeRequests = requests.filter(item => !closed(item.status || item.Status));
         const user = getUser(); const keys = [user.username, user.displayName, user.email, user.workEmail].map(value => text(value).toLowerCase()).filter(Boolean);
@@ -128724,8 +128770,9 @@ console.log('? Global functions exported to window object');
         const target = document.getElementById('managerDashboardLanding'); const legacyUser = document.getElementById('userDashboardLanding'); if (!target || !legacyUser) return;
         const model = buildDashboardModel(); const role = getDashboardRole(); const user = model.user; const access = tier(user); const mainItems = taskItems(model, role); const preview = access === 'manager' ? `<label class="rd-role-who">Preview <select class="rd-role-select" onchange="window.setDashboardRolePreview(this.value)"><option value="">My dashboard</option>${Object.keys(labels).map(key => `<option value="${key}" ${key === role && text(localStorage.getItem(PREVIEW_KEY)) === key ? 'selected' : ''}>${esc(labels[key])}</option>`).join('')}</select></label>` : '';
         target.classList.add('rd-role-dashboard'); target.hidden = false; legacyUser.hidden = true;
-        target.innerHTML = `<div class="rd-role-head"><div><h2>${esc(labels[role] || 'Employee')} dashboard</h2><div class="rd-role-who">${esc(user.displayName)} · ${esc(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }))}</div></div><div class="rd-role-actions">${preview}<button class="rd-role-btn primary" ${navigate(role === 'employee' ? 'attendance' : 'task-hub')}><i class="fas fa-arrow-right"></i>Open work</button></div></div><div class="rd-role-kpis"><button class="rd-role-kpi" style="--rd-tone:${T.ok}" ${navigate('attendance')}><b>${model.openRecords.length}</b><span>On the clock</span><em>Attendance</em></button><button class="rd-role-kpi" style="--rd-tone:${T.bad}" ${navigate('task-hub')}><b>${model.overdue.length}</b><span>Overdue</span><em>Tasks and duties</em></button><button class="rd-role-kpi" style="--rd-tone:${T.info}" ${navigate('requests')}><b>${model.activeRequests.length}</b><span>Open requests</span><em>Needs routing</em></button><button class="rd-role-kpi" style="--rd-tone:${T.warn}" ${navigate('supplies')}><b>${model.lowSupplies.length}</b><span>Low stock</span><em>Reorder point</em></button></div><div class="rd-role-cols"><div class="rd-role-col">${queue(mainItems, role === 'manager' || role === 'owner' ? 'Needs attention' : 'Needs my attention', 'live')}${['manager', 'frontdesk'].includes(role) ? people(model) : ''}${['dentist', 'hygienist', 'frontdesk'].includes(role) ? table(model) : ''}</div><div class="rd-role-col">${progress(model)}${queue(model.issues.slice(0, 5).map(item => ({ view: 'equipment', tone: T.warn, icon: 'fas fa-screwdriver-wrench', title: text(item.equipmentName || item.name || item.Name, 'Equipment issue'), meta: text(item.status || item.Status, 'Needs review'), age: 'Open' })), 'Equipment and supplies')}${role === 'employee' ? `<div class="rd-role-banner" ${navigate('equipment')}><i class="fas fa-bullhorn"></i><div><b>Operations notice</b><br><span>Open Equipment to review current service status.</span></div></div>` : ''}</div></div><div class="rd-role-why"><b>Role focus:</b> ${esc(role === 'owner' ? 'Practice health, committed spend, and risk across clinics.' : role === 'manager' ? 'Staffing, coverage, approvals, and decisions for the shift.' : 'Personal readiness, attendance, and the next action that belongs to you.')}</div>`;
+        target.innerHTML = `<div class="rd-role-head"><div><h2>${esc(labels[role] || 'Employee')} dashboard</h2><div class="rd-role-who">${esc(user.displayName)} · ${esc(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }))}</div></div><div class="rd-role-actions">${preview}<button class="rd-role-btn" onclick="window.toggleDashboardDemoData()"><i class="fas fa-flask"></i>${demoMode ? 'Demo data on' : 'Demo data off'}</button><button class="rd-role-btn primary" ${navigate(role === 'employee' ? 'attendance' : 'task-hub')}><i class="fas fa-arrow-right"></i>Open work</button></div></div><div class="rd-role-kpis"><button class="rd-role-kpi" style="--rd-tone:${T.ok}" ${navigate('attendance')}><b>${model.openRecords.length}</b><span>On the clock</span><em>Attendance</em></button><button class="rd-role-kpi" style="--rd-tone:${T.bad}" ${navigate('task-hub')}><b>${model.overdue.length}</b><span>Overdue</span><em>Tasks and duties</em></button><button class="rd-role-kpi" style="--rd-tone:${T.info}" ${navigate('requests')}><b>${model.activeRequests.length}</b><span>Open requests</span><em>Needs routing</em></button><button class="rd-role-kpi" style="--rd-tone:${T.warn}" ${navigate('supplies')}><b>${model.lowSupplies.length}</b><span>Low stock</span><em>Reorder point</em></button></div><div class="rd-role-cols"><div class="rd-role-col">${queue(mainItems, role === 'manager' || role === 'owner' ? 'Needs attention' : 'Needs my attention', 'live')}${['manager', 'frontdesk'].includes(role) ? people(model) : ''}${['dentist', 'hygienist', 'frontdesk'].includes(role) ? table(model) : ''}</div><div class="rd-role-col">${progress(model)}${queue(model.issues.slice(0, 5).map(item => ({ view: 'equipment', tone: T.warn, icon: 'fas fa-screwdriver-wrench', title: text(item.equipmentName || item.name || item.Name, 'Equipment issue'), meta: text(item.status || item.Status, 'Needs review'), age: 'Open' })), 'Equipment and supplies')}${role === 'employee' ? `<div class="rd-role-banner" ${navigate('equipment')}><i class="fas fa-bullhorn"></i><div><b>Operations notice</b><br><span>Open Equipment to review current service status.</span></div></div>` : ''}</div></div><div class="rd-role-why"><b>Role focus:</b> ${esc(role === 'owner' ? 'Practice health, committed spend, and risk across clinics.' : role === 'manager' ? 'Staffing, coverage, approvals, and decisions for the shift.' : 'Personal readiness, attendance, and the next action that belongs to you.')}</div>`;
     }
+    window.toggleDashboardDemoData = () => { demoMode = !demoMode; cachedModel = null; render(); };
     window.setDashboardRolePreview = value => { if (labels[value]) localStorage.setItem(PREVIEW_KEY, value); else localStorage.removeItem(PREVIEW_KEY); cachedModel = null; render(); };
     const original = window.renderDashboardLanding;
     window.renderDashboardLanding = function () { try { if (typeof original === 'function') original.apply(this, arguments); } catch (_) {} setTimeout(render, 0); };
