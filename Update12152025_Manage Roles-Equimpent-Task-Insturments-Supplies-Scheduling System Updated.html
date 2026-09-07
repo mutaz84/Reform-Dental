@@ -113156,8 +113156,7 @@ console.log('? Global functions exported to window object');
         const html = buildStationaryRenderHtml(template);
         const printWindow = window.open('', '_blank', 'width=960,height=900');
         if (!printWindow) return;
-        printWindow.document.write(`<!doctype html><html><head><title>${sanitizeHtml(template.name || 'Form')}</title></head><body style="margin:0;padding:16px;background:#f3f4f6;">${html}
-</body></html>`);
+        printWindow.document.write(`<!doctype html><html><head><title>${sanitizeHtml(template.name || 'Form')}</title></head><body style="margin:0;padding:16px;background:#f3f4f6;">${html}</body></html>`);
         printWindow.document.close();
         printWindow.focus();
         setTimeout(() => printWindow.print(), 250);
@@ -127889,8 +127888,7 @@ console.log('? Global functions exported to window object');
                 var title = String(entry.name || 'Utility Document').replace(/</g, '&lt;');
                 w.document.write('<!doctype html><html><head><title>' + title + '</title><style>html,body{margin:0;padding:0;background:#1f2937;height:100%;}iframe,img,video{display:block;}</style></head><body>'
                     + '<iframe src="' + data + '" style="width:100%;height:100vh;border:none;"></iframe>'
-                    + '
-</body></html>');
+                    + '</body></html>');
                 w.document.close();
             }
         }
@@ -128631,108 +128629,6 @@ console.log('? Global functions exported to window object');
     })();
     </script>
 
-
-<script id="rdRoleDashboardLayer">
-(function () {
-    'use strict';
-    if (window.__rdRoleDashboardsInstalled) return;
-    window.__rdRoleDashboardsInstalled = true;
-    const PREVIEW_KEY = 'dashboardRolePreview';
-    const T = { ok: '#059669', warn: '#b45309', bad: '#dc2626', info: '#2563eb', violet: '#7c3aed', teal: '#0e9384', grey: '#64748b' };
-    const labels = { owner: 'Owner / Admin', manager: 'Office manager', dentist: 'Dentist', hygienist: 'Hygienist', assistant: 'Dental assistant', sterilization: 'Sterilization', frontdesk: 'Front desk', employee: 'Employee' };
-    const esc = value => String(value ?? '').replace(/[&<>\"]/g, value => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[value]));
-    const text = (value, fallback = '') => String(value ?? fallback).trim();
-    const array = value => Array.isArray(value) ? value : [];
-    const read = (key, fallback) => { try { const value = JSON.parse(localStorage.getItem(key) || 'null'); return value == null ? fallback : value; } catch (_) { return fallback; } };
-    const iso = value => { const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().slice(0, 10); };
-    const today = () => iso(new Date());
-    const closed = value => /^(completed|complete|closed|cancelled|canceled|denied|dismissed)$/i.test(text(value));
-    const initials = value => { const parts = text(value, '?').replace(/^Dr\.?\s+/i, '').split(/\s+/); return (parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : parts[0].slice(0, 2)).toUpperCase(); };
-    const navigate = view => `onclick="if(window.switchContentView){window.switchContentView('${view}',event);}"`;
-    const style = document.createElement('style');
-    style.textContent = `
-        #managerDashboardLanding.rd-role-dashboard{display:block;width:100%;--rd-card:var(--card-bg,#fff);--rd-bg:var(--bg-secondary,#f5f7f8);--rd-border:var(--border-color,#e3e8ec);--rd-ink:var(--text-primary,#0f172a);--rd-muted:var(--text-secondary,#5b6b7a);--rd-accent:var(--accent-primary,#0e9384);color:var(--rd-ink);background:var(--rd-bg);padding:1rem;border-radius:10px}
-        .rd-role-head{display:flex;align-items:flex-start;gap:.75rem;flex-wrap:wrap;margin:0 0 .85rem}.rd-role-head h2{margin:0;font-size:1.15rem}.rd-role-who{margin-top:.15rem;color:var(--rd-muted);font-size:.8rem}.rd-role-actions{margin-left:auto;display:flex;gap:.4rem;flex-wrap:wrap}.rd-role-btn,.rd-role-select{border:1px solid var(--rd-border);background:var(--rd-card);color:var(--rd-muted);border-radius:7px;padding:.4rem .7rem;font:600 .78rem inherit;cursor:pointer}.rd-role-btn.primary{background:var(--rd-accent);border-color:var(--rd-accent);color:#fff}.rd-role-btn:focus-visible,.rd-role-select:focus-visible{outline:2px solid var(--rd-accent);outline-offset:2px}
-        .rd-role-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:.6rem;margin-bottom:.85rem}.rd-role-kpi{width:100%;text-align:left;background:var(--rd-card);border:1px solid var(--rd-border);border-left:3px solid var(--rd-tone,#94a3b8);border-radius:9px;padding:.6rem .72rem;cursor:pointer;color:inherit}.rd-role-kpi:hover{outline:2px solid var(--rd-tone,#94a3b8)}.rd-role-kpi b{display:block;color:var(--rd-tone,var(--rd-ink));font-size:1.45rem;line-height:1.1}.rd-role-kpi span,.rd-role-kpi em{display:block;font-size:.74rem}.rd-role-kpi span{color:var(--rd-muted);margin-top:.12rem}.rd-role-kpi em{color:var(--rd-muted);font-style:normal;margin-top:.12rem}
-        .rd-role-cols{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(270px,1fr);gap:.8rem;align-items:start}.rd-role-col{display:grid;gap:.8rem;align-content:start}.rd-role-card{background:var(--rd-card);border:1px solid var(--rd-border);border-radius:10px;padding:.85rem .9rem}.rd-role-card>header{display:flex;align-items:center;gap:.5rem;margin-bottom:.65rem}.rd-role-card h3{margin:0;font-size:.88rem}.rd-role-note{margin-left:auto;color:var(--rd-muted);font-size:.72rem}.rd-role-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:.55rem;align-items:center;width:100%;padding:.46rem .1rem;border:0;border-bottom:1px solid color-mix(in srgb,var(--rd-border) 55%,transparent);background:none;color:inherit;cursor:pointer;text-align:left}.rd-role-item:last-child{border-bottom:0}.rd-role-dot{width:25px;height:25px;border-radius:7px;display:grid;place-items:center;color:#fff;background:var(--rd-tone,#94a3b8);font-size:.7rem}.rd-role-item strong{display:block;font-size:.81rem}.rd-role-item small{display:block;color:var(--rd-muted);font-size:.71rem}.rd-role-age{color:var(--rd-tone,var(--rd-muted));font-size:.71rem;font-weight:700;white-space:nowrap}.rd-role-avatar{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--rd-tone,#64748b);color:#fff;font-size:.65rem;font-weight:700}.rd-role-table{width:100%;border-collapse:collapse;font-size:.78rem}.rd-role-table th{text-align:left;color:var(--rd-muted);font-size:.71rem;padding:0 0 .4rem;border-bottom:1px solid var(--rd-border)}.rd-role-table td{padding:.43rem .35rem .43rem 0;border-bottom:1px solid color-mix(in srgb,var(--rd-border) 55%,transparent)}.rd-role-table tr:last-child td{border-bottom:0}.rd-role-badge{color:var(--rd-tone,var(--rd-muted));background:color-mix(in srgb,var(--rd-tone,#94a3b8) 14%,transparent);border-radius:999px;padding:.13rem .42rem;font-size:.69rem;font-weight:700;white-space:nowrap}.rd-role-progress-item{display:grid;gap:.2rem;margin:.45rem 0;font-size:.76rem}.rd-role-progress-label{display:flex;justify-content:space-between}.rd-role-track{height:6px;border-radius:999px;background:color-mix(in srgb,var(--rd-border) 55%,transparent);overflow:hidden}.rd-role-fill{height:100%;background:var(--rd-tone,var(--rd-accent))}.rd-role-banner{display:flex;gap:.55rem;align-items:flex-start;background:color-mix(in srgb,var(--rd-accent) 10%,var(--rd-card));border:1px solid color-mix(in srgb,var(--rd-accent) 35%,var(--rd-border));border-radius:9px;padding:.65rem .7rem;font-size:.8rem}.rd-role-empty{color:var(--rd-muted);text-align:center;padding:.8rem .3rem;font-size:.78rem}.rd-role-why{margin-top:.8rem;color:var(--rd-muted);border:1px dashed var(--rd-border);border-radius:9px;padding:.65rem .75rem;font-size:.77rem}
-        @media(max-width:980px){.rd-role-cols{grid-template-columns:minmax(0,1fr)}}@media(max-width:620px){#managerDashboardLanding.rd-role-dashboard{padding:.7rem}.rd-role-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem}.rd-role-kpi{padding:.52rem}.rd-role-kpi b{font-size:1.2rem}.rd-role-table{font-size:.72rem}}`;
-    document.head.appendChild(style);
-
-    function getUser() {
-        const session = read('currentUser', {}) || {};
-        const users = typeof window.loadUsers === 'function' ? window.loadUsers() || {} : read('appUsers', {});
-        const raw = text(localStorage.getItem('loggedInUser') || session.username || session.userName || localStorage.getItem('currentUsername'));
-        const key = Object.keys(users).find(name => name.toLowerCase() === raw.toLowerCase()) || raw;
-        const user = { ...session, ...(users[key] || {}) };
-        return { ...user, username: key, displayName: text(user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || key || 'Employee'), tier: text(localStorage.getItem('userRole') || user.role || 'user').toLowerCase() };
-    }
-    function tier(user) {
-        const role = user.tier.replace(/[\s_-]/g, '');
-        if (/^(admin|owner|administrator|superadmin)$/.test(role)) return 'owner';
-        if (/manager/.test(role)) return 'manager';
-        try { if (typeof window.hasPermission === 'function' && window.hasPermission('users', 'view_all', 'readonly')) return 'manager'; } catch (_) {}
-        return 'user';
-    }
-    function jobRole(user) {
-        const value = [user.role, user.jobTitle, user.title, user.position, user.department, user.staffType].filter(Boolean).join(' ').toLowerCase();
-        if (/dentist|doctor|dds|dmd|provider/.test(value)) return 'dentist';
-        if (/hygien/.test(value)) return 'hygienist';
-        if (/steril|central supply/.test(value)) return 'sterilization';
-        if (/front\s*desk|reception|coordinator/.test(value)) return 'frontdesk';
-        if (/assistant|\bda\b/.test(value)) return 'assistant';
-        return 'employee';
-    }
-    function getDashboardRole() {
-        const user = getUser(); const access = tier(user);
-        const resolved = access === 'owner' ? 'owner' : access === 'manager' ? 'manager' : jobRole(user);
-        const preview = text(localStorage.getItem(PREVIEW_KEY)).toLowerCase();
-        return access === 'manager' && labels[preview] ? preview : resolved;
-    }
-    window.getDashboardRole = getDashboardRole;
-
-    let cachedModel; let cachedAt = 0;
-    function buildDashboardModel() {
-        if (cachedModel && Date.now() - cachedAt < 3000) return cachedModel;
-        const users = typeof window.loadUsers === 'function' ? window.loadUsers() || {} : read('appUsers', {});
-        const records = array(read('attendanceClockRecordsV1', []));
-        const tasks = array(window.tasksData).length ? array(window.tasksData) : array(read('tasksData', []));
-        const requests = array(window.__dashboardRequestsCache).length ? array(window.__dashboardRequestsCache) : array(read('requestsDatabase', []));
-        const equipment = [...array(window.__equipmentApiSnapshot), ...array(read('equipment', [])), ...array(read('officeEquipment', []))];
-        const supplies = [...array(read('dentalSupplies', [])), ...array(read('officeSupplies', []))];
-        const activeTasks = tasks.filter(item => !closed(item.status || item.Status));
-        const activeRequests = requests.filter(item => !closed(item.status || item.Status));
-        const user = getUser(); const keys = [user.username, user.displayName, user.email, user.workEmail].map(value => text(value).toLowerCase()).filter(Boolean);
-        const myTasks = activeTasks.filter(item => [item.assignee, item.Assignee, item.assignedTo, item.AssignedTo, item.claimedBy, item.ClaimedBy].some(value => keys.includes(text(value).toLowerCase())));
-        const dueToday = activeTasks.filter(item => iso(item.dueDate || item.DueDate || item.date) === today());
-        const overdue = activeTasks.filter(item => { const due = iso(item.dueDate || item.DueDate || item.date); return due && due < today(); });
-        const openRecords = records.filter(item => item && item.clockIn && !item.clockOut);
-        const issues = equipment.filter(item => item && !/^(operational|available|active|ok|good)$/i.test(text(item.status || item.Status, 'Operational')));
-        const lowSupplies = supplies.filter(item => Number(item.quantityInStock ?? item.QuantityInStock ?? item.quantity) <= Number(item.reorderLevel ?? item.MinimumStock ?? item.minimumStock) && Number(item.reorderLevel ?? item.MinimumStock ?? item.minimumStock) > 0);
-        cachedModel = { user, users, records, tasks, requests, supplies, activeTasks, activeRequests, myTasks, dueToday, overdue, openRecords, issues, lowSupplies };
-        cachedAt = Date.now();
-        return cachedModel;
-    }
-    window.buildDashboardModel = buildDashboardModel;
-
-    function card(title, body, note) { return `<section class="rd-role-card"><header><h3>${esc(title)}</h3>${note ? `<span class="rd-role-note">${esc(note)}</span>` : ''}</header>${body}</section>`; }
-    function queue(items, title, note) { return card(title, `<div class="rd-role-q">${items.length ? items.map(item => `<button class="rd-role-item" style="--rd-tone:${item.tone}" ${navigate(item.view)}><span class="rd-role-dot"><i class="${item.icon}"></i></span><span><strong>${esc(item.title)}</strong><small>${esc(item.meta)}</small></span><span class="rd-role-age">${esc(item.age)}</span></button>`).join('') : '<div class="rd-role-empty">Nothing here yet. Open the linked module to add the first item.</div>'}</div>`, note); }
-    function taskItems(model, role) { return (role === 'employee' || ['dentist', 'hygienist', 'assistant'].includes(role) ? model.myTasks : model.activeTasks).slice(0, 6).map(item => ({ view: /compliance|training/i.test(text(item.category || item.title)) ? 'requirements' : 'task-hub', tone: /overdue|critical|urgent/i.test(text(item.status || item.Status)) ? T.bad : T.info, icon: 'fas fa-clipboard-list', title: text(item.title || item.Title || item.name, 'Task'), meta: text(item.assignee || item.Assignee || item.assignedTo, 'Unassigned'), age: iso(item.dueDate || item.DueDate || item.date) || text(item.status || item.Status, 'Open') })); }
-    function table(model) { const rows = model.activeRequests.slice(0, 5).map(item => [text(item.title || item.Title, 'Request'), text(item.type || item.Type, 'Request'), { text: text(item.priority || item.Priority, 'Open'), tone: /critical|urgent|high/i.test(text(item.priority || item.Priority)) ? T.bad : T.info }]); return card('Open requests', `<table class="rd-role-table"><thead><tr><th>Request</th><th>Type</th><th>Status</th></tr></thead><tbody>${rows.length ? rows.map(row => `<tr ${navigate('requests')}>${row.map(cell => typeof cell === 'object' ? `<td><span class="rd-role-badge" style="--rd-tone:${cell.tone}">${esc(cell.text)}</span></td>` : `<td>${esc(cell)}</td>`).join('')}</tr>`).join('') : '<tr><td colspan="3">No open requests</td></tr>'}</tbody></table>`); }
-    function people(model) { return card('Who is in', `<div class="rd-role-rows">${model.openRecords.slice(0, 8).map(record => `<button class="rd-role-item" ${navigate('attendance')}><span class="rd-role-avatar">${esc(initials(record.displayName || record.username))}</span><span><strong>${esc(record.displayName || record.username || 'Employee')}</strong><small>${esc(record.employeeClinic || 'Attendance')}</small></span><span class="rd-role-age" style="--rd-tone:${T.ok}">On clock</span></button>`).join('') || '<div class="rd-role-empty">No employees are currently clocked in.</div>'}</div>`); }
-    function progress(model) { const total = model.activeTasks.length; const current = Math.max(0, total - model.overdue.length); const pct = total ? current / total * 100 : 100; return card('Readiness', `<div class="rd-role-progress-item"><div class="rd-role-progress-label"><span>Tasks current</span><b>${total ? Math.round(pct) : 100}%</b></div><div class="rd-role-track"><div class="rd-role-fill" style="--rd-tone:${T.teal};width:${pct}%"></div></div></div><div class="rd-role-progress-item"><div class="rd-role-progress-label"><span>Attendance records</span><b>${model.openRecords.length}</b></div><div class="rd-role-track"><div class="rd-role-fill" style="--rd-tone:${T.info};width:${Math.min(100, model.openRecords.length * 10)}%"></div></div></div>`); }
-    function render() {
-        const target = document.getElementById('managerDashboardLanding'); const legacyUser = document.getElementById('userDashboardLanding'); if (!target || !legacyUser) return;
-        const model = buildDashboardModel(); const role = getDashboardRole(); const user = model.user; const access = tier(user); const mainItems = taskItems(model, role); const preview = access === 'manager' ? `<label class="rd-role-who">Preview <select class="rd-role-select" onchange="window.setDashboardRolePreview(this.value)"><option value="">My dashboard</option>${Object.keys(labels).map(key => `<option value="${key}" ${key === role && text(localStorage.getItem(PREVIEW_KEY)) === key ? 'selected' : ''}>${esc(labels[key])}</option>`).join('')}</select></label>` : '';
-        target.classList.add('rd-role-dashboard'); target.hidden = false; legacyUser.hidden = true;
-        target.innerHTML = `<div class="rd-role-head"><div><h2>${esc(labels[role] || 'Employee')} dashboard</h2><div class="rd-role-who">${esc(user.displayName)} · ${esc(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }))}</div></div><div class="rd-role-actions">${preview}<button class="rd-role-btn primary" ${navigate(role === 'employee' ? 'attendance' : 'task-hub')}><i class="fas fa-arrow-right"></i>Open work</button></div></div><div class="rd-role-kpis"><button class="rd-role-kpi" style="--rd-tone:${T.ok}" ${navigate('attendance')}><b>${model.openRecords.length}</b><span>On the clock</span><em>Attendance</em></button><button class="rd-role-kpi" style="--rd-tone:${T.bad}" ${navigate('task-hub')}><b>${model.overdue.length}</b><span>Overdue</span><em>Tasks and duties</em></button><button class="rd-role-kpi" style="--rd-tone:${T.info}" ${navigate('requests')}><b>${model.activeRequests.length}</b><span>Open requests</span><em>Needs routing</em></button><button class="rd-role-kpi" style="--rd-tone:${T.warn}" ${navigate('supplies')}><b>${model.lowSupplies.length}</b><span>Low stock</span><em>Reorder point</em></button></div><div class="rd-role-cols"><div class="rd-role-col">${queue(mainItems, role === 'manager' || role === 'owner' ? 'Needs attention' : 'Needs my attention', 'live')}${['manager', 'frontdesk'].includes(role) ? people(model) : ''}${['dentist', 'hygienist', 'frontdesk'].includes(role) ? table(model) : ''}</div><div class="rd-role-col">${progress(model)}${queue(model.issues.slice(0, 5).map(item => ({ view: 'equipment', tone: T.warn, icon: 'fas fa-screwdriver-wrench', title: text(item.equipmentName || item.name || item.Name, 'Equipment issue'), meta: text(item.status || item.Status, 'Needs review'), age: 'Open' })), 'Equipment and supplies')}${role === 'employee' ? `<div class="rd-role-banner" ${navigate('equipment')}><i class="fas fa-bullhorn"></i><div><b>Operations notice</b><br><span>Open Equipment to review current service status.</span></div></div>` : ''}</div></div><div class="rd-role-why"><b>Role focus:</b> ${esc(role === 'owner' ? 'Practice health, committed spend, and risk across clinics.' : role === 'manager' ? 'Staffing, coverage, approvals, and decisions for the shift.' : 'Personal readiness, attendance, and the next action that belongs to you.')}</div>`;
-    }
-    window.setDashboardRolePreview = value => { if (labels[value]) localStorage.setItem(PREVIEW_KEY, value); else localStorage.removeItem(PREVIEW_KEY); cachedModel = null; render(); };
-    const original = window.renderDashboardLanding;
-    window.renderDashboardLanding = function () { try { if (typeof original === 'function') original.apply(this, arguments); } catch (_) {} setTimeout(render, 0); };
-    document.addEventListener('DOMContentLoaded', () => setTimeout(render, 0));
-})();
-
-</script>
 </body></html>
 
 
