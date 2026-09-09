@@ -56318,6 +56318,31 @@
             }
         }
 
+        function getDashboardEventScopeMap() {
+            try {
+                const parsed = JSON.parse(localStorage.getItem('dashboardCalendarEventScopes') || '{}');
+                return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+            } catch (_) {
+                return {};
+            }
+        }
+
+        function setDashboardEventScope(eventId, scope) {
+            const id = String(eventId || '').trim();
+            if (!id) return;
+            const map = getDashboardEventScopeMap();
+            map[id] = scope === 'office' ? 'office' : 'mine';
+            localStorage.setItem('dashboardCalendarEventScopes', JSON.stringify(map));
+        }
+
+        function clearDashboardEventScope(eventId) {
+            const id = String(eventId || '').trim();
+            if (!id) return;
+            const map = getDashboardEventScopeMap();
+            delete map[id];
+            localStorage.setItem('dashboardCalendarEventScopes', JSON.stringify(map));
+        }
+
         function getDashboardOwnershipKeys() {
             const keys = new Set();
             const push = value => { const text = String(value ?? '').trim().toLowerCase(); if (text) keys.add(text); };
@@ -56343,6 +56368,7 @@
             const targetDate = new Date(day.getFullYear(), day.getMonth(), day.getDate());
             const targetISO = targetDate.toISOString().slice(0, 10);
             const ownershipKeys = getDashboardOwnershipKeys();
+            const scopeMap = getDashboardEventScopeMap();
             const entries = [];
             const add = (item, title, value, view, kind, tone, defaultHour = 17) => {
                 const raw = String(value || '').trim();
@@ -56357,8 +56383,9 @@
                 const assigneeRaw = String(item?.assignee || item?.Assignee || item?.assignedTo || item?.AssignedTo || item?.organizerName || item?.OrganizerName || '').trim();
                 const rawOrganizerId = String(item?.organizerUserId ?? item?.OrganizerUserId ?? '').trim().toLowerCase();
                 const calendarOrganizerId = ['', 'null', 'undefined', 'nan', '0'].includes(rawOrganizerId) ? '' : rawOrganizerId;
+                const mappedScope = scopeMap[String(item?.id ?? item?.Id ?? '').trim()];
                 const isMine = kind === 'Calendar'
-                    ? ((item?.dashboardScope === 'mine' || item?.dashboardScope === 'office') ? item.dashboardScope === 'mine' : (calendarOrganizerId ? ownershipKeys.has(calendarOrganizerId) : false))
+                    ? (mappedScope ? mappedScope === 'mine' : (calendarOrganizerId ? ownershipKeys.has(calendarOrganizerId) : false))
                     : dashboardEntryIsMine(item || {}, ownershipKeys);
                 entries.push({ id: item?.id || item?.Id || '', title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || '').trim(), createdByName: String(item?.createdByName || item?.organizerName || item?.OrganizerName || item?.createdBy || item?.CreatedBy || '').trim(), assigneeRaw, isMine, hasTime, start: parsed, end: new Date(parsed.getTime() + 45 * 60000), view, kind, tone });
             };
@@ -56549,6 +56576,7 @@
             } catch (error) {
                 console.error('Dashboard event API save failed; event is only stored locally on this machine.', error);
             }
+            setDashboardEventScope(eventRecord.id, dashboardCalendarScope);
             let events = [];
             try { events = JSON.parse(localStorage.getItem('calendarEvents') || '[]'); } catch (_) { events = []; }
             if (!Array.isArray(events)) events = [];
@@ -56613,6 +56641,7 @@
             try { events = JSON.parse(localStorage.getItem('calendarEvents') || '[]'); } catch (_) { events = []; }
             events = Array.isArray(events) ? events.filter(item => String(item?.id || '') !== String(eventId)) : [];
             localStorage.setItem('calendarEvents', JSON.stringify(events));
+            clearDashboardEventScope(eventId);
             if (typeof window.updateEventList === 'function') window.updateEventList();
             if (window.calendarInstance && typeof window.calendarInstance.refetchEvents === 'function') window.calendarInstance.refetchEvents();
             renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
