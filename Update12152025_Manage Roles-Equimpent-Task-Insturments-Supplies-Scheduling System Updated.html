@@ -56754,11 +56754,12 @@
         window.startDashboardCalendarResize = function (event) {
             event.preventDefault();
             const mount = document.getElementById('dashboardCalendarPanel');
-            dashboardCalendarResizeStart = { x: event.clientX, width: mount?.getBoundingClientRect().width || 0 };
+            const resizeTarget = mount?.querySelector('.rd-dashboard-panel') || mount;
+            dashboardCalendarResizeStart = { x: event.clientX, width: resizeTarget?.getBoundingClientRect().width || 0, target: resizeTarget };
             const move = moveEvent => {
                 if (!dashboardCalendarResizeStart) return;
                 const nextWidth = Math.max(420, Math.min(window.innerWidth - 260, dashboardCalendarResizeStart.width + moveEvent.clientX - dashboardCalendarResizeStart.x));
-                if (mount) mount.style.width = `${nextWidth}px`;
+                if (dashboardCalendarResizeStart.target) dashboardCalendarResizeStart.target.style.width = `${nextWidth}px`;
             };
             const stop = () => { dashboardCalendarResizeStart = null; document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', stop); };
             document.addEventListener('pointermove', move);
@@ -56779,10 +56780,12 @@
             header.appendChild(tools);
             const edge = document.createElement('div');
             edge.dataset.dashboardCalendarResizeEdge = 'true';
-            edge.title = 'Drag the right edge to resize calendar';
+            const resizeTarget = mount.querySelector('.rd-dashboard-panel') || mount;
+            resizeTarget.style.position = resizeTarget.style.position || 'relative';
+            edge.setAttribute('aria-label', 'Calendar resize edge');
             edge.style.cssText = 'position:absolute;top:0;right:-4px;width:8px;height:100%;cursor:ew-resize;z-index:40;';
             edge.onpointerdown = window.startDashboardCalendarResize;
-            mount.appendChild(edge);
+            resizeTarget.appendChild(edge);
         }
         const dashboardCalendarControlsObserver = new MutationObserver(installDashboardCalendarControls);
         dashboardCalendarControlsObserver.observe(document.body, { childList: true, subtree: true });
