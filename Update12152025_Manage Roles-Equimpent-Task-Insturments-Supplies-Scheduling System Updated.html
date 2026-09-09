@@ -56250,14 +56250,19 @@
             };
             const isClosed = (value) => /^(completed|complete|closed|cancelled|canceled|denied|dismissed)$/i.test(String(value || '').trim());
             const priorityRank = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+            const serviceTickets = readArray('equipmentServiceTickets');
             const equipment = [...readArray('equipment'), ...readArray('officeEquipment')]
                 .filter((item) => item && item.isActive !== false && item.IsActive !== false)
                 .map((item) => {
                     const status = String(item.status || item.Status || item.condition || 'Operational').trim() || 'Operational';
                     const needsAttention = !/^(operational|available|active|ok|good)$/i.test(status);
+                    const equipmentId = Number(item?.apiId || item?.equipmentID || item?.EquipmentID || item?.equipmentId || item?.EquipmentId || item?.Id || item?.id) || 0;
+                    const matchingTicket = serviceTickets.find(ticket => Number(ticket?.equipmentID || ticket?.EquipmentID || ticket?.equipmentId || ticket?.EquipmentId) === equipmentId && !isClosed(ticket?.status || ticket?.Status));
                     return needsAttention ? {
                         kind: 'Equipment',
-                        id: item?.apiId || item?.equipmentID || item?.EquipmentID || item?.equipmentId || item?.EquipmentId || item?.Id || item?.id || '',
+                        id: equipmentId || item?.apiId || item?.equipmentID || item?.EquipmentID || item?.equipmentId || item?.EquipmentId || item?.Id || item?.id || '',
+                        serviceTicketId: matchingTicket?.id || matchingTicket?.Id || matchingTicket?.ticketId || matchingTicket?.TicketId || '',
+                        serviceEquipmentId: equipmentId,
                         title: String(item.equipmentName || item.name || item.Name || 'Equipment').trim(),
                         detail: status,
                         color: /out.of.service|retired|broken/i.test(status) ? '#dc2626' : '#eab308',
@@ -56309,6 +56314,7 @@
         function openDashboardOperation(entry) {
             if (!entry) return;
             const id = String(entry.id || '').trim();
+            if (entry.kind === 'Equipment' && entry.serviceTicketId && typeof openEquipmentServiceDetails === 'function') return openEquipmentServiceDetails(entry.serviceTicketId, Number(entry.serviceEquipmentId || id) || id);
             if (entry.kind === 'Equipment' && id && typeof viewEquipment === 'function') return viewEquipment(Number(id) || id);
             if (entry.kind === 'Service' && id && typeof openEquipmentServiceDetails === 'function') return openEquipmentServiceDetails(id, Number(entry.equipmentId) || entry.equipmentId || 0);
             if (entry.kind === 'Assignment' && id && typeof viewTeam === 'function') return viewTeam(id);
