@@ -56414,12 +56414,20 @@
         function getDashboardCurrentCreator() {
             try {
                 const session = JSON.parse(localStorage.getItem('currentUser') || '{}') || {};
+                const numericId = Number(
+                    window.currentDbUserId ||
+                    localStorage.getItem('currentDbUserId') ||
+                    session.dbId || session.id || session.Id ||
+                    localStorage.getItem('loggedInUserId') ||
+                    (typeof getUserRecordId === 'function' ? getUserRecordId(session) : 0) ||
+                    0
+                ) || null;
                 return {
-                    id: String(session.id || session.Id || localStorage.getItem('loggedInUserId') || localStorage.getItem('loggedInUser') || 'current-user'),
+                    id: numericId,
                     name: String(session.name || session.displayName || [session.firstName, session.lastName].filter(Boolean).join(' ') || localStorage.getItem('displayName') || localStorage.getItem('userName') || localStorage.getItem('loggedInUser') || 'Admin').trim()
                 };
             } catch (_) {
-                return { id: 'current-user', name: String(localStorage.getItem('displayName') || localStorage.getItem('userName') || 'Admin').trim() };
+                return { id: null, name: String(localStorage.getItem('displayName') || localStorage.getItem('userName') || 'Admin').trim() };
             }
         }
 
@@ -56478,7 +56486,7 @@
                     apiSaved = true;
                 }
             } catch (error) {
-                console.warn('Dashboard event API save failed; retaining local backup.', error);
+                console.error('Dashboard event API save failed; event is only stored locally on this machine.', error);
             }
             let events = [];
             try { events = JSON.parse(localStorage.getItem('calendarEvents') || '[]'); } catch (_) { events = []; }
@@ -56496,7 +56504,11 @@
             const form = document.getElementById('dashboardEventForm');
             if (form) form.hidden = true;
             if (form) form.style.display = 'none';
-            if (typeof showNotification === 'function') showNotification(apiSaved ? `Event ${editingId ? 'updated' : 'saved'} by ${creator.name}.` : `Event backed up locally; server save will retry.`, apiSaved ? 'success' : 'warning');
+            if (apiSaved && typeof syncEventDatabaseFromApi === 'function') {
+                try { await syncEventDatabaseFromApi({ silent: true }); } catch (_) {}
+                renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
+            }
+            if (typeof showNotification === 'function') showNotification(apiSaved ? `Event ${editingId ? 'updated' : 'saved'} by ${creator.name} and shared to all devices.` : `Event saved on this device only; it did not reach the shared database.`, apiSaved ? 'success' : 'warning');
         };
 
         window.editDashboardEvent = function (eventId) {
