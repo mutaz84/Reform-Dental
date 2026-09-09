@@ -56257,6 +56257,7 @@
                     const needsAttention = !/^(operational|available|active|ok|good)$/i.test(status);
                     return needsAttention ? {
                         kind: 'Equipment',
+                        id: item?.apiId || item?.equipmentID || item?.EquipmentID || item?.equipmentId || item?.EquipmentId || item?.Id || item?.id || '',
                         title: String(item.equipmentName || item.name || item.Name || 'Equipment').trim(),
                         detail: status,
                         color: /out.of.service|retired|broken/i.test(status) ? '#dc2626' : '#eab308',
@@ -56304,6 +56305,27 @@
             const counts = entries.reduce((result, entry) => { result[entry.kind] = (result[entry.kind] || 0) + 1; return result; }, {});
             target.innerHTML = `<div class="rd-dashboard-panel" style="width:min(100%,360px);margin-left:auto;margin-top:0.65rem;padding:0.55rem 0.7rem;"><h3 style="margin:0 0 0.35rem;font-size:1rem;"><i class="fas fa-briefcase" style="color:#2563eb;margin-right:0.45rem;"></i>Operations Glance</h3><div style="display:flex;gap:0.35rem;margin-bottom:0.45rem;font-size:0.72rem;color:var(--text-secondary);"><span>${counts.Equipment || 0} equipment</span><span>${counts.Service || 0} services</span><span>${counts.Assignment || 0} assignments</span></div><div class="rd-dashboard-list">${entries.length ? entries.map((entry) => `<button type="button" class="rd-dashboard-row" style="width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.35rem;align-items:center;min-height:0;padding:0.28rem 0;border:0;background:transparent;text-align:left;cursor:pointer;" onclick="if(window.switchContentView){window.switchContentView('${entry.view}', event);}"><div class="rd-dashboard-task-title" style="min-width:0;gap:0.45rem;"><span class="rd-dashboard-dot" style="background:${entry.color};width:10px;height:10px;flex:0 0 10px;"></span><div style="min-width:0;"><strong style="display:block;font-size:0.84rem;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.title)}</strong><span style="display:block;font-size:0.72rem;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.kind)}</span></div></div><span class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.2rem 0.45rem;font-size:0.75rem;line-height:1.05;white-space:nowrap;">${escapeDashboardHtml(entry.detail)}</span></button>`).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-check-circle" style="color:#16a34a;"></i><span>No active operational items.</span></div>'}</div></div>`;
         }
+
+        function openDashboardOperation(entry) {
+            if (!entry) return;
+            const id = String(entry.id || '').trim();
+            if (entry.kind === 'Equipment' && id && typeof viewEquipment === 'function') return viewEquipment(Number(id) || id);
+            if (entry.kind === 'Service' && id && typeof openEquipmentServiceDetails === 'function') return openEquipmentServiceDetails(id, Number(entry.equipmentId) || entry.equipmentId || 0);
+            if (entry.kind === 'Assignment' && id && typeof viewTeam === 'function') return viewTeam(id);
+            if (typeof window.switchContentView === 'function') window.switchContentView(entry.view, null);
+        }
+
+        document.addEventListener('click', event => {
+            const row = event.target.closest('#dashboardOperationsPanel .rd-dashboard-row');
+            if (!row) return;
+            const title = String(row.querySelector('.rd-dashboard-task-title strong')?.textContent || '').trim();
+            const kind = String(row.querySelector('.rd-dashboard-task-title span')?.textContent || '').trim();
+            const entry = getDashboardOperationsEntries().find(item => item.title === title && item.kind === kind);
+            if (!entry || !entry.id) return;
+            event.preventDefault();
+            event.stopPropagation();
+            openDashboardOperation(entry);
+        }, true);
 
         let dashboardCalendarDate = new Date();
         let dashboardCalendarViewMode = 'calendar';
@@ -59876,6 +59898,8 @@
 
                 return `
                     <div style="font-weight:700; font-size:13px; margin-bottom:6px;">${escapeHtml(cleanTitle)}</div>
+                        id: item?.id || item?.Id || item?.ticketId || item?.TicketId || '',
+                        equipmentId: item?.equipmentID || item?.EquipmentId || item?.equipmentId || item?.EquipmentID || '',
                     ${rowsHtml || '<div style="color:rgba(226,232,240,0.75)">No details</div>'}
                 `;
             }
@@ -60209,6 +60233,7 @@
 
                 return `
                     <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem;">
+                        id: assignment?.id || assignment?.Id || assignment?.teamId || assignment?.TeamId || '',
                         <div style="display:flex; justify-content:space-between; gap:0.5rem; align-items:center;">
                             <div style="font-size:0.82rem; font-weight:600; color:var(--text-primary);">${fullName}</div>
                             <div style="font-size:0.7rem; color:var(--text-secondary);">${role}</div>
