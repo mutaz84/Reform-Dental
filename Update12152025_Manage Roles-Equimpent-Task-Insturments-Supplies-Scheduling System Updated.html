@@ -56308,6 +56308,8 @@
         let dashboardCalendarDate = new Date();
         let dashboardCalendarViewMode = 'calendar';
         let dashboardCalendarScope = 'mine';
+        let dashboardCalendarFullscreen = false;
+        let dashboardCalendarBodyHeight = null;
 
         function dashboardCalendarReadArray(key) {
             try {
@@ -56515,9 +56517,11 @@
                     return layouts[candidateIndex]?.column + 1 || 1;
                 }));
             });
-            const columnWidth = 132;
+            const columnWidth = 96;
             const maxColumns = Math.max(1, ...layouts.map(layout => layout.total));
             const gridInnerWidth = Math.max(320, 66 + maxColumns * columnWidth + 10);
+            const defaultBodyHeight = (endHour - startHour) * 46;
+            const bodyHeight = dashboardCalendarBodyHeight || defaultBodyHeight;
             const dateLabel = dashboardCalendarViewMode === 'month'
                 ? dashboardCalendarDate.toLocaleDateString([], { month: 'long', year: 'numeric' })
                 : dashboardCalendarDate.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
@@ -56731,6 +56735,51 @@
         window.resetDashboardCalendar = function () { dashboardCalendarDate = new Date(); renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel')); };
         window.setDashboardCalendarViewMode = function (mode) { dashboardCalendarViewMode = (mode === 'list' || mode === 'month') ? mode : 'calendar'; renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel')); };
         window.setDashboardCalendarScope = function (scope) { dashboardCalendarScope = scope === 'office' ? 'office' : 'mine'; renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel')); };
+
+        window.toggleDashboardCalendarFullscreen = function () {
+            dashboardCalendarFullscreen = !dashboardCalendarFullscreen;
+            const mount = document.getElementById('dashboardCalendarPanel');
+            if (!mount) return;
+            mount.style.position = dashboardCalendarFullscreen ? 'fixed' : '';
+            mount.style.inset = dashboardCalendarFullscreen ? '12px' : '';
+            mount.style.zIndex = dashboardCalendarFullscreen ? '1000' : '';
+            mount.style.background = dashboardCalendarFullscreen ? 'var(--bg-primary,#fff)' : '';
+            mount.style.overflow = dashboardCalendarFullscreen ? 'auto' : '';
+            mount.style.padding = dashboardCalendarFullscreen ? '.75rem' : '';
+            mount.style.boxShadow = dashboardCalendarFullscreen ? '0 12px 40px rgba(15,23,42,.25)' : '';
+            renderDashboardCalendarPanel(mount);
+        };
+
+        let dashboardCalendarResizeStart = null;
+        window.startDashboardCalendarResize = function (event) {
+            event.preventDefault();
+            dashboardCalendarResizeStart = { y: event.clientY, height: dashboardCalendarBodyHeight || 552 };
+            const move = moveEvent => {
+                if (!dashboardCalendarResizeStart) return;
+                dashboardCalendarBodyHeight = Math.max(300, Math.min(window.innerHeight - 80, dashboardCalendarResizeStart.height + moveEvent.clientY - dashboardCalendarResizeStart.y));
+                renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
+            };
+            const stop = () => { dashboardCalendarResizeStart = null; document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', stop); };
+            document.addEventListener('pointermove', move);
+            document.addEventListener('pointerup', stop);
+        };
+
+        function installDashboardCalendarControls() {
+            const mount = document.getElementById('dashboardCalendarPanel');
+            if (!mount || mount.querySelector('[data-dashboard-calendar-tools="true"]')) return;
+            const header = mount.querySelector('h3')?.parentElement;
+            if (!header) return;
+            const tools = document.createElement('span');
+            tools.dataset.dashboardCalendarTools = 'true';
+            tools.style.cssText = 'display:inline-flex;gap:4px;margin-left:auto;align-items:center;';
+            tools.innerHTML = '<button type="button" title="Toggle fullscreen" aria-label="Toggle fullscreen" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;padding:.2rem .45rem;cursor:pointer;"><i class="fas fa-expand"></i></button><span title="Drag to resize calendar" style="border:1px solid var(--border-color,#d1d5db);border-radius:5px;padding:.2rem .45rem;cursor:ns-resize;color:var(--text-secondary,#64748b);user-select:none;">↕</span>';
+            tools.firstElementChild.onclick = window.toggleDashboardCalendarFullscreen;
+            tools.lastElementChild.onpointerdown = window.startDashboardCalendarResize;
+            header.appendChild(tools);
+        }
+        const dashboardCalendarControlsObserver = new MutationObserver(installDashboardCalendarControls);
+        dashboardCalendarControlsObserver.observe(document.body, { childList: true, subtree: true });
+        setTimeout(installDashboardCalendarControls, 0);
 
         function getDashboardCurrentUserClockStatus() {
             const userKeys = dashboardCurrentUserKeys();
