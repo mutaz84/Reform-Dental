@@ -56310,6 +56310,7 @@
         let dashboardCalendarScope = 'mine';
         let dashboardCalendarFullscreen = false;
         let dashboardCalendarBodyHeight = null;
+        let dashboardCalendarSearchQuery = '';
 
         function dashboardCalendarReadArray(key) {
             try {
@@ -56399,6 +56400,54 @@
             readArray('calendarEvents').forEach(item => add(item, item.title || item.name || item.eventName || 'Calendar event', item.start || item.startDate || item.date || item.eventDate, 'calendar', 'Calendar', '#0e9384'));
             return entries.sort((left, right) => left.start - right.start);
         }
+
+        function getDashboardCalendarSearchEntries(query) {
+            const needle = String(query || '').trim().toLowerCase();
+            if (!needle) return [];
+            const readArray = dashboardCalendarReadArray;
+            const ownershipKeys = getDashboardOwnershipKeys();
+            const scopeMap = getDashboardEventScopeMap();
+            const results = [];
+            const add = (item, title, value, view, kind) => {
+                const haystack = [title, item?.description, item?.Description, item?.createdByName, item?.organizerName, item?.assignee, item?.assignedTo, item?.type, item?.category, item?.status].map(value => String(value ?? '')).join(' ').toLowerCase();
+                if (!haystack.includes(needle)) return;
+                const parsed = new Date(value);
+                if (Number.isNaN(parsed.getTime())) return;
+                const id = String(item?.id ?? item?.Id ?? '').trim();
+                const rawOrganizerId = String(item?.organizerUserId ?? item?.OrganizerUserId ?? '').trim().toLowerCase();
+                const calendarOrganizerId = ['', 'null', 'undefined', 'nan', '0'].includes(rawOrganizerId) ? '' : rawOrganizerId;
+                const mappedScope = scopeMap[id];
+                const isMine = kind === 'Calendar'
+                    ? (mappedScope ? mappedScope === 'mine' : (calendarOrganizerId ? ownershipKeys.has(calendarOrganizerId) : false))
+                    : dashboardEntryIsMine(item || {}, ownershipKeys);
+                if (dashboardCalendarScope === 'mine' ? !isMine : isMine) return;
+                results.push({ id, title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || '').trim(), date: parsed, view, kind });
+            };
+            const tasks = Array.isArray(window.tasksData) && window.tasksData.length ? window.tasksData : readArray('tasksData');
+            tasks.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.date, 'task-hub', 'Task'));
+            const requests = Array.isArray(window.__dashboardRequestsCache) && window.__dashboardRequestsCache.length ? window.__dashboardRequestsCache : readArray('requestsDatabase');
+            requests.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.requestedDate, 'requests', 'Request'));
+            readArray('equipmentServiceTickets').forEach(item => add(item, item.title || item.Title || item.type || item.Type, item.scheduledDate || item.ScheduleDate || item.dueDate || item.DueDate, 'equipment', 'Service'));
+            readArray('calendarEvents').forEach(item => add(item, item.title || item.name || item.eventName || 'Calendar event', item.start || item.startDate || item.date || item.eventDate, 'calendar', 'Calendar'));
+            return results.sort((left, right) => left.date - right.date).slice(0, 20);
+        }
+
+        function renderDashboardCalendarSearchResults(results) {
+            const panel = document.getElementById('dashboardCalendarSearchResults');
+            if (!panel) return;
+            if (!dashboardCalendarSearchQuery.trim()) { panel.hidden = true; panel.innerHTML = ''; return; }
+            panel.hidden = false;
+            panel.innerHTML = results.length ? results.map(item => `<button type="button" onclick="window.openDashboardCalendarSearchResult('${escapeDashboardHtml(item.date.toISOString())}','${escapeDashboardHtml(item.view)}')" style="display:grid;grid-template-columns:62px minmax(0,1fr) auto;gap:.45rem;align-items:center;width:100%;padding:.35rem .45rem;border:0;border-bottom:1px solid var(--border-color,#e5e7eb);background:var(--card-bg,#fff);text-align:left;cursor:pointer;"><span style="font-size:.68rem;color:var(--text-secondary,#64748b);">${escapeDashboardHtml(item.date.toLocaleDateString([], { month:'short', day:'numeric' }))}<br>${escapeDashboardHtml(item.date.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }))}</span><span style="min-width:0;"><strong style="display:block;font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(item.title)}</strong><span style="display:block;font-size:.65rem;color:var(--text-secondary,#64748b);">${escapeDashboardHtml(item.kind)}</span></span><i class="fas fa-arrow-right" style="font-size:.65rem;color:#2563eb;"></i></button>`).join('') : '<div style="padding:.55rem;color:var(--text-secondary,#64748b);font-size:.75rem;">No matching items found.</div>';
+        }
+
+        window.openDashboardCalendarSearchResult = function (dateValue, view) {
+            const parsed = new Date(dateValue);
+            if (!Number.isNaN(parsed.getTime())) dashboardCalendarDate = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+            dashboardCalendarViewMode = 'calendar';
+            dashboardCalendarSearchQuery = '';
+            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
+            if (view && view !== 'calendar' && typeof window.switchContentView === 'function') window.switchContentView(view, null);
+        };
 
         function getDashboardUnscheduledMineEntries() {
             const readArray = dashboardCalendarReadArray;
@@ -56784,6 +56833,18 @@
             tools.innerHTML = '<button type="button" title="Toggle fullscreen" aria-label="Toggle fullscreen" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;padding:.2rem .45rem;cursor:pointer;"><i class="fas fa-expand"></i></button>';
             tools.firstElementChild.onclick = window.toggleDashboardCalendarFullscreen;
             header.appendChild(tools);
+            header.style.position = 'relative';
+            const searchWrap = document.createElement('span');
+            searchWrap.dataset.dashboardCalendarSearch = 'true';
+            searchWrap.style.cssText = 'display:inline-flex;position:relative;flex:1 1 180px;min-width:150px;max-width:260px;';
+            searchWrap.innerHTML = '<input type="search" aria-label="Search calendar operations" placeholder="Search operations..." style="width:100%;border:1px solid var(--border-color,#d1d5db);border-radius:5px;padding:.25rem .45rem;font-size:.72rem;background:var(--card-bg,#fff);color:var(--text-primary,#111827);"><div id="dashboardCalendarSearchResults" hidden style="position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow-y:auto;z-index:100;background:var(--card-bg,#fff);border:1px solid var(--border-color,#d1d5db);border-radius:6px;box-shadow:0 8px 20px rgba(15,23,42,.16);"></div>';
+            const searchInput = searchWrap.querySelector('input');
+            searchInput.value = dashboardCalendarSearchQuery;
+            searchInput.addEventListener('input', event => {
+                dashboardCalendarSearchQuery = event.target.value;
+                renderDashboardCalendarSearchResults(getDashboardCalendarSearchEntries(dashboardCalendarSearchQuery));
+            });
+            header.insertBefore(searchWrap, header.firstChild);
             const edge = document.createElement('div');
             edge.dataset.dashboardCalendarResizeEdge = 'true';
             const resizeTarget = mount.querySelector('.rd-dashboard-panel') || mount;
