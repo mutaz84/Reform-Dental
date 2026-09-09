@@ -56753,11 +56753,12 @@
         let dashboardCalendarResizeStart = null;
         window.startDashboardCalendarResize = function (event) {
             event.preventDefault();
-            dashboardCalendarResizeStart = { y: event.clientY, height: dashboardCalendarBodyHeight || 552 };
+            const mount = document.getElementById('dashboardCalendarPanel');
+            dashboardCalendarResizeStart = { x: event.clientX, width: mount?.getBoundingClientRect().width || 0 };
             const move = moveEvent => {
                 if (!dashboardCalendarResizeStart) return;
-                dashboardCalendarBodyHeight = Math.max(300, Math.min(window.innerHeight - 80, dashboardCalendarResizeStart.height + moveEvent.clientY - dashboardCalendarResizeStart.y));
-                renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
+                const nextWidth = Math.max(420, Math.min(window.innerWidth - 260, dashboardCalendarResizeStart.width + moveEvent.clientX - dashboardCalendarResizeStart.x));
+                if (mount) mount.style.width = `${nextWidth}px`;
             };
             const stop = () => { dashboardCalendarResizeStart = null; document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', stop); };
             document.addEventListener('pointermove', move);
@@ -56767,15 +56768,21 @@
         function installDashboardCalendarControls() {
             const mount = document.getElementById('dashboardCalendarPanel');
             if (!mount || mount.querySelector('[data-dashboard-calendar-tools="true"]')) return;
+            mount.style.position = mount.style.position || 'relative';
             const header = mount.querySelector('h3')?.parentElement;
             if (!header) return;
             const tools = document.createElement('span');
             tools.dataset.dashboardCalendarTools = 'true';
             tools.style.cssText = 'display:inline-flex;gap:4px;margin-left:auto;align-items:center;';
-            tools.innerHTML = '<button type="button" title="Toggle fullscreen" aria-label="Toggle fullscreen" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;padding:.2rem .45rem;cursor:pointer;"><i class="fas fa-expand"></i></button><span title="Drag to resize calendar" style="border:1px solid var(--border-color,#d1d5db);border-radius:5px;padding:.2rem .45rem;cursor:ns-resize;color:var(--text-secondary,#64748b);user-select:none;">↕</span>';
+            tools.innerHTML = '<button type="button" title="Toggle fullscreen" aria-label="Toggle fullscreen" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;padding:.2rem .45rem;cursor:pointer;"><i class="fas fa-expand"></i></button>';
             tools.firstElementChild.onclick = window.toggleDashboardCalendarFullscreen;
-            tools.lastElementChild.onpointerdown = window.startDashboardCalendarResize;
             header.appendChild(tools);
+            const edge = document.createElement('div');
+            edge.dataset.dashboardCalendarResizeEdge = 'true';
+            edge.title = 'Drag the right edge to resize calendar';
+            edge.style.cssText = 'position:absolute;top:0;right:-4px;width:8px;height:100%;cursor:ew-resize;z-index:40;';
+            edge.onpointerdown = window.startDashboardCalendarResize;
+            mount.appendChild(edge);
         }
         const dashboardCalendarControlsObserver = new MutationObserver(installDashboardCalendarControls);
         dashboardCalendarControlsObserver.observe(document.body, { childList: true, subtree: true });
