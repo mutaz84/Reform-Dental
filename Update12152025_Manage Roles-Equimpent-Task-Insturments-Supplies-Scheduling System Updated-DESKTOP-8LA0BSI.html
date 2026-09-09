@@ -56250,19 +56250,13 @@
             };
             const isClosed = (value) => /^(completed|complete|closed|cancelled|canceled|denied|dismissed)$/i.test(String(value || '').trim());
             const priorityRank = { Critical: 0, High: 1, Medium: 2, Low: 3 };
-            const serviceTickets = readArray('equipmentServiceTickets');
             const equipment = [...readArray('equipment'), ...readArray('officeEquipment')]
                 .filter((item) => item && item.isActive !== false && item.IsActive !== false)
                 .map((item) => {
                     const status = String(item.status || item.Status || item.condition || 'Operational').trim() || 'Operational';
                     const needsAttention = !/^(operational|available|active|ok|good)$/i.test(status);
-                    const equipmentId = Number(item?.apiId || item?.equipmentID || item?.EquipmentID || item?.equipmentId || item?.EquipmentId || item?.Id || item?.id) || 0;
-                    const matchingTicket = serviceTickets.find(ticket => Number(ticket?.equipmentID || ticket?.EquipmentID || ticket?.equipmentId || ticket?.EquipmentId) === equipmentId && !isClosed(ticket?.status || ticket?.Status));
                     return needsAttention ? {
                         kind: 'Equipment',
-                        id: equipmentId || item?.apiId || item?.equipmentID || item?.EquipmentID || item?.equipmentId || item?.EquipmentId || item?.Id || item?.id || '',
-                        serviceTicketId: matchingTicket?.id || matchingTicket?.Id || matchingTicket?.ticketId || matchingTicket?.TicketId || '',
-                        serviceEquipmentId: equipmentId,
                         title: String(item.equipmentName || item.name || item.Name || 'Equipment').trim(),
                         detail: status,
                         color: /out.of.service|retired|broken/i.test(status) ? '#dc2626' : '#eab308',
@@ -56277,12 +56271,8 @@
                     const status = String(ticket.status || ticket.Status || 'Open').trim();
                     const due = String(ticket.scheduledDate || ticket.dueDate || ticket.ScheduleDate || '').slice(0, 10);
                     const overdue = due && due < getDashboardTodayIso();
-                    const ticketId = String(ticket.id || ticket.Id || ticket.ticketId || ticket.TicketId || '').trim();
-                    const equipmentId = Number(ticket.equipmentID || ticket.EquipmentID || ticket.equipmentId || ticket.EquipmentId || 0) || 0;
                     return {
                         kind: 'Service',
-                        id: ticketId,
-                        equipmentId,
                         title: String(ticket.title || ticket.Title || ticket.type || ticket.Type || 'Service ticket').trim(),
                         detail: overdue ? 'Overdue' : `${priority} - ${status}`,
                         color: overdue || /critical|high/i.test(priority) ? '#dc2626' : '#eab308',
@@ -56295,10 +56285,8 @@
                 .map((assignment) => {
                     const priority = String(assignment.priority || 'Medium').trim();
                     const status = String(assignment.workStatus || assignment.status || 'Pending').trim();
-                    const assignmentId = String(assignment.id || assignment.Id || assignment.assignmentId || assignment.AssignmentId || '').trim();
                     return {
                         kind: 'Assignment',
-                        id: assignmentId,
                         title: String(assignment.teamName || assignment.name || assignment.Name || 'Assignment').trim(),
                         detail: `${priority} - ${status}`,
                         color: /critical|high/i.test(priority) ? '#dc2626' : /in progress/i.test(status) ? '#eab308' : '#16a34a',
@@ -56314,622 +56302,22 @@
         function renderDashboardOperationsPanel(target) {
             const entries = getDashboardOperationsEntries();
             const counts = entries.reduce((result, entry) => { result[entry.kind] = (result[entry.kind] || 0) + 1; return result; }, {});
-            target.innerHTML = `<div class="rd-dashboard-panel" style="width:min(100%,360px);margin-left:auto;margin-top:0.65rem;padding:0.55rem 0.7rem;"><h3 style="margin:0 0 0.35rem;font-size:1rem;"><i class="fas fa-briefcase" style="color:#2563eb;margin-right:0.45rem;"></i>Operations Glance</h3><div style="display:flex;gap:0.35rem;margin-bottom:0.45rem;font-size:0.72rem;color:var(--text-secondary);"><span>${counts.Equipment || 0} equipment</span><span>${counts.Service || 0} services</span><span>${counts.Assignment || 0} assignments</span></div><div class="rd-dashboard-list">${entries.length ? entries.map((entry) => `<button type="button" class="rd-dashboard-row" data-entry-kind="${escapeDashboardHtml(entry.kind)}" data-entry-title="${escapeDashboardHtml(entry.title)}" data-entry-id="${escapeDashboardHtml(String(entry.id || ''))}" data-entry-view="${escapeDashboardHtml(entry.view || '')}" data-service-ticket-id="${escapeDashboardHtml(String(entry.serviceTicketId || ''))}" data-service-equipment-id="${escapeDashboardHtml(String(entry.serviceEquipmentId ?? entry.equipmentId ?? ''))}" data-equipment-id="${escapeDashboardHtml(String(entry.equipmentId ?? ''))}" style="width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.35rem;align-items:center;min-height:0;padding:0.28rem 0;border:0;background:transparent;text-align:left;cursor:pointer;"><div class="rd-dashboard-task-title" style="min-width:0;gap:0.45rem;"><span class="rd-dashboard-dot" style="background:${entry.color};width:10px;height:10px;flex:0 0 10px;"></span><div style="min-width:0;"><strong style="display:block;font-size:0.84rem;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.title)}</strong><span style="display:block;font-size:0.72rem;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.kind)}</span></div></div><span class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.2rem 0.45rem;font-size:0.75rem;line-height:1.05;white-space:nowrap;">${escapeDashboardHtml(entry.detail)}</span></button>`).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-check-circle" style="color:#16a34a;"></i><span>No active operational items.</span></div>'}</div></div>`;
+            target.innerHTML = `<div class="rd-dashboard-panel" style="width:min(100%,360px);margin-left:auto;margin-top:0.65rem;padding:0.55rem 0.7rem;"><h3 style="margin:0 0 0.35rem;font-size:1rem;"><i class="fas fa-briefcase" style="color:#2563eb;margin-right:0.45rem;"></i>Operations Glance</h3><div style="display:flex;gap:0.35rem;margin-bottom:0.45rem;font-size:0.72rem;color:var(--text-secondary);"><span>${counts.Equipment || 0} equipment</span><span>${counts.Service || 0} services</span><span>${counts.Assignment || 0} assignments</span></div><div class="rd-dashboard-list">${entries.length ? entries.map((entry) => `<button type="button" class="rd-dashboard-row" style="width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.35rem;align-items:center;min-height:0;padding:0.28rem 0;border:0;background:transparent;text-align:left;cursor:pointer;" onclick="if(window.switchContentView){window.switchContentView('${entry.view}', event);}"><div class="rd-dashboard-task-title" style="min-width:0;gap:0.45rem;"><span class="rd-dashboard-dot" style="background:${entry.color};width:10px;height:10px;flex:0 0 10px;"></span><div style="min-width:0;"><strong style="display:block;font-size:0.84rem;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.title)}</strong><span style="display:block;font-size:0.72rem;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.kind)}</span></div></div><span class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.2rem 0.45rem;font-size:0.75rem;line-height:1.05;white-space:nowrap;">${escapeDashboardHtml(entry.detail)}</span></button>`).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-check-circle" style="color:#16a34a;"></i><span>No active operational items.</span></div>'}</div></div>`;
         }
-
-        function openDashboardOperation(entry) {
-            if (!entry) return;
-            const id = String(entry.id || '').trim();
-            if (entry.kind === 'Equipment' && entry.serviceTicketId && typeof openEquipmentServiceDetails === 'function') return openEquipmentServiceDetails(entry.serviceTicketId, Number(entry.serviceEquipmentId || id) || id);
-            if (entry.kind === 'Equipment' && id && typeof viewEquipment === 'function') return viewEquipment(Number(id) || id);
-            if (entry.kind === 'Service' && id && typeof openEquipmentServiceDetails === 'function') return openEquipmentServiceDetails(id, Number(entry.equipmentId) || entry.equipmentId || 0);
-            if (entry.kind === 'Assignment' && id && typeof viewTeam === 'function') return viewTeam(id);
-            if (typeof window.switchContentView === 'function') window.switchContentView(entry.view, null);
-        }
-
-        document.addEventListener('click', event => {
-            const row = event.target.closest('#dashboardOperationsPanel .rd-dashboard-row');
-            if (!row) return;
-            const title = String(row.dataset.entryTitle || row.querySelector('.rd-dashboard-task-title strong')?.textContent || '').trim();
-            const kind = String(row.dataset.entryKind || row.querySelector('.rd-dashboard-task-title span')?.textContent || '').trim();
-            const fallbackEntry = getDashboardOperationsEntries().find(item => item.title === title && item.kind === kind);
-            const entry = fallbackEntry || {
-                title,
-                kind,
-                id: String(row.dataset.entryId || '').trim(),
-                view: String(row.dataset.entryView || '').trim(),
-                serviceTicketId: String(row.dataset.serviceTicketId || '').trim(),
-                serviceEquipmentId: String(row.dataset.serviceEquipmentId || row.dataset.equipmentId || '').trim(),
-                equipmentId: String(row.dataset.equipmentId || '').trim(),
-            };
-            if (!entry) return;
-            if ((!entry.id && !entry.serviceTicketId && !entry.serviceEquipmentId && !entry.equipmentId) && !entry.view) return;
-            event.preventDefault();
-            event.stopPropagation();
-            openDashboardOperation(entry);
-        }, true);
-
-        let dashboardCalendarDate = new Date();
-        let dashboardCalendarViewMode = 'calendar';
-        let dashboardCalendarScope = 'mine';
-        let dashboardCalendarFullscreen = false;
-        let dashboardCalendarBodyHeight = null;
-        let dashboardCalendarSearchQuery = '';
-
-        function dashboardCalendarReadArray(key) {
-            try {
-                const parsed = JSON.parse(localStorage.getItem(key) || '[]');
-                return Array.isArray(parsed) ? parsed : [];
-            } catch (_) {
-                return [];
-            }
-        }
-
-        function getDashboardEventScopeMap() {
-            try {
-                const parsed = JSON.parse(localStorage.getItem('dashboardCalendarEventScopes') || '{}');
-                return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-            } catch (_) {
-                return {};
-            }
-        }
-
-        function setDashboardEventScope(eventId, scope) {
-            const id = String(eventId || '').trim();
-            if (!id) return;
-            const map = getDashboardEventScopeMap();
-            map[id] = scope === 'office' ? 'office' : 'mine';
-            localStorage.setItem('dashboardCalendarEventScopes', JSON.stringify(map));
-        }
-
-        function clearDashboardEventScope(eventId) {
-            const id = String(eventId || '').trim();
-            if (!id) return;
-            const map = getDashboardEventScopeMap();
-            delete map[id];
-            localStorage.setItem('dashboardCalendarEventScopes', JSON.stringify(map));
-        }
-
-        function getDashboardOwnershipKeys() {
-            const keys = new Set();
-            const push = value => { const text = String(value ?? '').trim().toLowerCase(); if (text) keys.add(text); };
-            try {
-                const raw = localStorage.getItem('currentUser');
-                const user = raw ? JSON.parse(raw) : null;
-                if (user) {
-                    [user.id, user.Id, user.dbId, user.name, user.displayName, user.fullName, user.username, user.userName, user.workEmail, user.email, [user.firstName, user.lastName].filter(Boolean).join(' ')].forEach(push);
-                }
-            } catch (_) {}
-            [localStorage.getItem('loggedInUser'), localStorage.getItem('loggedInUserId'), localStorage.getItem('userName'), localStorage.getItem('username'), localStorage.getItem('currentUsername'), localStorage.getItem('userId'), localStorage.getItem('activeUserId'), localStorage.getItem('currentDbUserId'), localStorage.getItem('displayName'), window.currentDbUserId].forEach(push);
-            return keys;
-        }
-
-        function dashboardEntryIsMine(item, ownershipKeys) {
-            if (!ownershipKeys.size) return false;
-            const candidates = [item?.assignee, item?.Assignee, item?.assignedTo, item?.AssignedTo, item?.assignedToId, item?.AssignedToId, item?.claimedBy, item?.ClaimedBy, item?.organizerUserId, item?.OrganizerUserId, item?.organizerName, item?.OrganizerName, item?.createdBy, item?.CreatedBy, item?.createdByName, item?.CreatedByName].map(value => String(value ?? '').trim().toLowerCase()).filter(Boolean);
-            return candidates.some(value => ownershipKeys.has(value));
-        }
-
-        function getDashboardCalendarEntries(day = dashboardCalendarDate) {
-            const readArray = dashboardCalendarReadArray;
-            const targetDate = new Date(day.getFullYear(), day.getMonth(), day.getDate());
-            const targetISO = targetDate.toISOString().slice(0, 10);
-            const ownershipKeys = getDashboardOwnershipKeys();
-            const scopeMap = getDashboardEventScopeMap();
-            const entries = [];
-            const add = (item, title, value, view, kind, tone, defaultHour = 17) => {
-                const raw = String(value || '').trim();
-                if (!raw) return;
-                const parsed = new Date(raw);
-                if (Number.isNaN(parsed.getTime())) return;
-                const status = String(item?.status || item?.Status || '').trim().toLowerCase();
-                if (/^(completed|complete|closed|cancelled|canceled|denied|dismissed)$/.test(status)) return;
-                const hasTime = !/^\d{4}-\d{2}-\d{2}$/.test(raw);
-                if (!hasTime) parsed.setHours(defaultHour, 0, 0, 0);
-                if (parsed.toISOString().slice(0, 10) !== targetISO) return;
-                const assigneeRaw = String(item?.assignee || item?.Assignee || item?.assignedTo || item?.AssignedTo || item?.organizerName || item?.OrganizerName || '').trim();
-                const rawOrganizerId = String(item?.organizerUserId ?? item?.OrganizerUserId ?? '').trim().toLowerCase();
-                const calendarOrganizerId = ['', 'null', 'undefined', 'nan', '0'].includes(rawOrganizerId) ? '' : rawOrganizerId;
-                const mappedScope = scopeMap[String(item?.id ?? item?.Id ?? '').trim()];
-                const isMine = kind === 'Calendar'
-                    ? (mappedScope ? mappedScope === 'mine' : (calendarOrganizerId ? ownershipKeys.has(calendarOrganizerId) : false))
-                    : dashboardEntryIsMine(item || {}, ownershipKeys);
-                entries.push({ id: item?.id || item?.Id || '', title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || '').trim(), createdByName: String(item?.createdByName || item?.organizerName || item?.OrganizerName || item?.createdBy || item?.CreatedBy || '').trim(), assigneeRaw, isMine, hasTime, start: parsed, end: new Date(parsed.getTime() + 45 * 60000), view, kind, tone });
-            };
-            const tasks = Array.isArray(window.tasksData) && window.tasksData.length ? window.tasksData : readArray('tasksData');
-            tasks.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.date, 'task-hub', 'Task', '#2563eb'));
-            const requests = Array.isArray(window.__dashboardRequestsCache) && window.__dashboardRequestsCache.length ? window.__dashboardRequestsCache : readArray('requestsDatabase');
-            requests.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.requestedDate, 'requests', 'Request', '#b45309'));
-            readArray('equipmentServiceTickets').forEach(item => add(item, item.title || item.Title || item.type || item.Type, item.scheduledDate || item.ScheduleDate || item.dueDate || item.DueDate, 'equipment', 'Service', '#dc2626'));
-            readArray('calendarEvents').forEach(item => add(item, item.title || item.name || item.eventName || 'Calendar event', item.start || item.startDate || item.date || item.eventDate, 'calendar', 'Calendar', '#0e9384'));
-            return entries.sort((left, right) => left.start - right.start);
-        }
-
-        function getDashboardCalendarSearchEntries(query) {
-            const needle = String(query || '').trim().toLowerCase();
-            if (!needle) return [];
-            const readArray = dashboardCalendarReadArray;
-            const ownershipKeys = getDashboardOwnershipKeys();
-            const scopeMap = getDashboardEventScopeMap();
-            const results = [];
-            const add = (item, title, value, view, kind) => {
-                const haystack = [title, item?.description, item?.Description, item?.createdByName, item?.organizerName, item?.assignee, item?.assignedTo, item?.type, item?.category, item?.status].map(value => String(value ?? '')).join(' ').toLowerCase();
-                if (!haystack.includes(needle)) return;
-                const parsed = new Date(value);
-                if (Number.isNaN(parsed.getTime())) return;
-                const id = String(item?.id ?? item?.Id ?? '').trim();
-                const rawOrganizerId = String(item?.organizerUserId ?? item?.OrganizerUserId ?? '').trim().toLowerCase();
-                const calendarOrganizerId = ['', 'null', 'undefined', 'nan', '0'].includes(rawOrganizerId) ? '' : rawOrganizerId;
-                const mappedScope = scopeMap[id];
-                const isMine = kind === 'Calendar'
-                    ? (mappedScope ? mappedScope === 'mine' : (calendarOrganizerId ? ownershipKeys.has(calendarOrganizerId) : false))
-                    : dashboardEntryIsMine(item || {}, ownershipKeys);
-                if (dashboardCalendarScope === 'mine' ? !isMine : isMine) return;
-                results.push({ id, title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || '').trim(), date: parsed, view, kind });
-            };
-            const tasks = Array.isArray(window.tasksData) && window.tasksData.length ? window.tasksData : readArray('tasksData');
-            tasks.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.date, 'task-hub', 'Task'));
-            const requests = Array.isArray(window.__dashboardRequestsCache) && window.__dashboardRequestsCache.length ? window.__dashboardRequestsCache : readArray('requestsDatabase');
-            requests.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.requestedDate, 'requests', 'Request'));
-            readArray('equipmentServiceTickets').forEach(item => add(item, item.title || item.Title || item.type || item.Type, item.scheduledDate || item.ScheduleDate || item.dueDate || item.DueDate, 'equipment', 'Service'));
-            readArray('calendarEvents').forEach(item => add(item, item.title || item.name || item.eventName || 'Calendar event', item.start || item.startDate || item.date || item.eventDate, 'calendar', 'Calendar'));
-            return results.sort((left, right) => left.date - right.date).slice(0, 20);
-        }
-
-        function renderDashboardCalendarSearchResults(results) {
-            const panel = document.getElementById('dashboardCalendarSearchResults');
-            if (!panel) return;
-            if (!dashboardCalendarSearchQuery.trim()) { panel.hidden = true; panel.innerHTML = ''; return; }
-            panel.hidden = false;
-            panel.innerHTML = results.length ? results.map(item => `<button type="button" onclick="window.openDashboardCalendarSearchResult('${escapeDashboardHtml(item.date.toISOString())}','${escapeDashboardHtml(item.view)}')" style="display:grid;grid-template-columns:62px minmax(0,1fr) auto;gap:.45rem;align-items:center;width:100%;padding:.35rem .45rem;border:0;border-bottom:1px solid var(--border-color,#e5e7eb);background:var(--card-bg,#fff);text-align:left;cursor:pointer;"><span style="font-size:.68rem;color:var(--text-secondary,#64748b);">${escapeDashboardHtml(item.date.toLocaleDateString([], { month:'short', day:'numeric' }))}<br>${escapeDashboardHtml(item.date.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }))}</span><span style="min-width:0;"><strong style="display:block;font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(item.title)}</strong><span style="display:block;font-size:.65rem;color:var(--text-secondary,#64748b);">${escapeDashboardHtml(item.kind)}</span></span><i class="fas fa-arrow-right" style="font-size:.65rem;color:#2563eb;"></i></button>`).join('') : '<div style="padding:.55rem;color:var(--text-secondary,#64748b);font-size:.75rem;">No matching items found.</div>';
-        }
-
-        window.openDashboardCalendarSearchResult = function (dateValue, view) {
-            const parsed = new Date(dateValue);
-            if (!Number.isNaN(parsed.getTime())) dashboardCalendarDate = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
-            dashboardCalendarViewMode = 'calendar';
-            dashboardCalendarSearchQuery = '';
-            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
-            if (view && view !== 'calendar' && typeof window.switchContentView === 'function') window.switchContentView(view, null);
-        };
-
-        function getDashboardUnscheduledMineEntries() {
-            const readArray = dashboardCalendarReadArray;
-            const todayISO = new Date().toISOString().slice(0, 10);
-            const ownershipKeys = getDashboardOwnershipKeys();
-            const entries = [];
-            const add = (item, title, value, view, tone) => {
-                const raw = String(value || '').trim();
-                if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return;
-                if (raw !== todayISO) return;
-                const status = String(item?.status || item?.Status || '').trim().toLowerCase();
-                if (/^(completed|complete|closed|cancelled|canceled|denied|dismissed)$/.test(status)) return;
-                if (!dashboardEntryIsMine(item || {}, ownershipKeys)) return;
-                entries.push({ title: String(title || 'Untitled task').trim(), view, tone });
-            };
-            const tasks = Array.isArray(window.tasksData) && window.tasksData.length ? window.tasksData : readArray('tasksData');
-            tasks.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.date, 'task-hub', '#2563eb'));
-            const requests = Array.isArray(window.__dashboardRequestsCache) && window.__dashboardRequestsCache.length ? window.__dashboardRequestsCache : readArray('requestsDatabase');
-            requests.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.requestedDate, 'requests', '#b45309'));
-            return entries;
-        }
-
-        function getDashboardMonthEntries(monthDate) {
-            const readArray = dashboardCalendarReadArray;
-            const ownershipKeys = getDashboardOwnershipKeys();
-            const scopeMap = getDashboardEventScopeMap();
-            const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-            const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
-            const byDay = {};
-            const add = (item, title, value, view, kind, tone) => {
-                const raw = String(value || '').trim();
-                if (!raw) return;
-                const parsed = new Date(raw);
-                if (Number.isNaN(parsed.getTime())) return;
-                const status = String(item?.status || item?.Status || '').trim().toLowerCase();
-                if (/^(completed|complete|closed|cancelled|canceled|denied|dismissed)$/.test(status)) return;
-                const dayOnly = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
-                if (dayOnly < monthStart || dayOnly > monthEnd) return;
-                const rawOrganizerId = String(item?.organizerUserId ?? item?.OrganizerUserId ?? '').trim().toLowerCase();
-                const calendarOrganizerId = ['', 'null', 'undefined', 'nan', '0'].includes(rawOrganizerId) ? '' : rawOrganizerId;
-                const mappedScope = scopeMap[String(item?.id ?? item?.Id ?? '').trim()];
-                const isMine = kind === 'Calendar'
-                    ? (mappedScope ? mappedScope === 'mine' : (calendarOrganizerId ? ownershipKeys.has(calendarOrganizerId) : false))
-                    : dashboardEntryIsMine(item || {}, ownershipKeys);
-                const matchesScope = dashboardCalendarScope === 'mine' ? isMine : !isMine;
-                if (!matchesScope) return;
-                const iso = dayOnly.toISOString().slice(0, 10);
-                if (!byDay[iso]) byDay[iso] = [];
-                byDay[iso].push({ title: String(title || 'Untitled').trim(), tone });
-            };
-            const tasks = Array.isArray(window.tasksData) && window.tasksData.length ? window.tasksData : readArray('tasksData');
-            tasks.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.date, 'task-hub', 'Task', '#2563eb'));
-            const requests = Array.isArray(window.__dashboardRequestsCache) && window.__dashboardRequestsCache.length ? window.__dashboardRequestsCache : readArray('requestsDatabase');
-            requests.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.requestedDate, 'requests', 'Request', '#b45309'));
-            readArray('equipmentServiceTickets').forEach(item => add(item, item.title || item.Title || item.type || item.Type, item.scheduledDate || item.ScheduleDate || item.dueDate || item.DueDate, 'equipment', 'Service', '#dc2626'));
-            readArray('calendarEvents').forEach(item => add(item, item.title || item.name || item.eventName || 'Calendar event', item.start || item.startDate || item.date || item.eventDate, 'calendar', 'Calendar', '#0e9384'));
-            return byDay;
-        }
-
-        function renderDashboardMonthGridHtml(monthDate) {
-            const byDay = getDashboardMonthEntries(monthDate);
-            const year = monthDate.getFullYear();
-            const month = monthDate.getMonth();
-            const startOffset = new Date(year, month, 1).getDay();
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-            const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
-            const todayISO = new Date().toISOString().slice(0, 10);
-            const headerHtml = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(name => `<div style="padding:.25rem;text-align:center;font-size:.66rem;font-weight:700;color:var(--text-secondary,#64748b);">${name}</div>`).join('');
-            const cells = [];
-            for (let index = 0; index < totalCells; index++) {
-                const dayNumber = index - startOffset + 1;
-                const cellDate = new Date(year, month, dayNumber);
-                const iso = cellDate.toISOString().slice(0, 10);
-                const inMonth = dayNumber >= 1 && dayNumber <= daysInMonth;
-                const dayEntries = byDay[iso] || [];
-                const isToday = iso === todayISO;
-                const dots = dayEntries.slice(0, 3).map(entry => `<span style="width:6px;height:6px;border-radius:50%;background:${entry.tone};display:inline-block;margin:0 1px;"></span>`).join('');
-                const extra = dayEntries.length > 3 ? `<span style="font-size:.6rem;color:var(--text-secondary,#64748b);">+${dayEntries.length - 3}</span>` : '';
-                cells.push(`<button type="button" onclick="window.goToDashboardCalendarDay('${iso}')" title="${escapeDashboardHtml(dayEntries.map(entry => entry.title).join(', '))}" style="border:1px solid var(--border-color,#e5e7eb);background:${isToday ? 'color-mix(in srgb,#2563eb 10%,var(--card-bg,#fff))' : 'var(--card-bg,#fff)'};min-height:60px;padding:.25rem;text-align:left;cursor:pointer;opacity:${inMonth ? '1' : '.4'};display:flex;flex-direction:column;gap:.25rem;"><span style="font-size:.72rem;font-weight:${isToday ? '800' : '600'};color:${isToday ? '#2563eb' : 'var(--text-primary,#111827)'};">${cellDate.getDate()}</span><span>${dots}${extra}</span></button>`);
-            }
-            return `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:2px;">${headerHtml}</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;">${cells.join('')}</div>`;
-        }
-
-        window.goToDashboardCalendarDay = function (iso) {
-            const parsed = new Date(`${iso}T00:00:00`);
-            if (Number.isNaN(parsed.getTime())) return;
-            dashboardCalendarDate = parsed;
-            dashboardCalendarViewMode = 'calendar';
-            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
-        };
-
-        function renderDashboardCalendarPanel(target) {
-            const allEntries = getDashboardCalendarEntries();
-            const entries = (dashboardCalendarScope === 'mine' ? allEntries.filter(entry => entry.isMine) : allEntries.filter(entry => !entry.isMine)).slice(0, 12);
-            const startHour = 7;
-            const endHour = 19;
-            const minutes = value => value.getHours() * 60 + value.getMinutes();
-            const top = value => Math.max(0, Math.min(100, ((minutes(value) - startHour * 60) / ((endHour - startHour) * 60)) * 100));
-            const height = entry => Math.max(5, top(entry.end) - top(entry.start));
-            const columns = [];
-            const layouts = entries.map(entry => {
-                let column = columns.findIndex(endTime => endTime <= entry.start.getTime());
-                if (column < 0) {
-                    column = columns.length;
-                    columns.push(entry.end.getTime());
-                } else {
-                    columns[column] = entry.end.getTime();
-                }
-                return { column, total: 1 };
-            });
-            layouts.forEach((layout, index) => {
-                const entry = entries[index];
-                const overlapping = entries.filter((candidate, candidateIndex) => candidateIndex !== index && candidate.start < entry.end && candidate.end > entry.start);
-                layout.total = Math.max(layout.total, layouts[index].column + 1, ...overlapping.map(candidate => {
-                    const candidateIndex = entries.indexOf(candidate);
-                    return layouts[candidateIndex]?.column + 1 || 1;
-                }));
-            });
-            const columnWidth = 96;
-            const maxColumns = Math.max(1, ...layouts.map(layout => layout.total));
-            const gridInnerWidth = Math.max(320, 66 + maxColumns * columnWidth + 10);
-            const defaultBodyHeight = (endHour - startHour) * 46;
-            const bodyHeight = dashboardCalendarBodyHeight || defaultBodyHeight;
-            const dateLabel = dashboardCalendarViewMode === 'month'
-                ? dashboardCalendarDate.toLocaleDateString([], { month: 'long', year: 'numeric' })
-                : dashboardCalendarDate.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
-            const timeLabel = value => value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-            const hourRows = Array.from({ length: endHour - startHour }, (_, index) => { const hour = startHour + index; const first = hour === startHour; return `<div style="height:46px;border-top:${first ? '3px solid #2563eb' : '1px solid var(--border-color,#e5e7eb)'};position:relative;background:${first ? 'color-mix(in srgb,#2563eb 6%,transparent)' : 'transparent'};"><span style="position:absolute;left:0;top:${first ? '-1px' : '-9px'};width:58px;padding:${first ? '.18rem .25rem' : '0'};font-weight:${first ? '800' : '500'};color:${first ? '#1d4ed8' : 'var(--text-secondary,#64748b)'};font-size:${first ? '.82rem' : '.7rem'};background:var(--card-bg,#fff);">${hour > 12 ? hour - 12 : hour}${hour >= 12 ? ' PM' : ' AM'}</span></div>`; }).join('');
-            const blocks = entries.map((entry, index) => { const layout = layouts[index]; const actions = entry.kind === 'Calendar' && entry.id ? `<span id="dashboard-event-actions-${escapeDashboardHtml(entry.id)}" hidden style="display:none;gap:3px;margin-top:2px;"><button type="button" onclick="event.stopPropagation();window.editDashboardEvent('${escapeDashboardHtml(entry.id)}')" style="border:0;border-radius:3px;padding:1px 4px;font-size:.62rem;cursor:pointer;background:var(--card-bg,#fff);color:#2563eb;">Edit</button><button type="button" onclick="event.stopPropagation();window.deleteDashboardEvent('${escapeDashboardHtml(entry.id)}')" style="border:0;border-radius:3px;padding:1px 4px;font-size:.62rem;cursor:pointer;background:var(--card-bg,#fff);color:#dc2626;">Delete</button></span>` : ''; return `<div role="button" tabindex="0" data-dashboard-event-id="${entry.kind === 'Calendar' ? escapeDashboardHtml(entry.id) : ''}" title="${escapeDashboardHtml(`${entry.title}${entry.description ? ` - ${entry.description}` : ''} · Created by ${entry.createdByName || 'Admin'}`)}" onclick="if(window.switchContentView){window.switchContentView('${entry.view}', event);}" onkeydown="if(event.key==='Enter' && window.switchContentView){window.switchContentView('${entry.view}', event);}" style="position:absolute;left:${66 + layout.column * columnWidth}px;width:${columnWidth - 6}px;top:${top(entry.start)}%;height:${height(entry)}%;min-height:25px;border:0;border-left:4px solid ${entry.tone};border-radius:5px;background:${entry.tone}1f;color:var(--text-primary,#111827);padding:3px 7px;text-align:left;overflow:hidden;cursor:pointer;z-index:2;"><strong style="display:block;font-size:.72rem;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeDashboardHtml(entry.title)}</strong><span style="display:block;font-size:.65rem;color:var(--text-secondary,#64748b);">${escapeDashboardHtml(entry.kind)} · ${escapeDashboardHtml(timeLabel(entry.start))} · ${escapeDashboardHtml(entry.createdByName || 'Admin')}</span>${actions}</div>`; }).join('');
-            const viewTabsHtml = `<span style="display:inline-flex;border:1px solid var(--border-color,#d1d5db);border-radius:6px;overflow:hidden;"><button type="button" onclick="window.setDashboardCalendarViewMode('calendar')" style="border:0;padding:.2rem .5rem;font-size:.7rem;cursor:pointer;background:${dashboardCalendarViewMode === 'calendar' ? '#2563eb' : 'var(--card-bg,#fff)'};color:${dashboardCalendarViewMode === 'calendar' ? '#fff' : 'var(--text-secondary,#64748b)'};">Calendar</button><button type="button" onclick="window.setDashboardCalendarViewMode('list')" style="border:0;border-left:1px solid var(--border-color,#d1d5db);padding:.2rem .5rem;font-size:.7rem;cursor:pointer;background:${dashboardCalendarViewMode === 'list' ? '#2563eb' : 'var(--card-bg,#fff)'};color:${dashboardCalendarViewMode === 'list' ? '#fff' : 'var(--text-secondary,#64748b)'};">List</button><button type="button" onclick="window.setDashboardCalendarViewMode('month')" style="border:0;border-left:1px solid var(--border-color,#d1d5db);padding:.2rem .5rem;font-size:.7rem;cursor:pointer;background:${dashboardCalendarViewMode === 'month' ? '#2563eb' : 'var(--card-bg,#fff)'};color:${dashboardCalendarViewMode === 'month' ? '#fff' : 'var(--text-secondary,#64748b)'};">Month</button></span>`;
-            const scopeTabsHtml = `<span style="display:inline-flex;border:1px solid var(--border-color,#d1d5db);border-radius:6px;overflow:hidden;"><button type="button" onclick="window.setDashboardCalendarScope('mine')" style="border:0;padding:.2rem .5rem;font-size:.7rem;cursor:pointer;background:${dashboardCalendarScope === 'mine' ? '#2563eb' : 'var(--card-bg,#fff)'};color:${dashboardCalendarScope === 'mine' ? '#fff' : 'var(--text-secondary,#64748b)'};">My Calendar</button><button type="button" onclick="window.setDashboardCalendarScope('office')" style="border:0;border-left:1px solid var(--border-color,#d1d5db);padding:.2rem .5rem;font-size:.7rem;cursor:pointer;background:${dashboardCalendarScope === 'office' ? '#2563eb' : 'var(--card-bg,#fff)'};color:${dashboardCalendarScope === 'office' ? '#fff' : 'var(--text-secondary,#64748b)'};">Office Calendar</button></span>`;
-            const listRows = entries.length ? entries.map(entry => { const actions = entry.kind === 'Calendar' && entry.id ? `<span id="dashboard-event-actions-${escapeDashboardHtml(entry.id)}" hidden style="display:none;gap:3px;grid-column:2/3;margin-top:2px;"><button type="button" onclick="event.stopPropagation();window.editDashboardEvent('${escapeDashboardHtml(entry.id)}')" style="border:0;border-radius:3px;padding:1px 5px;font-size:.65rem;cursor:pointer;background:var(--bg-secondary,#f1f5f9);color:#2563eb;">Edit</button><button type="button" onclick="event.stopPropagation();window.deleteDashboardEvent('${escapeDashboardHtml(entry.id)}')" style="border:0;border-radius:3px;padding:1px 5px;font-size:.65rem;cursor:pointer;background:var(--bg-secondary,#f1f5f9);color:#dc2626;">Delete</button></span>` : ''; return `<div role="button" tabindex="0" data-dashboard-event-id="${entry.kind === 'Calendar' ? escapeDashboardHtml(entry.id) : ''}" onclick="if(window.switchContentView){window.switchContentView('${entry.view}', event);}" style="position:relative;display:grid;grid-template-columns:60px minmax(0,1fr) auto;gap:.5rem;align-items:center;padding:.35rem .3rem;border-bottom:1px solid var(--border-color,#e5e7eb);cursor:pointer;"><span style="font-size:.72rem;color:var(--text-secondary,#64748b);">${escapeDashboardHtml(timeLabel(entry.start))}</span><span style="min-width:0;"><strong style="display:block;font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.title)}</strong><span style="display:block;font-size:.68rem;color:var(--text-secondary,#64748b);">${escapeDashboardHtml(entry.kind)} · ${escapeDashboardHtml(entry.createdByName || 'Admin')}</span></span><span style="width:8px;height:8px;border-radius:50%;background:${entry.tone};"></span>${actions}</div>`; }).join('') : '<div style="padding:.6rem;color:var(--text-secondary,#64748b);font-size:.8rem;">No operations scheduled for this date.</div>';
-            const monthGridHtml = dashboardCalendarViewMode === 'month' ? renderDashboardMonthGridHtml(dashboardCalendarDate) : '';
-            const unscheduled = getDashboardUnscheduledMineEntries();
-            const unscheduledHtml = unscheduled.length ? unscheduled.map(item => `<div role="button" tabindex="0" onclick="if(window.switchContentView){window.switchContentView('${item.view}', event);}" style="padding:.35rem .1rem;border-bottom:1px solid var(--border-color,#e5e7eb);cursor:pointer;"><span style="width:7px;height:7px;border-radius:50%;background:${item.tone};display:inline-block;margin-right:.35rem;"></span><span style="font-size:.78rem;">${escapeDashboardHtml(item.title)}</span></div>`).join('') : '<div style="color:var(--text-secondary,#64748b);font-size:.76rem;padding:.3rem 0;">Nothing unscheduled for today.</div>';
-            target.innerHTML = `<div style="display:grid;grid-template-columns:minmax(0,1fr) 210px;gap:.6rem;align-items:start;"><div class="rd-dashboard-panel" style="width:100%;padding:.7rem .8rem;"><div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.55rem;flex-wrap:wrap;"><h3 style="margin:0;font-size:1rem;"><i class="fas fa-calendar-days" style="color:#2563eb;margin-right:.45rem;"></i>Operations Calendar</h3>${viewTabsHtml}${scopeTabsHtml}<span style="margin-left:auto;color:var(--text-secondary,#64748b);font-size:.75rem;">${escapeDashboardHtml(dateLabel)}</span><button type="button" class="rd-dashboard-calendar-add" onclick="window.toggleDashboardEventForm()"><i class="fas fa-plus"></i> Add event</button><button type="button" aria-label="Previous day" title="Previous day" onclick="window.shiftDashboardCalendar(-1)" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;cursor:pointer;padding:.2rem .45rem;">‹</button><button type="button" onclick="window.resetDashboardCalendar()" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;cursor:pointer;padding:.2rem .45rem;font-size:.7rem;">Today</button><button type="button" aria-label="Next day" title="Next day" onclick="window.shiftDashboardCalendar(1)" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;cursor:pointer;padding:.2rem .45rem;">›</button></div><div id="dashboardEventForm" hidden style="display:none;grid-template-columns:2fr 1.4fr 1fr 1fr;gap:.4rem;margin-bottom:.65rem;padding:.55rem;background:var(--bg-secondary,#f8fafc);border:1px solid var(--border-color,#d1d5db);border-radius:6px;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><input id="dashboardEventDate" type="date" value="${dashboardCalendarDate.toISOString().slice(0,10)}" aria-label="Event date"><input id="dashboardEventStart" type="time" value="09:00" aria-label="Start time"><input id="dashboardEventEnd" type="time" value="09:45" aria-label="End time"><div style="grid-column:1/-1;display:flex;gap:.4rem;justify-content:flex-end;"><button type="button" onclick="window.saveDashboardEvent()" style="border:0;border-radius:5px;padding:.35rem .65rem;background:#2563eb;color:#fff;cursor:pointer;"><i class="fas fa-check"></i> Save event</button><button type="button" onclick="window.toggleDashboardEventForm(false)" style="border:1px solid var(--border-color,#d1d5db);border-radius:5px;padding:.35rem .65rem;background:var(--card-bg,#fff);cursor:pointer;">Cancel</button></div></div>${dashboardCalendarViewMode === 'month' ? `<div style="padding:.2rem 0;">${monthGridHtml}</div>` : dashboardCalendarViewMode === 'list' ? `<div style="max-height:${(endHour - startHour) * 46}px;overflow-y:auto;">${listRows}</div>` : `<div style="overflow-x:auto;overflow-y:hidden;"><div style="position:relative;padding-left:0;min-height:${(endHour - startHour) * 46}px;min-width:${gridInnerWidth}px;">${entries.length ? '' : '<div style="position:absolute;left:66px;top:45%;color:var(--text-secondary,#64748b);font-size:.8rem;">No operations scheduled for this date.</div>'}<div>${hourRows}</div>${blocks}</div></div>`}</div><div class="rd-dashboard-panel" style="width:100%;padding:.6rem .65rem;"><h3 style="margin:0 0 .4rem;font-size:.85rem;"><i class="fas fa-list-check" style="color:#b45309;margin-right:.35rem;"></i>Unscheduled Today</h3>${unscheduledHtml}</div></div>`;
-        }
-
-        window.selectDashboardEvent = function (eventId) {
-            document.querySelectorAll('[id^="dashboard-event-actions-"]').forEach(actions => {
-                actions.hidden = true;
-                actions.style.display = 'none';
-                const owner = actions.closest('[data-dashboard-event-id]');
-                if (owner) {
-                    owner.style.overflow = 'hidden';
-                    owner.style.zIndex = '2';
-                }
-            });
-            const selected = document.getElementById(`dashboard-event-actions-${String(eventId)}`);
-            if (selected) {
-                selected.hidden = false;
-                selected.style.display = 'flex';
-                selected.style.position = 'absolute';
-                selected.style.left = '4px';
-                selected.style.top = '100%';
-                selected.style.padding = '3px';
-                selected.style.background = 'var(--card-bg,#fff)';
-                selected.style.border = '1px solid var(--border-color,#d1d5db)';
-                selected.style.borderRadius = '4px';
-                selected.style.zIndex = '30';
-                const owner = selected.closest('[data-dashboard-event-id]');
-                if (owner) {
-                    owner.style.overflow = 'visible';
-                    owner.style.zIndex = '20';
-                }
-            }
-        };
-        document.addEventListener('click', event => {
-            if (event.target.closest('[id^="dashboard-event-actions-"]')) return;
-            const card = event.target.closest('[data-dashboard-event-id]');
-            const eventId = card?.getAttribute('data-dashboard-event-id');
-            if (!eventId) return;
-            event.preventDefault();
-            event.stopPropagation();
-            window.selectDashboardEvent(eventId);
-        }, true);
-
-        function getDashboardCurrentCreator() {
-            try {
-                const session = JSON.parse(localStorage.getItem('currentUser') || '{}') || {};
-                const numericId = Number(
-                    window.currentDbUserId ||
-                    localStorage.getItem('currentDbUserId') ||
-                    session.dbId || session.id || session.Id ||
-                    localStorage.getItem('loggedInUserId') ||
-                    (typeof getUserRecordId === 'function' ? getUserRecordId(session) : 0) ||
-                    0
-                ) || null;
-                return {
-                    id: numericId,
-                    name: String(session.name || session.displayName || [session.firstName, session.lastName].filter(Boolean).join(' ') || localStorage.getItem('displayName') || localStorage.getItem('userName') || localStorage.getItem('loggedInUser') || 'Admin').trim()
-                };
-            } catch (_) {
-                return { id: null, name: String(localStorage.getItem('displayName') || localStorage.getItem('userName') || 'Admin').trim() };
-            }
-        }
-
-        window.toggleDashboardEventForm = function (show) {
-            const form = document.getElementById('dashboardEventForm');
-            if (!form) return;
-            const nextVisible = show === undefined ? form.hidden : !!show;
-            form.hidden = !nextVisible;
-            form.style.display = nextVisible ? 'grid' : 'none';
-            if (!form.hidden) document.getElementById('dashboardEventTitle')?.focus();
-        };
-
-        window.saveDashboardEvent = async function () {
-            const title = String(document.getElementById('dashboardEventTitle')?.value || '').trim();
-            const description = String(document.getElementById('dashboardEventDescription')?.value || '').trim();
-            const dateValue = String(document.getElementById('dashboardEventDate')?.value || '').trim();
-            const startValue = String(document.getElementById('dashboardEventStart')?.value || '').trim();
-            const endValue = String(document.getElementById('dashboardEventEnd')?.value || '').trim();
-            if (!title || !dateValue || !startValue || !endValue) {
-                if (typeof showNotification === 'function') showNotification('Enter an event title, date, start time, and end time.', 'warning');
-                return;
-            }
-            const start = new Date(`${dateValue}T${startValue}`);
-            const end = new Date(`${dateValue}T${endValue}`);
-            if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
-                if (typeof showNotification === 'function') showNotification('The end time must be after the start time.', 'warning');
-                return;
-            }
-            const creator = getDashboardCurrentCreator();
-            const editingId = String(document.getElementById('dashboardEventEditId')?.value || '').trim();
-            const savingToMine = dashboardCalendarScope === 'mine';
-            const eventRecord = {
-                id: editingId || `dashboard-event-${Date.now()}`,
-                title,
-                description,
-                start: start.toISOString(),
-                end: end.toISOString(),
-                createdBy: creator.id,
-                createdByName: creator.name,
-                organizerUserId: savingToMine ? creator.id : null,
-                organizerName: creator.name,
-                type: 'other',
-                eventType: 'other',
-                status: 'scheduled',
-                priority: 'medium',
-                eventCategory: 'dashboard-operation',
-                dashboardScope: dashboardCalendarScope,
-                allDay: false
-            };
-            let apiSaved = false;
-            try {
-                if (editingId && typeof updateEventViaApi === 'function') {
-                    await updateEventViaApi(editingId, eventRecord);
-                    apiSaved = true;
-                } else if (typeof createEventViaApi === 'function') {
-                    const apiId = await createEventViaApi(eventRecord);
-                    if (apiId !== undefined && apiId !== null && String(apiId).trim()) eventRecord.id = String(apiId);
-                    apiSaved = true;
-                }
-            } catch (error) {
-                console.error('Dashboard event API save failed; event is only stored locally on this machine.', error);
-            }
-            setDashboardEventScope(eventRecord.id, dashboardCalendarScope);
-            let events = [];
-            try { events = JSON.parse(localStorage.getItem('calendarEvents') || '[]'); } catch (_) { events = []; }
-            if (!Array.isArray(events)) events = [];
-            eventRecord.dashboardBackup = !apiSaved;
-            eventRecord.apiSyncPending = !apiSaved;
-            const existingIndex = events.findIndex(item => String(item?.id || '') === String(eventRecord.id));
-            if (existingIndex >= 0) events[existingIndex] = eventRecord;
-            else events.push(eventRecord);
-            localStorage.setItem('calendarEvents', JSON.stringify(events));
-            if (typeof window.updateEventList === 'function') window.updateEventList();
-            if (window.calendarInstance && typeof window.calendarInstance.refetchEvents === 'function') window.calendarInstance.refetchEvents();
-            dashboardCalendarDate = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
-            const form = document.getElementById('dashboardEventForm');
-            if (form) form.hidden = true;
-            if (form) form.style.display = 'none';
-            if (apiSaved && typeof syncEventDatabaseFromApi === 'function') {
-                try { await syncEventDatabaseFromApi({ silent: true }); } catch (_) {}
-                try {
-                    const synced = JSON.parse(localStorage.getItem('calendarEvents') || '[]');
-                    if (Array.isArray(synced)) {
-                        const syncedIndex = synced.findIndex(item => String(item?.id || '') === String(eventRecord.id));
-                        if (syncedIndex >= 0) {
-                            synced[syncedIndex] = { ...synced[syncedIndex], dashboardScope: eventRecord.dashboardScope, organizerUserId: eventRecord.organizerUserId, organizerName: eventRecord.organizerName, createdBy: eventRecord.createdBy, createdByName: eventRecord.createdByName };
-                            localStorage.setItem('calendarEvents', JSON.stringify(synced));
-                        }
-                    }
-                } catch (_) {}
-                renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
-            }
-            if (typeof showNotification === 'function') showNotification(apiSaved ? `Event ${editingId ? 'updated' : 'saved'} by ${creator.name} and shared to all devices.` : `Event saved on this device only; it did not reach the shared database.`, apiSaved ? 'success' : 'warning');
-        };
-
-        window.editDashboardEvent = function (eventId) {
-            const events = (() => { try { const value = JSON.parse(localStorage.getItem('calendarEvents') || '[]'); return Array.isArray(value) ? value : []; } catch (_) { return []; } })();
-            const eventRecord = events.find(item => String(item?.id || '') === String(eventId));
-            if (!eventRecord) return;
-            const start = new Date(eventRecord.start);
-            const end = new Date(eventRecord.end || eventRecord.start);
-            document.getElementById('dashboardEventEditId').value = String(eventId);
-            document.getElementById('dashboardEventTitle').value = eventRecord.title || '';
-            document.getElementById('dashboardEventDescription').value = eventRecord.description || '';
-            document.getElementById('dashboardEventDate').value = start.toISOString().slice(0, 10);
-            document.getElementById('dashboardEventStart').value = start.toTimeString().slice(0, 5);
-            document.getElementById('dashboardEventEnd').value = end.toTimeString().slice(0, 5);
-            window.toggleDashboardEventForm(true);
-        };
-
-        window.deleteDashboardEvent = async function (eventId) {
-            if (!window.confirm('Delete this calendar event?')) return;
-            const numericId = Number(eventId);
-            let apiDeleted = false;
-            try {
-                if (typeof deleteEventViaApi === 'function' && Number.isFinite(numericId)) {
-                    await deleteEventViaApi(numericId);
-                    apiDeleted = true;
-                }
-            } catch (error) {
-                console.warn('Dashboard event API delete failed; removing local backup.', error);
-            }
-            let events = [];
-            try { events = JSON.parse(localStorage.getItem('calendarEvents') || '[]'); } catch (_) { events = []; }
-            events = Array.isArray(events) ? events.filter(item => String(item?.id || '') !== String(eventId)) : [];
-            localStorage.setItem('calendarEvents', JSON.stringify(events));
-            clearDashboardEventScope(eventId);
-            if (typeof window.updateEventList === 'function') window.updateEventList();
-            if (window.calendarInstance && typeof window.calendarInstance.refetchEvents === 'function') window.calendarInstance.refetchEvents();
-            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
-            if (typeof showNotification === 'function') showNotification(apiDeleted ? 'Event deleted.' : 'Event removed locally; server delete may need retry.', apiDeleted ? 'success' : 'warning');
-        };
-
-        window.shiftDashboardCalendar = function (offset) {
-            if (dashboardCalendarViewMode === 'month') dashboardCalendarDate.setMonth(dashboardCalendarDate.getMonth() + Number(offset || 0));
-            else dashboardCalendarDate.setDate(dashboardCalendarDate.getDate() + Number(offset || 0));
-            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
-        };
-        window.resetDashboardCalendar = function () { dashboardCalendarDate = new Date(); renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel')); };
-        window.setDashboardCalendarViewMode = function (mode) { dashboardCalendarViewMode = (mode === 'list' || mode === 'month') ? mode : 'calendar'; renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel')); };
-        window.setDashboardCalendarScope = function (scope) { dashboardCalendarScope = scope === 'office' ? 'office' : 'mine'; renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel')); };
-
-        window.toggleDashboardCalendarFullscreen = function () {
-            dashboardCalendarFullscreen = !dashboardCalendarFullscreen;
-            const mount = document.getElementById('dashboardCalendarPanel');
-            if (!mount) return;
-            mount.style.position = dashboardCalendarFullscreen ? 'fixed' : '';
-            mount.style.inset = dashboardCalendarFullscreen ? '12px' : '';
-            mount.style.zIndex = dashboardCalendarFullscreen ? '1000' : '';
-            mount.style.background = dashboardCalendarFullscreen ? 'var(--bg-primary,#fff)' : '';
-            mount.style.overflow = dashboardCalendarFullscreen ? 'auto' : '';
-            mount.style.padding = dashboardCalendarFullscreen ? '.75rem' : '';
-            mount.style.boxShadow = dashboardCalendarFullscreen ? '0 12px 40px rgba(15,23,42,.25)' : '';
-            renderDashboardCalendarPanel(mount);
-        };
-
-        let dashboardCalendarResizeStart = null;
-        window.startDashboardCalendarResize = function (event) {
-            event.preventDefault();
-            const mount = document.getElementById('dashboardCalendarPanel');
-            const resizeTarget = mount?.querySelector('.rd-dashboard-panel') || mount;
-            dashboardCalendarResizeStart = { x: event.clientX, width: resizeTarget?.getBoundingClientRect().width || 0, target: resizeTarget };
-            const move = moveEvent => {
-                if (!dashboardCalendarResizeStart) return;
-                const nextWidth = Math.max(420, Math.min(window.innerWidth - 260, dashboardCalendarResizeStart.width + moveEvent.clientX - dashboardCalendarResizeStart.x));
-                if (dashboardCalendarResizeStart.target) dashboardCalendarResizeStart.target.style.width = `${nextWidth}px`;
-            };
-            const stop = () => { dashboardCalendarResizeStart = null; document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', stop); };
-            document.addEventListener('pointermove', move);
-            document.addEventListener('pointerup', stop);
-        };
-
-        function installDashboardCalendarControls() {
-            const mount = document.getElementById('dashboardCalendarPanel');
-            if (!mount || mount.querySelector('[data-dashboard-calendar-tools="true"]')) return;
-            if (!document.getElementById('dashboardCalendarHoverStyles')) {
-                const hoverStyles = document.createElement('style');
-                hoverStyles.id = 'dashboardCalendarHoverStyles';
-                hoverStyles.textContent = '[data-dashboard-event-id]:hover{overflow:visible!important;z-index:20!important}[data-dashboard-event-id]:hover>[id^="dashboard-event-actions-"]{display:flex!important;visibility:visible!important;position:absolute!important;left:4px!important;top:100%!important;padding:3px!important;background:var(--card-bg,#fff)!important;border:1px solid var(--border-color,#d1d5db)!important;border-radius:4px!important;z-index:30!important;}';
-                document.head.appendChild(hoverStyles);
-            }
-            mount.style.position = mount.style.position || 'relative';
-            const header = mount.querySelector('h3')?.parentElement;
-            if (!header) return;
-            const tools = document.createElement('span');
-            tools.dataset.dashboardCalendarTools = 'true';
-            tools.style.cssText = 'display:inline-flex;gap:4px;margin-left:auto;align-items:center;';
-            tools.innerHTML = '<button type="button" title="Toggle fullscreen" aria-label="Toggle fullscreen" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;padding:.2rem .45rem;cursor:pointer;"><i class="fas fa-expand"></i></button>';
-            tools.firstElementChild.onclick = window.toggleDashboardCalendarFullscreen;
-            header.appendChild(tools);
-            header.style.position = 'relative';
-            const searchWrap = document.createElement('span');
-            searchWrap.dataset.dashboardCalendarSearch = 'true';
-            searchWrap.style.cssText = 'display:inline-flex;position:relative;flex:1 1 180px;min-width:150px;max-width:260px;';
-            searchWrap.innerHTML = '<input type="search" aria-label="Search calendar operations" placeholder="Search operations..." style="width:100%;border:1px solid var(--border-color,#d1d5db);border-radius:5px;padding:.25rem .45rem;font-size:.72rem;background:var(--card-bg,#fff);color:var(--text-primary,#111827);"><div id="dashboardCalendarSearchResults" hidden style="position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow-y:auto;z-index:100;background:var(--card-bg,#fff);border:1px solid var(--border-color,#d1d5db);border-radius:6px;box-shadow:0 8px 20px rgba(15,23,42,.16);"></div>';
-            const searchInput = searchWrap.querySelector('input');
-            searchInput.value = dashboardCalendarSearchQuery;
-            searchInput.addEventListener('input', event => {
-                dashboardCalendarSearchQuery = event.target.value;
-                renderDashboardCalendarSearchResults(getDashboardCalendarSearchEntries(dashboardCalendarSearchQuery));
-            });
-            header.insertBefore(searchWrap, header.firstChild);
-            const edge = document.createElement('div');
-            edge.dataset.dashboardCalendarResizeEdge = 'true';
-            const resizeTarget = mount.querySelector('.rd-dashboard-panel') || mount;
-            resizeTarget.style.position = resizeTarget.style.position || 'relative';
-            edge.setAttribute('aria-label', 'Calendar resize edge');
-            edge.style.cssText = 'position:absolute;top:0;right:-4px;width:8px;height:100%;cursor:ew-resize;z-index:40;';
-            edge.onpointerdown = window.startDashboardCalendarResize;
-            resizeTarget.appendChild(edge);
-        }
-        const dashboardCalendarControlsObserver = new MutationObserver(installDashboardCalendarControls);
-        dashboardCalendarControlsObserver.observe(document.body, { childList: true, subtree: true });
-        setTimeout(installDashboardCalendarControls, 0);
-
-        function getDashboardCurrentUserClockStatus() {
-            const userKeys = dashboardCurrentUserKeys();
-            const name = String(userKeys.find(Boolean) || 'You');
-            const match = getDashboardAttendanceEntries().find(entry => userKeys.includes(String(entry.name || '').trim().toLowerCase()));
-            if (!match) return { name: getDashboardLandingUserName(), status: 'Not clocked in', color: '#94a3b8' };
-            return { name: match.name, status: match.status, color: match.color };
-        }
-
         function renderAttendanceDashboard(target, clinic) {
             const entries = getDashboardAttendanceEntries();
-            const identity = getDashboardCurrentUserClockStatus();
             target.innerHTML = `
                 <div class="rd-dashboard-topbar" style="margin-bottom:0.45rem;min-height:0;">
                     <div class="rd-dashboard-location" style="padding:0.55rem 0.75rem;"><i class="fas fa-map-marker-alt"></i><div><strong>${escapeDashboardHtml(clinic.name)}</strong><span>${escapeDashboardHtml(clinic.address)}</span></div></div>
-                    <div style="display:flex;align-items:center;gap:.4rem;margin-left:.6rem;padding:.3rem .6rem;border:1px solid var(--border-color,#e5e7eb);border-radius:8px;background:var(--card-bg,#fff);"><i class="fas fa-user-circle" style="color:var(--text-secondary,#64748b);"></i><strong style="font-size:.8rem;">${escapeDashboardHtml(identity.name)}</strong><span style="font-size:.7rem;font-weight:700;color:${identity.color};border:1px solid ${identity.color};border-radius:999px;padding:.05rem .5rem;">${escapeDashboardHtml(identity.status)}</span></div>
                 </div>
-                <div style="display:grid;grid-template-columns:minmax(0,1.55fr) minmax(300px,360px);gap:.8rem;align-items:start;">
-                    <div id="dashboardCalendarPanel"></div>
-                    <div>
-                <div class="rd-dashboard-panel" style="width:100%;padding:0.55rem 0.7rem;">
+                <div class="rd-dashboard-panel" style="width:min(100%,360px);margin-left:auto;padding:0.55rem 0.7rem;">
                     <h3 style="margin:0 0 0.35rem;font-size:1rem;"><i class="fas fa-user-clock" style="color:#2563eb;margin-right:0.45rem;"></i>Today's Attendance</h3>
                     <div class="rd-dashboard-list">
                         ${entries.length ? entries.map((entry) => `<div class="rd-dashboard-row" style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.35rem;align-items:center;min-height:0;padding:0.28rem 0;border:0;"><div class="rd-dashboard-task-title"><span class="rd-dashboard-dot" style="background:${entry.color};width:10px;height:10px;flex:0 0 10px;"></span><div style="min-width:0;display:flex;align-items:baseline;gap:0.35rem;overflow:hidden;"><strong style="font-size:0.84rem;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.name)}</strong><span style="font-size:0.72rem;line-height:1.15;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">- ${escapeDashboardHtml(entry.jobTitle)}</span></div></div><div class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.2rem 0.45rem;font-size:0.75rem;line-height:1.05;">${escapeDashboardHtml(entry.status)}</div></div>`).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-clock" style="color:#64748b;"></i><span>No employees have clocked in today.</span></div>'}
                     </div>
-                </div><div id="dashboardOperationsPanel"></div></div></div>`;
+                </div><div id="dashboardOperationsPanel"></div>`;
             const operationsPanel = document.getElementById('dashboardOperationsPanel');
             if (operationsPanel) renderDashboardOperationsPanel(operationsPanel);
-            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
         }
 
         function renderManagerDashboardLanding(target, model, clinic) {
@@ -59228,7 +58616,7 @@
                 throw new Error(`Failed to create event (${response.status})`);
             }
             const payload = await response.json();
-            return payload?.id ?? payload?.Id ?? payload?.eventId ?? payload?.EventId ?? payload?.data?.id ?? payload?.data?.Id;
+            return payload?.id;
         }
 
         async function updateEventViaApi(eventId, eventData) {
@@ -59920,8 +59308,6 @@
 
                 return `
                     <div style="font-weight:700; font-size:13px; margin-bottom:6px;">${escapeHtml(cleanTitle)}</div>
-                        id: item?.id || item?.Id || item?.ticketId || item?.TicketId || '',
-                        equipmentId: item?.equipmentID || item?.EquipmentId || item?.equipmentId || item?.EquipmentID || '',
                     ${rowsHtml || '<div style="color:rgba(226,232,240,0.75)">No details</div>'}
                 `;
             }
@@ -60255,7 +59641,6 @@
 
                 return `
                     <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.55rem;">
-                        id: assignment?.id || assignment?.Id || assignment?.teamId || assignment?.TeamId || '',
                         <div style="display:flex; justify-content:space-between; gap:0.5rem; align-items:center;">
                             <div style="font-size:0.82rem; font-weight:600; color:var(--text-primary);">${fullName}</div>
                             <div style="font-size:0.7rem; color:var(--text-secondary);">${role}</div>
