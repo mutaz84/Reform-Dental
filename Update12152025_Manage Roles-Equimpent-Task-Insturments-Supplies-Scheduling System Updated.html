@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260918-event-story-rail-v136';
+                const buildVersion = '20260918-compact-event-story-v137';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -56430,7 +56430,7 @@
                 if (skip.test(key)) return '';
                 const value = dashboardStoryDisplayValue(record[key]);
                 if (!value) return '';
-                return `<div style="display:grid;grid-template-columns:88px minmax(0,1fr);gap:.35rem;padding:.22rem 0;border-bottom:1px solid color-mix(in srgb,var(--border-color,#d1d5db) 55%,transparent);"><span style="font-size:.66rem;color:var(--text-secondary,#64748b);">${escapeDashboardHtml(dashboardStoryFieldLabel(key))}</span><span style="font-size:.72rem;color:var(--text-primary,#111827);overflow-wrap:anywhere;">${escapeDashboardHtml(value)}</span></div>`;
+                return `<div style="display:grid;grid-template-columns:max-content minmax(0,1fr);gap:.15rem .45rem;padding:.08rem 0;"><strong>${escapeDashboardHtml(dashboardStoryFieldLabel(key))}</strong><span style="overflow-wrap:anywhere;">${escapeDashboardHtml(value)}</span></div>`;
             }).filter(Boolean).join('');
         }
 
@@ -56560,6 +56560,39 @@
         }
 
         function buildDashboardStoryHtml(story) {
+            const clinic = (() => { try { return getDashboardLandingClinic().name; } catch (_) { return 'Practice'; } })();
+            const levels = [
+                ['Clinic', clinic],
+                ['Operations', story.kind],
+                story.parentLabel ? ['Parent', story.parentLabel] : null,
+                ['Event', story.title],
+                ['State', story.statusLine]
+            ].filter(Boolean);
+            const hierarchyHtml = levels.map(row => `<li><strong>${escapeDashboardHtml(row[0])}:</strong> <span style="overflow-wrap:anywhere;">${escapeDashboardHtml(row[1])}</span></li>`).join('');
+            const counts = [
+                story.counts.files ? `${story.counts.files} file${story.counts.files === 1 ? '' : 's'}` : '',
+                story.counts.links ? `${story.counts.links} link${story.counts.links === 1 ? '' : 's'}` : '',
+                story.counts.photos ? `${story.counts.photos} photo${story.counts.photos === 1 ? '' : 's'}` : '',
+                story.counts.journal ? `${story.counts.journal} journal note${story.counts.journal === 1 ? '' : 's'}` : ''
+            ].filter(Boolean).join(' / ');
+            const factRows = [
+                ['Type', story.type || story.kind],
+                ['When', story.when],
+                ['Due', story.due],
+                ['Owner', story.owner],
+                ['Location', story.location],
+                ['Frequency', story.frequency],
+                ['Attachments', counts]
+            ].filter(row => dashboardText(row[1]));
+            const factsHtml = factRows.map(row => `<div style="display:grid;grid-template-columns:max-content minmax(0,1fr);gap:.15rem .45rem;"><strong>${escapeDashboardHtml(row[0])}:</strong><span style="overflow-wrap:anywhere;">${escapeDashboardHtml(row[1])}</span></div>`).join('');
+            const detailSections = story.records.map((section, index) => {
+                const rows = dashboardStoryRecordRows(section.value) || '<div>No saved fields found for this record.</div>';
+                return `<details ${index === 0 ? 'open' : ''} style="margin-top:.35rem;"><summary style="cursor:pointer;font-weight:700;">${escapeDashboardHtml(section.label)}</summary><div style="margin-top:.2rem;">${rows}</div></details>`;
+            }).join('');
+            return `<div style="font-family:inherit;line-height:1.25;padding:.5rem;margin:.35rem;max-height:calc(100vh - 8rem);overflow:auto;scrollbar-gutter:stable;"><div style="display:flex;align-items:flex-start;gap:.4rem;margin-bottom:.35rem;"><div style="min-width:0;flex:1;"><strong>Event Story</strong><div style="overflow-wrap:anywhere;">${escapeDashboardHtml(story.title)}</div></div><button type="button" onclick="window.closeDashboardStoryRail()" title="Close story" aria-label="Close story" style="margin-left:auto;border:0;background:transparent;cursor:pointer;padding:0;">Close</button></div><ol style="margin:.25rem 0 .45rem 1.15rem;padding:0;">${hierarchyHtml}</ol><div style="display:grid;gap:.12rem;margin:.35rem 0;">${factsHtml}</div>${story.description ? `<p style="margin:.35rem 0;overflow-wrap:anywhere;"><strong>Notes:</strong> ${escapeDashboardHtml(story.description)}</p>` : ''}<div>${detailSections}</div><button type="button" onclick="window.openDashboardStorySource()" style="margin-top:.45rem;width:100%;cursor:pointer;">Open Full Record</button></div>`;
+        }
+
+        function buildDashboardStoryHtmlStyled(story) {
             const clinic = (() => { try { return getDashboardLandingClinic().name; } catch (_) { return 'Practice'; } })();
             const levels = [
                 { label: 'Clinic', value: clinic, icon: 'fa-hospital' },
