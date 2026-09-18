@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260905-dashboard-operations-glance-v135';
+                const buildVersion = '20260918-event-story-rail-v136';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -56286,7 +56286,9 @@
                         detail: status,
                         color: /out.of.service|retired|broken/i.test(status) ? '#dc2626' : '#eab308',
                         rank: /out.of.service|retired|broken/i.test(status) ? 0 : 1,
-                        view: 'equipment'
+                        view: 'equipment',
+                        record: item,
+                        relatedTicket: matchingTicket || null
                     } : null;
                 }).filter(Boolean);
             const services = readArray('equipmentServiceTickets')
@@ -56306,7 +56308,8 @@
                         detail: overdue ? 'Overdue' : `${priority} - ${status}`,
                         color: overdue || /critical|high/i.test(priority) ? '#dc2626' : '#eab308',
                         rank: overdue ? 0 : (priorityRank[priority] ?? 2),
-                        view: 'services'
+                        view: 'services',
+                        record: ticket
                     };
                 });
             const assignments = readArray('teams')
@@ -56322,7 +56325,8 @@
                         detail: `${priority} - ${status}`,
                         color: /critical|high/i.test(priority) ? '#dc2626' : /in progress/i.test(status) ? '#eab308' : '#16a34a',
                         rank: priorityRank[priority] ?? 2,
-                        view: 'teams'
+                        view: 'teams',
+                        record: assignment
                     };
                 });
             return [...equipment, ...services, ...assignments]
@@ -56336,11 +56340,319 @@
             target.innerHTML = `<div class="rd-dashboard-panel" style="width:min(100%,360px);margin-left:auto;margin-top:0.65rem;padding:0.55rem 0.7rem;"><h3 style="margin:0 0 0.35rem;font-size:1rem;"><i class="fas fa-briefcase" style="color:#2563eb;margin-right:0.45rem;"></i>Operations Glance</h3><div style="display:flex;gap:0.35rem;margin-bottom:0.45rem;font-size:0.72rem;color:var(--text-secondary);"><span>${counts.Equipment || 0} equipment</span><span>${counts.Service || 0} services</span><span>${counts.Assignment || 0} assignments</span></div><div class="rd-dashboard-list">${entries.length ? entries.map((entry) => `<button type="button" class="rd-dashboard-row" data-entry-kind="${escapeDashboardHtml(entry.kind)}" data-entry-title="${escapeDashboardHtml(entry.title)}" data-entry-id="${escapeDashboardHtml(String(entry.id || ''))}" data-entry-view="${escapeDashboardHtml(entry.view || '')}" data-service-ticket-id="${escapeDashboardHtml(String(entry.serviceTicketId || ''))}" data-service-equipment-id="${escapeDashboardHtml(String(entry.serviceEquipmentId ?? entry.equipmentId ?? ''))}" data-equipment-id="${escapeDashboardHtml(String(entry.equipmentId ?? ''))}" onclick="event.preventDefault(); event.stopPropagation(); const row = this; const entryObj = { title: String(row.dataset.entryTitle || '').trim(), kind: String(row.dataset.entryKind || '').trim(), id: String(row.dataset.entryId || '').trim(), view: String(row.dataset.entryView || '').trim(), serviceTicketId: String(row.dataset.serviceTicketId || '').trim(), serviceEquipmentId: String(row.dataset.serviceEquipmentId || row.dataset.equipmentId || '').trim(), equipmentId: String(row.dataset.equipmentId || '').trim() }; openDashboardOperation(entryObj);" style="width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.35rem;align-items:center;min-height:0;padding:0.28rem 0;border:0;background:transparent;text-align:left;cursor:pointer;"><div class="rd-dashboard-task-title" style="min-width:0;gap:0.45rem;"><span class="rd-dashboard-dot" style="background:${entry.color};width:10px;height:10px;flex:0 0 10px;"></span><div style="min-width:0;"><strong style="display:block;font-size:0.84rem;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.title)}</strong><span style="display:block;font-size:0.72rem;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.kind)}</span></div></div><span class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.2rem 0.45rem;font-size:0.75rem;line-height:1.05;white-space:nowrap;">${escapeDashboardHtml(entry.detail)}</span></button>`).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-check-circle" style="color:#16a34a;"></i><span>No active operational items.</span></div>'}</div></div>`;
         }
 
+        function dashboardStoryReadArray(key) {
+            try {
+                if (typeof dashboardCalendarReadArray === 'function') return dashboardCalendarReadArray(key);
+            } catch (_) {}
+            try {
+                const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (_) {
+                return [];
+            }
+        }
+
+        function dashboardStorySafeArray(value) {
+            return Array.isArray(value) ? value : [];
+        }
+
+        function dashboardStoryTextFrom(record, keys, fallback = '') {
+            if (!record) return fallback;
+            for (const key of keys) {
+                const text = dashboardText(record?.[key]);
+                if (text) return text;
+            }
+            return fallback;
+        }
+
+        function dashboardStoryFindRecord(records, id, keys) {
+            const target = dashboardText(id).toLowerCase();
+            if (!target) return null;
+            return dashboardStorySafeArray(records).find(record => keys.some(key => dashboardText(record?.[key]).toLowerCase() === target)) || null;
+        }
+
+        function dashboardStoryDateKey(value) {
+            const raw = dashboardText(value);
+            if (!raw) return '';
+            if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+            const parsed = new Date(raw);
+            return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().slice(0, 10);
+        }
+
+        function dashboardStoryFindByTitleDate(records, title, dateValue, titleKeys, dateKeys) {
+            const targetTitle = dashboardText(title).toLowerCase();
+            const targetDate = dashboardStoryDateKey(dateValue);
+            if (!targetTitle) return null;
+            return dashboardStorySafeArray(records).find(record => {
+                const recordTitle = dashboardStoryTextFrom(record, titleKeys).toLowerCase();
+                if (recordTitle !== targetTitle) return false;
+                if (!targetDate) return true;
+                return dateKeys.some(key => dashboardStoryDateKey(record?.[key]) === targetDate);
+            }) || null;
+        }
+
+        function dashboardStoryDateTimeLabel(value) {
+            const raw = value instanceof Date ? value.toISOString() : dashboardText(value);
+            if (!raw) return '';
+            const parsed = new Date(raw);
+            if (Number.isNaN(parsed.getTime())) return raw;
+            const hasExplicitTime = value instanceof Date || !/^\d{4}-\d{2}-\d{2}$/.test(raw);
+            return hasExplicitTime
+                ? parsed.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+                : parsed.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        function dashboardStoryTimeOnly(value) {
+            const raw = value instanceof Date ? value.toISOString() : dashboardText(value);
+            if (!raw) return '';
+            const parsed = new Date(raw);
+            return Number.isNaN(parsed.getTime()) ? raw : parsed.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        }
+
+        function dashboardStoryFieldLabel(key) {
+            return dashboardText(key).replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[\W_]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+        }
+
+        function dashboardStoryDisplayValue(value) {
+            if (value === null || value === undefined || value === '') return '';
+            if (Array.isArray(value)) return value.length ? `${value.length} item${value.length === 1 ? '' : 's'}` : '';
+            if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+            if (typeof value === 'object') return '';
+            const text = String(value).trim();
+            if (!text || /^data:/i.test(text)) return '';
+            return text.length > 220 ? `${text.slice(0, 217)}...` : text;
+        }
+
+        function dashboardStoryRecordRows(record) {
+            if (!record || typeof record !== 'object') return '';
+            const skip = /password|token|secret|authorization|dataurl|documentdata|base64|filedata|photodata/i;
+            return Object.keys(record).sort().map(key => {
+                if (skip.test(key)) return '';
+                const value = dashboardStoryDisplayValue(record[key]);
+                if (!value) return '';
+                return `<div style="display:grid;grid-template-columns:88px minmax(0,1fr);gap:.35rem;padding:.22rem 0;border-bottom:1px solid color-mix(in srgb,var(--border-color,#d1d5db) 55%,transparent);"><span style="font-size:.66rem;color:var(--text-secondary,#64748b);">${escapeDashboardHtml(dashboardStoryFieldLabel(key))}</span><span style="font-size:.72rem;color:var(--text-primary,#111827);overflow-wrap:anywhere;">${escapeDashboardHtml(value)}</span></div>`;
+            }).filter(Boolean).join('');
+        }
+
+        function dashboardStoryCount(record, keys) {
+            if (!record) return 0;
+            for (const key of keys) {
+                const value = record[key];
+                if (Array.isArray(value)) return value.length;
+            }
+            return 0;
+        }
+
+        function dashboardStoryEquipmentRecords() {
+            return [
+                ...dashboardStorySafeArray(window.__equipmentApiSnapshot),
+                ...dashboardStorySafeArray(window.__officeEquipmentApiSnapshot),
+                ...dashboardStoryReadArray('equipment'),
+                ...dashboardStoryReadArray('officeEquipment')
+            ];
+        }
+
+        function dashboardStoryTeamRecords() {
+            try {
+                if (typeof loadTeams === 'function') return dashboardStorySafeArray(loadTeams());
+            } catch (_) {}
+            return dashboardStoryReadArray('teams');
+        }
+
+        function buildDashboardOperationStory(entry) {
+            const source = entry || {};
+            const kind = dashboardText(source.kind || source.Kind || 'Operation');
+            const serviceTickets = dashboardStoryReadArray('equipmentServiceTickets');
+            const equipmentRecords = dashboardStoryEquipmentRecords();
+            const teamRecords = dashboardStoryTeamRecords();
+            const tasks = dashboardStorySafeArray(window.tasksData).length ? dashboardStorySafeArray(window.tasksData) : dashboardStoryReadArray('tasksData');
+            const requests = dashboardStorySafeArray(window.__dashboardRequestsCache).length ? dashboardStorySafeArray(window.__dashboardRequestsCache) : dashboardStoryReadArray('requestsDatabase');
+            const calendarEvents = dashboardStoryReadArray('calendarEvents');
+            let id = dashboardText(source.id || source.Id || source.ticketId || source.TicketId || source.serviceTicketId || source.assignmentId || source.AssignmentId);
+            let record = source.record || source.raw || null;
+            let relatedTicket = source.relatedTicket || null;
+            let relatedEquipment = null;
+            let relatedAssignment = null;
+
+            if (/equipment/i.test(kind)) {
+                const equipmentId = dashboardText(source.serviceEquipmentId || source.equipmentId || id);
+                relatedEquipment = record || dashboardStoryFindRecord(equipmentRecords, equipmentId, ['apiId','equipmentID','EquipmentID','equipmentId','EquipmentId','Id','id']) || null;
+                relatedTicket = relatedTicket || dashboardStoryFindRecord(serviceTickets, source.serviceTicketId, ['id','Id','ticketId','TicketId']) || serviceTickets.find(ticket => dashboardText(ticket?.equipmentID || ticket?.EquipmentID || ticket?.equipmentId || ticket?.EquipmentId) === equipmentId && !isDashboardClosedStatus(ticket?.status || ticket?.Status)) || null;
+                record = relatedEquipment || relatedTicket || record;
+                id = equipmentId || id;
+            } else if (/service/i.test(kind)) {
+                record = record || dashboardStoryFindRecord(serviceTickets, id, ['id','Id','ticketId','TicketId']) || dashboardStoryFindByTitleDate(serviceTickets, source.title, source.start || source.date, ['title','Title','type','Type'], ['scheduledDate','ScheduleDate','dueDate','DueDate','date','Date']) || null;
+                relatedTicket = record || relatedTicket;
+                const equipmentId = dashboardText(source.equipmentId || source.serviceEquipmentId || record?.equipmentID || record?.EquipmentID || record?.equipmentId || record?.EquipmentId);
+                relatedEquipment = dashboardStoryFindRecord(equipmentRecords, equipmentId, ['apiId','equipmentID','EquipmentID','equipmentId','EquipmentId','Id','id']) || null;
+                id = dashboardText(record?.id || record?.Id || record?.ticketId || record?.TicketId || id);
+            } else if (/assignment/i.test(kind)) {
+                record = record || dashboardStoryFindRecord(teamRecords, id, ['id','Id','assignmentId','AssignmentId']) || dashboardStoryFindByTitleDate(teamRecords, source.title, source.start || source.date, ['teamName','name','Name','title','Title'], ['date','Date','createdDate','CreatedDate']) || null;
+                relatedAssignment = record;
+                id = dashboardText(record?.id || record?.Id || id);
+            } else if (/calendar/i.test(kind)) {
+                record = record || dashboardStoryFindRecord(calendarEvents, id, ['id','Id']) || dashboardStoryFindByTitleDate(calendarEvents, source.title, source.start || source.date, ['title','name','eventName'], ['start','startDate','date','eventDate']) || null;
+                id = dashboardText(record?.id || record?.Id || id);
+            } else if (/task/i.test(kind)) {
+                record = record || dashboardStoryFindRecord(tasks, id, ['id','Id','apiId','taskId','TaskId']) || dashboardStoryFindByTitleDate(tasks, source.title, source.start || source.date, ['title','Title','name','Name'], ['dueDate','DueDate','deadline','date','Date']) || null;
+                id = dashboardText(record?.id || record?.Id || record?.apiId || id);
+            } else if (/request/i.test(kind)) {
+                record = record || dashboardStoryFindRecord(requests, id, ['id','Id','requestId','RequestId']) || dashboardStoryFindByTitleDate(requests, source.title, source.start || source.date, ['title','Title','name','Name'], ['dueDate','DueDate','deadline','requestedDate','RequestedDate']) || null;
+                id = dashboardText(record?.id || record?.Id || id);
+            }
+
+            const primary = record || relatedTicket || relatedEquipment || relatedAssignment || source;
+            const title = dashboardText(source.title || dashboardStoryTextFrom(primary, ['title','Title','name','Name','eventName','type','Type','teamName','equipmentName','EquipmentName']), 'Untitled operation');
+            const status = dashboardText(source.detail || dashboardStoryTextFrom(primary, ['status','Status','workStatus','condition','Condition']), 'Open');
+            const priority = dashboardStoryTextFrom(primary, ['priority','Priority'], '');
+            const type = dashboardStoryTextFrom(primary, ['type','Type','eventType','eventCategory','category','Category'], kind);
+            const owner = dashboardText(dashboardStoryTextFrom(primary, ['assignedTo','AssignedTo','assignee','Assignee','claimedBy','ClaimedBy','organizerName','OrganizerName','createdByName','CreatedByName','createdBy','CreatedBy']) || source.createdByName || source.assigneeRaw, 'Unassigned');
+            const location = dashboardStoryTextFrom(primary, ['location','Location','room','Room','clinicName','ClinicName','officeName','OfficeName'], '');
+            const description = dashboardStoryTextFrom(primary, ['description','Description','notes','Notes','details','Details','summary','Summary'], '');
+            const startRaw = source.start || dashboardStoryTextFrom(primary, ['start','Start','startDate','StartDate','scheduledDate','ScheduleDate','dueDate','DueDate','date','Date','eventDate','EventDate']);
+            const endRaw = source.end || dashboardStoryTextFrom(primary, ['end','End','endDate','EndDate','rangeEndDate','RangeEndDate']);
+            const dueRaw = dashboardStoryTextFrom(primary, ['dueDate','DueDate','deadline','scheduledDate','ScheduleDate','nextServiceDate','NextServiceDate'], '');
+            const frequency = dashboardStoryTextFrom(primary, ['frequency','Frequency','cadence','Cadence','repeat','Repeat'], '');
+            const parentLabel = relatedEquipment
+                ? `Equipment: ${dashboardStoryTextFrom(relatedEquipment, ['equipmentName','EquipmentName','name','Name'], 'Equipment')}`
+                : relatedAssignment
+                    ? `Assignment: ${dashboardStoryTextFrom(relatedAssignment, ['teamName','name','Name','title','Title'], 'Assignment')}`
+                    : source.view ? `Workspace: ${source.view}` : '';
+            const when = startRaw ? (endRaw ? `${dashboardStoryDateTimeLabel(startRaw)} to ${dashboardStoryTimeOnly(endRaw)}` : dashboardStoryDateTimeLabel(startRaw)) : (dueRaw ? dashboardStoryDateTimeLabel(dueRaw) : 'Not scheduled');
+            const statusLine = [status, priority].filter(Boolean).join(' / ') || 'Open';
+            const records = [];
+            const seen = new Set();
+            const addRecord = (label, value) => {
+                if (!value || typeof value !== 'object') return;
+                const key = value === primary ? 'primary' : JSON.stringify(Object.keys(value).slice(0, 8).map(name => [name, value[name]]));
+                if (seen.has(key)) return;
+                seen.add(key);
+                records.push({ label, value });
+            };
+            addRecord(`${kind} record`, primary);
+            addRecord('Related service ticket', relatedTicket);
+            addRecord('Related equipment', relatedEquipment);
+            addRecord('Related assignment', relatedAssignment);
+
+            return {
+                sourceEntry: { ...source, kind, id, equipmentId: source.equipmentId || dashboardStoryTextFrom(primary, ['equipmentID','EquipmentID','equipmentId','EquipmentId']), serviceTicketId: source.serviceTicketId || dashboardStoryTextFrom(relatedTicket, ['id','Id','ticketId','TicketId']) },
+                kind,
+                id,
+                title,
+                type,
+                tone: source.tone || source.color || (/overdue|high|critical|out.of.service|broken/i.test(statusLine) ? '#dc2626' : /pending|medium|progress/i.test(statusLine) ? '#eab308' : '#2563eb'),
+                statusLine,
+                owner,
+                location,
+                description,
+                when,
+                due: dueRaw ? dashboardStoryDateTimeLabel(dueRaw) : '',
+                frequency,
+                parentLabel,
+                records,
+                counts: {
+                    files: dashboardStoryCount(primary, ['files','Files','attachments','Attachments','documents','Documents']) + dashboardStoryCount(relatedTicket, ['files','Files','attachments','Attachments','documents','Documents']),
+                    links: dashboardStoryCount(primary, ['links','Links']) + dashboardStoryCount(relatedTicket, ['links','Links']),
+                    photos: dashboardStoryCount(primary, ['photos','Photos','images','Images']) + dashboardStoryCount(relatedTicket, ['photos','Photos','images','Images']),
+                    journal: dashboardStoryCount(primary, ['journal','Journal','notesLog','NotesLog']) + dashboardStoryCount(relatedTicket, ['journal','Journal','notesLog','NotesLog'])
+                }
+            };
+        }
+
+        function buildDashboardStoryHtml(story) {
+            const clinic = (() => { try { return getDashboardLandingClinic().name; } catch (_) { return 'Practice'; } })();
+            const levels = [
+                { label: 'Clinic', value: clinic, icon: 'fa-hospital' },
+                { label: 'Operations', value: story.kind, icon: 'fa-layer-group' },
+                story.parentLabel ? { label: 'Parent', value: story.parentLabel, icon: 'fa-project-diagram' } : null,
+                { label: 'Event', value: story.title, icon: 'fa-calendar-check' },
+                { label: 'State', value: story.statusLine, icon: 'fa-info-circle' }
+            ].filter(Boolean);
+            const pyramid = levels.map((level, index) => {
+                const width = Math.min(100, 64 + index * 9);
+                return `<div style="width:${width}%;margin:0 auto .32rem;padding:.42rem .52rem;border:1px solid color-mix(in srgb,${story.tone} 42%,var(--border-color,#d1d5db));border-radius:7px;background:linear-gradient(180deg,color-mix(in srgb,${story.tone} 14%,var(--card-bg,#fff)),var(--card-bg,#fff));box-shadow:0 4px 10px rgba(15,23,42,.06);"><div style="display:flex;align-items:center;gap:.38rem;min-width:0;"><i class="fas ${level.icon}" style="color:${story.tone};font-size:.72rem;flex:0 0 auto;"></i><div style="min-width:0;"><div style="font-size:.6rem;text-transform:uppercase;font-weight:800;color:var(--text-secondary,#64748b);letter-spacing:.02em;">${escapeDashboardHtml(level.label)}</div><div style="font-size:.76rem;font-weight:750;color:var(--text-primary,#111827);overflow-wrap:anywhere;">${escapeDashboardHtml(level.value)}</div></div></div></div>`;
+            }).join('');
+            const fact = (label, value, icon) => value ? `<div style="display:flex;gap:.45rem;padding:.34rem 0;border-bottom:1px solid color-mix(in srgb,var(--border-color,#d1d5db) 60%,transparent);"><i class="fas ${icon}" style="width:14px;color:${story.tone};font-size:.7rem;margin-top:.1rem;"></i><div style="min-width:0;"><div style="font-size:.62rem;text-transform:uppercase;font-weight:800;color:var(--text-secondary,#64748b);">${escapeDashboardHtml(label)}</div><div style="font-size:.75rem;color:var(--text-primary,#111827);overflow-wrap:anywhere;">${escapeDashboardHtml(value)}</div></div></div>` : '';
+            const counts = [
+                story.counts.files ? `${story.counts.files} file${story.counts.files === 1 ? '' : 's'}` : '',
+                story.counts.links ? `${story.counts.links} link${story.counts.links === 1 ? '' : 's'}` : '',
+                story.counts.photos ? `${story.counts.photos} photo${story.counts.photos === 1 ? '' : 's'}` : '',
+                story.counts.journal ? `${story.counts.journal} journal note${story.counts.journal === 1 ? '' : 's'}` : ''
+            ].filter(Boolean).join(' / ');
+            const detailSections = story.records.map((section, index) => {
+                const rows = dashboardStoryRecordRows(section.value) || '<div style="padding:.45rem 0;color:var(--text-secondary,#64748b);font-size:.72rem;">No saved fields found for this record.</div>';
+                return `<details ${index === 0 ? 'open' : ''} style="border:1px solid var(--border-color,#d1d5db);border-radius:7px;padding:.45rem .55rem;background:var(--card-bg,#fff);"><summary style="cursor:pointer;font-size:.72rem;font-weight:800;color:var(--text-primary,#111827);">${escapeDashboardHtml(section.label)}</summary><div style="margin-top:.35rem;">${rows}</div></details>`;
+            }).join('');
+            return `<div style="border:1px solid var(--border-color,#d1d5db);border-radius:8px;background:var(--card-bg,#fff);box-shadow:0 10px 24px rgba(15,23,42,.12);padding:.75rem;margin:.55rem;max-height:calc(100vh - 8rem);overflow:auto;scrollbar-gutter:stable;"><div style="display:flex;align-items:flex-start;gap:.55rem;margin-bottom:.6rem;"><div style="width:32px;height:32px;border-radius:8px;background:color-mix(in srgb,${story.tone} 16%,var(--card-bg,#fff));color:${story.tone};display:flex;align-items:center;justify-content:center;flex:0 0 auto;"><i class="fas fa-route"></i></div><div style="min-width:0;flex:1;"><div style="font-size:.65rem;text-transform:uppercase;font-weight:850;color:var(--text-secondary,#64748b);letter-spacing:.03em;">Event Story</div><div style="font-size:.95rem;font-weight:850;color:var(--text-primary,#111827);line-height:1.16;overflow-wrap:anywhere;">${escapeDashboardHtml(story.title)}</div><div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin-top:.12rem;">${escapeDashboardHtml(story.type || story.kind)}</div></div><button type="button" onclick="window.closeDashboardStoryRail()" title="Close story" aria-label="Close story" style="border:0;background:transparent;color:var(--text-secondary,#64748b);font-size:1.05rem;line-height:1;cursor:pointer;padding:.1rem .2rem;">&times;</button></div><div style="margin:.15rem 0 .65rem;">${pyramid}</div><div style="border-top:1px solid var(--border-color,#d1d5db);border-bottom:1px solid var(--border-color,#d1d5db);padding:.2rem 0;margin-bottom:.65rem;">${fact('When', story.when, 'fa-clock')}${fact('Due', story.due, 'fa-hourglass-half')}${fact('Owner', story.owner, 'fa-user')}${fact('Location', story.location, 'fa-map-marker-alt')}${fact('Frequency', story.frequency, 'fa-sync-alt')}${fact('Attachments', counts, 'fa-paperclip')}</div>${story.description ? `<div style="padding:.55rem .65rem;border-radius:7px;background:var(--bg-secondary,#f8fafc);border:1px solid var(--border-color,#d1d5db);margin-bottom:.65rem;"><div style="font-size:.62rem;text-transform:uppercase;font-weight:850;color:var(--text-secondary,#64748b);margin-bottom:.25rem;">Story Notes</div><div style="font-size:.75rem;line-height:1.35;color:var(--text-primary,#111827);overflow-wrap:anywhere;">${escapeDashboardHtml(story.description)}</div></div>` : ''}<div style="display:grid;gap:.45rem;margin-bottom:.65rem;">${detailSections}</div><button type="button" onclick="window.openDashboardStorySource()" style="width:100%;border:1px solid ${story.tone};border-radius:7px;background:${story.tone};color:white;font-size:.75rem;font-weight:800;padding:.48rem .6rem;cursor:pointer;"><i class="fas fa-external-link-alt" style="margin-right:.35rem;"></i>Open Full Record</button></div>`;
+        }
+
+        function activateDashboardStoryRailPanel(panel) {
+            const rail = document.getElementById('unifiedRightRail');
+            if (rail && rail.classList.contains('collapsed') && typeof window.toggleUnifiedRightRail === 'function') {
+                try { window.toggleUnifiedRightRail(); } catch (_) {}
+            }
+            const tab = document.getElementById('urrTabPanel');
+            if (tab && !tab.classList.contains('active')) {
+                try { tab.click(); } catch (_) {}
+            }
+            const menuPanel = document.getElementById('urrMenuPanel');
+            const managerPanel = document.getElementById('urrManagerPanel');
+            const menuTab = document.getElementById('urrTabMenu');
+            const managerTab = document.getElementById('urrTabManager');
+            if (panel) panel.classList.add('active');
+            if (menuPanel) menuPanel.classList.remove('active');
+            if (managerPanel) managerPanel.classList.remove('active');
+            if (tab) tab.classList.add('active');
+            if (menuTab) menuTab.classList.remove('active');
+            if (managerTab) managerTab.classList.remove('active');
+            try { localStorage.setItem('rd:rightRailTab', 'panel'); } catch (_) {}
+        }
+
+        function openDashboardOperationStory(entry) {
+            const story = buildDashboardOperationStory(entry);
+            let panel = document.getElementById('urrPanelPanel');
+            if (!panel && typeof window.installUnifiedRightRail === 'function') {
+                try { window.installUnifiedRightRail(); } catch (_) {}
+                panel = document.getElementById('urrPanelPanel');
+            }
+            if (!panel) {
+                if (typeof showNotification === 'function') showNotification('Right rail is not available for this event story yet.', 'warning');
+                return;
+            }
+            activateDashboardStoryRailPanel(panel);
+            let card = document.getElementById('dashboardEventStoryRail');
+            if (!card) {
+                card = document.createElement('div');
+                card.id = 'dashboardEventStoryRail';
+                panel.prepend(card);
+            } else if (card.parentNode !== panel) {
+                panel.prepend(card);
+            }
+            window.__dashboardEventStoryEntry = story.sourceEntry;
+            card.innerHTML = buildDashboardStoryHtml(story);
+            try { card.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (_) {}
+        }
+
+        window.closeDashboardStoryRail = function () {
+            const card = document.getElementById('dashboardEventStoryRail');
+            if (card) card.remove();
+        };
+
+        window.openDashboardStorySource = function () {
+            if (window.__dashboardEventStoryEntry) openDashboardOperationSource(window.__dashboardEventStoryEntry);
+        };
+
         function openDashboardOperation(entry) {
             if (!entry) return;
+            openDashboardOperationStory(entry);
+        }
+
+        function openDashboardOperationSource(entry) {
+            if (!entry) return;
             const id = String(entry.id || '').trim();
+            if (entry.kind === 'Calendar' && id && typeof window.editDashboardEvent === 'function') return window.editDashboardEvent(id);
             if (entry.kind === 'Equipment') {
-                const serviceTickets = Array.isArray(loadEquipmentServiceTickets()) ? loadEquipmentServiceTickets() : [];
+                const serviceTickets = typeof loadEquipmentServiceTickets === 'function' && Array.isArray(loadEquipmentServiceTickets()) ? loadEquipmentServiceTickets() : [];
                 const equipmentId = Number(entry.serviceEquipmentId || entry.equipmentId || id) || 0;
                 const resolvedTicket = (entry.serviceTicketId && serviceTickets.find((ticket) => String(ticket?.id || ticket?.Id || ticket?.ticketId || ticket?.TicketId || '').trim() === String(entry.serviceTicketId).trim()))
                     || (equipmentId && serviceTickets.find((ticket) => Number(ticket?.equipmentID || ticket?.EquipmentID || ticket?.equipmentId || ticket?.EquipmentId || 0) === equipmentId && !/^(completed|complete|closed|cancelled|canceled|denied|dismissed)$/i.test(String(ticket?.status || ticket?.Status || ''))))
@@ -56354,6 +56666,9 @@
             if (entry.kind === 'Assignment' && id && typeof viewTeam === 'function') return viewTeam(id);
             if (typeof window.switchContentView === 'function') window.switchContentView(entry.view, null);
         }
+
+        window.openDashboardOperationStory = openDashboardOperationStory;
+        window.openDashboardOperationSource = openDashboardOperationSource;
 
         document.addEventListener('click', event => {
             const row = event.target.closest('#dashboardOperationsPanel .rd-dashboard-row');
@@ -56463,7 +56778,7 @@
                 const isMine = kind === 'Calendar'
                     ? (mappedScope ? mappedScope === 'mine' : (calendarOrganizerId ? ownershipKeys.has(calendarOrganizerId) : false))
                     : dashboardEntryIsMine(item || {}, ownershipKeys);
-                entries.push({ id: item?.id || item?.Id || '', title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || '').trim(), createdByName: String(item?.createdByName || item?.organizerName || item?.OrganizerName || item?.createdBy || item?.CreatedBy || '').trim(), assigneeRaw, isMine, hasTime, start: parsed, end: new Date(parsed.getTime() + 45 * 60000), view, kind, tone });
+                entries.push({ id: item?.id || item?.Id || '', title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || '').trim(), createdByName: String(item?.createdByName || item?.organizerName || item?.OrganizerName || item?.createdBy || item?.CreatedBy || '').trim(), assigneeRaw, isMine, hasTime, start: parsed, end: new Date(parsed.getTime() + 45 * 60000), view, kind, tone, record: item });
             };
             const tasks = (Array.isArray(window.tasksData) && window.tasksData.length ? window.tasksData : readArray('tasksData')).filter((item) => !isSyntheticDashboardTestEntry(String(item?.title || item?.Title || item?.name || item?.Name || '')));
             tasks.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.date, 'task-hub', 'Task', '#2563eb'));
@@ -56694,14 +57009,56 @@
                 }
             }
         };
+
+        function getDashboardVisibleCalendarEntries() {
+            const allEntries = getDashboardCalendarEntries();
+            return (dashboardCalendarScope === 'mine' ? allEntries.filter(entry => entry.isMine) : allEntries.filter(entry => !entry.isMine)).slice(0, 12);
+        }
+
+        function getDashboardCalendarEntryFromCard(card) {
+            if (!card) return null;
+            const eventId = dashboardText(card.getAttribute('data-dashboard-event-id'));
+            const title = dashboardText(card.querySelector('strong')?.textContent);
+            const meta = Array.from(card.querySelectorAll('span')).map(span => dashboardText(span.textContent)).find(text => text.includes('·')) || '';
+            const kind = dashboardText(meta.split('·')[0]);
+            const entries = getDashboardVisibleCalendarEntries();
+            const byId = eventId ? entries.find(entry => String(entry.id || '') === eventId) : null;
+            if (byId) return byId;
+            const withTime = entries.find(entry => {
+                if (title && entry.title !== title) return false;
+                if (kind && entry.kind !== kind) return false;
+                const timeText = entry.start ? entry.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+                return !timeText || !meta || meta.includes(timeText);
+            });
+            if (withTime) return withTime;
+            return entries.find(entry => title && entry.title === title && (!kind || entry.kind === kind)) || (eventId ? { id: eventId, kind: 'Calendar', title, view: 'calendar' } : null);
+        }
+
+        function handleDashboardCalendarStoryIntent(event, card) {
+            const entry = getDashboardCalendarEntryFromCard(card);
+            if (!entry) return false;
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+            }
+            if (entry.kind === 'Calendar' && entry.id) window.selectDashboardEvent(entry.id);
+            openDashboardOperation(entry);
+            return true;
+        }
+
         document.addEventListener('click', event => {
             if (event.target.closest('[id^="dashboard-event-actions-"]')) return;
             const card = event.target.closest('[data-dashboard-event-id]');
-            const eventId = card?.getAttribute('data-dashboard-event-id');
-            if (!eventId) return;
-            event.preventDefault();
-            event.stopPropagation();
-            window.selectDashboardEvent(eventId);
+            if (!card) return;
+            handleDashboardCalendarStoryIntent(event, card);
+        }, true);
+
+        document.addEventListener('keydown', event => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            const card = event.target?.closest?.('[data-dashboard-event-id]');
+            if (!card) return;
+            handleDashboardCalendarStoryIntent(event, card);
         }, true);
 
         function getDashboardCurrentCreator() {
