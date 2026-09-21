@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260920-service-ticket-photo-edit-v142';
+                const buildVersion = '20260921-glance-calendar-refinements-v143';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -40762,19 +40762,40 @@
             if (cur && !vendors.some((n) => n.toLowerCase() === cur.toLowerCase())) vendors.unshift(cur);
             return '<option value="">(none)</option>' + vendors.map((n) => `<option value="${esc(n)}"${n === cur ? ' selected' : ''}>${esc(n)}</option>`).join('');
         }
+        function svcPositionColor(value) {
+            const palette = ['#2563eb', '#0f766e', '#b45309', '#7c3aed', '#be123c', '#0369a1', '#4d7c0f'];
+            const text = String(value || '').trim();
+            let hash = 0;
+            for (let index = 0; index < text.length; index++) hash = ((hash << 5) - hash) + text.charCodeAt(index);
+            return palette[Math.abs(hash) % palette.length] || '#2563eb';
+        }
+        function svcEmployeeDisplayEntries(current) {
+            const cur = String(current || '').trim();
+            const usersData = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
+            const entries = Object.entries(usersData)
+                .map(([username, u]) => {
+                    const name = String(u?.name || u?.fullName || [u?.firstName, u?.lastName].filter(Boolean).join(' ') || username || '').trim() || username;
+                    const title = String(u?.jobTitle || u?.JobTitle || u?.title || u?.Title || u?.position || u?.Position || u?.role || u?.Role || '').trim();
+                    const color = String(u?.color || u?.Color || '').trim() || svcPositionColor(title || name);
+                    return { name, title, color, label: title ? `${name} - ${title}` : name };
+                })
+                .filter((entry) => entry.name)
+                .sort((a, b) => a.name.localeCompare(b.name));
+            if (cur && !entries.some((entry) => entry.name.toLowerCase() === cur.toLowerCase())) entries.unshift({ name: cur, title: '', color: '#64748b', label: cur });
+            return entries;
+        }
+        function svcAssignedDisplayHtml(value) {
+            const esc = (typeof escapeHtml === 'function') ? escapeHtml : (v) => String(v ?? '');
+            const raw = String(value || '').trim();
+            if (!raw) return '-';
+            const entry = svcEmployeeDisplayEntries(raw).find((candidate) => candidate.name.toLowerCase() === raw.toLowerCase()) || { name: raw, title: '', color: '#64748b', label: raw };
+            const label = entry.title ? `${entry.name} - ${entry.title}` : entry.name;
+            return `<span title="${esc(label)}" style="display:flex;align-items:center;gap:0.3rem;min-width:0;overflow:hidden;"><span style="width:7px;height:7px;border-radius:50%;background:${esc(entry.color)};flex:0 0 7px;"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(label)}</span></span>`;
+        }
         function svcDetailEmployeeOptionsHtml(current) {
             const esc = (typeof escapeHtml === 'function') ? escapeHtml : (v) => String(v ?? '');
             const cur = String(current || '').trim();
-            const usersData = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
-            const names = Object.entries(usersData)
-                .map(([username, u]) => {
-                    const n = String(u?.name || u?.fullName || [u?.firstName, u?.lastName].filter(Boolean).join(' ') || username || '').trim();
-                    return n || username;
-                })
-                .filter(Boolean)
-                .sort((a, b) => a.localeCompare(b));
-            if (cur && !names.some((n) => n.toLowerCase() === cur.toLowerCase())) names.unshift(cur);
-            return '<option value="">(unassigned)</option>' + names.map((n) => `<option value="${esc(n)}"${n === cur ? ' selected' : ''}>${esc(n)}</option>`).join('');
+            return '<option value="">(unassigned)</option>' + svcEmployeeDisplayEntries(cur).map((entry) => `<option value="${esc(entry.name)}" data-title="${esc(entry.title)}" data-position-color="${esc(entry.color)}" style="color:${esc(entry.color)};"${entry.name.toLowerCase() === cur.toLowerCase() ? ' selected' : ''}>${esc(entry.label)}</option>`).join('');
         }
 
         async function submitEquipmentServiceDetailsInline(ticketId, equipmentID) {
@@ -40888,9 +40909,9 @@
             container.innerHTML = list.map((a) => {
                 const sizeLabel = (typeof formatEquipmentServiceAttachmentSize === 'function') ? formatEquipmentServiceAttachmentSize(a.sizeBytes) : '';
                 return `<div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.45rem 0.55rem;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-primary);">
-                    <div style="min-width:0;">
-                        <div style="font-size:0.8rem;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.name)}</div>
-                        <div style="font-size:0.72rem;color:var(--text-secondary);">${esc(sizeLabel || a.type || 'File')}</div>
+                    <div style="min-width:0;overflow:hidden;">
+                        <div style="font-size:0.8rem;font-weight:600;color:var(--text-primary);overflow-wrap:anywhere;white-space:normal;line-height:1.2;">${esc(a.name)}</div>
+                        <div style="font-size:0.72rem;color:var(--text-secondary);overflow-wrap:anywhere;">${esc([a.type || 'File', sizeLabel].filter(Boolean).join(' - '))}</div>
                     </div>
                     <div style="display:flex;gap:0.35rem;flex-wrap:wrap;justify-content:flex-end;">
                         <button type="button" onclick="downloadSvcDetailAttachment('${esc(a.id)}')" style="padding:0.25rem 0.5rem;border:1px solid var(--border-color);background:var(--bg-secondary);color:var(--text-primary);border-radius:5px;cursor:pointer;font-size:0.72rem;">View</button>
@@ -41409,7 +41430,7 @@
                         <td><span class="svc-status-badge" style="background:${statusBg};color:${statusColor};">${esc(t.status || '-')}</span></td>
                         <td><span class="svc-priority-badge" style="background:${pbg};color:${ptx};">${esc(t.priority || 'Medium')}</span></td>
                         <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.vendor || '-')}</td>
-                        <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.assignedEmployee || '-')}</td>
+                        <td style="max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${svcAssignedDisplayHtml(t.assignedEmployee || '')}</td>
                         <td style="white-space:nowrap;">$${Number(t.cost || 0).toFixed(2)}</td>
                         <td>${filesHtml}</td>
                     </tr>`;
@@ -42326,25 +42347,10 @@
             const select = document.getElementById('equipmentServiceEmployee');
             if (!select) return;
 
+            const esc = (typeof escapeHtml === 'function') ? escapeHtml : (v) => String(v ?? '');
             const desired = String(preferredEmployee || '').trim();
-            const usersData = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
-            const userEntries = Object.entries(usersData)
-                .map(([username, u]) => {
-                    const name = String(u?.name || u?.fullName || [u?.firstName, u?.lastName].filter(Boolean).join(' ') || username || '').trim();
-                    return { username, name: name || username };
-                })
-                .filter((e) => e.name)
-                .sort((a, b) => a.name.localeCompare(b.name));
-
-            const options = ['<option value="">Select Employee</option>'];
-            userEntries.forEach((e) => {
-                options.push(`<option value="${e.name}">${e.name}</option>`);
-            });
-
-            select.innerHTML = options.join('');
-            if (desired && Array.from(select.options).some((o) => o.value === desired)) {
-                select.value = desired;
-            }
+            select.innerHTML = '<option value="">Select Employee</option>' + svcEmployeeDisplayEntries(desired).map((entry) => `<option value="${esc(entry.name)}" data-title="${esc(entry.title)}" data-position-color="${esc(entry.color)}" style="color:${esc(entry.color)};"${entry.name.toLowerCase() === desired.toLowerCase() ? ' selected' : ''}>${esc(entry.label)}</option>`).join('');
+            if (desired && Array.from(select.options).some((option) => option.value.toLowerCase() === desired.toLowerCase())) select.value = Array.from(select.options).find((option) => option.value.toLowerCase() === desired.toLowerCase()).value;
 
             const checkbox = document.getElementById('equipmentServiceEmployeeEnabled');
             if (checkbox) {
@@ -54100,7 +54106,7 @@
                         <td><span class="svc-status-badge" style="background:${statusBg};color:${statusColor};">${esc(t.status || '-')}</span></td>
                         <td><span class="svc-priority-badge" style="background:${pbg};color:${ptx};">${esc(t.priority || 'Medium')}</span></td>
                         <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.vendor || '-')}</td>
-                        <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.assignedEmployee || '-')}</td>
+                        <td style="max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${svcAssignedDisplayHtml(t.assignedEmployee || '')}</td>
                         <td style="white-space:nowrap;">$${Number(t.cost || 0).toFixed(2)}</td>
                     </tr>`;
                 });
@@ -54455,15 +54461,10 @@
         function populateInstrumentServiceEmployeeDropdownInForm(preferred) {
             const select = document.getElementById('instrumentServiceEmployee');
             if (!select) return;
+            const esc = (typeof escapeHtml === 'function') ? escapeHtml : (value) => String(value ?? '');
             const desired = String(preferred || '').trim();
-            const usersData = typeof loadUsers === 'function' ? (loadUsers() || {}) : {};
-            const userEntries = Object.entries(usersData)
-                .map(([username, u]) => { const name = String(u?.name || u?.fullName || [u?.firstName, u?.lastName].filter(Boolean).join(' ') || username || '').trim(); return { name: name || username }; })
-                .filter(e => e.name).sort((a, b) => a.name.localeCompare(b.name));
-            const options = ['<option value="">Select Employee</option>'];
-            userEntries.forEach(e => options.push(`<option value="${e.name}">${e.name}</option>`));
-            select.innerHTML = options.join('');
-            if (desired && Array.from(select.options).some(o => o.value === desired)) select.value = desired;
+            select.innerHTML = '<option value="">Select Employee</option>' + svcEmployeeDisplayEntries(desired).map((entry) => `<option value="${esc(entry.name)}" data-title="${esc(entry.title)}" data-position-color="${esc(entry.color)}" style="color:${esc(entry.color)};"${entry.name.toLowerCase() === desired.toLowerCase() ? ' selected' : ''}>${esc(entry.label)}</option>`).join('');
+            if (desired && Array.from(select.options).some((option) => option.value.toLowerCase() === desired.toLowerCase())) select.value = Array.from(select.options).find((option) => option.value.toLowerCase() === desired.toLowerCase()).value;
         }
 
         // ============ INVENTORY LIST VIEWS ============
@@ -56477,19 +56478,166 @@
             };
         }
 
-        function enrichDashboardOperationSchedule(entry) {
-            return { ...entry, ...getDashboardOperationScheduleState(entry) };
+        function dashboardOperationsReadArray(key) {
+            try {
+                const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (_) {
+                return [];
+            }
         }
 
-        function getDashboardOperationsEntries() {
-            const readArray = (key) => {
-                try {
-                    const parsed = JSON.parse(localStorage.getItem(key) || '[]');
-                    return Array.isArray(parsed) ? parsed : [];
-                } catch (_) {
-                    return [];
-                }
+        function dashboardGlanceActiveDateIso() {
+            try {
+                if (typeof dashboardCalendarDate !== 'undefined' && dashboardCalendarDate instanceof Date) return dashboardLocalDateIso(dashboardCalendarDate);
+            } catch (_) {}
+            return dashboardLocalDateIso(new Date());
+        }
+
+        function dashboardHashColor(value) {
+            const palette = ['#2563eb', '#0f766e', '#b45309', '#7c3aed', '#be123c', '#0369a1', '#4d7c0f'];
+            const text = dashboardText(value);
+            let hash = 0;
+            for (let index = 0; index < text.length; index++) hash = ((hash << 5) - hash) + text.charCodeAt(index);
+            return palette[Math.abs(hash) % palette.length] || '#2563eb';
+        }
+
+        function dashboardRecordPhoto(record) {
+            if (!record) return '';
+            const direct = dashboardScheduleText(record, ['photoData','PhotoData','profileImage','ProfileImage','imageData','ImageData','imageUrl','ImageUrl','photo','Photo','thumbPhoto','thumbnail','Thumbnail','picture','Picture','dataUrl','url']);
+            if (direct) return direct;
+            const photos = Array.isArray(record.photos) ? record.photos : (Array.isArray(record.Photos) ? record.Photos : []);
+            const first = photos.find(Boolean);
+            return dashboardScheduleText(first, ['dataUrl','url','src','data','photoData','imageData']);
+        }
+
+        function dashboardInitials(value) {
+            const words = dashboardText(value, 'Item').split(/\s+/).filter(Boolean);
+            return words.slice(0, 2).map(word => word.charAt(0).toUpperCase()).join('') || 'IT';
+        }
+
+        function dashboardRecordTitle(record, keys, fallback = '') {
+            return dashboardScheduleText(record, keys, fallback);
+        }
+
+        function dashboardEquipmentRecords() {
+            return [...dashboardOperationsReadArray('equipment'), ...dashboardOperationsReadArray('officeEquipment')]
+                .filter((item) => item && item.isActive !== false && item.IsActive !== false);
+        }
+
+        function dashboardRecordIdText(record, keys) {
+            for (const key of keys) {
+                const value = dashboardText(record?.[key]);
+                if (value) return value;
+            }
+            return '';
+        }
+
+        function dashboardFindEquipmentRecord(equipmentId, records = null) {
+            const target = dashboardText(equipmentId);
+            if (!target) return null;
+            const source = Array.isArray(records) ? records : dashboardEquipmentRecords();
+            return source.find((item) => ['apiId','equipmentID','EquipmentID','equipmentId','EquipmentId','Id','id'].some((key) => dashboardText(item?.[key]) === target)) || null;
+        }
+
+        function dashboardUserProfiles() {
+            const users = (() => {
+                try { return (typeof loadUsers === 'function') ? (loadUsers() || {}) : JSON.parse(localStorage.getItem('appUsers') || '{}'); } catch (_) { return {}; }
+            })();
+            return Object.entries(users && typeof users === 'object' ? users : {}).map(([username, user]) => {
+                const name = dashboardText(user?.name || user?.fullName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.displayName || username);
+                const title = dashboardText(user?.jobTitle || user?.JobTitle || user?.title || user?.Title || user?.position || user?.Position || user?.role || user?.Role, 'Team member');
+                const color = dashboardText(user?.color || user?.Color) || dashboardHashColor(title || name || username);
+                const photo = dashboardRecordPhoto(user);
+                const keys = [username, user?.username, user?.Username, user?.userName, user?.name, user?.fullName, user?.displayName, [user?.firstName, user?.lastName].filter(Boolean).join(' '), user?.workEmail, user?.email]
+                    .map(value => dashboardText(value).toLowerCase()).filter(Boolean);
+                return { username, user, name, title, color, photo, keys };
+            });
+        }
+
+        function dashboardResolveUserProfile(value) {
+            const target = dashboardText(value).toLowerCase();
+            if (!target) return null;
+            const compactTarget = target.replace(/\s+/g, ' ');
+            return dashboardUserProfiles().find((profile) => profile.keys.some((key) => key === compactTarget || key.includes(compactTarget) || compactTarget.includes(key))) || null;
+        }
+
+        function dashboardAssignedMeta(record, keys) {
+            const raw = dashboardScheduleText(record, keys);
+            const profile = dashboardResolveUserProfile(raw);
+            if (profile) return { raw, name: profile.name, title: profile.title, color: profile.color, photo: profile.photo, label: `${profile.name} - ${profile.title}` };
+            const fallback = raw || 'Unassigned';
+            return { raw, name: fallback, title: raw ? 'Position not set' : '', color: raw ? dashboardHashColor(fallback) : '#94a3b8', photo: '', label: raw ? `${fallback} - Position not set` : 'Unassigned' };
+        }
+
+        function dashboardFrequencyLabel(record) {
+            const direct = dashboardScheduleText(record, ['frequency','Frequency','repeat','Repeat','recurrence','Recurrence','scheduleCadence','ScheduleCadence','cadence','Cadence']);
+            if (direct) return direct.charAt(0).toUpperCase() + direct.slice(1);
+            const mode = dashboardText(record?.scheduleMode || record?.ScheduleMode || record?.dateMode || record?.mode);
+            if (/relative/i.test(mode)) return 'Recurring';
+            return '';
+        }
+
+        function dashboardOperationType(record, fallback) {
+            return dashboardScheduleText(record, ['type','Type','serviceType','ServiceType','workType','WorkType','category','Category','eventType','EventType'], fallback);
+        }
+
+        function dashboardOperationParentForEntry(entry, equipmentRecords) {
+            if (!entry) return { parentName: '', parentPhoto: '', parentKind: '' };
+            if (entry.kind === 'Service') {
+                const equipment = dashboardFindEquipmentRecord(entry.equipmentId, equipmentRecords);
+                return {
+                    parentName: dashboardRecordTitle(equipment, ['equipmentName','EquipmentName','name','Name','title','Title'], entry.equipmentId ? `Equipment #${entry.equipmentId}` : 'Equipment'),
+                    parentPhoto: dashboardRecordPhoto(equipment),
+                    parentKind: 'Equipment',
+                    relatedEquipment: equipment || null
+                };
+            }
+            if (entry.kind === 'Equipment') {
+                const record = entry.record || {};
+                return {
+                    parentName: dashboardRecordTitle(record, ['equipmentName','EquipmentName','name','Name','title','Title'], entry.title),
+                    parentPhoto: dashboardRecordPhoto(record),
+                    parentKind: 'Equipment',
+                    relatedEquipment: record
+                };
+            }
+            const record = entry.record || {};
+            const parentName = dashboardScheduleText(record, ['parentName','ParentName','clinicName','ClinicName','officeName','OfficeName','department','Department','project','Project','teamName','name','Name'], entry.title || 'Assignment');
+            return { parentName, parentPhoto: dashboardRecordPhoto(record), parentKind: 'Assignment', relatedEquipment: null };
+        }
+
+        function enrichDashboardOperationSchedule(entry, equipmentRecords = null) {
+            const schedule = getDashboardOperationScheduleState(entry);
+            const parent = dashboardOperationParentForEntry(entry, equipmentRecords || dashboardEquipmentRecords());
+            const record = entry.record || {};
+            const source = entry.kind === 'Equipment' ? (entry.relatedTicket || record) : record;
+            const assigned = dashboardAssignedMeta(source, ['assignedEmployee','AssignedEmployee','assignedTo','AssignedTo','assignee','Assignee','owner','Owner','technician','Technician']);
+            return {
+                ...entry,
+                ...schedule,
+                parentName: parent.parentName,
+                parentPhoto: parent.parentPhoto,
+                parentKind: parent.parentKind,
+                relatedEquipment: parent.relatedEquipment || entry.relatedEquipment || null,
+                operationType: entry.operationType || dashboardOperationType(source, entry.kind),
+                frequencyLabel: entry.frequencyLabel || dashboardFrequencyLabel(source),
+                assignedLabel: assigned.label,
+                assignedName: assigned.name,
+                assignedTitle: assigned.title,
+                assignedColor: assigned.color,
+                assignedPhoto: assigned.photo
             };
+        }
+
+        function dashboardOperationIsOverdue(entry, activeDate = dashboardGlanceActiveDateIso()) {
+            const date = dashboardScheduleDateOnly(entry?.scheduleDate || dashboardScheduleText(entry?.record, ['scheduledDate','ScheduledDate','scheduleStartDate','ScheduleStartDate','dueDate','DueDate','scheduleDate','ScheduleDate','date','Date']));
+            const status = dashboardText(entry?.record?.status || entry?.record?.Status || entry?.record?.workStatus || entry?.record?.WorkStatus).toLowerCase();
+            if (!date || !activeDate || /^(completed|complete|closed|cancelled|canceled|denied|dismissed)$/.test(status)) return false;
+            return date < activeDate;
+        }
+
+        function buildDashboardOperationsEntries() {
             const isClosed = (value) => /^(completed|complete|closed|cancelled|canceled|denied|dismissed)$/i.test(String(value || '').trim());
             const isSyntheticServiceTicket = (ticket) => !!(ticket?.isAutoGenerated || ticket?.IsAutoGenerated || ticket?.isDashboardTest || ticket?.IsDashboardTest);
             const isSyntheticDashboardItem = (item) => {
@@ -56497,53 +56645,50 @@
                 return isSyntheticDashboardTestEntry(text);
             };
             const priorityRank = { Critical: 0, High: 1, Medium: 2, Low: 3 };
-            const serviceTickets = readArray('equipmentServiceTickets').filter((ticket) => ticket && !isSyntheticServiceTicket(ticket) && !isSyntheticDashboardTestEntry(String(ticket?.title || ticket?.Title || ticket?.type || ticket?.Type || '')));
-            const equipment = [...readArray('equipment'), ...readArray('officeEquipment')]
-                .filter((item) => item && item.isActive !== false && item.IsActive !== false && !isSyntheticDashboardItem(item) && !isSyntheticDashboardTestEntry(String(item?.equipmentName || item?.EquipmentName || item?.name || item?.Name || '')))
-                .map((item) => {
-                    const status = String(item.status || item.Status || item.condition || 'Operational').trim() || 'Operational';
-                    const needsAttention = !/^(operational|available|active|ok|good)$/i.test(status);
-                    const equipmentId = Number(item?.apiId || item?.equipmentID || item?.EquipmentID || item?.equipmentId || item?.EquipmentId || item?.Id || item?.id) || 0;
-                    const matchingTicket = serviceTickets.find(ticket => Number(ticket?.equipmentID || ticket?.EquipmentID || ticket?.equipmentId || ticket?.EquipmentId) === equipmentId && !isClosed(ticket?.status || ticket?.Status));
-                    return needsAttention ? {
-                        kind: 'Equipment',
-                        id: equipmentId || item?.apiId || item?.equipmentID || item?.EquipmentID || item?.equipmentId || item?.EquipmentId || item?.Id || item?.id || '',
-                        serviceTicketId: matchingTicket?.id || matchingTicket?.Id || matchingTicket?.ticketId || matchingTicket?.TicketId || '',
-                        serviceEquipmentId: equipmentId,
-                        title: String(item.equipmentName || item.name || item.Name || 'Equipment').trim(),
-                        detail: status,
-                        color: /out.of.service|retired|broken/i.test(status) ? '#dc2626' : '#eab308',
-                        rank: /out.of.service|retired|broken/i.test(status) ? 0 : 1,
-                        view: 'equipment',
-                        record: item,
-                        relatedTicket: matchingTicket || null,
-                        createdLabel: dashboardScheduleDateLabel(item.createdDate || item.CreatedDate || item.createdAt || item.CreatedAt || '')
-                    } : null;
-                }).filter(Boolean);
-            const services = serviceTickets
-                .filter((ticket) => ticket && !isClosed(ticket.status || ticket.Status))
-                .map((ticket) => {
-                    const priority = String(ticket.priority || ticket.Priority || 'Medium').trim();
-                    const status = String(ticket.status || ticket.Status || 'Open').trim();
-                    const due = String(ticket.scheduledDate || ticket.scheduleStartDate || ticket.dueDate || ticket.ScheduleDate || '').slice(0, 10);
-                    const overdue = due && due < getDashboardTodayIso();
-                    const ticketId = String(ticket.id || ticket.Id || ticket.ticketId || ticket.TicketId || '').trim();
-                    const equipmentId = Number(ticket.equipmentID || ticket.EquipmentID || ticket.equipmentId || ticket.EquipmentId || 0) || 0;
-                    return {
-                        kind: 'Service',
-                        id: ticketId,
-                        equipmentId,
-                        title: String(ticket.title || ticket.Title || ticket.type || ticket.Type || 'Service ticket').trim(),
-                        detail: overdue ? 'Overdue' : `${priority} - ${status}`,
-                        color: overdue || /critical|high/i.test(priority) ? '#dc2626' : '#eab308',
-                        rank: overdue ? 0 : (priorityRank[priority] ?? 2),
-                        view: 'services',
-                        record: ticket,
-                        createdLabel: dashboardScheduleDateLabel(ticket.createdDate || ticket.CreatedDate || ticket.createdAt || ticket.CreatedAt || '')
-                    };
-                });
-            const assignments = readArray('teams')
-                .filter((assignment) => assignment && assignment.isActive !== false && assignment.IsActive !== false && !/^(completed|closed|cancelled)$/i.test(String(assignment.workStatus || assignment.status || '')))
+            const serviceTickets = dashboardOperationsReadArray('equipmentServiceTickets').filter((ticket) => ticket && !isSyntheticServiceTicket(ticket) && !isSyntheticDashboardTestEntry(String(ticket?.title || ticket?.Title || ticket?.type || ticket?.Type || '')));
+            const equipmentRecords = dashboardEquipmentRecords().filter((item) => item && !isSyntheticDashboardItem(item) && !isSyntheticDashboardTestEntry(String(item?.equipmentName || item?.EquipmentName || item?.name || item?.Name || '')));
+            const equipment = equipmentRecords.map((item) => {
+                const status = String(item.status || item.Status || item.condition || 'Operational').trim() || 'Operational';
+                const needsAttention = !/^(operational|available|active|ok|good)$/i.test(status);
+                const equipmentId = Number(item?.apiId || item?.equipmentID || item?.EquipmentID || item?.equipmentId || item?.EquipmentId || item?.Id || item?.id) || 0;
+                const matchingTicket = serviceTickets.find(ticket => Number(ticket?.equipmentID || ticket?.EquipmentID || ticket?.equipmentId || ticket?.EquipmentId) === equipmentId && !isClosed(ticket?.status || ticket?.Status));
+                return needsAttention ? {
+                    kind: 'Equipment',
+                    id: equipmentId || item?.apiId || item?.equipmentID || item?.EquipmentID || item?.equipmentId || item?.EquipmentId || item?.Id || item?.id || '',
+                    serviceTicketId: matchingTicket?.id || matchingTicket?.Id || matchingTicket?.ticketId || matchingTicket?.TicketId || '',
+                    serviceEquipmentId: equipmentId,
+                    title: String(item.equipmentName || item.name || item.Name || 'Equipment').trim(),
+                    detail: status,
+                    color: /out.of.service|retired|broken/i.test(status) ? '#dc2626' : '#eab308',
+                    rank: /out.of.service|retired|broken/i.test(status) ? 0 : 1,
+                    view: 'equipment',
+                    record: item,
+                    relatedTicket: matchingTicket || null,
+                    createdLabel: dashboardScheduleDateLabel(item.createdDate || item.CreatedDate || item.createdAt || item.CreatedAt || '')
+                } : null;
+            }).filter(Boolean);
+            const services = serviceTickets.filter((ticket) => ticket && !isClosed(ticket.status || ticket.Status)).map((ticket) => {
+                const priority = String(ticket.priority || ticket.Priority || 'Medium').trim();
+                const status = String(ticket.status || ticket.Status || 'Open').trim();
+                const due = String(ticket.scheduledDate || ticket.scheduleStartDate || ticket.dueDate || ticket.ScheduleDate || '').slice(0, 10);
+                const overdue = due && due < dashboardGlanceActiveDateIso();
+                const ticketId = String(ticket.id || ticket.Id || ticket.ticketId || ticket.TicketId || '').trim();
+                const equipmentId = Number(ticket.equipmentID || ticket.EquipmentID || ticket.equipmentId || ticket.EquipmentId || 0) || 0;
+                return {
+                    kind: 'Service',
+                    id: ticketId,
+                    equipmentId,
+                    title: String(ticket.title || ticket.Title || ticket.type || ticket.Type || 'Service ticket').trim(),
+                    detail: overdue ? 'Overdue' : `${priority} - ${status}`,
+                    color: overdue || /critical|high/i.test(priority) ? '#dc2626' : '#eab308',
+                    rank: overdue ? 0 : (priorityRank[priority] ?? 2),
+                    view: 'services',
+                    record: ticket,
+                    createdLabel: dashboardScheduleDateLabel(ticket.createdDate || ticket.CreatedDate || ticket.createdAt || ticket.CreatedAt || '')
+                };
+            });
+            const assignments = dashboardOperationsReadArray('teams')
+                .filter((assignment) => assignment && assignment.isActive !== false && assignment.IsActive !== false && !isClosed(assignment.workStatus || assignment.status || ''))
                 .map((assignment) => {
                     const priority = String(assignment.priority || 'Medium').trim();
                     const status = String(assignment.workStatus || assignment.status || 'Pending').trim();
@@ -56561,22 +56706,91 @@
                     };
                 });
             return [...equipment, ...services, ...assignments]
-                .map(enrichDashboardOperationSchedule)
-                .sort((left, right) => left.rank - right.rank || left.kind.localeCompare(right.kind) || left.title.localeCompare(right.title))
-                .slice(0, 8);
-        }
-        function renderDashboardOperationsPanel(target) {
-            if (!target) return;
-            const entries = getDashboardOperationsEntries();
-            const counts = entries.reduce((result, entry) => { result[entry.kind] = (result[entry.kind] || 0) + 1; return result; }, {});
-            const rowsHtml = entries.length ? entries.map((entry) => {
-                const canDrag = !!entry.isScheduleDraggable;
-                const title = canDrag ? 'Drag to the calendar to assign date and time' : 'Scheduled on calendar';
-                return `<button type="button" class="rd-dashboard-row" draggable="${canDrag ? 'true' : 'false'}" title="${escapeDashboardHtml(title)}" data-entry-kind="${escapeDashboardHtml(entry.kind)}" data-entry-title="${escapeDashboardHtml(entry.title)}" data-entry-id="${escapeDashboardHtml(String(entry.id || ''))}" data-entry-view="${escapeDashboardHtml(entry.view || '')}" data-service-ticket-id="${escapeDashboardHtml(String(entry.serviceTicketId || ''))}" data-service-equipment-id="${escapeDashboardHtml(String(entry.serviceEquipmentId ?? entry.equipmentId ?? ''))}" data-equipment-id="${escapeDashboardHtml(String(entry.equipmentId ?? ''))}" data-schedule-state="${escapeDashboardHtml(entry.scheduleState || '')}" data-schedule-date="${escapeDashboardHtml(entry.scheduleDate || '')}" data-schedule-time="${escapeDashboardHtml(entry.scheduleTime || '')}" onclick="event.preventDefault(); event.stopPropagation(); const row = this; const entryObj = { title: String(row.dataset.entryTitle || '').trim(), kind: String(row.dataset.entryKind || '').trim(), id: String(row.dataset.entryId || '').trim(), view: String(row.dataset.entryView || '').trim(), serviceTicketId: String(row.dataset.serviceTicketId || '').trim(), serviceEquipmentId: String(row.dataset.serviceEquipmentId || row.dataset.equipmentId || '').trim(), equipmentId: String(row.dataset.equipmentId || '').trim(), scheduleState: String(row.dataset.scheduleState || '').trim(), scheduleDate: String(row.dataset.scheduleDate || '').trim(), scheduleTime: String(row.dataset.scheduleTime || '').trim() }; openDashboardOperation(entryObj);" style="width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.35rem;align-items:center;min-height:0;padding:0.28rem 0;border:0;background:transparent;text-align:left;cursor:${canDrag ? 'grab' : 'pointer'};"><div class="rd-dashboard-task-title" style="min-width:0;gap:0.45rem;"><span class="rd-dashboard-dot" style="background:${entry.color};width:10px;height:10px;flex:0 0 10px;"></span><div style="min-width:0;"><strong style="display:block;font-size:0.78rem;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.title)}</strong><span style="display:block;font-size:0.66rem;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.kind)} - ${escapeDashboardHtml(entry.scheduleLabel || 'No schedule')}</span>${entry.createdLabel ? `<span style="display:block;font-size:0.62rem;line-height:1.1;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Created: ${escapeDashboardHtml(entry.createdLabel)}</span>` : ''}</div></div><span class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.18rem 0.38rem;font-size:0.68rem;line-height:1.05;white-space:nowrap;">${escapeDashboardHtml(entry.detail)}</span></button>`;
-            }).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-check-circle" style="color:#16a34a;"></i><span>No active operational items.</span></div>';
-            target.innerHTML = `<div class="rd-dashboard-panel" style="width:min(100%,360px);margin-left:auto;margin-top:0.65rem;padding:0.55rem 0.7rem;"><h3 style="margin:0 0 0.35rem;font-size:1rem;"><i class="fas fa-briefcase" style="color:#2563eb;margin-right:0.45rem;"></i>Operations Glance</h3><div style="display:flex;gap:0.35rem;margin-bottom:0.45rem;font-size:0.72rem;color:var(--text-secondary);"><span>${counts.Equipment || 0} equipment</span><span>${counts.Service || 0} services</span><span>${counts.Assignment || 0} assignments</span></div><div class="rd-dashboard-list">${rowsHtml}</div></div>`;
+                .map((entry) => enrichDashboardOperationSchedule(entry, equipmentRecords))
+                .sort((left, right) => left.rank - right.rank || left.kind.localeCompare(right.kind) || left.title.localeCompare(right.title));
         }
 
+        function getDashboardOperationsEntries(options = {}) {
+            const activeDate = options.date || dashboardGlanceActiveDateIso();
+            return buildDashboardOperationsEntries()
+                .filter((entry) => {
+                    const overdue = dashboardOperationIsOverdue(entry, activeDate);
+                    if (options.overdueOnly) return overdue;
+                    if (overdue) return false;
+                    if (entry.scheduleState !== 'scheduled') return true;
+                    return entry.scheduleDate === activeDate;
+                })
+                .slice(0, options.limit || 8);
+        }
+
+        function getDashboardOverdueOperationsEntries(options = {}) {
+            return getDashboardOperationsEntries({ ...options, overdueOnly: true, limit: options.limit || 6 });
+        }
+
+        function dashboardGlanceAvatar(entry) {
+            const photo = entry.parentPhoto || entry.assignedPhoto || '';
+            const label = entry.parentName || entry.title || entry.kind;
+            if (photo) return `<span style="width:32px;height:32px;border-radius:8px;overflow:hidden;border:1px solid var(--border-color,#d1d5db);background:var(--bg-secondary,#f8fafc);flex:0 0 32px;display:inline-flex;"><img src="${escapeDashboardHtml(photo)}" alt="" style="width:100%;height:100%;object-fit:cover;"></span>`;
+            return `<span style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border-color,#d1d5db);background:${dashboardHashColor(label)}22;color:${dashboardHashColor(label)};flex:0 0 32px;display:inline-flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:800;">${escapeDashboardHtml(dashboardInitials(label))}</span>`;
+        }
+
+        function dashboardGlanceRowHtml(entry, options = {}) {
+            const canDrag = !!entry.isScheduleDraggable && !options.overdue;
+            const actionTitle = canDrag ? 'Drag to the calendar to assign date and time' : (options.overdue ? 'Overdue from another day' : 'Scheduled on calendar');
+            const typeLabel = dashboardText(entry.operationType || entry.kind, entry.kind);
+            const frequency = dashboardText(entry.frequencyLabel || '');
+            const parentLine = entry.parentName ? `Parent: ${entry.parentName}` : '';
+            const metaBits = [typeLabel ? `Type: ${typeLabel}` : '', frequency ? `Frequency: ${frequency}` : ''].filter(Boolean).join(' â€¢ ');
+            const assigned = dashboardText(entry.assignedLabel || '');
+            return `<button type="button" class="rd-dashboard-row" draggable="${canDrag ? 'true' : 'false'}" title="${escapeDashboardHtml(actionTitle)}" data-entry-kind="${escapeDashboardHtml(entry.kind)}" data-entry-title="${escapeDashboardHtml(entry.title)}" data-entry-id="${escapeDashboardHtml(String(entry.id || ''))}" data-entry-view="${escapeDashboardHtml(entry.view || '')}" data-service-ticket-id="${escapeDashboardHtml(String(entry.serviceTicketId || ''))}" data-service-equipment-id="${escapeDashboardHtml(String(entry.serviceEquipmentId ?? entry.equipmentId ?? ''))}" data-equipment-id="${escapeDashboardHtml(String(entry.equipmentId ?? ''))}" data-schedule-state="${escapeDashboardHtml(entry.scheduleState || '')}" data-schedule-date="${escapeDashboardHtml(entry.scheduleDate || '')}" data-schedule-time="${escapeDashboardHtml(entry.scheduleTime || '')}" onclick="event.preventDefault(); event.stopPropagation(); const row = this; const entryObj = { title: String(row.dataset.entryTitle || '').trim(), kind: String(row.dataset.entryKind || '').trim(), id: String(row.dataset.entryId || '').trim(), view: String(row.dataset.entryView || '').trim(), serviceTicketId: String(row.dataset.serviceTicketId || '').trim(), serviceEquipmentId: String(row.dataset.serviceEquipmentId || row.dataset.equipmentId || '').trim(), equipmentId: String(row.dataset.equipmentId || '').trim(), scheduleState: String(row.dataset.scheduleState || '').trim(), scheduleDate: String(row.dataset.scheduleDate || '').trim(), scheduleTime: String(row.dataset.scheduleTime || '').trim() }; openDashboardOperation(entryObj);" style="width:100%;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:0.5rem;align-items:center;min-height:0;padding:0.38rem 0;border:0;border-bottom:1px solid var(--border-color,#e5e7eb);background:transparent;text-align:left;cursor:${canDrag ? 'grab' : 'pointer'};">${dashboardGlanceAvatar(entry)}<span style="min-width:0;display:block;"><strong style="display:block;font-size:0.78rem;line-height:1.12;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.title)}</strong>${parentLine ? `<span style="display:block;font-size:0.67rem;line-height:1.18;color:var(--text-secondary,#64748b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(parentLine)}</span>` : ''}<span style="display:block;font-size:0.66rem;line-height:1.18;color:var(--text-secondary,#64748b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(metaBits || entry.kind)}</span>${assigned ? `<span style="display:flex;align-items:center;gap:.25rem;font-size:0.64rem;line-height:1.18;color:var(--text-secondary,#64748b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><i class="fas fa-user" style="color:${entry.assignedColor || '#64748b'};font-size:.6rem;"></i>${escapeDashboardHtml(assigned)}</span>` : ''}<span style="display:block;font-size:0.64rem;line-height:1.18;color:var(--text-secondary,#64748b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.scheduleLabel || 'No schedule')}</span></span><span class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.16rem 0.32rem;font-size:0.64rem;line-height:1.05;white-space:nowrap;">${escapeDashboardHtml(entry.detail)}</span></button>`;
+        }
+
+        function getDashboardGlanceWidth() {
+            const stored = Number(localStorage.getItem('rd:dashboardGlanceWidth') || 0) || 0;
+            return Math.max(280, Math.min(560, stored || 360));
+        }
+
+        function applyDashboardGlanceWidth(width) {
+            const next = Math.max(280, Math.min(560, Number(width) || getDashboardGlanceWidth()));
+            document.documentElement.style.setProperty('--dashboard-glance-width', `${next}px`);
+            try { localStorage.setItem('rd:dashboardGlanceWidth', String(next)); } catch (_) {}
+            return next;
+        }
+
+        window.startDashboardGlanceResize = function (event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            const startX = Number(event?.clientX || event?.touches?.[0]?.clientX || 0);
+            const startWidth = getDashboardGlanceWidth();
+            const move = (moveEvent) => {
+                const clientX = Number(moveEvent?.clientX || moveEvent?.touches?.[0]?.clientX || startX);
+                applyDashboardGlanceWidth(startWidth - (clientX - startX));
+            };
+            const end = () => {
+                document.removeEventListener('mousemove', move, true);
+                document.removeEventListener('mouseup', end, true);
+                document.removeEventListener('touchmove', move, true);
+                document.removeEventListener('touchend', end, true);
+            };
+            document.addEventListener('mousemove', move, true);
+            document.addEventListener('mouseup', end, true);
+            document.addEventListener('touchmove', move, true);
+            document.addEventListener('touchend', end, true);
+        };
+
+        function renderDashboardOperationsPanel(target) {
+            if (!target) return;
+            applyDashboardGlanceWidth(getDashboardGlanceWidth());
+            const activeDate = dashboardGlanceActiveDateIso();
+            const entries = getDashboardOperationsEntries({ date: activeDate, limit: 8 });
+            const overdueEntries = getDashboardOverdueOperationsEntries({ date: activeDate, limit: 6 });
+            const counts = entries.reduce((result, entry) => { result[entry.kind] = (result[entry.kind] || 0) + 1; return result; }, {});
+            const rowsHtml = entries.length ? entries.map((entry) => dashboardGlanceRowHtml(entry)).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-check-circle" style="color:#16a34a;"></i><span>No active operational items for this date.</span></div>';
+            const overdueHtml = overdueEntries.length ? overdueEntries.map((entry) => dashboardGlanceRowHtml(entry, { overdue: true })).join('') : '<div class="rd-dashboard-mini-row"><i class="far fa-check-circle" style="color:#16a34a;"></i><span>No overdue items from other days.</span></div>';
+            target.innerHTML = `<div style="position:relative;"><button type="button" aria-label="Resize Glance" title="Resize Glance" onmousedown="startDashboardGlanceResize(event)" ontouchstart="startDashboardGlanceResize(event)" style="position:absolute;left:-10px;top:8px;bottom:8px;width:10px;border:0;border-left:2px solid transparent;background:transparent;cursor:col-resize;z-index:2;"></button><div class="rd-dashboard-panel" style="width:100%;margin-left:auto;margin-top:0.65rem;padding:0.55rem 0.7rem;"><h3 style="margin:0 0 0.25rem;font-size:1rem;"><i class="fas fa-briefcase" style="color:#2563eb;margin-right:0.45rem;"></i>Operations Glance</h3><div style="display:flex;gap:0.35rem;margin-bottom:0.45rem;font-size:0.7rem;color:var(--text-secondary);flex-wrap:wrap;"><span>${escapeDashboardHtml(dashboardScheduleDateLabel(activeDate) || activeDate)}</span><span>${counts.Equipment || 0} equipment</span><span>${counts.Service || 0} services</span><span>${counts.Assignment || 0} assignments</span></div><div class="rd-dashboard-list">${rowsHtml}</div></div><div class="rd-dashboard-panel" style="width:100%;margin-left:auto;margin-top:0.55rem;padding:0.55rem 0.7rem;"><h3 style="margin:0 0 0.3rem;font-size:.9rem;"><i class="fas fa-triangle-exclamation" style="color:#dc2626;margin-right:0.4rem;"></i>Overdue From Other Days</h3><div class="rd-dashboard-list">${overdueHtml}</div></div></div>`;
+        }
         function getDashboardOperationEntryFromRow(row) {
             if (!row) return null;
             const kind = String(row.dataset.entryKind || '').trim();
@@ -57222,7 +57436,7 @@
             if (!Number.isNaN(parsed.getTime())) dashboardCalendarDate = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
             dashboardCalendarViewMode = 'calendar';
             dashboardCalendarSearchQuery = '';
-            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
+            refreshDashboardScheduleSurfaces();
             if (view && view !== 'calendar' && typeof window.switchContentView === 'function') window.switchContentView(view, null);
         };
 
@@ -57338,7 +57552,7 @@
             if (Number.isNaN(parsed.getTime())) return;
             dashboardCalendarDate = parsed;
             dashboardCalendarViewMode = 'calendar';
-            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
+            refreshDashboardScheduleSurfaces();
         };
 
         function renderDashboardCalendarPanel(target) {
@@ -57739,7 +57953,7 @@
             if (typeof window.updateEventList === 'function') window.updateEventList();
             if (window.calendarInstance && typeof window.calendarInstance.refetchEvents === 'function') window.calendarInstance.refetchEvents();
             dashboardCalendarDate = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
+            refreshDashboardScheduleSurfaces();
             const form = document.getElementById('dashboardEventForm');
             if (form) form.hidden = true;
             if (form) form.style.display = 'none';
@@ -57755,7 +57969,7 @@
                         }
                     }
                 } catch (_) {}
-                renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
+                refreshDashboardScheduleSurfaces();
             }
             if (typeof showNotification === 'function') showNotification(apiSaved ? `Event ${editingId ? 'updated' : 'saved'} by ${creator.name} and shared to all devices.` : `Event saved on this device only; it did not reach the shared database.`, apiSaved ? 'success' : 'warning');
         };
@@ -57794,18 +58008,18 @@
             clearDashboardEventScope(eventId);
             if (typeof window.updateEventList === 'function') window.updateEventList();
             if (window.calendarInstance && typeof window.calendarInstance.refetchEvents === 'function') window.calendarInstance.refetchEvents();
-            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
+            refreshDashboardScheduleSurfaces();
             if (typeof showNotification === 'function') showNotification(apiDeleted ? 'Event deleted.' : 'Event removed locally; server delete may need retry.', apiDeleted ? 'success' : 'warning');
         };
 
         window.shiftDashboardCalendar = function (offset) {
             if (dashboardCalendarViewMode === 'month') dashboardCalendarDate.setMonth(dashboardCalendarDate.getMonth() + Number(offset || 0));
             else dashboardCalendarDate.setDate(dashboardCalendarDate.getDate() + Number(offset || 0));
-            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
+            refreshDashboardScheduleSurfaces();
         };
-        window.resetDashboardCalendar = function () { dashboardCalendarDate = new Date(); renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel')); };
-        window.setDashboardCalendarViewMode = function (mode) { dashboardCalendarViewMode = (mode === 'list' || mode === 'month') ? mode : 'calendar'; renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel')); };
-        window.setDashboardCalendarScope = function (scope) { dashboardCalendarScope = scope === 'office' ? 'office' : 'mine'; renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel')); };
+        window.resetDashboardCalendar = function () { dashboardCalendarDate = new Date(); refreshDashboardScheduleSurfaces(); };
+        window.setDashboardCalendarViewMode = function (mode) { dashboardCalendarViewMode = (mode === 'list' || mode === 'month') ? mode : 'calendar'; refreshDashboardScheduleSurfaces(); };
+        window.setDashboardCalendarScope = function (scope) { dashboardCalendarScope = scope === 'office' ? 'office' : 'mine'; refreshDashboardScheduleSurfaces(); };
 
         window.toggleDashboardCalendarFullscreen = function () {
             dashboardCalendarFullscreen = !dashboardCalendarFullscreen;
@@ -57896,7 +58110,7 @@
                     <div class="rd-dashboard-location" style="padding:0.55rem 0.75rem;"><i class="fas fa-map-marker-alt"></i><div><strong>${escapeDashboardHtml(clinic.name)}</strong><span>${escapeDashboardHtml(clinic.address)}</span></div></div>
                     <div style="display:flex;align-items:center;gap:.4rem;margin-left:.6rem;padding:.3rem .6rem;border:1px solid var(--border-color,#e5e7eb);border-radius:8px;background:var(--card-bg,#fff);"><i class="fas fa-user-circle" style="color:var(--text-secondary,#64748b);"></i><strong style="font-size:.8rem;">${escapeDashboardHtml(identity.name)}</strong><span style="font-size:.7rem;font-weight:700;color:${identity.color};border:1px solid ${identity.color};border-radius:999px;padding:.05rem .5rem;">${escapeDashboardHtml(identity.status)}</span></div>
                 </div>
-                <div style="display:grid;grid-template-columns:minmax(0,1.55fr) minmax(300px,360px);gap:.8rem;align-items:start;">
+                <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,var(--dashboard-glance-width,360px));gap:.8rem;align-items:start;">
                     <div id="dashboardCalendarPanel"></div>
                     <div>
                 <div class="rd-dashboard-panel" style="width:100%;padding:0.55rem 0.7rem;">
@@ -57907,7 +58121,7 @@
                 </div><div id="dashboardOperationsPanel"></div></div></div>`;
             const operationsPanel = document.getElementById('dashboardOperationsPanel');
             if (operationsPanel) renderDashboardOperationsPanel(operationsPanel);
-            renderDashboardCalendarPanel(document.getElementById('dashboardCalendarPanel'));
+            refreshDashboardScheduleSurfaces();
         }
 
         function renderManagerDashboardLanding(target, model, clinic) {
@@ -123865,7 +124079,7 @@ console.log('? Global functions exported to window object');
                          +    '<td><span class="svc-status-badge" style="background:'+sBg+';color:'+sColor+';">'+esc(t.status || '-')+'</span></td>'
                          +    '<td><span class="svc-priority-badge" style="background:'+pbg+';color:'+ptx+';">'+esc(t.priority || 'Medium')+'</span></td>'
                          +    '<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(t.vendor || '-')+'</td>'
-                         +    '<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(t.assignedTo || '-')+'</td>'
+                         +    '<td style="max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+utAssignedDisplayHtml(t.assignedTo || '')+'</td>'
                          +    '<td style="white-space:nowrap;">$'+Number(t.cost || 0).toFixed(2)+'</td>'
                          +    '<td>'+filesHtml+'</td>'
                          +  '</tr>';
@@ -124160,17 +124374,37 @@ console.log('? Global functions exported to window object');
             }).join('');
         }
 
-        function utFormEmployeeOptionsHtml(current) {
+        function utPositionColor(value) {
+            var palette = ['#2563eb', '#0f766e', '#b45309', '#7c3aed', '#be123c', '#0369a1', '#4d7c0f'];
+            var text = String(value || '').trim();
+            var hash = 0;
+            for (var i = 0; i < text.length; i++) hash = ((hash << 5) - hash) + text.charCodeAt(i);
+            return palette[Math.abs(hash) % palette.length] || '#2563eb';
+        }
+        function utEmployeeDisplayEntries(current) {
             var cur = String(current || '').trim();
             var users = (typeof loadUsers === 'function') ? (loadUsers() || {}) : {};
-            var names = Object.keys(users).map(function(username) {
+            var entries = Object.keys(users).map(function(username) {
                 var u = users[username] || {};
-                var n = String(u.name || u.fullName || ([u.firstName, u.lastName].filter(Boolean).join(' ')) || username || '').trim();
-                return n || username;
-            }).filter(Boolean).sort(function(a, b) { return a.localeCompare(b); });
-            if (cur && !names.some(function(n) { return n.toLowerCase() === cur.toLowerCase(); })) names.unshift(cur);
-            return '<option value="">(unassigned)</option>' + names.map(function(n) {
-                return '<option value="'+esc(n)+'"'+(n===cur?' selected':'')+'>'+esc(n)+'</option>';
+                var name = String(u.name || u.fullName || ([u.firstName, u.lastName].filter(Boolean).join(' ')) || username || '').trim() || username;
+                var title = String(u.jobTitle || u.JobTitle || u.title || u.Title || u.position || u.Position || u.role || u.Role || '').trim();
+                var color = String(u.color || u.Color || '').trim() || utPositionColor(title || name);
+                return { name: name, title: title, color: color, label: title ? (name + ' - ' + title) : name };
+            }).filter(function(entry) { return entry.name; }).sort(function(a, b) { return a.name.localeCompare(b.name); });
+            if (cur && !entries.some(function(entry) { return entry.name.toLowerCase() === cur.toLowerCase(); })) entries.unshift({ name: cur, title: '', color: '#64748b', label: cur });
+            return entries;
+        }
+        function utAssignedDisplayHtml(value) {
+            var raw = String(value || '').trim();
+            if (!raw) return '-';
+            var entry = utEmployeeDisplayEntries(raw).find(function(candidate) { return candidate.name.toLowerCase() === raw.toLowerCase(); }) || { name: raw, title: '', color: '#64748b', label: raw };
+            var label = entry.title ? (entry.name + ' - ' + entry.title) : entry.name;
+            return '<span title="'+esc(label)+'" style="display:flex;align-items:center;gap:0.3rem;min-width:0;overflow:hidden;"><span style="width:7px;height:7px;border-radius:50%;background:'+esc(entry.color)+';flex:0 0 7px;"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(label)+'</span></span>';
+        }
+        function utFormEmployeeOptionsHtml(current) {
+            var cur = String(current || '').trim();
+            return '<option value="">(unassigned)</option>' + utEmployeeDisplayEntries(cur).map(function(entry) {
+                return '<option value="'+esc(entry.name)+'" data-title="'+esc(entry.title)+'" data-position-color="'+esc(entry.color)+'" style="color:'+esc(entry.color)+';"'+(entry.name.toLowerCase()===cur.toLowerCase()?' selected':'')+'>'+esc(entry.label)+'</option>';
             }).join('');
         }
 
@@ -124542,9 +124776,9 @@ console.log('? Global functions exported to window object');
             container.innerHTML = list.map(function(a) {
                 var sizeLabel = _utFormatAttSize(a.sizeBytes);
                 return '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.45rem 0.55rem;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-primary);">'
-                    + '<div style="min-width:0;">'
-                    +   '<div style="font-size:0.8rem;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(a.name)+'</div>'
-                    +   '<div style="font-size:0.72rem;color:var(--text-secondary);">'+esc(sizeLabel || a.type || 'File')+'</div>'
+                    + '<div style="min-width:0;overflow:hidden;">'
+                    +   '<div style="font-size:0.8rem;font-weight:600;color:var(--text-primary);overflow-wrap:anywhere;white-space:normal;line-height:1.2;">'+esc(a.name)+'</div>'
+                    +   '<div style="font-size:0.72rem;color:var(--text-secondary);overflow-wrap:anywhere;">'+esc([a.type || 'File', sizeLabel].filter(Boolean).join(' - '))+'</div>'
                     + '</div>'
                     + '<div style="display:flex;gap:0.35rem;flex-wrap:wrap;justify-content:flex-end;">'
                     +   '<button type="button" onclick="downloadUtDetailAttachment(\''+esc(a.id)+'\')" style="padding:0.25rem 0.5rem;border:1px solid var(--border-color);background:var(--bg-secondary);color:var(--text-primary);border-radius:5px;cursor:pointer;font-size:0.72rem;">View</button>'
