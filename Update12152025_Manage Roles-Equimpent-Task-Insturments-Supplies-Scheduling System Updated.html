@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260921-glance-calendar-refinements-v143';
+                const buildVersion = '20260921-ticket-photo-attachment-fix-v144';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -41400,10 +41400,12 @@
                     const journalCount = Array.isArray(t.journal)      ? t.journal.length      : 0;
                     const attachCount  = Array.isArray(t.attachments)  ? t.attachments.length  : 0;
                     const linkCount    = Array.isArray(t.links)        ? t.links.length        : 0;
+                    const attachmentLabel = attachCount ? String(t.attachments?.[0]?.name || `${attachCount} file${attachCount !== 1 ? 's' : ''}`).trim() : '';
+                    const linkLabel = linkCount ? String(t.links?.[0]?.label || t.links?.[0]?.url || `${linkCount} link${linkCount !== 1 ? 's' : ''}`).trim() : '';
                     const filesHtml    = (attachCount + linkCount) > 0
-                        ? `<div style="display:inline-flex;gap:0.3rem;align-items:center;" onclick="event.stopPropagation()">
-                            ${attachCount > 0 ? `<button type="button" onclick="openSvcFilesPopover('${esc(t.id)}',${Number(equipmentID)},'files',this)" style="font-size:0.75rem;color:var(--text-secondary);background:none;border:none;cursor:pointer;padding:0.1rem 0.25rem;display:inline-flex;align-items:center;gap:0.2rem;" title="View ${attachCount} file${attachCount!==1?'s':''}"><i class="fas fa-paperclip"></i> ${attachCount}</button>` : ''}
-                            ${linkCount > 0 ? `<button type="button" onclick="openSvcFilesPopover('${esc(t.id)}',${Number(equipmentID)},'links',this)" style="font-size:0.75rem;color:var(--text-secondary);background:none;border:none;cursor:pointer;padding:0.1rem 0.25rem;display:inline-flex;align-items:center;gap:0.2rem;" title="View ${linkCount} link${linkCount!==1?'s':''}"><i class="fas fa-link"></i> ${linkCount}</button>` : ''}
+                        ? `<div style="display:grid;gap:0.18rem;min-width:120px;max-width:160px;" onclick="event.stopPropagation()">
+                            ${attachCount > 0 ? `<button type="button" onclick="openSvcFilesPopover('${esc(t.id)}',${Number(equipmentID)},'files',this)" style="font-size:0.72rem;color:var(--text-secondary);background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;cursor:pointer;padding:0.16rem 0.35rem;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:0.25rem;text-align:left;" title="${esc(attachmentLabel)}"><i class="fas fa-paperclip"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(attachmentLabel)}</span></button>` : ''}
+                            ${linkCount > 0 ? `<button type="button" onclick="openSvcFilesPopover('${esc(t.id)}',${Number(equipmentID)},'links',this)" style="font-size:0.72rem;color:var(--text-secondary);background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;cursor:pointer;padding:0.16rem 0.35rem;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:0.25rem;text-align:left;" title="${esc(linkLabel)}"><i class="fas fa-link"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(linkLabel)}</span></button>` : ''}
                           </div>`
                         : '';
                     const ticketPhotos = Array.isArray(t.photos) && t.photos.length ? t.photos : (t.thumbPhoto ? [{id:'legacy',dataUrl:t.thumbPhoto}] : []);
@@ -41432,7 +41434,7 @@
                         <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.vendor || '-')}</td>
                         <td style="max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${svcAssignedDisplayHtml(t.assignedEmployee || '')}</td>
                         <td style="white-space:nowrap;">$${Number(t.cost || 0).toFixed(2)}</td>
-                        <td>${filesHtml}</td>
+                        <td style="min-width:130px;max-width:170px;">${filesHtml}</td>
                     </tr>`;
                 });
             });
@@ -42666,7 +42668,7 @@
                                             <th>Vendor</th>
                                             <th>Assigned To</th>
                                             <th>Cost</th>
-                                            <th style="width:60px;"><i class="fas fa-paperclip" title="Files/Links"></i></th>
+                                            <th style="width:150px;"><i class="fas fa-paperclip" title="Files/Links"></i> Files / Links</th>
                                         </tr>
                                     </thead>
                                     <tbody id="equipmentServiceRows"></tbody>
@@ -56618,6 +56620,8 @@
                 ...schedule,
                 parentName: parent.parentName,
                 parentPhoto: parent.parentPhoto,
+                ticketPhoto: dashboardRecordPhoto(source),
+                displayPhoto: dashboardRecordPhoto(source) || parent.parentPhoto,
                 parentKind: parent.parentKind,
                 relatedEquipment: parent.relatedEquipment || entry.relatedEquipment || null,
                 operationType: entry.operationType || dashboardOperationType(source, entry.kind),
@@ -56728,8 +56732,8 @@
         }
 
         function dashboardGlanceAvatar(entry) {
-            const photo = entry.parentPhoto || entry.assignedPhoto || '';
-            const label = entry.parentName || entry.title || entry.kind;
+            const photo = entry.ticketPhoto || entry.displayPhoto || entry.assignedPhoto || '';
+            const label = entry.title || entry.parentName || entry.kind;
             if (photo) return `<span style="width:32px;height:32px;border-radius:8px;overflow:hidden;border:1px solid var(--border-color,#d1d5db);background:var(--bg-secondary,#f8fafc);flex:0 0 32px;display:inline-flex;"><img src="${escapeDashboardHtml(photo)}" alt="" style="width:100%;height:100%;object-fit:cover;"></span>`;
             return `<span style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border-color,#d1d5db);background:${dashboardHashColor(label)}22;color:${dashboardHashColor(label)};flex:0 0 32px;display:inline-flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:800;">${escapeDashboardHtml(dashboardInitials(label))}</span>`;
         }
@@ -121934,7 +121938,7 @@ console.log('? Global functions exported to window object');
                 +       '<th>Title</th><th>Date</th><th>Frequency</th>'
                 +       '<th>Status</th><th>Priority</th>'
                 +       '<th>Location</th><th>Members</th>'
-                +       '<th style="width:60px;"><i class="fas fa-paperclip" title="Files/Links"></i></th>'
+                +       '<th style="width:150px;"><i class="fas fa-paperclip" title="Files/Links"></i> Files / Links</th>'
                 +     '</tr></thead>'
                 +     '<tbody id="teamEventRows"></tbody>'
                 +     '</table>'
@@ -123917,7 +123921,7 @@ console.log('? Global functions exported to window object');
                 +       '<th style="width:130px;">Actions</th>'
                 +       '<th>Title</th><th>Due Date</th><th>Frequency</th>'
                 +       '<th>Status</th><th>Priority</th><th>Vendor</th><th>Assigned To</th><th>Cost</th>'
-                +       '<th style="width:60px;"><i class="fas fa-paperclip" title="Files/Links"></i></th>'
+                +       '<th style="width:150px;"><i class="fas fa-paperclip" title="Files/Links"></i> Files / Links</th>'
                 +     '</tr></thead>'
                 +     '<tbody id="utilityTicketRows"></tbody>'
                 +     '</table>'
@@ -124057,10 +124061,12 @@ console.log('? Global functions exported to window object');
                     var thumbHtml    = thumbSrc
                         ? '<img src="'+esc(thumbSrc)+'" class="svc-thumb" onclick="event.stopPropagation();openUtilityServiceTicketPhotos(\''+esc(t.id)+'\',0)" title="View '+photos.length+' photo'+(photos.length!==1?'s':'')+'" alt="Photo" style="cursor:zoom-in;">'
                         : '<div class="svc-thumb-placeholder" title="No photos"><i class="fas fa-image"></i></div>';
+                    var attachmentLabel = attachCount ? String((t.attachments && t.attachments[0] && t.attachments[0].name) || (attachCount + ' file' + (attachCount !== 1 ? 's' : ''))).trim() : '';
+                    var linkLabel = linkCount ? String((t.links && t.links[0] && (t.links[0].label || t.links[0].url)) || (linkCount + ' link' + (linkCount !== 1 ? 's' : ''))).trim() : '';
                     var filesHtml = (attachCount + linkCount) > 0
-                        ? '<div style="display:inline-flex;gap:0.3rem;align-items:center;" onclick="event.stopPropagation()">'
-                          + (attachCount > 0 ? '<button type="button" onclick="openUtilityServiceDetails(\''+esc(t.id)+'\',\''+uIdEsc+'\')" style="font-size:0.75rem;color:var(--text-secondary);background:none;border:none;cursor:pointer;padding:0.1rem 0.25rem;display:inline-flex;align-items:center;gap:0.2rem;" title="View '+attachCount+' file'+(attachCount!==1?'s':'')+'"><i class="fas fa-paperclip"></i> '+attachCount+'</button>' : '')
-                          + (linkCount   > 0 ? '<button type="button" onclick="openUtilityServiceDetails(\''+esc(t.id)+'\',\''+uIdEsc+'\')" style="font-size:0.75rem;color:var(--text-secondary);background:none;border:none;cursor:pointer;padding:0.1rem 0.25rem;display:inline-flex;align-items:center;gap:0.2rem;" title="View '+linkCount+' link'+(linkCount!==1?'s':'')+'"><i class="fas fa-link"></i> '+linkCount+'</button>' : '')
+                        ? '<div style="display:grid;gap:0.18rem;min-width:120px;max-width:160px;" onclick="event.stopPropagation()">'
+                          + (attachCount > 0 ? '<button type="button" onclick="openUtilityServiceDetails(\''+esc(t.id)+'\',\''+uIdEsc+'\')" style="font-size:0.72rem;color:var(--text-secondary);background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;cursor:pointer;padding:0.16rem 0.35rem;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:0.25rem;text-align:left;" title="'+esc(attachmentLabel)+'"><i class="fas fa-paperclip"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(attachmentLabel)+'</span></button>' : '')
+                          + (linkCount   > 0 ? '<button type="button" onclick="openUtilityServiceDetails(\''+esc(t.id)+'\',\''+uIdEsc+'\')" style="font-size:0.72rem;color:var(--text-secondary);background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;cursor:pointer;padding:0.16rem 0.35rem;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:0.25rem;text-align:left;" title="'+esc(linkLabel)+'"><i class="fas fa-link"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(linkLabel)+'</span></button>' : '')
                           + '</div>'
                         : '';
                     html += '<tr class="svc-data-row" data-svc-group="'+esc(groupType)+'" id="utRow-'+esc(t.id)+'" style="'+(isExpanded?'':'display:none;')+'cursor:pointer;" onclick="openUtilityServiceDetails(\''+esc(t.id)+'\',\''+uIdEsc+'\')">'
@@ -124081,7 +124087,7 @@ console.log('? Global functions exported to window object');
                          +    '<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(t.vendor || '-')+'</td>'
                          +    '<td style="max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+utAssignedDisplayHtml(t.assignedTo || '')+'</td>'
                          +    '<td style="white-space:nowrap;">$'+Number(t.cost || 0).toFixed(2)+'</td>'
-                         +    '<td>'+filesHtml+'</td>'
+                         +    '<td style="min-width:130px;max-width:170px;">'+filesHtml+'</td>'
                          +  '</tr>';
                 });
             });
