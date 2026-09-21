@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260921-link-only-popover-v146';
+                const buildVersion = '20260921-service-attachment-view-v147';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -38565,6 +38565,39 @@
             return ['range', 'relative', 'none', 'asap'].includes(raw) ? raw : '';
         }
 
+        function getEquipmentServiceAttachmentIdCandidates(item) {
+            const seen = new Set();
+            return [
+                item?.id, item?.Id,
+                item?.attachmentId, item?.AttachmentId, item?.AttachmentID,
+                item?.fileId, item?.FileId,
+                item?.documentId, item?.DocumentId,
+                item?.blobId, item?.BlobId
+            ].map((value) => String(value || '').trim()).filter((value) => {
+                if (!value || seen.has(value)) return false;
+                seen.add(value);
+                return true;
+            });
+        }
+
+        function getEquipmentServiceAttachmentSourceValue(item) {
+            return String(
+                item?.data || item?.Data ||
+                item?.attachmentData || item?.AttachmentData ||
+                item?.dataUrl || item?.DataUrl ||
+                item?.url || item?.Url ||
+                item?.attachmentUrl || item?.AttachmentUrl ||
+                item?.fileUrl || item?.FileUrl ||
+                item?.downloadUrl || item?.DownloadUrl ||
+                item?.contentUrl || item?.ContentUrl ||
+                item?.blobUrl || item?.BlobUrl ||
+                item?.documentData || item?.DocumentData ||
+                item?.fileData || item?.FileData ||
+                item?.base64 || item?.Base64 ||
+                item?.dataBase64 || item?.DataBase64 || ''
+            ).trim();
+        }
+
         function normalizeEquipmentServiceCadence(value) {
             const raw = String(value || '').trim().toLowerCase();
             return ['daily', 'weekly', 'monthly', 'yearly'].includes(raw) ? raw : '';
@@ -38576,17 +38609,17 @@
                 : (source ? [source] : []);
 
             return list.map((item, index) => {
-                const data = String(item?.data || item?.attachmentData || item?.url || item?.attachmentUrl || '').trim();
-                const name = String(item?.name || item?.attachmentName || `Attachment ${index + 1}`).trim() || `Attachment ${index + 1}`;
-                const type = String(item?.type || item?.attachmentType || 'application/octet-stream').trim() || 'application/octet-stream';
-                const sizeBytes = Number(item?.sizeBytes ?? item?.size ?? 0) || 0;
-                const id = String(item?.id || `equip-service-file-${Date.now()}-${index}`).trim() || `equip-service-file-${Date.now()}-${index}`;
+                const data = getEquipmentServiceAttachmentSourceValue(item);
+                const name = String(item?.name || item?.Name || item?.attachmentName || item?.AttachmentName || item?.fileName || item?.FileName || `Attachment ${index + 1}`).trim() || `Attachment ${index + 1}`;
+                const type = String(item?.type || item?.Type || item?.attachmentType || item?.AttachmentType || item?.contentType || item?.ContentType || item?.mimeType || item?.MimeType || 'application/octet-stream').trim() || 'application/octet-stream';
+                const sizeBytes = Number(item?.sizeBytes ?? item?.SizeBytes ?? item?.size ?? item?.Size ?? item?.fileSize ?? item?.FileSize ?? 0) || 0;
+                const id = getEquipmentServiceAttachmentIdCandidates(item)[0] || `equip-service-file-${Date.now()}-${index}`;
                 const entry = {
                     id,
                     name,
                     type,
                     sizeBytes,
-                    uploadedAt: String(item?.uploadedAt || item?.createdAt || new Date().toISOString()).trim() || new Date().toISOString()
+                    uploadedAt: String(item?.uploadedAt || item?.UploadedAt || item?.createdAt || item?.CreatedAt || new Date().toISOString()).trim() || new Date().toISOString()
                 };
                 if (data) entry.data = data; // keep inline only when present (legacy / already-loaded)
                 return entry;
@@ -38602,7 +38635,7 @@
         }
 
         function buildEquipmentServiceAttachmentViewSource(attachment) {
-            const raw = String(attachment?.data || attachment?.attachmentData || attachment?.url || attachment?.attachmentUrl || '').trim();
+            const raw = getEquipmentServiceAttachmentSourceValue(attachment);
             if (!raw) return null;
             if (/^data:/i.test(raw) || /^blob:/i.test(raw) || /^https?:/i.test(raw) || /^file:/i.test(raw)) {
                 return {
@@ -38610,19 +38643,37 @@
                     revokeAfterOpen: false
                 };
             }
+            const compactRaw = raw.replace(/\s+/g, '');
+            if (compactRaw.length > 128 && /^[A-Za-z0-9+/]+={0,2}$/.test(compactRaw)) {
+                const mimeType = String(attachment?.type || attachment?.contentType || 'application/octet-stream').trim() || 'application/octet-stream';
+                return {
+                    url: `data:${mimeType};base64,${compactRaw}`,
+                    revokeAfterOpen: false
+                };
+            }
             return null;
         }
 
-        async function downloadEquipmentServiceAttachment(attachment) {
-            let resolved = attachment;
-            if (!String(resolved?.data || resolved?.attachmentData || resolved?.url || resolved?.attachmentUrl || '').trim() && String(resolved?.id || '').trim()) {
-                const data = await loadSvcAttachmentData(String(resolved.id));
-                if (data) resolved = { ...resolved, data };
+        async function resolveEquipmentServiceAttachmentForView(attachment) {
+            let resolved = attachment || {};
+            if (getEquipmentServiceAttachmentSourceValue(resolved)) return resolved;
+            const ids = getEquipmentServiceAttachmentIdCandidates(resolved);
+            for (const id of ids) {
+                const data = await loadSvcAttachmentData(id);
+                if (data) {
+                    resolved = { ...resolved, data };
+                    break;
+                }
             }
+            return resolved;
+        }
+
+        async function downloadEquipmentServiceAttachment(attachment) {
+            let resolved = await resolveEquipmentServiceAttachmentForView(attachment);
             const source = buildEquipmentServiceAttachmentViewSource(resolved);
             if (!source || !source.url) {
                 if (typeof showNotification === 'function') {
-                    showNotification('No attachment found for this service ticket.', 'warning');
+                    showNotification('The attachment file is missing. Please re-upload this service ticket attachment.', 'warning');
                 }
                 return;
             }
@@ -38649,15 +38700,11 @@
         }
 
         async function viewEquipmentServiceAttachment(attachment) {
-            let resolved = attachment;
-            if (!String(resolved?.data || resolved?.attachmentData || resolved?.url || resolved?.attachmentUrl || '').trim() && String(resolved?.id || '').trim()) {
-                const data = await loadSvcAttachmentData(String(resolved.id));
-                if (data) resolved = { ...resolved, data };
-            }
+            let resolved = await resolveEquipmentServiceAttachmentForView(attachment);
             const source = buildEquipmentServiceAttachmentViewSource(resolved);
             if (!source || !source.url) {
                 if (typeof showNotification === 'function') {
-                    showNotification('No attachment found for this service ticket.', 'warning');
+                    showNotification('The attachment file is missing. Please re-upload this service ticket attachment.', 'warning');
                 }
                 return;
             }
@@ -40610,7 +40657,13 @@
                 try {
                     const data = await readEquipmentServiceAttachmentAsDataUrl(file);
                     const attachmentId = `equip-service-file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                    await saveSvcAttachmentData(attachmentId, data).catch(() => {});
+                    const stored = await saveSvcAttachmentData(attachmentId, data).catch(() => false);
+                    if (!stored) {
+                        if (typeof showNotification === 'function') {
+                            showNotification(`Could not store "${String(file.name || 'attachment')}". Please try again.`, 'error');
+                        }
+                        continue;
+                    }
                     attachments.push({
                         id: attachmentId,
                         name: String(file.name || 'Attachment').trim() || 'Attachment',
@@ -40946,7 +40999,11 @@
                 try {
                     const data = await readEquipmentServiceAttachmentAsDataUrl(file);
                     const attachmentId = `equip-service-file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                    if (typeof saveSvcAttachmentData === 'function') await saveSvcAttachmentData(attachmentId, data).catch(() => {});
+                    const stored = (typeof saveSvcAttachmentData === 'function') ? await saveSvcAttachmentData(attachmentId, data).catch(() => false) : false;
+                    if (!stored) {
+                        if (typeof showNotification === 'function') showNotification(`Could not store "${String(file.name || 'attachment')}". Please try again.`, 'error');
+                        continue;
+                    }
                     list.push({
                         id: attachmentId,
                         name: String(file.name || 'Attachment').trim() || 'Attachment',
@@ -42772,9 +42829,29 @@
         const EQUIPMENT_DOCUMENT_STORAGE_STORE = 'documents';
         const EQUIPMENT_IMAGE_STORAGE_STORE = 'images';
         const EQUIPMENT_VIDEO_STORAGE_STORE = 'videos';
+        const EQUIPMENT_SERVICE_ATTACHMENT_STORAGE_STORE = 'svcAttachments';
+        const EQUIPMENT_DOCUMENT_STORAGE_VERSION = 6;
 
         function supportsEquipmentDocumentIndexedDb() {
             return typeof indexedDB !== 'undefined';
+        }
+
+        function ensureEquipmentDocumentStorageStores(db) {
+            if (!db.objectStoreNames.contains(EQUIPMENT_DOCUMENT_STORAGE_STORE)) {
+                db.createObjectStore(EQUIPMENT_DOCUMENT_STORAGE_STORE, { keyPath: 'id' });
+            }
+            if (!db.objectStoreNames.contains(EQUIPMENT_IMAGE_STORAGE_STORE)) {
+                db.createObjectStore(EQUIPMENT_IMAGE_STORAGE_STORE, { keyPath: 'id' });
+            }
+            if (!db.objectStoreNames.contains(EQUIPMENT_VIDEO_STORAGE_STORE)) {
+                db.createObjectStore(EQUIPMENT_VIDEO_STORAGE_STORE, { keyPath: 'id' });
+            }
+            if (!db.objectStoreNames.contains('gallery')) {
+                db.createObjectStore('gallery', { keyPath: 'id' });
+            }
+            if (!db.objectStoreNames.contains(EQUIPMENT_SERVICE_ATTACHMENT_STORAGE_STORE)) {
+                db.createObjectStore(EQUIPMENT_SERVICE_ATTACHMENT_STORAGE_STORE, { keyPath: 'id' });
+            }
         }
 
         function openEquipmentDocumentStorage() {
@@ -42783,29 +42860,31 @@
             }
 
             return new Promise((resolve, reject) => {
-                const request = indexedDB.open(EQUIPMENT_DOCUMENT_STORAGE_DB, 5);
+                const request = indexedDB.open(EQUIPMENT_DOCUMENT_STORAGE_DB);
 
                 request.onupgradeneeded = function(event) {
-                    const db = event.target.result;
-                    if (!db.objectStoreNames.contains(EQUIPMENT_DOCUMENT_STORAGE_STORE)) {
-                        db.createObjectStore(EQUIPMENT_DOCUMENT_STORAGE_STORE, { keyPath: 'id' });
-                    }
-                    if (!db.objectStoreNames.contains(EQUIPMENT_IMAGE_STORAGE_STORE)) {
-                        db.createObjectStore(EQUIPMENT_IMAGE_STORAGE_STORE, { keyPath: 'id' });
-                    }
-                    if (!db.objectStoreNames.contains(EQUIPMENT_VIDEO_STORAGE_STORE)) {
-                        db.createObjectStore(EQUIPMENT_VIDEO_STORAGE_STORE, { keyPath: 'id' });
-                    }
-                    if (!db.objectStoreNames.contains('gallery')) {
-                        db.createObjectStore('gallery', { keyPath: 'id' });
-                    }
-                    if (!db.objectStoreNames.contains('svcAttachments')) {
-                        db.createObjectStore('svcAttachments', { keyPath: 'id' });
-                    }
+                    ensureEquipmentDocumentStorageStores(event.target.result);
                 };
 
                 request.onsuccess = function(event) {
-                    resolve(event.target.result);
+                    const db = event.target.result;
+                    if (db.objectStoreNames.contains(EQUIPMENT_SERVICE_ATTACHMENT_STORAGE_STORE)) {
+                        resolve(db);
+                        return;
+                    }
+
+                    const repairVersion = Math.max(Number(db.version) || 1, EQUIPMENT_DOCUMENT_STORAGE_VERSION - 1) + 1;
+                    db.close();
+                    const repairRequest = indexedDB.open(EQUIPMENT_DOCUMENT_STORAGE_DB, repairVersion);
+                    repairRequest.onupgradeneeded = function(repairEvent) {
+                        ensureEquipmentDocumentStorageStores(repairEvent.target.result);
+                    };
+                    repairRequest.onsuccess = function(repairEvent) {
+                        resolve(repairEvent.target.result);
+                    };
+                    repairRequest.onerror = function() {
+                        reject(repairRequest.error || new Error('Failed to repair equipment document storage.'));
+                    };
                 };
 
                 request.onerror = function() {
@@ -42980,8 +43059,8 @@
             const payload = String(data || '').trim();
             if (!id || !payload) return Promise.resolve(false);
             return openEquipmentDocumentStorage().then((db) => new Promise((resolve, reject) => {
-                const tx = db.transaction('svcAttachments', 'readwrite');
-                tx.objectStore('svcAttachments').put({ id, data: payload, updatedAt: new Date().toISOString() });
+                const tx = db.transaction(EQUIPMENT_SERVICE_ATTACHMENT_STORAGE_STORE, 'readwrite');
+                tx.objectStore(EQUIPMENT_SERVICE_ATTACHMENT_STORAGE_STORE).put({ id, data: payload, updatedAt: new Date().toISOString() });
                 tx.oncomplete = function() { db.close(); resolve(true); };
                 tx.onerror = function() { db.close(); reject(tx.error || new Error('saveSvcAttachmentData failed')); };
             })).catch(() => false);
@@ -42991,8 +43070,8 @@
             const id = String(attachmentId || '').trim();
             if (!id) return Promise.resolve('');
             return openEquipmentDocumentStorage().then((db) => new Promise((resolve) => {
-                const tx = db.transaction('svcAttachments', 'readonly');
-                const req = tx.objectStore('svcAttachments').get(id);
+                const tx = db.transaction(EQUIPMENT_SERVICE_ATTACHMENT_STORAGE_STORE, 'readonly');
+                const req = tx.objectStore(EQUIPMENT_SERVICE_ATTACHMENT_STORAGE_STORE).get(id);
                 req.onsuccess = function() { db.close(); resolve(String(req.result?.data || '')); };
                 req.onerror = function() { db.close(); resolve(''); };
             })).catch(() => '');
@@ -43002,8 +43081,8 @@
             const id = String(attachmentId || '').trim();
             if (!id || !supportsEquipmentDocumentIndexedDb()) return Promise.resolve(false);
             return openEquipmentDocumentStorage().then((db) => new Promise((resolve) => {
-                const tx = db.transaction('svcAttachments', 'readwrite');
-                tx.objectStore('svcAttachments').delete(id);
+                const tx = db.transaction(EQUIPMENT_SERVICE_ATTACHMENT_STORAGE_STORE, 'readwrite');
+                tx.objectStore(EQUIPMENT_SERVICE_ATTACHMENT_STORAGE_STORE).delete(id);
                 tx.oncomplete = function() { db.close(); resolve(true); };
                 tx.onerror = function() { db.close(); resolve(false); };
             })).catch(() => false);
