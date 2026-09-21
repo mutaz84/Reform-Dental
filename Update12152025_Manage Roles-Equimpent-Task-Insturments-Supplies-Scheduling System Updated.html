@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260918-glance-drag-schedule-v140';
+                const buildVersion = '20260920-service-ticket-photo-edit-v142';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -40825,11 +40825,13 @@
             const finalCompleted = completedDate;
             const attachments = getSvcDetailAttachments();
             const links = getSvcDetailLinks();
+            const photos = getSvcDetailPhotos();
             const patch = {
                 title, type, priority, status, vendor, assignedEmployee, cost,
                 completedDate: finalCompleted,
                 attachments,
                 links,
+                photos,
                 ...schedule,
                 scheduledDate
             };
@@ -41001,6 +41003,103 @@
             setSvcDetailLinks(next);
         }
 
+        function normalizeSvcDetailPhotos(source) {
+            const list = Array.isArray(source) ? source : (source ? [source] : []);
+            return list.map((item, index) => {
+                const dataUrl = String((typeof item === 'string' ? item : (item?.dataUrl || item?.data || item?.url || item?.src || '')) || '').trim();
+                if (!dataUrl) return null;
+                return {
+                    id: String((typeof item === 'object' && item ? item.id : '') || `svc-detail-photo-${Date.now()}-${index}`).trim(),
+                    dataUrl,
+                    name: String((typeof item === 'object' && item ? (item.name || item.fileName || item.caption || '') : '') || '').trim(),
+                    addedAt: String((typeof item === 'object' && item ? (item.addedAt || item.createdAt || '') : '') || new Date().toISOString()).trim()
+                };
+            }).filter(Boolean);
+        }
+        function getSvcDetailPhotos() {
+            const raw = String(document.getElementById('svcDetailPhotosData')?.value || '[]');
+            try { return normalizeSvcDetailPhotos(JSON.parse(raw)); } catch (_) { return []; }
+        }
+        function setSvcDetailPhotos(list) {
+            const hidden = document.getElementById('svcDetailPhotosData');
+            const normalized = normalizeSvcDetailPhotos(list);
+            if (hidden) hidden.value = JSON.stringify(normalized);
+            renderSvcDetailPhotoList();
+        }
+        function renderSvcDetailPhotoList() {
+            const container = document.getElementById('svcDetailPhotoList');
+            if (!container) return;
+            const esc = (typeof escapeHtml === 'function') ? escapeHtml : (v) => String(v ?? '');
+            const photos = getSvcDetailPhotos();
+            if (!photos.length) {
+                container.innerHTML = '<div style="font-size:0.78rem;color:var(--text-secondary);">No photos added.</div>';
+                return;
+            }
+            container.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-start;">' + photos.map((photo, index) => {
+                return `<div style="position:relative;width:90px;height:90px;"><img src="${esc(photo.dataUrl)}" alt="Photo ${index + 1}" onclick="viewSvcDetailPhotos(${index})" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color);cursor:zoom-in;display:block;" title="Photo ${index + 1} - click to view"><button type="button" onclick="removeSvcDetailPhoto(${index})" title="Remove photo" style="position:absolute;top:-7px;right:-7px;width:22px;height:22px;border-radius:50%;border:none;background:#ef4444;color:#fff;font-size:13px;line-height:1;cursor:pointer;box-shadow:0 2px 6px rgba(15,23,42,0.22);">&times;</button></div>`;
+            }).join('') + '</div>';
+        }
+        function readSvcDetailPhotoAsDataUrl(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onerror = () => reject(new Error('Failed to read photo.'));
+                reader.onload = () => {
+                    const original = String(reader.result || '');
+                    const img = new Image();
+                    img.onload = () => {
+                        const max = 800;
+                        let width = img.width;
+                        let height = img.height;
+                        if (width > max || height > max) {
+                            if (width > height) { height = Math.round(height * max / width); width = max; }
+                            else { width = Math.round(width * max / height); height = max; }
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
+                        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.72));
+                    };
+                    img.onerror = () => resolve(original);
+                    img.src = original;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+        async function handleSvcDetailPhotosSelected(event) {
+            const files = Array.from(event?.target?.files || []);
+            if (!files.length) return;
+            let photos = getSvcDetailPhotos();
+            for (const file of files) {
+                if (photos.length >= 10) {
+                    if (typeof showNotification === 'function') showNotification('You can upload up to 10 photos per service ticket.', 'warning');
+                    break;
+                }
+                if (!String(file?.type || '').startsWith('image/')) continue;
+                try {
+                    const dataUrl = await readSvcDetailPhotoAsDataUrl(file);
+                    photos.push({
+                        id: `svc-detail-photo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        dataUrl,
+                        name: String(file.name || 'Photo').trim() || 'Photo',
+                        addedAt: new Date().toISOString()
+                    });
+                } catch (_) {
+                    if (typeof showNotification === 'function') showNotification(`Failed to read "${String(file?.name || 'photo')}".`, 'error');
+                }
+            }
+            setSvcDetailPhotos(photos);
+            if (event?.target) event.target.value = '';
+        }
+        function removeSvcDetailPhoto(index) {
+            const photos = getSvcDetailPhotos();
+            photos.splice(Number(index) || 0, 1);
+            setSvcDetailPhotos(photos);
+        }
+        function viewSvcDetailPhotos(index) {
+            const urls = getSvcDetailPhotos().map((photo) => photo.dataUrl).filter(Boolean);
+            if (urls.length && typeof openSvcPhotoSlideshow === 'function') openSvcPhotoSlideshow(urls, Number(index) || 0);
+        }
         function openEquipmentServiceDetails(ticketId, equipmentID) {
             const ticket = getEquipmentServiceTicketById(ticketId, equipmentID);
             if (!ticket) {
@@ -41052,7 +41151,7 @@
                 }).join('')
                 : '<div style="font-size:0.82rem; color:var(--text-secondary);">No links added.</div>';
 
-            const detailPhotos = Array.isArray(ticket.photos) && ticket.photos.length ? ticket.photos : (ticket.thumbPhoto ? [{id:'legacy', dataUrl:ticket.thumbPhoto}] : []);
+            const detailPhotos = normalizeSvcDetailPhotos(Array.isArray(ticket.photos) && ticket.photos.length ? ticket.photos : (ticket.thumbPhoto ? [{id:'legacy', dataUrl:ticket.thumbPhoto}] : []));
             const modalHtml = `
                 <div id="equipmentServiceDetailsModal" style="position:fixed; inset:0; z-index:10170; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; padding:1rem;">
                     <div style="width:min(760px,96vw); max-height:92vh; overflow:auto; background:var(--bg-primary); border:1px solid var(--border-color); border-radius:12px; box-shadow:0 20px 50px rgba(15,23,42,0.22);">
@@ -41098,13 +41197,21 @@
                                 <div style="padding:0.75rem; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-secondary);"><div style="font-size:0.72rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.05em;">Assigned To</div><select id="svcDetailAssigned" style="margin-top:0.3rem; width:100%; padding:0.4rem 0.5rem; border:1px solid var(--border-color); border-radius:6px; background:var(--bg-primary); color:var(--text-primary); font-weight:700; box-sizing:border-box;">${svcDetailEmployeeOptionsHtml(ticket.assignedEmployee || '')}</select></div>
                                 <div style="padding:0.75rem; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-secondary);"><div style="font-size:0.72rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.05em;">Cost</div><input type="number" id="svcDetailCost" min="0" step="0.01" value="${Number(ticket.cost || 0).toFixed(2)}" style="margin-top:0.3rem; width:100%; padding:0.4rem 0.5rem; border:1px solid var(--border-color); border-radius:6px; background:var(--bg-primary); color:var(--text-primary); font-weight:700; box-sizing:border-box;"></div>
                             </div>
-                            ${detailPhotos.length ? `
-                            <div style="padding:0.85rem; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-secondary);">
-                                <div style="font-size:0.8rem; font-weight:700; color:var(--text-primary); margin-bottom:0.55rem;">Problem Photos (${detailPhotos.length})</div>
-                                <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-start;">
-                                    ${detailPhotos.map((p,i) => `<img src="${p.dataUrl}" alt="Photo ${i+1}" onclick="openSvcTicketPhotos('${esc(ticket.id)}',${Number(ticket.equipmentID)||0},${i})" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color);cursor:zoom-in;" title="Photo ${i+1} • click to view slideshow">`).join('')}
+                            <div style="padding:0.85rem; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-secondary); display:grid; gap:0.55rem;">
+                                <div style="font-size:0.8rem; font-weight:700; color:var(--text-primary);">Problem Photos</div>
+                                <input type="hidden" id="svcDetailPhotosData" value="[]">
+                                <div id="svcDetailPhotoList" style="display:grid; gap:0.4rem;"></div>
+                                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+                                    <label style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.45rem 0.75rem;border:1px dashed var(--border-color);border-radius:8px;cursor:pointer;font-size:0.82rem;color:var(--text-secondary);align-self:flex-start;">
+                                        <i class="fas fa-plus-circle" style="color:#0284c7;"></i> Add Photo
+                                        <input type="file" accept="image/*" multiple style="display:none;" onchange="handleSvcDetailPhotosSelected(event)">
+                                    </label>
+                                    <label style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.45rem 0.75rem;border:1px dashed var(--border-color);border-radius:8px;cursor:pointer;font-size:0.82rem;color:var(--text-secondary);align-self:flex-start;">
+                                        <i class="fas fa-camera" style="color:#0284c7;"></i> Take Photo
+                                        <input type="file" accept="image/*" capture="environment" style="display:none;" onchange="handleSvcDetailPhotosSelected(event)">
+                                    </label>
                                 </div>
-                            </div>` : ''}
+                            </div>
                             <div style="padding:0.85rem; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-secondary); display:grid; gap:0.55rem;">
                                 <div style="font-size:0.8rem; font-weight:700; color:var(--text-primary);">Attachments</div>
                                 <input type="hidden" id="svcDetailAttachmentsData" value="">
@@ -41144,6 +41251,9 @@
             document.body.insertAdjacentHTML('beforeend', modalHtml);
             // Seed the editable attachment/link state from the ticket and render the lists.
             try {
+                const hiddenP = document.getElementById('svcDetailPhotosData');
+                if (hiddenP) hiddenP.value = JSON.stringify(normalizeSvcDetailPhotos(detailPhotos));
+                renderSvcDetailPhotoList();
                 const hiddenA = document.getElementById('svcDetailAttachmentsData');
                 if (hiddenA) hiddenA.value = JSON.stringify(normalizeEquipmentServiceAttachments(attachments));
                 renderSvcDetailAttachmentList();
@@ -124637,6 +124747,98 @@ console.log('? Global functions exported to window object');
             var m = document.getElementById('utilityServiceDetailsModal');
             if (m) m.remove();
         }
+        function _utNormalizeDetailPhotos(source) {
+            var list = Array.isArray(source) ? source : (source ? [source] : []);
+            return list.map(function(item, index) {
+                var dataUrl = String((typeof item === 'string' ? item : ((item && (item.dataUrl || item.data || item.url || item.src)) || '')) || '').trim();
+                if (!dataUrl) return null;
+                return {
+                    id: String((item && typeof item === 'object' && item.id) || ('ut-detail-photo-' + Date.now() + '-' + index)).trim(),
+                    dataUrl: dataUrl,
+                    name: String((item && typeof item === 'object' && (item.name || item.fileName || item.caption)) || '').trim(),
+                    addedAt: String((item && typeof item === 'object' && (item.addedAt || item.createdAt)) || new Date().toISOString()).trim()
+                };
+            }).filter(Boolean);
+        }
+        function getUtDetailPhotos() {
+            var raw = String((document.getElementById('utDetailPhotosData') || {}).value || '[]');
+            try { return _utNormalizeDetailPhotos(JSON.parse(raw)); } catch (_) { return []; }
+        }
+        function setUtDetailPhotos(list) {
+            var normalized = _utNormalizeDetailPhotos(list);
+            var hidden = document.getElementById('utDetailPhotosData');
+            if (hidden) hidden.value = JSON.stringify(normalized);
+            renderUtDetailPhotoList();
+        }
+        function renderUtDetailPhotoList() {
+            var container = document.getElementById('utDetailPhotoList');
+            if (!container) return;
+            var photos = getUtDetailPhotos();
+            if (!photos.length) {
+                container.innerHTML = '<div style="font-size:0.78rem;color:var(--text-secondary);">No photos added.</div>';
+                return;
+            }
+            container.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-start;">' + photos.map(function(photo, index) {
+                return '<div style="position:relative;width:90px;height:90px;"><img src="'+esc(photo.dataUrl || '')+'" alt="Photo '+(index + 1)+'" onclick="viewUtDetailPhotos('+index+')" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color);cursor:zoom-in;display:block;" title="Photo '+(index + 1)+' - click to view"><button type="button" onclick="removeUtDetailPhoto('+index+')" title="Remove photo" style="position:absolute;top:-7px;right:-7px;width:22px;height:22px;border-radius:50%;border:none;background:#ef4444;color:#fff;font-size:13px;line-height:1;cursor:pointer;box-shadow:0 2px 6px rgba(15,23,42,0.22);">&times;</button></div>';
+            }).join('') + '</div>';
+        }
+        function readUtDetailPhotoAsDataUrl(file) {
+            return new Promise(function(resolve, reject) {
+                var reader = new FileReader();
+                reader.onerror = function(){ reject(new Error('Failed to read photo.')); };
+                reader.onload = function(e) {
+                    var original = String(e.target && e.target.result || '');
+                    var img = new Image();
+                    img.onload = function() {
+                        var max = 800;
+                        var width = img.width;
+                        var height = img.height;
+                        if (width > max || height > max) {
+                            if (width > height) { height = Math.round(height * max / width); width = max; }
+                            else { width = Math.round(width * max / height); height = max; }
+                        }
+                        var canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
+                        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.72));
+                    };
+                    img.onerror = function(){ resolve(original); };
+                    img.src = original;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+        async function handleUtDetailPhotosSelected(event) {
+            var files = Array.from((event && event.target && event.target.files) || []);
+            if (!files.length) return;
+            var photos = getUtDetailPhotos();
+            for (var i = 0; i < files.length; i++) {
+                var file = files[i];
+                if (photos.length >= 10) {
+                    if (typeof showNotification === 'function') showNotification('You can upload up to 10 photos per service ticket.', 'warning');
+                    break;
+                }
+                if (!String(file && file.type || '').startsWith('image/')) continue;
+                try {
+                    var dataUrl = await readUtDetailPhotoAsDataUrl(file);
+                    photos.push({ id: 'ut-detail-photo-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8), dataUrl: dataUrl, name: String(file.name || 'Photo').trim() || 'Photo', addedAt: new Date().toISOString() });
+                } catch (_) {
+                    if (typeof showNotification === 'function') showNotification('Failed to read "' + String(file && file.name || 'photo') + '".', 'error');
+                }
+            }
+            setUtDetailPhotos(photos);
+            if (event && event.target) event.target.value = '';
+        }
+        function removeUtDetailPhoto(index) {
+            var photos = getUtDetailPhotos();
+            photos.splice(Number(index) || 0, 1);
+            setUtDetailPhotos(photos);
+        }
+        function viewUtDetailPhotos(index) {
+            var urls = getUtDetailPhotos().map(function(photo){ return photo && photo.dataUrl; }).filter(Boolean);
+            if (urls.length && typeof openSvcPhotoSlideshow === 'function') openSvcPhotoSlideshow(urls, Number(index) || 0);
+        }
         function openUtilityServiceDetails(ticketId, utilityId) {
             var idStr = String(ticketId || '').trim();
             var uIdStr = String(utilityId || '').trim();
@@ -124681,14 +124883,20 @@ console.log('? Global functions exported to window object');
                 }).join('')
                 : '<div style="font-size:0.78rem;color:var(--text-secondary);">No links added.</div>';
 
-            var photosMarkup = photos.length
-                ? '<div style="padding:0.85rem;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-secondary);">'
-                  + '<div style="font-size:0.8rem;font-weight:700;color:var(--text-primary);margin-bottom:0.55rem;">Photos ('+photos.length+')</div>'
-                  + '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-start;">'
-                  + photos.map(function(p, i) { return '<img src="'+esc(p.dataUrl||'')+'" alt="Photo '+(i+1)+'" onclick="openUtilityServiceTicketPhotos(\''+esc(ticket.id)+'\','+i+')" title="Photo '+(i+1)+' \u2014 click for slideshow" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color);cursor:zoom-in;">'; }).join('')
-                  + '</div></div>'
-                : '';
-
+            var photosMarkup = '<div style="padding:0.85rem;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-secondary);display:grid;gap:0.55rem;">'
+                + '<div style="font-size:0.8rem;font-weight:700;color:var(--text-primary);">Problem Photos</div>'
+                + '<input type="hidden" id="utDetailPhotosData" value="[]">'
+                + '<div id="utDetailPhotoList" style="display:grid;gap:0.4rem;"></div>'
+                + '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">'
+                +   '<label style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.45rem 0.75rem;border:1px dashed var(--border-color);border-radius:8px;cursor:pointer;font-size:0.82rem;color:var(--text-secondary);align-self:flex-start;">'
+                +     '<i class="fas fa-plus-circle" style="color:#0284c7;"></i> Add Photo'
+                +     '<input type="file" accept="image/*" multiple style="display:none;" onchange="handleUtDetailPhotosSelected(event)">'
+                +   '</label>'
+                +   '<label style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.45rem 0.75rem;border:1px dashed var(--border-color);border-radius:8px;cursor:pointer;font-size:0.82rem;color:var(--text-secondary);align-self:flex-start;">'
+                +     '<i class="fas fa-camera" style="color:#0284c7;"></i> Take Photo'
+                +     '<input type="file" accept="image/*" capture="environment" style="display:none;" onchange="handleUtDetailPhotosSelected(event)">'
+                +   '</label>'
+                + '</div></div>';
             var freqOptsHtml = ['One-Time','Daily','Weekly','Bi-Weekly','Monthly','Quarterly','Yearly'].map(function(f) {
                 return '<option value="'+f+'"'+(f===(ticket.frequency||'One-Time')?' selected':'')+'>'+f+'</option>';
             }).join('');
@@ -124755,6 +124963,9 @@ console.log('? Global functions exported to window object');
 
             document.body.insertAdjacentHTML('beforeend', modalHtml);
             try {
+                var hiddenP = document.getElementById('utDetailPhotosData');
+                if (hiddenP) hiddenP.value = JSON.stringify(_utNormalizeDetailPhotos(photos));
+                renderUtDetailPhotoList();
                 var hiddenA = document.getElementById('utDetailAttachmentsData');
                 if (hiddenA) hiddenA.value = JSON.stringify(_utNormalizeAttachments(attachments));
                 renderUtDetailAttachmentList();
@@ -124801,6 +125012,7 @@ console.log('? Global functions exported to window object');
 
             var attachments = getUtDetailAttachments();
             var links       = getUtDetailLinks();
+            var photos      = getUtDetailPhotos();
 
             var prevStatus = existing.status;
             var updated = Object.assign({}, existing, {
@@ -124816,7 +125028,8 @@ console.log('? Global functions exported to window object');
                 cost:         costRaw !== '' ? parseFloat(costRaw) : null,
                 completedDate: finalCompleted,
                 attachments:  attachments,
-                links:        links
+                links:        links,
+                photos:       photos
             });
 
             all[idx] = updated;
@@ -125003,6 +125216,9 @@ console.log('? Global functions exported to window object');
         window.handleUtDetailAttachmentsSelected = handleUtDetailAttachmentsSelected;
         window.downloadUtDetailAttachment        = downloadUtDetailAttachment;
         window.removeUtDetailAttachment          = removeUtDetailAttachment;
+        window.handleUtDetailPhotosSelected      = handleUtDetailPhotosSelected;
+        window.removeUtDetailPhoto               = removeUtDetailPhoto;
+        window.viewUtDetailPhotos                = viewUtDetailPhotos;
         window.addUtDetailLink                   = addUtDetailLink;
         window.removeUtDetailLink                = removeUtDetailLink;
         window.renderUtilityServiceJournal       = renderUtilityServiceJournal;
