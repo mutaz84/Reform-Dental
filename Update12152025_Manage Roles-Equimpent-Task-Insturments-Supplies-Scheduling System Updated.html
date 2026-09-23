@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260923-dashboard-widget-controls-v149';
+                const buildVersion = '20260923-dashboard-layout-widgets-v150';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -56910,6 +56910,9 @@
             card.style.position = isFullscreen ? 'fixed' : 'relative';
             card.style.boxSizing = 'border-box';
             card.style.maxWidth = 'none';
+            card.style.cursor = isFullscreen ? '' : 'grab';
+            card.style.gridColumn = isFullscreen ? '' : `span ${Math.max(1, Math.min(2, Number(state.colSpan || 1)))}`;
+            card.style.order = isFullscreen ? '' : String(Number(state.order || card.dataset.dashboardWidgetDefaultOrder || 0) || 0);
             if (isFullscreen) {
                 card.style.inset = '12px';
                 card.style.width = 'auto';
@@ -56925,9 +56928,40 @@
             card.style.zIndex = state.zIndex ? String(state.zIndex) : '';
             card.style.overflow = state.height ? 'auto' : '';
             card.style.boxShadow = '';
-            if (state.width) card.style.width = `${Math.max(180, Number(state.width) || 0)}px`;
+            card.style.width = '100%';
             if (state.height) card.style.height = `${Math.max(90, Number(state.height) || 0)}px`;
-            card.style.transform = (state.x || state.y) ? `translate(${Number(state.x) || 0}px, ${Number(state.y) || 0}px)` : '';
+            else card.style.height = '';
+            card.style.transform = '';
+        }
+
+        function dashboardWidgetGridFor(card) {
+            return card.closest('[data-dashboard-widget-grid="right"],[data-dashboard-widget-grid="topbar"],[data-dashboard-widget-grid="calendar"]') || card.parentElement;
+        }
+
+        function normalizeDashboardWidgetOrder(grid) {
+            if (!grid) return;
+            Array.from(grid.querySelectorAll(':scope > .rd-dashboard-widget')).forEach((card, index) => {
+                const widgetId = card.dataset.dashboardWidgetId;
+                if (!widgetId) return;
+                const state = loadDashboardWidgetState(widgetId);
+                const nextOrder = (index + 1) * 10;
+                state.order = nextOrder;
+                card.style.order = String(nextOrder);
+                saveDashboardWidgetState(widgetId, state);
+            });
+        }
+
+        function moveDashboardWidgetCard(card, direction) {
+            const grid = dashboardWidgetGridFor(card);
+            if (!grid) return;
+            const cards = Array.from(grid.querySelectorAll(':scope > .rd-dashboard-widget'));
+            const index = cards.indexOf(card);
+            if (index < 0) return;
+            const targetIndex = Math.max(0, Math.min(cards.length - 1, index + direction));
+            if (targetIndex === index) return;
+            if (targetIndex > index) grid.insertBefore(card, cards[targetIndex].nextSibling);
+            else grid.insertBefore(card, cards[targetIndex]);
+            normalizeDashboardWidgetOrder(grid);
         }
 
         function getDashboardWidgetCards() {
@@ -56942,21 +56976,28 @@
             return cards;
         }
 
-        function setDashboardWidgetDrag(card, widgetId, handle) {
-            handle.onpointerdown = function(event) {
+        function setDashboardWidgetDrag(card, widgetId) {
+            card.onpointerdown = function(event) {
                 if (!event || event.button === 2) return;
+                if (event.target?.closest?.('button,input,select,textarea,a,[data-dashboard-widget-resize],[data-entry-kind],[data-dashboard-event-id]')) return;
                 event.preventDefault();
                 event.stopPropagation();
-                const state = loadDashboardWidgetState(widgetId);
-                const start = { x: event.clientX, y: event.clientY, stateX: Number(state.x || 0), stateY: Number(state.y || 0) };
+                const start = { x: event.clientX, y: event.clientY, movedSteps: 0 };
+                card.style.cursor = 'grabbing';
                 const move = (moveEvent) => {
-                    state.x = start.stateX + (moveEvent.clientX - start.x);
-                    state.y = start.stateY + (moveEvent.clientY - start.y);
-                    state.zIndex = 60;
-                    applyDashboardWidgetState(card, state);
+                    const dx = moveEvent.clientX - start.x;
+                    const dy = moveEvent.clientY - start.y;
+                    const step = Math.abs(dx) >= Math.abs(dy)
+                        ? Math.trunc(dx / 90)
+                        : Math.trunc(dy / 70);
+                    if (step && step !== start.movedSteps) {
+                        moveDashboardWidgetCard(card, step > start.movedSteps ? 1 : -1);
+                        start.movedSteps = step;
+                    }
                 };
                 const stop = () => {
-                    saveDashboardWidgetState(widgetId, state);
+                    card.style.cursor = 'grab';
+                    applyDashboardWidgetState(card, loadDashboardWidgetState(widgetId));
                     document.removeEventListener('pointermove', move);
                     document.removeEventListener('pointerup', stop);
                     document.removeEventListener('pointercancel', stop);
@@ -56975,29 +57016,26 @@
                 const dir = String(handle.dataset.dashboardWidgetResize || 'se');
                 const state = loadDashboardWidgetState(widgetId);
                 const rect = card.getBoundingClientRect();
+                const grid = dashboardWidgetGridFor(card);
+                const gridWidth = grid?.getBoundingClientRect?.().width || rect.width;
                 const start = {
                     x: event.clientX,
                     y: event.clientY,
-                    width: Number(state.width || rect.width),
                     height: Number(state.height || rect.height),
-                    stateX: Number(state.x || 0),
-                    stateY: Number(state.y || 0)
+                    colSpan: Math.max(1, Math.min(2, Number(state.colSpan || 1)))
                 };
                 const move = (moveEvent) => {
                     const dx = moveEvent.clientX - start.x;
                     const dy = moveEvent.clientY - start.y;
-                    let nextWidth = start.width;
                     let nextHeight = start.height;
-                    let nextX = start.stateX;
-                    let nextY = start.stateY;
-                    if (dir.includes('e')) nextWidth = start.width + dx;
+                    let nextSpan = start.colSpan;
+                    if (dir.includes('e') && dx > Math.max(120, gridWidth * 0.18)) nextSpan = 2;
+                    if (dir.includes('w') && dx < -Math.max(120, gridWidth * 0.18)) nextSpan = 2;
+                    if ((dir.includes('e') && dx < -90) || (dir.includes('w') && dx > 90)) nextSpan = 1;
                     if (dir.includes('s')) nextHeight = start.height + dy;
-                    if (dir.includes('w')) { nextWidth = start.width - dx; nextX = start.stateX + dx; }
-                    if (dir.includes('n')) { nextHeight = start.height - dy; nextY = start.stateY + dy; }
-                    state.width = Math.max(180, Math.min(window.innerWidth - 24, nextWidth));
+                    if (dir.includes('n')) nextHeight = start.height - dy;
+                    state.colSpan = nextSpan;
                     state.height = Math.max(90, Math.min(window.innerHeight - 24, nextHeight));
-                    state.x = nextX;
-                    state.y = nextY;
                     state.zIndex = 70;
                     applyDashboardWidgetState(card, state);
                 };
@@ -57025,12 +57063,13 @@
             if (!document.getElementById('dashboardWidgetControlsStyles')) {
                 const style = document.createElement('style');
                 style.id = 'dashboardWidgetControlsStyles';
-                style.textContent = '.rd-dashboard-widget-toolbar{position:absolute;right:6px;top:6px;display:inline-flex;gap:3px;z-index:55;opacity:.38;transition:opacity .15s ease;touch-action:none}.rd-dashboard-widget:hover>.rd-dashboard-widget-toolbar,.rd-dashboard-widget:focus-within>.rd-dashboard-widget-toolbar{opacity:1}.rd-dashboard-widget-btn{width:24px;height:24px;border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);color:var(--text-secondary,#64748b);border-radius:5px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:.66rem}.rd-dashboard-widget-resize{position:absolute;z-index:54;background:transparent;touch-action:none}.rd-dashboard-widget-resize[data-dashboard-widget-resize="n"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="s"]{left:12px;right:12px;height:8px;cursor:ns-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="n"]{top:-4px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="s"]{bottom:-4px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="e"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="w"]{top:12px;bottom:12px;width:8px;cursor:ew-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="e"]{right:-4px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="w"]{left:-4px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="ne"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="nw"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="se"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="sw"]{width:12px;height:12px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="ne"]{top:-5px;right:-5px;cursor:nesw-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="nw"]{top:-5px;left:-5px;cursor:nwse-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="se"]{bottom:-5px;right:-5px;cursor:nwse-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="sw"]{bottom:-5px;left:-5px;cursor:nesw-resize}';
+                style.textContent = '.rd-dashboard-widget-grid{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))!important;gap:.6rem!important;align-items:start!important}.rd-dashboard-widget{min-width:0}.rd-dashboard-widget-toolbar{position:absolute;right:6px;top:6px;display:inline-flex;gap:3px;z-index:55;opacity:.38;transition:opacity .15s ease;touch-action:none}.rd-dashboard-widget:hover>.rd-dashboard-widget-toolbar,.rd-dashboard-widget:focus-within>.rd-dashboard-widget-toolbar{opacity:1}.rd-dashboard-widget-btn{width:24px;height:24px;border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);color:var(--text-secondary,#64748b);border-radius:5px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:.66rem}.rd-dashboard-widget-resize{position:absolute;z-index:54;background:transparent;touch-action:none}.rd-dashboard-widget-resize[data-dashboard-widget-resize="n"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="s"]{left:12px;right:12px;height:8px;cursor:ns-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="n"]{top:-4px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="s"]{bottom:-4px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="e"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="w"]{top:12px;bottom:12px;width:8px;cursor:ew-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="e"]{right:-4px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="w"]{left:-4px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="ne"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="nw"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="se"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="sw"]{width:12px;height:12px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="ne"]{top:-5px;right:-5px;cursor:nesw-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="nw"]{top:-5px;left:-5px;cursor:nwse-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="se"]{bottom:-5px;right:-5px;cursor:nwse-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="sw"]{bottom:-5px;left:-5px;cursor:nesw-resize}';
                 document.head.appendChild(style);
             }
 
             getDashboardWidgetCards().forEach((card, index) => {
                 const widgetId = dashboardWidgetIdFor(card, index);
+                if (!card.dataset.dashboardWidgetDefaultOrder) card.dataset.dashboardWidgetDefaultOrder = String((index + 1) * 10);
                 if (card.dataset.dashboardWidgetEnhanced === '1') {
                     applyDashboardWidgetState(card, loadDashboardWidgetState(widgetId));
                     return;
@@ -57039,9 +57078,9 @@
                 card.classList.add('rd-dashboard-widget');
                 const toolbar = document.createElement('span');
                 toolbar.className = 'rd-dashboard-widget-toolbar';
-                toolbar.innerHTML = '<button type="button" class="rd-dashboard-widget-btn" data-dashboard-widget-move="1" title="Move" aria-label="Move"><i class="fas fa-arrows-alt"></i></button><button type="button" class="rd-dashboard-widget-btn" data-dashboard-widget-fullscreen="1" title="Full size" aria-label="Full size"><i class="fas fa-expand"></i></button>';
+                toolbar.innerHTML = '<button type="button" class="rd-dashboard-widget-btn" data-dashboard-widget-fullscreen="1" title="Full size" aria-label="Full size"><i class="fas fa-expand"></i></button>';
                 card.appendChild(toolbar);
-                setDashboardWidgetDrag(card, widgetId, toolbar.querySelector('[data-dashboard-widget-move]'));
+                setDashboardWidgetDrag(card, widgetId);
                 toolbar.querySelector('[data-dashboard-widget-fullscreen]').onclick = (event) => { event.preventDefault(); event.stopPropagation(); toggleDashboardWidgetFullscreen(card, widgetId); };
                 ['n','s','e','w','ne','nw','se','sw'].forEach((dir) => {
                     const handle = document.createElement('span');
@@ -57053,6 +57092,7 @@
                 });
                 applyDashboardWidgetState(card, loadDashboardWidgetState(widgetId));
             });
+            document.querySelectorAll('[data-dashboard-calendar-resize-edge="true"],[data-dashboard-glance-resize-edge="true"]').forEach((edge) => edge.remove());
         }
 
         function renderDashboardOperationsPanel(target) {
@@ -58364,13 +58404,13 @@
             const entries = getDashboardAttendanceEntries();
             const identity = getDashboardCurrentUserClockStatus();
             target.innerHTML = `
-                <div class="rd-dashboard-topbar" style="margin-bottom:0.45rem;min-height:0;">
+                <div class="rd-dashboard-topbar rd-dashboard-widget-grid" data-dashboard-widget-grid="topbar" style="margin-bottom:0.45rem;min-height:0;">
                     <div class="rd-dashboard-location" style="padding:0.55rem 0.75rem;"><i class="fas fa-map-marker-alt"></i><div><strong>${escapeDashboardHtml(clinic.name)}</strong><span>${escapeDashboardHtml(clinic.address)}</span></div></div>
                     <div style="display:flex;align-items:center;gap:.4rem;margin-left:.6rem;padding:.3rem .6rem;border:1px solid var(--border-color,#e5e7eb);border-radius:8px;background:var(--card-bg,#fff);"><i class="fas fa-user-circle" style="color:var(--text-secondary,#64748b);"></i><strong style="font-size:.8rem;">${escapeDashboardHtml(identity.name)}</strong><span style="font-size:.7rem;font-weight:700;color:${identity.color};border:1px solid ${identity.color};border-radius:999px;padding:.05rem .5rem;">${escapeDashboardHtml(identity.status)}</span></div>
                 </div>
                 <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,var(--dashboard-glance-width,360px));gap:.8rem;align-items:start;">
-                    <div id="dashboardCalendarPanel"></div>
-                    <div>
+                    <div id="dashboardCalendarPanel" data-dashboard-widget-grid="calendar"></div>
+                    <div class="rd-dashboard-widget-grid" data-dashboard-widget-grid="right">
                 <div class="rd-dashboard-panel" style="width:100%;padding:0.55rem 0.7rem;">
                     <h3 style="margin:0 0 0.35rem;font-size:1rem;"><i class="fas fa-user-clock" style="color:#2563eb;margin-right:0.45rem;"></i>Today's Attendance</h3>
                     <div class="rd-dashboard-list">
