@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260923-dashboard-widget-dragdrop-v151';
+                const buildVersion = '20260923-dashboard-glance-sections-v148';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -56874,268 +56874,6 @@
             document.addEventListener('pointercancel', stop);
         };
 
-        function dashboardWidgetStateKey(widgetId) {
-            return `rd:dashboardWidget:${widgetId}`;
-        }
-
-        function loadDashboardWidgetState(widgetId) {
-            try {
-                const parsed = JSON.parse(localStorage.getItem(dashboardWidgetStateKey(widgetId)) || '{}');
-                return parsed && typeof parsed === 'object' ? parsed : {};
-            } catch (_) {
-                return {};
-            }
-        }
-
-        function saveDashboardWidgetState(widgetId, state) {
-            try { localStorage.setItem(dashboardWidgetStateKey(widgetId), JSON.stringify(state || {})); } catch (_) {}
-        }
-
-        function dashboardWidgetSlug(value, fallback) {
-            return String(value || fallback || 'widget').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || fallback || 'widget';
-        }
-
-        function dashboardWidgetIdFor(card, index) {
-            if (card.dataset.dashboardWidgetId) return card.dataset.dashboardWidgetId;
-            const root = card.closest('#managerDashboardLanding,#userDashboardLanding');
-            const rootId = root?.id || 'dashboard';
-            const title = card.querySelector('h3')?.textContent || card.querySelector('strong')?.textContent || card.getAttribute('aria-label') || card.className || 'widget';
-            const widgetId = `${rootId}-${dashboardWidgetSlug(title, 'widget')}-${index}`;
-            card.dataset.dashboardWidgetId = widgetId;
-            return widgetId;
-        }
-
-        function applyDashboardWidgetState(card, state = {}) {
-            const isFullscreen = card.dataset.dashboardWidgetFullscreen === '1';
-            card.style.position = isFullscreen ? 'fixed' : 'relative';
-            card.style.boxSizing = 'border-box';
-            card.style.maxWidth = 'none';
-            card.style.cursor = isFullscreen ? '' : 'grab';
-            card.style.gridColumn = isFullscreen ? '' : `span ${Math.max(1, Math.min(2, Number(state.colSpan || 1)))}`;
-            card.style.order = isFullscreen ? '' : String(Number(state.order || card.dataset.dashboardWidgetDefaultOrder || 0) || 0);
-            if (isFullscreen) {
-                card.style.inset = '12px';
-                card.style.width = 'auto';
-                card.style.height = 'auto';
-                card.style.transform = 'none';
-                card.style.zIndex = '10020';
-                card.style.overflow = 'auto';
-                card.style.margin = '0';
-                card.style.boxShadow = '0 18px 60px rgba(15,23,42,.28)';
-                return;
-            }
-            card.style.inset = '';
-            card.style.zIndex = state.zIndex ? String(state.zIndex) : '';
-            card.style.overflow = state.height ? 'auto' : '';
-            card.style.boxShadow = '';
-            card.style.width = '100%';
-            if (state.height) card.style.height = `${Math.max(90, Number(state.height) || 0)}px`;
-            else card.style.height = '';
-            card.style.transform = '';
-        }
-
-        function dashboardWidgetGridFor(card) {
-            return card.closest('[data-dashboard-widget-grid="right"],[data-dashboard-widget-grid="topbar"],[data-dashboard-widget-grid="calendar"]') || card.parentElement;
-        }
-
-        function dashboardWidgetGridName(grid) {
-            return String(grid?.dataset?.dashboardWidgetGrid || '').trim();
-        }
-
-        function restoreDashboardWidgetGrid(card, state) {
-            const targetName = String(state?.grid || '').trim();
-            if (!targetName || targetName === dashboardWidgetGridName(dashboardWidgetGridFor(card))) return;
-            if (!['right', 'topbar', 'calendar'].includes(targetName)) return;
-            const root = card.closest('#managerDashboardLanding,#userDashboardLanding') || document;
-            const targetGrid = root.querySelector(`[data-dashboard-widget-grid="${targetName}"]`);
-            if (targetGrid && targetGrid !== card.parentElement) targetGrid.appendChild(card);
-        }
-
-        function normalizeDashboardWidgetOrder(grid) {
-            if (!grid) return;
-            Array.from(grid.querySelectorAll(':scope > .rd-dashboard-widget')).forEach((card, index) => {
-                const widgetId = card.dataset.dashboardWidgetId;
-                if (!widgetId) return;
-                const state = loadDashboardWidgetState(widgetId);
-                const nextOrder = (index + 1) * 10;
-                state.order = nextOrder;
-                state.grid = dashboardWidgetGridName(grid);
-                card.style.order = String(nextOrder);
-                saveDashboardWidgetState(widgetId, state);
-            });
-        }
-
-        function moveDashboardWidgetCard(card, clientX, clientY) {
-            if (!card) return;
-            const sourceGrid = dashboardWidgetGridFor(card);
-            const previousPointerEvents = card.style.pointerEvents;
-            card.style.pointerEvents = 'none';
-            const targetElement = document.elementFromPoint(clientX, clientY);
-            card.style.pointerEvents = previousPointerEvents;
-            const targetCard = targetElement?.closest?.('.rd-dashboard-widget');
-            const targetGrid = targetCard ? dashboardWidgetGridFor(targetCard) : targetElement?.closest?.('[data-dashboard-widget-grid]');
-            const grid = targetGrid || sourceGrid;
-            if (!grid) return;
-            if (targetCard && targetCard !== card && dashboardWidgetGridFor(targetCard) === grid) {
-                const rect = targetCard.getBoundingClientRect();
-                const horizontal = dashboardWidgetGridName(grid) === 'topbar';
-                const before = horizontal ? clientX < rect.left + (rect.width / 2) : clientY < rect.top + (rect.height / 2);
-                grid.insertBefore(card, before ? targetCard : targetCard.nextSibling);
-            } else if (grid !== card.parentElement) {
-                grid.appendChild(card);
-            }
-            normalizeDashboardWidgetOrder(sourceGrid);
-            if (grid !== sourceGrid) normalizeDashboardWidgetOrder(grid);
-        }
-
-        function getDashboardWidgetCards() {
-            const roots = Array.from(document.querySelectorAll('#managerDashboardLanding,#userDashboardLanding'));
-            const cards = [];
-            roots.forEach((root) => {
-                if (!root) return;
-                root.querySelectorAll('.rd-dashboard-panel,.rd-dashboard-location,.rd-dashboard-topbar > div').forEach((card) => {
-                    if (card && !cards.includes(card)) cards.push(card);
-                });
-            });
-            return cards;
-        }
-
-        function setDashboardWidgetDrag(card, widgetId) {
-            card.onpointerdown = function(event) {
-                if (!event || event.button === 2) return;
-                if (event.target?.closest?.('input,select,textarea,a,[data-dashboard-widget-resize],[data-dashboard-widget-fullscreen],[draggable="true"][data-entry-kind],[draggable="true"][data-dashboard-event-id]')) return;
-                event.stopPropagation();
-                const start = { x: event.clientX, y: event.clientY, dragging: false };
-                const move = (moveEvent) => {
-                    const dx = moveEvent.clientX - start.x;
-                    const dy = moveEvent.clientY - start.y;
-                    if (!start.dragging && Math.hypot(dx, dy) < 8) return;
-                    start.dragging = true;
-                    moveEvent.preventDefault();
-                    card.classList.add('rd-dashboard-widget-dragging');
-                    card.style.cursor = 'grabbing';
-                    moveDashboardWidgetCard(card, moveEvent.clientX, moveEvent.clientY);
-                };
-                const suppressClick = (clickEvent) => {
-                    if (start.dragging) {
-                        clickEvent.preventDefault();
-                        clickEvent.stopPropagation();
-                    }
-                };
-                document.addEventListener('click', suppressClick, true);
-                const stop = () => {
-                    card.style.cursor = 'grab';
-                    card.classList.remove('rd-dashboard-widget-dragging');
-                    if (start.dragging) normalizeDashboardWidgetOrder(dashboardWidgetGridFor(card));
-                    applyDashboardWidgetState(card, loadDashboardWidgetState(widgetId));
-                    document.removeEventListener('pointermove', move);
-                    document.removeEventListener('pointerup', stop);
-                    document.removeEventListener('pointercancel', stop);
-                    setTimeout(() => document.removeEventListener('click', suppressClick, true), 0);
-                };
-                document.addEventListener('pointermove', move);
-                document.addEventListener('pointerup', stop);
-                document.addEventListener('pointercancel', stop);
-            };
-        }
-
-        function setDashboardWidgetResize(card, widgetId, handle) {
-            handle.onpointerdown = function(event) {
-                if (!event || event.button === 2) return;
-                event.preventDefault();
-                event.stopPropagation();
-                const dir = String(handle.dataset.dashboardWidgetResize || 'se');
-                const state = loadDashboardWidgetState(widgetId);
-                const rect = card.getBoundingClientRect();
-                const grid = dashboardWidgetGridFor(card);
-                const gridName = dashboardWidgetGridName(grid);
-                const gridWidth = grid?.getBoundingClientRect?.().width || rect.width;
-                const startGlanceWidth = getDashboardGlanceWidth();
-                const start = {
-                    x: event.clientX,
-                    y: event.clientY,
-                    height: Number(state.height || rect.height),
-                    colSpan: Math.max(1, Math.min(2, Number(state.colSpan || 1)))
-                };
-                const move = (moveEvent) => {
-                    const dx = moveEvent.clientX - start.x;
-                    const dy = moveEvent.clientY - start.y;
-                    let nextHeight = start.height;
-                    let nextSpan = start.colSpan;
-                    if (dir.includes('e') && dx > Math.max(120, gridWidth * 0.18)) nextSpan = 2;
-                    if (dir.includes('w') && dx < -Math.max(120, gridWidth * 0.18)) nextSpan = 2;
-                    if ((dir.includes('e') && dx < -90) || (dir.includes('w') && dx > 90)) nextSpan = 1;
-                    if (gridName === 'right' && (dir.includes('e') || dir.includes('w'))) {
-                        applyDashboardGlanceWidth(startGlanceWidth + (dir.includes('w') ? -dx : dx));
-                    }
-                    if (gridName === 'calendar' && (dir.includes('e') || dir.includes('w'))) {
-                        applyDashboardGlanceWidth(startGlanceWidth - (dir.includes('e') ? dx : -dx));
-                    }
-                    if (dir.includes('s')) nextHeight = start.height + dy;
-                    if (dir.includes('n')) nextHeight = start.height - dy;
-                    state.colSpan = nextSpan;
-                    state.height = Math.max(90, Math.min(window.innerHeight - 24, nextHeight));
-                    state.zIndex = 70;
-                    applyDashboardWidgetState(card, state);
-                };
-                const stop = () => {
-                    saveDashboardWidgetState(widgetId, state);
-                    document.removeEventListener('pointermove', move);
-                    document.removeEventListener('pointerup', stop);
-                    document.removeEventListener('pointercancel', stop);
-                };
-                document.addEventListener('pointermove', move);
-                document.addEventListener('pointerup', stop);
-                document.addEventListener('pointercancel', stop);
-            };
-        }
-
-        function toggleDashboardWidgetFullscreen(card, widgetId) {
-            const isFullscreen = card.dataset.dashboardWidgetFullscreen === '1';
-            card.dataset.dashboardWidgetFullscreen = isFullscreen ? '0' : '1';
-            applyDashboardWidgetState(card, loadDashboardWidgetState(widgetId));
-            const icon = card.querySelector('[data-dashboard-widget-fullscreen] i');
-            if (icon) icon.className = isFullscreen ? 'fas fa-expand' : 'fas fa-compress';
-        }
-
-        function installDashboardWidgetControls() {
-            if (!document.getElementById('dashboardWidgetControlsStyles')) {
-                const style = document.createElement('style');
-                style.id = 'dashboardWidgetControlsStyles';
-                style.textContent = '.rd-dashboard-widget-grid{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))!important;gap:.6rem!important;align-items:start!important}.rd-dashboard-widget{min-width:0}.rd-dashboard-widget-toolbar{position:absolute;right:6px;top:6px;display:inline-flex;gap:3px;z-index:55;opacity:.38;transition:opacity .15s ease;touch-action:none}.rd-dashboard-widget:hover>.rd-dashboard-widget-toolbar,.rd-dashboard-widget:focus-within>.rd-dashboard-widget-toolbar{opacity:1}.rd-dashboard-widget-btn{width:24px;height:24px;border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);color:var(--text-secondary,#64748b);border-radius:5px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:.66rem}.rd-dashboard-widget-resize{position:absolute;z-index:54;background:transparent;touch-action:none}.rd-dashboard-widget-resize[data-dashboard-widget-resize="n"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="s"]{left:12px;right:12px;height:8px;cursor:ns-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="n"]{top:-4px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="s"]{bottom:-4px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="e"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="w"]{top:12px;bottom:12px;width:8px;cursor:ew-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="e"]{right:-4px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="w"]{left:-4px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="ne"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="nw"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="se"],.rd-dashboard-widget-resize[data-dashboard-widget-resize="sw"]{width:12px;height:12px}.rd-dashboard-widget-resize[data-dashboard-widget-resize="ne"]{top:-5px;right:-5px;cursor:nesw-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="nw"]{top:-5px;left:-5px;cursor:nwse-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="se"]{bottom:-5px;right:-5px;cursor:nwse-resize}.rd-dashboard-widget-resize[data-dashboard-widget-resize="sw"]{bottom:-5px;left:-5px;cursor:nesw-resize}';
-                document.head.appendChild(style);
-            }
-
-            getDashboardWidgetCards().forEach((card, index) => {
-                const widgetId = dashboardWidgetIdFor(card, index);
-                const state = loadDashboardWidgetState(widgetId);
-                if (!card.dataset.dashboardWidgetDefaultOrder) card.dataset.dashboardWidgetDefaultOrder = String((index + 1) * 10);
-                restoreDashboardWidgetGrid(card, state);
-                if (card.dataset.dashboardWidgetEnhanced === '1') {
-                    applyDashboardWidgetState(card, state);
-                    return;
-                }
-                card.dataset.dashboardWidgetEnhanced = '1';
-                card.classList.add('rd-dashboard-widget');
-                const toolbar = document.createElement('span');
-                toolbar.className = 'rd-dashboard-widget-toolbar';
-                toolbar.innerHTML = '<button type="button" class="rd-dashboard-widget-btn" data-dashboard-widget-fullscreen="1" title="Full size" aria-label="Full size"><i class="fas fa-expand"></i></button>';
-                card.appendChild(toolbar);
-                setDashboardWidgetDrag(card, widgetId);
-                toolbar.querySelector('[data-dashboard-widget-fullscreen]').onclick = (event) => { event.preventDefault(); event.stopPropagation(); toggleDashboardWidgetFullscreen(card, widgetId); };
-                ['n','s','e','w','ne','nw','se','sw'].forEach((dir) => {
-                    const handle = document.createElement('span');
-                    handle.className = 'rd-dashboard-widget-resize';
-                    handle.dataset.dashboardWidgetResize = dir;
-                    handle.setAttribute('aria-hidden', 'true');
-                    card.appendChild(handle);
-                    setDashboardWidgetResize(card, widgetId, handle);
-                });
-                applyDashboardWidgetState(card, state);
-            });
-            document.querySelectorAll('[data-dashboard-calendar-resize-edge="true"],[data-dashboard-glance-resize-edge="true"]').forEach((edge) => edge.remove());
-        }
-
         function renderDashboardOperationsPanel(target) {
             if (!target) return;
             applyDashboardGlanceWidth(getDashboardGlanceWidth());
@@ -58445,13 +58183,13 @@
             const entries = getDashboardAttendanceEntries();
             const identity = getDashboardCurrentUserClockStatus();
             target.innerHTML = `
-                <div class="rd-dashboard-topbar rd-dashboard-widget-grid" data-dashboard-widget-grid="topbar" style="margin-bottom:0.45rem;min-height:0;">
+                <div class="rd-dashboard-topbar" style="margin-bottom:0.45rem;min-height:0;">
                     <div class="rd-dashboard-location" style="padding:0.55rem 0.75rem;"><i class="fas fa-map-marker-alt"></i><div><strong>${escapeDashboardHtml(clinic.name)}</strong><span>${escapeDashboardHtml(clinic.address)}</span></div></div>
                     <div style="display:flex;align-items:center;gap:.4rem;margin-left:.6rem;padding:.3rem .6rem;border:1px solid var(--border-color,#e5e7eb);border-radius:8px;background:var(--card-bg,#fff);"><i class="fas fa-user-circle" style="color:var(--text-secondary,#64748b);"></i><strong style="font-size:.8rem;">${escapeDashboardHtml(identity.name)}</strong><span style="font-size:.7rem;font-weight:700;color:${identity.color};border:1px solid ${identity.color};border-radius:999px;padding:.05rem .5rem;">${escapeDashboardHtml(identity.status)}</span></div>
                 </div>
                 <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,var(--dashboard-glance-width,360px));gap:.8rem;align-items:start;">
-                    <div id="dashboardCalendarPanel" data-dashboard-widget-grid="calendar"></div>
-                    <div class="rd-dashboard-widget-grid" data-dashboard-widget-grid="right">
+                    <div id="dashboardCalendarPanel"></div>
+                    <div>
                 <div class="rd-dashboard-panel" style="width:100%;padding:0.55rem 0.7rem;">
                     <h3 style="margin:0 0 0.35rem;font-size:1rem;"><i class="fas fa-user-clock" style="color:#2563eb;margin-right:0.45rem;"></i>Today's Attendance</h3>
                     <div class="rd-dashboard-list">
@@ -58461,8 +58199,6 @@
             const operationsPanel = document.getElementById('dashboardOperationsPanel');
             if (operationsPanel) renderDashboardOperationsPanel(operationsPanel);
             refreshDashboardScheduleSurfaces();
-            installDashboardWidgetControls();
-            setTimeout(installDashboardWidgetControls, 0);
         }
 
         function renderManagerDashboardLanding(target, model, clinic) {
