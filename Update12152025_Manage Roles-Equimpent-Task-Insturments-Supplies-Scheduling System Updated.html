@@ -57756,6 +57756,7 @@
 
         document.addEventListener('click', event => {
             if (event.target.closest('[id^="dashboard-event-actions-"]')) return;
+            if (event.target.closest('.rd-ops-scheduled-item .rd-ops-btn')) return;
             const card = event.target.closest('[data-dashboard-event-id]');
             if (!card) return;
             handleDashboardCalendarStoryIntent(event, card);
@@ -57763,6 +57764,7 @@
 
         document.addEventListener('keydown', event => {
             if (event.key !== 'Enter' && event.key !== ' ') return;
+            if (event.target.closest('.rd-ops-scheduled-item .rd-ops-btn')) return;
             const card = event.target?.closest?.('[data-dashboard-event-id]');
             if (!card) return;
             handleDashboardCalendarStoryIntent(event, card);
@@ -57901,6 +57903,127 @@
             if (/equipment/i.test(kind)) return updateDashboardEquipmentSchedule(payload, date, time);
             return false;
         }
+
+        function clearDashboardServiceSchedule(payload) {
+            const tickets = dashboardCalendarReadArray('equipmentServiceTickets');
+            const ids = [payload?.serviceTicketId, payload?.id].map(value => String(value || '').trim()).filter(Boolean);
+            const equipmentId = Number(payload?.serviceEquipmentId || payload?.equipmentId || 0) || 0;
+            const index = tickets.findIndex(ticket => {
+                const ticketId = String(ticket?.id || ticket?.Id || ticket?.ticketId || ticket?.TicketId || '').trim();
+                if (ids.length) return ids.includes(ticketId);
+                return equipmentId && Number(ticket?.equipmentID || ticket?.EquipmentID || ticket?.equipmentId || ticket?.EquipmentId || 0) === equipmentId;
+            });
+            if (index < 0) return false;
+            const now = new Date().toISOString();
+            tickets[index] = {
+                ...tickets[index],
+                scheduledDate: '',
+                scheduleDate: '',
+                scheduleMode: '',
+                scheduleStartDate: '',
+                scheduleEndDate: '',
+                scheduledTime: '',
+                scheduleTime: '',
+                dashboardScope: '',
+                dashboardScheduledBy: '',
+                dashboardScheduledByName: '',
+                needsSync: true,
+                updatedDate: now,
+                modifiedDate: now
+            };
+            localStorage.setItem('equipmentServiceTickets', JSON.stringify(tickets));
+            return true;
+        }
+
+        function clearDashboardEquipmentSchedule(payload) {
+            if (payload?.serviceTicketId && clearDashboardServiceSchedule(payload)) return true;
+            const ids = [payload?.serviceEquipmentId, payload?.equipmentId, payload?.id].map(value => String(value || '').trim()).filter(Boolean);
+            const keys = ['equipment', 'officeEquipment'];
+            const now = new Date().toISOString();
+            for (const key of keys) {
+                const items = dashboardCalendarReadArray(key);
+                const index = items.findIndex(item => {
+                    const itemIds = [item?.apiId, item?.equipmentID, item?.EquipmentID, item?.equipmentId, item?.EquipmentId, item?.Id, item?.id].map(value => String(value || '').trim()).filter(Boolean);
+                    return itemIds.some(id => ids.includes(id));
+                });
+                if (index < 0) continue;
+                items[index] = {
+                    ...items[index],
+                    scheduledDate: '',
+                    scheduleDate: '',
+                    scheduleStartDate: '',
+                    scheduleEndDate: '',
+                    scheduledTime: '',
+                    scheduleTime: '',
+                    dashboardScope: '',
+                    dashboardScheduledBy: '',
+                    dashboardScheduledByName: '',
+                    updatedDate: now,
+                    modifiedDate: now
+                };
+                localStorage.setItem(key, JSON.stringify(items));
+                return true;
+            }
+            return false;
+        }
+
+        function clearDashboardAssignmentSchedule(payload) {
+            const teams = dashboardCalendarReadArray('teams');
+            const id = String(payload?.id || '').trim();
+            const title = String(payload?.title || '').trim();
+            const index = teams.findIndex(team => {
+                const teamId = String(team?.id || team?.Id || team?.assignmentId || team?.AssignmentId || '').trim();
+                const teamTitle = String(team?.teamName || team?.name || team?.Name || '').trim();
+                return (id && teamId === id) || (title && teamTitle === title);
+            });
+            if (index < 0) return false;
+            const now = new Date().toISOString();
+            teams[index] = {
+                ...teams[index],
+                scheduleDate: '',
+                scheduleTime: '',
+                scheduleNoDateTime: true,
+                schedule: '',
+                dashboardScope: '',
+                dashboardScheduledBy: '',
+                dashboardScheduledByName: '',
+                updatedDate: now,
+                modifiedDate: now
+            };
+            localStorage.setItem('teams', JSON.stringify(teams));
+            try { if (typeof renderTeamsPageList === 'function') renderTeamsPageList(); } catch (_) {}
+            try { if (typeof updateTeamsDashboardCounts === 'function') updateTeamsDashboardCounts(); } catch (_) {}
+            return true;
+        }
+
+        function clearDashboardOperationSchedule(payload) {
+            const kind = String(payload?.kind || '').trim();
+            if (/service/i.test(kind) || payload?.serviceTicketId) return clearDashboardServiceSchedule(payload);
+            if (/assignment/i.test(kind)) return clearDashboardAssignmentSchedule(payload);
+            if (/equipment/i.test(kind)) return clearDashboardEquipmentSchedule(payload);
+            return false;
+        }
+
+        window.unscheduleDashboardOperation = function (button) {
+            const row = button?.closest?.('[data-dashboard-scheduled-operation="true"]');
+            const payload = {
+                title: String(row?.dataset.entryTitle || '').trim(),
+                kind: String(row?.dataset.entryKind || '').trim(),
+                id: String(row?.dataset.entryId || '').trim(),
+                view: String(row?.dataset.entryView || '').trim(),
+                serviceTicketId: String(row?.dataset.serviceTicketId || '').trim(),
+                serviceEquipmentId: String(row?.dataset.serviceEquipmentId || row?.dataset.equipmentId || '').trim(),
+                equipmentId: String(row?.dataset.equipmentId || '').trim()
+            };
+            if (!payload.kind || (!payload.id && !payload.title && !payload.equipmentId)) return;
+            const cleared = clearDashboardOperationSchedule(payload);
+            if (!cleared) {
+                if (typeof showNotification === 'function') showNotification('This scheduled item could not be moved back to Unscheduled.', 'warning');
+                return;
+            }
+            refreshDashboardScheduleSurfaces();
+            if (typeof showNotification === 'function') showNotification(`${payload.title || 'Operation'} moved back to Unscheduled.`, 'success');
+        };
 
         function refreshDashboardScheduleSurfaces() {
             if (document.querySelector('[data-rd-ops-dashboard="1"]') && typeof refreshOperationsDashboardRedesign === 'function') {
@@ -58582,7 +58705,13 @@
             const endLabel = entry.end.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
             const owner = dashboardNormalizeText(entry.createdByName || entry.assigneeRaw || 'Scheduled item');
             const eventId = entry.kind === 'Calendar' ? escapeDashboardHtml(entry.id) : '';
-            return `<div class="rd-ops-scheduled-item" role="button" tabindex="0" data-dashboard-event-id="${eventId}" style="--event-tone:${escapeDashboardHtml(entry.tone || '#0F5E75')};"><div class="rd-ops-scheduled-time">${escapeDashboardHtml(startLabel)}<span>${escapeDashboardHtml(endLabel)}</span></div><span class="rd-ops-scheduled-kind ${type.cls}" aria-hidden="true"><i class="${type.icon}"></i></span><div class="rd-ops-scheduled-body"><strong>${escapeDashboardHtml(dashboardSentenceCase(entry.title))}</strong><span>${escapeDashboardHtml(entry.kind)} <span aria-hidden="true">&middot;</span> ${escapeDashboardHtml(owner)}</span></div></div>`;
+            const canUnschedule = /^(Service|Equipment|Assignment)$/i.test(entry.kind || '');
+            const record = entry.record || {};
+            const equipmentId = String(record.equipmentID || record.EquipmentID || record.equipmentId || record.EquipmentId || record.apiId || '').trim();
+            const serviceTicketId = /service/i.test(entry.kind || '') ? String(entry.id || '').trim() : '';
+            const entryId = String(entry.id || (/equipment/i.test(entry.kind || '') ? equipmentId : '') || '').trim();
+            const unscheduleButton = canUnschedule ? '<button type="button" class="rd-ops-btn" style="height:30px;padding:0 10px;font-size:12px;" onclick="event.preventDefault();event.stopPropagation();window.unscheduleDashboardOperation(this);">Unschedule</button>' : '';
+            return `<div class="rd-ops-scheduled-item" role="button" tabindex="0" data-dashboard-event-id="${eventId}" data-dashboard-scheduled-operation="${canUnschedule ? 'true' : 'false'}" data-entry-kind="${escapeDashboardHtml(entry.kind || '')}" data-entry-title="${escapeDashboardHtml(entry.title || '')}" data-entry-id="${escapeDashboardHtml(entryId)}" data-entry-view="${escapeDashboardHtml(entry.view || '')}" data-service-ticket-id="${escapeDashboardHtml(serviceTicketId)}" data-service-equipment-id="${escapeDashboardHtml(equipmentId)}" data-equipment-id="${escapeDashboardHtml(equipmentId)}" style="--event-tone:${escapeDashboardHtml(entry.tone || '#0F5E75')};"><div class="rd-ops-scheduled-time">${escapeDashboardHtml(startLabel)}<span>${escapeDashboardHtml(endLabel)}</span></div><span class="rd-ops-scheduled-kind ${type.cls}" aria-hidden="true"><i class="${type.icon}"></i></span><div class="rd-ops-scheduled-body"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;"><strong>${escapeDashboardHtml(dashboardSentenceCase(entry.title))}</strong>${unscheduleButton}</div><span>${escapeDashboardHtml(entry.kind)} <span aria-hidden="true">&middot;</span> ${escapeDashboardHtml(owner)}</span></div></div>`;
         }
 
         function renderDashboardScheduleBody(entries, activeDate) {
