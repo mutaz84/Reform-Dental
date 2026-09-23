@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260923-dashboard-glance-sections-v148';
+                const buildVersion = '20260923-unscheduled-clear-resize-v149';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -58128,9 +58128,174 @@
             document.addEventListener('pointerup', stop);
         };
 
+        function getDashboardUnscheduledWidth() {
+            const stored = Number(localStorage.getItem('rd:dashboardUnscheduledWidth') || 0) || 0;
+            return Math.max(220, Math.min(440, stored || 260));
+        }
+
+        function applyDashboardUnscheduledWidth(width) {
+            const next = Math.max(220, Math.min(440, Number(width) || getDashboardUnscheduledWidth()));
+            document.documentElement.style.setProperty('--dashboard-unscheduled-width', `${next}px`);
+            try { localStorage.setItem('rd:dashboardUnscheduledWidth', String(next)); } catch (_) {}
+            return next;
+        }
+
+        function dashboardUnscheduledItemKey(row) {
+            const raw = [row?.dataset?.entryKind, row?.dataset?.entryId, row?.dataset?.serviceTicketId, row?.dataset?.equipmentId, row?.dataset?.entryTitle].filter(Boolean).join(':') || row?.textContent || 'item';
+            return String(raw).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 90) || 'item';
+        }
+
+        function dashboardUnscheduledItemHeightKey(row) {
+            return `rd:dashboardUnscheduledItemHeight:${dashboardUnscheduledItemKey(row)}`;
+        }
+
+        function getDashboardUnscheduledItemHeight(row) {
+            const stored = Number(localStorage.getItem(dashboardUnscheduledItemHeightKey(row)) || 0) || 0;
+            return stored ? Math.max(92, Math.min(320, stored)) : 0;
+        }
+
+        window.startDashboardUnscheduledResize = function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            const start = { x: event.clientX, width: getDashboardUnscheduledWidth() };
+            const move = moveEvent => applyDashboardUnscheduledWidth(start.width - (moveEvent.clientX - start.x));
+            const stop = () => {
+                document.removeEventListener('pointermove', move);
+                document.removeEventListener('pointerup', stop);
+                document.removeEventListener('pointercancel', stop);
+            };
+            document.addEventListener('pointermove', move);
+            document.addEventListener('pointerup', stop);
+            document.addEventListener('pointercancel', stop);
+        };
+
+        window.startDashboardUnscheduledItemResize = function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            const row = event.target?.closest?.('.rd-dashboard-unscheduled-row');
+            if (!row) return;
+            const start = { y: event.clientY, height: row.getBoundingClientRect().height };
+            const move = moveEvent => {
+                const nextHeight = Math.max(92, Math.min(320, start.height + (moveEvent.clientY - start.y)));
+                row.style.height = `${nextHeight}px`;
+                row.style.overflow = 'auto';
+            };
+            const stop = () => {
+                try { localStorage.setItem(dashboardUnscheduledItemHeightKey(row), String(Math.round(row.getBoundingClientRect().height))); } catch (_) {}
+                document.removeEventListener('pointermove', move);
+                document.removeEventListener('pointerup', stop);
+                document.removeEventListener('pointercancel', stop);
+            };
+            document.addEventListener('pointermove', move);
+            document.addEventListener('pointerup', stop);
+            document.addEventListener('pointercancel', stop);
+        };
+
+        function enhanceDashboardUnscheduledRow(row) {
+            if (!row) return;
+            row.classList.add('rd-dashboard-unscheduled-row');
+            const savedHeight = getDashboardUnscheduledItemHeight(row);
+            row.style.width = '100%';
+            row.style.display = 'grid';
+            row.style.gridTemplateColumns = 'auto minmax(0,1fr)';
+            row.style.alignItems = 'start';
+            row.style.gap = '.55rem';
+            row.style.position = 'relative';
+            row.style.minHeight = '92px';
+            row.style.maxHeight = '320px';
+            row.style.height = savedHeight ? `${savedHeight}px` : '';
+            row.style.padding = '.58rem .6rem .7rem 0';
+            row.style.border = '0';
+            row.style.borderBottom = '1px solid var(--border-color,#e5e7eb)';
+            row.style.background = 'transparent';
+            row.style.textAlign = 'left';
+            row.style.boxSizing = 'border-box';
+            row.style.resize = 'vertical';
+            row.style.overflow = 'auto';
+            row.style.cursor = row.getAttribute('draggable') === 'true' ? 'grab' : 'pointer';
+            const children = Array.from(row.children).filter(child => !child.matches?.('[data-dashboard-unscheduled-item-resize]'));
+            const avatar = children[0];
+            const body = children.find(child => child !== avatar && child.querySelector?.('strong')) || children[1];
+            const badge = children.find(child => child !== avatar && child !== body);
+            if (avatar) {
+                avatar.style.width = '40px';
+                avatar.style.height = '40px';
+                avatar.style.flex = '0 0 40px';
+                avatar.style.borderRadius = '10px';
+                avatar.style.fontSize = '.72rem';
+                avatar.style.alignSelf = 'start';
+            }
+            if (body) {
+                body.style.minWidth = '0';
+                body.style.display = 'flex';
+                body.style.flexDirection = 'column';
+                body.style.gap = '2px';
+                const title = body.querySelector('strong');
+                if (title) {
+                    title.style.whiteSpace = 'normal';
+                    title.style.overflow = 'visible';
+                    title.style.textOverflow = 'clip';
+                    title.style.fontSize = '.82rem';
+                    title.style.lineHeight = '1.2';
+                }
+                body.querySelectorAll('span').forEach(span => {
+                    span.style.whiteSpace = 'normal';
+                    span.style.overflow = 'visible';
+                    span.style.textOverflow = 'clip';
+                    span.style.lineHeight = '1.18';
+                });
+                if (badge && badge.parentElement === row) body.appendChild(badge);
+                if (badge) {
+                    badge.style.alignSelf = 'flex-start';
+                    badge.style.marginTop = '.28rem';
+                    badge.style.maxWidth = '100%';
+                    badge.style.whiteSpace = 'normal';
+                }
+            }
+            if (!row.querySelector('[data-dashboard-unscheduled-item-resize="true"]')) {
+                const handle = document.createElement('span');
+                handle.dataset.dashboardUnscheduledItemResize = 'true';
+                handle.setAttribute('aria-hidden', 'true');
+                handle.title = 'Resize item';
+                handle.style.cssText = 'position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:ns-resize;color:var(--text-secondary,#64748b);display:inline-flex;align-items:center;justify-content:center;font-size:.62rem;opacity:.75;';
+                handle.innerHTML = '<i class="fas fa-grip-lines"></i>';
+                handle.onpointerdown = window.startDashboardUnscheduledItemResize;
+                handle.onclick = event => { event.preventDefault(); event.stopPropagation(); };
+                row.appendChild(handle);
+            }
+        }
+
+        function installDashboardUnscheduledControls(mount = document.getElementById('dashboardCalendarPanel')) {
+            if (!mount) return;
+            applyDashboardUnscheduledWidth(getDashboardUnscheduledWidth());
+            const panel = Array.from(mount.querySelectorAll('.rd-dashboard-panel')).find(item => /Unscheduled Today/i.test(item.querySelector('h3')?.textContent || ''));
+            if (!panel) return;
+            const grid = panel.parentElement;
+            if (grid) {
+                grid.style.gridTemplateColumns = 'minmax(0,1fr) var(--dashboard-unscheduled-width,260px)';
+                grid.style.alignItems = 'start';
+            }
+            panel.style.position = panel.style.position || 'relative';
+            panel.style.minWidth = '220px';
+            panel.style.maxWidth = '440px';
+            panel.style.overflow = 'visible';
+            if (!panel.querySelector('[data-dashboard-unscheduled-resize-edge="true"]')) {
+                const edge = document.createElement('span');
+                edge.dataset.dashboardUnscheduledResizeEdge = 'true';
+                edge.setAttribute('aria-hidden', 'true');
+                edge.title = 'Resize Unscheduled Today';
+                edge.style.cssText = 'position:absolute;top:0;left:-5px;width:10px;height:100%;cursor:ew-resize;z-index:40;';
+                edge.onpointerdown = window.startDashboardUnscheduledResize;
+                panel.appendChild(edge);
+            }
+            panel.querySelectorAll('.rd-dashboard-row').forEach(enhanceDashboardUnscheduledRow);
+        }
+
         function installDashboardCalendarControls() {
             const mount = document.getElementById('dashboardCalendarPanel');
-            if (!mount || mount.querySelector('[data-dashboard-calendar-tools="true"]')) return;
+            if (!mount) return;
+            installDashboardUnscheduledControls(mount);
+            if (mount.querySelector('[data-dashboard-calendar-tools="true"]')) return;
             if (!document.getElementById('dashboardCalendarHoverStyles')) {
                 const hoverStyles = document.createElement('style');
                 hoverStyles.id = 'dashboardCalendarHoverStyles';
