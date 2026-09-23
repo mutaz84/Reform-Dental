@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260923-unscheduled-clear-resize-v149';
+                const buildVersion = '20260923-calendar-unscheduled-split-v150';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -58115,7 +58115,29 @@
         let dashboardCalendarResizeStart = null;
         window.startDashboardCalendarResize = function (event) {
             event.preventDefault();
+            event.stopPropagation();
             const mount = document.getElementById('dashboardCalendarPanel');
+            const unscheduledPanel = Array.from(mount?.querySelectorAll('.rd-dashboard-panel') || []).find(item => /Unscheduled Today/i.test(item.querySelector('h3')?.textContent || ''));
+            const splitGrid = unscheduledPanel?.parentElement;
+            if (splitGrid && typeof getDashboardUnscheduledWidth === 'function' && typeof applyDashboardUnscheduledWidth === 'function') {
+                dashboardCalendarResizeStart = { x: event.clientX, unscheduledWidth: getDashboardUnscheduledWidth(), grid: splitGrid };
+                const move = moveEvent => {
+                    if (!dashboardCalendarResizeStart) return;
+                    const delta = moveEvent.clientX - dashboardCalendarResizeStart.x;
+                    applyDashboardUnscheduledWidth(dashboardCalendarResizeStart.unscheduledWidth - delta);
+                    dashboardCalendarResizeStart.grid.style.gridTemplateColumns = 'minmax(0,1fr) var(--dashboard-unscheduled-width,260px)';
+                };
+                const stop = () => {
+                    dashboardCalendarResizeStart = null;
+                    document.removeEventListener('pointermove', move);
+                    document.removeEventListener('pointerup', stop);
+                    document.removeEventListener('pointercancel', stop);
+                };
+                document.addEventListener('pointermove', move);
+                document.addEventListener('pointerup', stop);
+                document.addEventListener('pointercancel', stop);
+                return;
+            }
             const resizeTarget = mount?.querySelector('.rd-dashboard-panel') || mount;
             dashboardCalendarResizeStart = { x: event.clientX, width: resizeTarget?.getBoundingClientRect().width || 0, target: resizeTarget };
             const move = moveEvent => {
@@ -58275,6 +58297,8 @@
                 grid.style.gridTemplateColumns = 'minmax(0,1fr) var(--dashboard-unscheduled-width,260px)';
                 grid.style.alignItems = 'start';
             }
+            const calendarPanel = Array.from(mount.querySelectorAll('.rd-dashboard-panel')).find(item => /Operations Calendar/i.test(item.querySelector('h3')?.textContent || ''));
+            if (calendarPanel) calendarPanel.style.width = '100%';
             panel.style.position = panel.style.position || 'relative';
             panel.style.minWidth = '220px';
             panel.style.maxWidth = '440px';
