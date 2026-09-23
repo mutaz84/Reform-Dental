@@ -1,11 +1,11 @@
 ﻿<html lang="en" data-accent="green" data-fontcolor="default" data-theme="light" data-role="admin" data-theme-preset="high-contrast"><head>
-    <meta charset="UTF-8">
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260923-calendar-unscheduled-split-v150';
+                const buildVersion = '20260923-ops-dashboard-redesign-v151';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -56541,9 +56541,12 @@
             if (date && time) {
                 scheduleState = 'scheduled';
                 scheduleLabel = `Scheduled: ${dashboardScheduleDateLabel(date)} ${dashboardScheduleTimeLabel(time)}`;
-            } else if (date) {
+            } else if (date && date < dashboardGlanceActiveDateIso()) {
                 scheduleState = 'missing-time';
                 scheduleLabel = `Missing time: ${dashboardScheduleDateLabel(date)}`;
+            } else if (date) {
+                scheduleState = 'unscheduled';
+                scheduleLabel = `Next due: ${dashboardScheduleDateLabel(date)}`;
             } else if (time) {
                 scheduleState = 'missing-date';
                 scheduleLabel = `Missing date: ${dashboardScheduleTimeLabel(time)}`;
@@ -56664,7 +56667,8 @@
         }
 
         function dashboardOperationType(record, fallback) {
-            return dashboardScheduleText(record, ['type','Type','serviceType','ServiceType','workType','WorkType','category','Category','eventType','EventType'], fallback);
+            const raw = dashboardScheduleText(record, ['type','Type','serviceType','ServiceType','workType','WorkType','category','Category','eventType','EventType'], fallback);
+            return raw.replace(/office\s+improvments/ig, 'Office improvements');
         }
 
         function dashboardOperationParentForEntry(entry, equipmentRecords) {
@@ -56833,7 +56837,7 @@
             const typeLabel = dashboardText(entry.operationType || entry.kind, entry.kind);
             const frequency = dashboardText(entry.frequencyLabel || '');
             const parentLine = entry.parentName ? `Parent: ${entry.parentName}` : '';
-            const metaBits = [typeLabel ? `Type: ${typeLabel}` : '', frequency ? `Frequency: ${frequency}` : ''].filter(Boolean).join(' â€¢ ');
+            const metaBits = [typeLabel ? `Type: ${typeLabel}` : '', frequency ? `Frequency: ${frequency}` : ''].filter(Boolean).join(' &middot; ');
             const assigned = dashboardText(entry.assignedLabel || '');
             return `<button type="button" class="rd-dashboard-row" draggable="${canDrag ? 'true' : 'false'}" title="${escapeDashboardHtml(actionTitle)}" data-entry-kind="${escapeDashboardHtml(entry.kind)}" data-entry-title="${escapeDashboardHtml(entry.title)}" data-entry-id="${escapeDashboardHtml(String(entry.id || ''))}" data-entry-view="${escapeDashboardHtml(entry.view || '')}" data-service-ticket-id="${escapeDashboardHtml(String(entry.serviceTicketId || ''))}" data-service-equipment-id="${escapeDashboardHtml(String(entry.serviceEquipmentId ?? entry.equipmentId ?? ''))}" data-equipment-id="${escapeDashboardHtml(String(entry.equipmentId ?? ''))}" data-schedule-state="${escapeDashboardHtml(entry.scheduleState || '')}" data-schedule-date="${escapeDashboardHtml(entry.scheduleDate || '')}" data-schedule-time="${escapeDashboardHtml(entry.scheduleTime || '')}" onclick="event.preventDefault(); event.stopPropagation(); const row = this; const entryObj = { title: String(row.dataset.entryTitle || '').trim(), kind: String(row.dataset.entryKind || '').trim(), id: String(row.dataset.entryId || '').trim(), view: String(row.dataset.entryView || '').trim(), serviceTicketId: String(row.dataset.serviceTicketId || '').trim(), serviceEquipmentId: String(row.dataset.serviceEquipmentId || row.dataset.equipmentId || '').trim(), equipmentId: String(row.dataset.equipmentId || '').trim(), scheduleState: String(row.dataset.scheduleState || '').trim(), scheduleDate: String(row.dataset.scheduleDate || '').trim(), scheduleTime: String(row.dataset.scheduleTime || '').trim() }; openDashboardOperation(entryObj);" style="width:100%;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:0.5rem;align-items:center;min-height:0;padding:0.38rem 0;border:0;border-bottom:1px solid var(--border-color,#e5e7eb);background:transparent;text-align:left;cursor:${canDrag ? 'grab' : 'pointer'};">${dashboardGlanceAvatar(entry)}<span style="min-width:0;display:block;"><strong style="display:block;font-size:0.78rem;line-height:1.12;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.title)}</strong>${parentLine ? `<span style="display:block;font-size:0.67rem;line-height:1.18;color:var(--text-secondary,#64748b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(parentLine)}</span>` : ''}<span style="display:block;font-size:0.66rem;line-height:1.18;color:var(--text-secondary,#64748b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(metaBits || entry.kind)}</span>${assigned ? `<span style="display:flex;align-items:center;gap:.25rem;font-size:0.64rem;line-height:1.18;color:var(--text-secondary,#64748b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><i class="fas fa-user" style="color:${entry.assignedColor || '#64748b'};font-size:.6rem;"></i>${escapeDashboardHtml(assigned)}</span>` : ''}<span style="display:block;font-size:0.64rem;line-height:1.18;color:var(--text-secondary,#64748b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(entry.scheduleLabel || 'No schedule')}</span></span><span class="rd-dashboard-status" style="color:${entry.color};border-color:${entry.color};background:transparent;padding:0.16rem 0.32rem;font-size:0.64rem;line-height:1.05;white-space:nowrap;">${escapeDashboardHtml(entry.detail)}</span></button>`;
         }
@@ -57895,6 +57899,11 @@
         }
 
         function refreshDashboardScheduleSurfaces() {
+            if (document.querySelector('[data-rd-ops-dashboard="1"]') && typeof refreshOperationsDashboardRedesign === 'function') {
+                refreshOperationsDashboardRedesign();
+                try { if (window.calendarInstance && typeof window.calendarInstance.refetchEvents === 'function') window.calendarInstance.refetchEvents(); } catch (_) {}
+                return;
+            }
             const calendarPanel = document.getElementById('dashboardCalendarPanel');
             if (calendarPanel) renderDashboardCalendarPanel(calendarPanel);
             const operationsPanel = document.getElementById('dashboardOperationsPanel');
@@ -58095,7 +58104,7 @@
             refreshDashboardScheduleSurfaces();
         };
         window.resetDashboardCalendar = function () { dashboardCalendarDate = new Date(); refreshDashboardScheduleSurfaces(); };
-        window.setDashboardCalendarViewMode = function (mode) { dashboardCalendarViewMode = (mode === 'list' || mode === 'month') ? mode : 'calendar'; refreshDashboardScheduleSurfaces(); };
+        window.setDashboardCalendarViewMode = function (mode) { dashboardCalendarViewMode = (mode === 'list' || mode === 'month' || mode === 'week') ? mode : 'calendar'; refreshDashboardScheduleSurfaces(); };
         window.setDashboardCalendarScope = function (scope) { dashboardCalendarScope = scope === 'office' ? 'office' : 'mine'; refreshDashboardScheduleSurfaces(); };
 
         window.toggleDashboardCalendarFullscreen = function () {
@@ -58318,6 +58327,7 @@
         function installDashboardCalendarControls() {
             const mount = document.getElementById('dashboardCalendarPanel');
             if (!mount) return;
+            if (mount.closest('[data-rd-ops-dashboard="1"]')) return;
             installDashboardUnscheduledControls(mount);
             if (mount.querySelector('[data-dashboard-calendar-tools="true"]')) return;
             if (!document.getElementById('dashboardCalendarHoverStyles')) {
@@ -58368,6 +58378,209 @@
             return { name: match.name, status: match.status, color: match.color };
         }
 
+        function ensureOperationsDashboardStyles() {
+            if (document.getElementById('operationsDashboardRedesignStyles')) return;
+            const style = document.createElement('style');
+            style.id = 'operationsDashboardRedesignStyles';
+            style.textContent = `@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap');
+            .rd-ops-dashboard{--ops-bg:#F4F3EF;--ops-card:#fff;--ops-border:#E4E2DC;--ops-divider:#EFEDE8;--ops-secondary-border:#D9D6CF;--ops-primary:#1C1D1F;--ops-secondary:#5B5F66;--ops-tertiary:#4A4E55;--ops-accent:#0F5E75;font-family:Manrope,'Segoe UI',system-ui,sans-serif;background:var(--ops-bg);color:var(--ops-primary);padding:28px 32px;display:flex;flex-direction:column;gap:22px;min-height:100%;box-sizing:border-box}.rd-ops-dashboard *{box-sizing:border-box}.rd-ops-card{background:var(--ops-card);border:1px solid var(--ops-border);border-radius:14px;padding:18px 20px}.rd-ops-header{display:grid;grid-template-columns:auto minmax(260px,1fr) auto;gap:20px;align-items:center}.rd-ops-location{display:grid;grid-template-columns:40px minmax(0,1fr);gap:12px;align-items:center;min-width:240px}.rd-ops-location-icon{width:40px;height:40px;border-radius:10px;background:var(--ops-accent);color:#fff;display:inline-flex;align-items:center;justify-content:center}.rd-ops-location strong{font-size:17px;font-weight:800;line-height:1.15}.rd-ops-location span{font-size:13px;color:var(--ops-secondary)}.rd-ops-search{position:relative;min-width:0}.rd-ops-search input{width:100%;height:44px;border:0;border-radius:9px;background:var(--ops-bg);color:var(--ops-primary);padding:0 14px 0 40px;font:600 13px Manrope,'Segoe UI',system-ui,sans-serif}.rd-ops-search i{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--ops-secondary);font-size:13px}.rd-ops-search-results{position:absolute;z-index:90;top:calc(100% + 6px);left:0;right:0;max-height:300px;overflow:auto;background:#fff;border:1px solid var(--ops-border);border-radius:10px;box-shadow:0 12px 28px rgba(28,29,31,.14)}.rd-ops-header-right{display:flex;align-items:center;justify-content:flex-end;gap:14px;white-space:nowrap}.rd-ops-status{display:inline-flex;align-items:center;gap:7px;color:var(--ops-secondary);font-size:13px}.rd-ops-status-dot{width:7px;height:7px;border-radius:999px;background:#A9ADB3}.rd-ops-status-dot.is-in{background:#16824A}.rd-ops-btn{height:36px;border-radius:9px;border:1px solid var(--ops-secondary-border);background:#fff;color:var(--ops-primary);font-weight:700;font-size:13px;padding:0 14px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:7px;text-decoration:none}.rd-ops-btn-primary{background:var(--ops-accent);border-color:var(--ops-accent);color:#fff}.rd-ops-header .rd-ops-btn{height:44px;border-radius:10px}.rd-ops-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.rd-ops-kpi{border:1px solid var(--ops-border);border-radius:12px;background:#fff;padding:15px 16px;text-align:left;cursor:pointer;min-height:82px}.rd-ops-kpi.is-alert{background:#FFF4F2;border-color:#F3C9C2}.rd-ops-kpi-number{font-size:36px;line-height:1;font-weight:800;font-variant-numeric:tabular-nums;color:var(--ops-primary)}.rd-ops-kpi.is-alert .rd-ops-kpi-number{color:#A3261A}.rd-ops-kpi.is-amber .rd-ops-kpi-number{color:#9A4A06}.rd-ops-kpi-label{display:block;margin-top:3px;font-size:13px;font-weight:800;color:var(--ops-primary)}.rd-ops-kpi-sub{display:block;margin-top:2px;font-size:12px;color:var(--ops-secondary)}.rd-ops-main{display:grid;grid-template-columns:1.35fr 1fr;gap:20px;align-items:start}.rd-ops-column{display:flex;flex-direction:column;gap:14px;min-width:0}.rd-ops-section-head{display:flex;align-items:center;gap:9px;margin-bottom:10px}.rd-ops-section-head h3{font-size:16px;line-height:1.2;font-weight:800;margin:0}.rd-ops-section-head .head-spacer{margin-left:auto}.rd-ops-count-pill{border-radius:999px;background:#F1F0EC;color:#4A4E55;font-size:12px;font-weight:800;padding:2px 8px}.rd-ops-hint{font-size:12px;color:var(--ops-secondary);margin-left:auto}.rd-ops-list{display:flex;flex-direction:column}.rd-ops-row{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px 0;border-bottom:1px solid var(--ops-divider);background:transparent}.rd-ops-row:last-child{border-bottom:0}.rd-ops-icon{width:40px;height:40px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:15px}.rd-ops-icon.maintenance,.rd-ops-icon.battery{background:#EAF4F6;color:#0F5E75}.rd-ops-icon.cleaning{background:#E8F5F0;color:#187A4B}.rd-ops-icon.lab{background:#EEE9FA;color:#5C3AA3}.rd-ops-icon.office{background:#FFF2DE;color:#9A4A06}.rd-ops-icon.default{background:#EEF2F6;color:#4A4E55}.rd-ops-row-title{font-size:15px;line-height:1.22;font-weight:700;color:var(--ops-primary);margin:0 0 3px}.rd-ops-meta{font-size:13px;line-height:1.28;color:var(--ops-secondary)}.rd-ops-meta .unassigned{color:#9A4A06;font-weight:700}.rd-ops-row-actions{display:flex;align-items:center;gap:10px;justify-content:flex-end;min-width:max-content}.rd-ops-due{text-align:right}.rd-ops-due strong{display:block;font-size:13px;line-height:1.15;color:#A3261A;font-weight:800}.rd-ops-due span{display:block;margin-top:3px;font-size:12px;color:var(--ops-secondary)}.rd-ops-chip{display:inline-flex;align-items:center;min-height:24px;border-radius:999px;padding:4px 10px;font-size:12px;line-height:1;font-weight:700}.rd-ops-chip-low{background:#F1F0EC;color:#4A4E55}.rd-ops-chip-medium{background:#FDF1DC;color:#8A4B08}.rd-ops-chip-high{background:#FFF4F2;color:#A3261A}.rd-ops-chip-status{background:#F1F0EC;color:#4A4E55}.rd-ops-schedule-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:start;margin-bottom:16px}.rd-ops-schedule-title h3{margin:0;font-size:16px;font-weight:800}.rd-ops-schedule-title span{display:block;margin-top:2px;color:var(--ops-secondary);font-size:13px}.rd-ops-date-nav{display:inline-flex;gap:8px}.rd-ops-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}.rd-ops-segment{display:inline-flex;border:1px solid var(--ops-secondary-border);border-radius:9px;overflow:hidden;height:36px}.rd-ops-segment button{border:0;border-left:1px solid var(--ops-secondary-border);background:#fff;color:#4A4E55;padding:0 13px;font-size:12px;font-weight:700;cursor:pointer}.rd-ops-segment button:first-child{border-left:0}.rd-ops-segment button.active{background:#0F5E75;color:#fff}.rd-ops-toolbar-push{margin-left:auto}.rd-ops-empty{border:1px dashed #D9D6CF;border-radius:12px;min-height:156px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--ops-secondary)}.rd-ops-empty-icon{width:40px;height:40px;border-radius:10px;background:#EAF4F6;color:#0F5E75;display:inline-flex;align-items:center;justify-content:center;margin-bottom:10px}.rd-ops-empty strong{display:block;color:var(--ops-primary);font-size:14px;margin-bottom:6px}.rd-ops-empty span{font-size:13px;max-width:340px}.rd-ops-time-grid{position:relative;min-height:260px;overflow:auto;border-top:1px solid var(--ops-divider)}.rd-ops-hour{height:48px;border-bottom:1px solid var(--ops-divider);position:relative}.rd-ops-hour-label{position:absolute;left:0;top:-9px;width:58px;background:#fff;color:var(--ops-secondary);font-size:12px;font-weight:700}.rd-ops-event{position:absolute;left:68px;right:8px;border-left:4px solid #0F5E75;border-radius:8px;background:#EAF4F6;padding:6px 9px;overflow:hidden;cursor:pointer}.rd-ops-event strong{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rd-ops-event span{display:block;font-size:12px;color:var(--ops-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rd-ops-now-line{position:absolute;left:58px;right:0;height:2px;background:#C83224;z-index:5}.rd-ops-attendance-empty{display:flex;align-items:center;gap:10px;background:#F1F0EC;border-radius:9px;padding:13px;color:var(--ops-secondary);font-size:13px}.rd-ops-att-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--ops-divider)}.rd-ops-att-row:last-child{border-bottom:0}.rd-ops-att-row strong{display:block;font-size:14px}.rd-ops-att-row span{display:block;font-size:12px;color:var(--ops-secondary)}@media(max-width:1023px){.rd-ops-dashboard{padding:22px 18px}.rd-ops-header{grid-template-columns:1fr}.rd-ops-header-right{justify-content:flex-start;flex-wrap:wrap}.rd-ops-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.rd-ops-main{grid-template-columns:1fr}.rd-ops-row{grid-template-columns:40px minmax(0,1fr)}.rd-ops-row-actions{grid-column:2/3;justify-content:flex-start;flex-wrap:wrap}.rd-ops-due{text-align:left}.rd-ops-toolbar-push{margin-left:0}}`;
+            document.head.appendChild(style);
+        }
+
+        function dashboardNormalizeText(value) {
+            return dashboardText(value).replace(/\u00e2\u20ac\u00a2/g, ' ').replace(/\s+/g, ' ').trim();
+        }
+
+        function dashboardSentenceCase(value) {
+            const text = dashboardNormalizeText(value);
+            return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
+        }
+
+        function dashboardPriority(entry) {
+            const raw = dashboardNormalizeText(entry?.record?.priority || entry?.record?.Priority || entry?.priority || entry?.Priority || 'Medium');
+            if (/high|critical/i.test(raw)) return 'High';
+            if (/low/i.test(raw)) return 'Low';
+            return 'Medium';
+        }
+
+        function dashboardStatus(entry) {
+            return dashboardSentenceCase(entry?.record?.status || entry?.record?.Status || entry?.record?.workStatus || entry?.record?.WorkStatus || entry?.status || 'Pending') || 'Pending';
+        }
+
+        function dashboardTypeClass(entry) {
+            const text = `${entry?.operationType || ''} ${entry?.title || ''}`.toLowerCase();
+            if (/battery|aed/.test(text)) return { cls: 'battery', icon: 'fas fa-battery-half' };
+            if (/clean/.test(text)) return { cls: 'cleaning', icon: 'fas fa-magic' };
+            if (/lab/.test(text)) return { cls: 'lab', icon: 'fas fa-flask' };
+            if (/office|improvement|coffee|stock/.test(text)) return { cls: 'office', icon: 'fas fa-mug-hot' };
+            if (/maintenance|service|repair|calibrate|scan/.test(text)) return { cls: 'maintenance', icon: 'fas fa-wrench' };
+            return { cls: 'default', icon: 'fas fa-briefcase' };
+        }
+
+        function dashboardMetaHtml(entry) {
+            const title = dashboardNormalizeText(entry.title).toLowerCase();
+            const parent = dashboardNormalizeText(entry.parentName);
+            const type = dashboardNormalizeText(entry.operationType || entry.kind);
+            const frequency = dashboardNormalizeText(entry.frequencyLabel);
+            const assigneeName = dashboardNormalizeText(entry.assignedName);
+            const assigneeTitle = dashboardNormalizeText(entry.assignedTitle);
+            const assigned = !assigneeName || /^unassigned$/i.test(assigneeName)
+                ? '<span class="unassigned">Unassigned</span>'
+                : `${escapeDashboardHtml(assigneeName)}${assigneeTitle && !/position not set/i.test(assigneeTitle) ? `, ${escapeDashboardHtml(assigneeTitle)}` : ''}`;
+            const parts = [];
+            if (parent && parent.toLowerCase() !== title) parts.push(escapeDashboardHtml(parent));
+            if (type) parts.push(escapeDashboardHtml(type));
+            if (frequency) parts.push(escapeDashboardHtml(frequency));
+            parts.push(assigned);
+            return parts.filter(Boolean).join(' <span aria-hidden="true">&middot;</span> ');
+        }
+
+        function dashboardEntryAttrs(entry) {
+            return `data-entry-kind="${escapeDashboardHtml(entry.kind || '')}" data-entry-title="${escapeDashboardHtml(entry.title || '')}" data-entry-id="${escapeDashboardHtml(String(entry.id || ''))}" data-entry-view="${escapeDashboardHtml(entry.view || '')}" data-service-ticket-id="${escapeDashboardHtml(String(entry.serviceTicketId || ''))}" data-service-equipment-id="${escapeDashboardHtml(String(entry.serviceEquipmentId ?? entry.equipmentId ?? ''))}" data-equipment-id="${escapeDashboardHtml(String(entry.equipmentId ?? ''))}" data-schedule-state="${escapeDashboardHtml(entry.scheduleState || '')}" data-schedule-date="${escapeDashboardHtml(entry.scheduleDate || '')}" data-schedule-time="${escapeDashboardHtml(entry.scheduleTime || '')}"`;
+        }
+
+        function dashboardRowOpenScript() {
+            return "event.preventDefault();event.stopPropagation();const row=this.closest('.rd-dashboard-row');const entryObj={title:String(row.dataset.entryTitle||'').trim(),kind:String(row.dataset.entryKind||'').trim(),id:String(row.dataset.entryId||'').trim(),view:String(row.dataset.entryView||'').trim(),serviceTicketId:String(row.dataset.serviceTicketId||'').trim(),serviceEquipmentId:String(row.dataset.serviceEquipmentId||row.dataset.equipmentId||'').trim(),equipmentId:String(row.dataset.equipmentId||'').trim(),scheduleState:String(row.dataset.scheduleState||'').trim(),scheduleDate:String(row.dataset.scheduleDate||'').trim(),scheduleTime:String(row.dataset.scheduleTime||'').trim()};openDashboardOperation(entryObj);";
+        }
+
+        function dashboardOperationRowHtml(entry, mode = 'unscheduled') {
+            const type = dashboardTypeClass(entry);
+            const priority = dashboardPriority(entry);
+            const status = dashboardStatus(entry);
+            const priorityClass = priority === 'High' ? 'rd-ops-chip-high' : (priority === 'Low' ? 'rd-ops-chip-low' : 'rd-ops-chip-medium');
+            const title = dashboardSentenceCase(entry.title || entry.kind || 'Operation');
+            const canDrag = !!entry.isScheduleDraggable && mode !== 'overdue';
+            const days = dashboardOverdueDays(entry);
+            const dueDate = dashboardScheduleDateOnly(entry.scheduleDate || dashboardScheduleText(entry.record, ['scheduledDate','ScheduledDate','scheduleStartDate','ScheduleStartDate','dueDate','DueDate','scheduleDate','ScheduleDate','date','Date']));
+            const dueTime = dashboardScheduleTimeLabel(entry.scheduleTime || dashboardScheduleText(entry.record, ['scheduledTime','ScheduledTime','scheduleTime','ScheduleTime','startTime','StartTime','eventTime','EventTime','time','Time']));
+            const dueLabel = dueDate ? `Due ${dashboardScheduleDateLabel(dueDate)}${dueTime ? `, ${dueTime}` : ''}` : 'Due date not set';
+            const assigned = dashboardNormalizeText(entry.assignedName);
+            const action = mode === 'overdue' ? (/^unassigned$/i.test(assigned || '') ? 'Assign' : 'Complete') : 'Schedule';
+            const overdueAction = mode === 'overdue' ? `<div class="rd-ops-due"><strong>${days} day${days === 1 ? '' : 's'} overdue</strong><span>${escapeDashboardHtml(dueLabel)}</span></div>` : '';
+            return `<div class="rd-dashboard-row rd-ops-row" ${dashboardEntryAttrs(entry)} draggable="${canDrag ? 'true' : 'false'}">
+                <span class="rd-ops-icon ${type.cls}" aria-hidden="true"><i class="${type.icon}"></i></span>
+                <div><p class="rd-ops-row-title">${escapeDashboardHtml(title)}</p><div class="rd-ops-meta">${dashboardMetaHtml(entry)}</div></div>
+                <div class="rd-ops-row-actions">${overdueAction}<span class="rd-ops-chip ${priorityClass}">${escapeDashboardHtml(priority)}</span><span class="rd-ops-chip rd-ops-chip-status">${escapeDashboardHtml(status)}</span><button type="button" class="rd-ops-btn" onclick="${dashboardRowOpenScript()}">${escapeDashboardHtml(action)}</button></div>
+            </div>`;
+        }
+
+        function dashboardOverdueDays(entry, activeDate = dashboardGlanceActiveDateIso()) {
+            const date = dashboardScheduleDateOnly(entry?.scheduleDate || dashboardScheduleText(entry?.record, ['scheduledDate','ScheduledDate','scheduleStartDate','ScheduleStartDate','dueDate','DueDate','scheduleDate','ScheduleDate','date','Date']));
+            if (!date || !activeDate) return 0;
+            const start = new Date(`${date}T00:00:00`);
+            const end = new Date(`${activeDate}T00:00:00`);
+            const diff = Math.floor((end - start) / 86400000);
+            return Math.max(0, diff);
+        }
+
+        function dashboardBuildModel() {
+            const activeDate = dashboardGlanceActiveDateIso();
+            const operations = buildDashboardOperationsEntries();
+            const overdue = operations.filter(entry => dashboardOperationIsOverdue(entry, activeDate)).sort((left, right) => dashboardOverdueDays(right, activeDate) - dashboardOverdueDays(left, activeDate));
+            const unscheduled = operations.filter(entry => !dashboardOperationIsOverdue(entry, activeDate) && entry.scheduleState !== 'scheduled');
+            const scheduled = operations.filter(entry => entry.scheduleState === 'scheduled' && entry.scheduleDate === activeDate);
+            const scheduledCounts = scheduled.reduce((result, entry) => { result[entry.kind] = (result[entry.kind] || 0) + 1; return result; }, {});
+            const attendance = getDashboardAttendanceEntries();
+            const unassigned = unscheduled.filter(entry => /^unassigned$/i.test(dashboardNormalizeText(entry.assignedName))).length;
+            const oldest = overdue.reduce((max, entry) => Math.max(max, dashboardOverdueDays(entry, activeDate)), 0);
+            return { activeDate, operations, overdue, unscheduled, scheduled, scheduledCounts, attendance, unassigned, oldest };
+        }
+
+        function renderDashboardKpis(model) {
+            return `<div class="rd-ops-kpis" id="dashboardKpiStrip">
+                <button type="button" class="rd-ops-kpi ${model.overdue.length ? 'is-alert' : ''}" onclick="document.getElementById('opsOverdueSection')?.scrollIntoView({behavior:'smooth',block:'start'});"><span class="rd-ops-kpi-number">${model.overdue.length}</span><span class="rd-ops-kpi-label">Overdue</span><span class="rd-ops-kpi-sub">${model.overdue.length ? `Oldest: ${model.oldest} day${model.oldest === 1 ? '' : 's'}` : 'No overdue items'}</span></button>
+                <button type="button" class="rd-ops-kpi is-amber" onclick="document.getElementById('opsUnscheduledSection')?.scrollIntoView({behavior:'smooth',block:'start'});"><span class="rd-ops-kpi-number">${model.unscheduled.length}</span><span class="rd-ops-kpi-label">Unscheduled today</span><span class="rd-ops-kpi-sub">${model.unassigned} unassigned</span></button>
+                <button type="button" class="rd-ops-kpi" onclick="document.getElementById('dashboardCalendarPanel')?.scrollIntoView({behavior:'smooth',block:'start'});"><span class="rd-ops-kpi-number">${model.scheduled.length}</span><span class="rd-ops-kpi-label">Scheduled today</span><span class="rd-ops-kpi-sub">${model.scheduledCounts.Equipment || 0} equipment &middot; ${model.scheduledCounts.Service || 0} services</span></button>
+                <button type="button" class="rd-ops-kpi" onclick="document.getElementById('opsAttendanceSection')?.scrollIntoView({behavior:'smooth',block:'start'});"><span class="rd-ops-kpi-number">${model.attendance.length}</span><span class="rd-ops-kpi-label">Staff clocked in</span><span class="rd-ops-kpi-sub">${model.attendance.length ? `${model.attendance.length} working today` : 'No one yet today'}</span></button>
+            </div>`;
+        }
+
+        function renderDashboardAttentionPanel(model) {
+            const overdueRows = model.overdue.length ? model.overdue.map(entry => dashboardOperationRowHtml(entry, 'overdue')).join('') : '<div class="rd-ops-attendance-empty"><i class="far fa-check-circle"></i><span>No overdue operations.</span></div>';
+            const unscheduledRows = model.unscheduled.length ? model.unscheduled.map(entry => dashboardOperationRowHtml(entry, 'unscheduled')).join('') : '<div class="rd-ops-attendance-empty"><i class="far fa-check-circle"></i><span>Nothing unscheduled for today.</span></div>';
+            return `<div class="rd-ops-column" id="dashboardAttentionPanel">
+                <section class="rd-ops-card" id="opsOverdueSection"><div class="rd-ops-section-head"><i class="fas fa-triangle-exclamation" style="color:#A3261A;"></i><h3>Overdue</h3><span class="rd-ops-count-pill">${model.overdue.length}</span></div><div class="rd-ops-list">${overdueRows}</div></section>
+                <section class="rd-ops-card" id="opsUnscheduledSection"><div class="rd-ops-section-head"><i class="fas fa-list-check" style="color:#4A4E55;"></i><h3>Unscheduled today</h3><span class="rd-ops-count-pill">${model.unscheduled.length}</span><span class="rd-ops-hint">Drag onto the schedule to plan</span></div><div class="rd-ops-list">${unscheduledRows}</div></section>
+            </div>`;
+        }
+
+        function renderDashboardEventForm() {
+            return `<div id="dashboardEventForm" hidden style="display:none;grid-template-columns:2fr 1.4fr 1fr 1fr auto;gap:8px;margin-bottom:14px;padding:12px;background:#F4F3EF;border:1px solid #E4E2DC;border-radius:10px;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><input id="dashboardEventDate" type="date" aria-label="Event date" value="${escapeDashboardHtml(dashboardLocalDateIso(dashboardCalendarDate))}"><input id="dashboardEventStart" type="time" aria-label="Start time" value="09:00"><input id="dashboardEventEnd" type="time" aria-label="End time" value="09:45"><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardEvent()">Save</button></div>`;
+        }
+
+        function renderDashboardScheduleBody(entries, activeDate) {
+            if (dashboardCalendarViewMode === 'month') return `<div>${renderDashboardMonthGridHtml(dashboardCalendarDate)}</div>`;
+            if (dashboardCalendarViewMode === 'list' || dashboardCalendarViewMode === 'week') {
+                return entries.length ? `<div class="rd-ops-list">${entries.map(entry => `<div class="rd-ops-row" data-dashboard-event-id="${entry.kind === 'Calendar' ? escapeDashboardHtml(entry.id) : ''}" role="button" tabindex="0"><span class="rd-ops-icon default"><i class="fas fa-calendar-day"></i></span><div><p class="rd-ops-row-title">${escapeDashboardHtml(dashboardSentenceCase(entry.title))}</p><div class="rd-ops-meta">${escapeDashboardHtml(entry.kind)} <span aria-hidden="true">&middot;</span> ${escapeDashboardHtml(entry.start.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }))} <span aria-hidden="true">&middot;</span> ${escapeDashboardHtml(entry.createdByName || entry.assigneeRaw || 'System')}</div></div></div>`).join('')}</div>` : `<div class="rd-ops-empty" data-dashboard-calendar-dropzone="true" data-calendar-start-hour="7" data-calendar-end-hour="19"><span class="rd-ops-empty-icon"><i class="far fa-calendar"></i></span><strong>Nothing scheduled today</strong><span>Drag an unscheduled task here or add an event to start planning the day.</span></div>`;
+            }
+            if (!entries.length) return `<div class="rd-ops-empty" data-dashboard-calendar-dropzone="true" data-calendar-start-hour="7" data-calendar-end-hour="19"><span class="rd-ops-empty-icon"><i class="far fa-calendar"></i></span><strong>Nothing scheduled today</strong><span>Drag an unscheduled task here or add an event to start planning the day.</span></div>`;
+            const firstHour = Math.min(7, ...entries.map(entry => entry.start.getHours()));
+            const lastHour = Math.max(18, ...entries.map(entry => entry.end.getHours() + 1));
+            const totalMinutes = Math.max(60, (lastHour - firstHour) * 60);
+            const minuteOfDay = date => date.getHours() * 60 + date.getMinutes();
+            const top = date => Math.max(0, Math.min(100, ((minuteOfDay(date) - firstHour * 60) / totalMinutes) * 100));
+            const height = entry => Math.max(10, ((entry.end - entry.start) / 60000 / totalMinutes) * 100);
+            const hours = Array.from({ length: lastHour - firstHour }, (_, index) => firstHour + index);
+            const todayIso = dashboardLocalDateIso(new Date());
+            const now = new Date();
+            const nowLine = activeDate === todayIso && now.getHours() >= firstHour && now.getHours() <= lastHour ? `<span class="rd-ops-now-line" style="top:${top(now)}%;"></span>` : '';
+            return `<div class="rd-ops-time-grid" data-dashboard-calendar-dropzone="true" data-calendar-start-hour="${firstHour}" data-calendar-end-hour="${lastHour}">${hours.map(hour => `<div class="rd-ops-hour"><span class="rd-ops-hour-label">${hour > 12 ? hour - 12 : hour} ${hour >= 12 ? 'PM' : 'AM'}</span></div>`).join('')}${entries.map(entry => `<div class="rd-ops-event" role="button" tabindex="0" data-dashboard-event-id="${entry.kind === 'Calendar' ? escapeDashboardHtml(entry.id) : ''}" style="top:${top(entry.start)}%;height:${height(entry)}%;border-left-color:${entry.tone};background:${entry.tone}1f;"><strong>${escapeDashboardHtml(entry.title)}</strong><span>${escapeDashboardHtml(entry.kind)} <span aria-hidden="true">&middot;</span> ${escapeDashboardHtml(entry.start.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }))}</span></div>`).join('')}${nowLine}</div>`;
+        }
+
+        function renderDashboardScheduleCard(target, model = dashboardBuildModel()) {
+            if (!target) return;
+            const entries = getDashboardVisibleCalendarEntries();
+            const activeDate = dashboardLocalDateIso(dashboardCalendarDate);
+            const dateLabel = dashboardCalendarDate.toLocaleDateString([], { weekday:'long', month:'short', day:'numeric', year:'numeric' });
+            const isMode = mode => (mode === 'calendar' ? dashboardCalendarViewMode === 'calendar' : dashboardCalendarViewMode === mode);
+            target.innerHTML = `<section class="rd-ops-card" id="opsScheduleSection"><div class="rd-ops-schedule-head"><div class="rd-ops-schedule-title"><h3>Today's schedule</h3><span>${escapeDashboardHtml(dateLabel)}</span></div><div class="rd-ops-date-nav"><button type="button" class="rd-ops-btn" aria-label="Previous day" onclick="window.shiftDashboardCalendar(-1)"><i class="fas fa-chevron-left"></i></button><button type="button" class="rd-ops-btn" onclick="window.resetDashboardCalendar()">Today</button><button type="button" class="rd-ops-btn" aria-label="Next day" onclick="window.shiftDashboardCalendar(1)"><i class="fas fa-chevron-right"></i></button></div></div><div class="rd-ops-toolbar"><span class="rd-ops-segment" role="group" aria-label="Schedule view"><button type="button" class="${isMode('calendar') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('calendar')">Day</button><button type="button" class="${isMode('week') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('week')">Week</button><button type="button" class="${isMode('month') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('month')">Month</button><button type="button" class="${isMode('list') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('list')">List</button></span><button type="button" class="rd-ops-btn" onclick="window.setDashboardCalendarScope(dashboardCalendarScope === 'mine' ? 'office' : 'mine')">${dashboardCalendarScope === 'mine' ? 'My calendar' : 'Office calendar'} <i class="fas fa-chevron-down" aria-hidden="true"></i></button><button type="button" class="rd-ops-btn rd-ops-btn-primary rd-ops-toolbar-push" onclick="window.toggleDashboardEventForm(true)"><i class="fas fa-plus"></i>Add event</button></div>${renderDashboardEventForm()}${renderDashboardScheduleBody(entries, activeDate)}</section>`;
+        }
+
+        function renderDashboardAttendanceCard(target, model = dashboardBuildModel()) {
+            if (!target) return;
+            const rows = model.attendance.length ? `<div class="rd-ops-list">${model.attendance.map(entry => `<div class="rd-ops-att-row"><div><strong>${escapeDashboardHtml(entry.name)}</strong><span>${escapeDashboardHtml(entry.jobTitle || 'Team member')}</span></div><span class="rd-ops-chip rd-ops-chip-status">${escapeDashboardHtml(entry.status)}</span></div>`).join('')}</div>` : '<div class="rd-ops-attendance-empty"><i class="far fa-clock"></i><span>No one has clocked in yet today.</span></div>';
+            target.innerHTML = `<section class="rd-ops-card" id="opsAttendanceSection"><div class="rd-ops-section-head"><i class="fas fa-user-group" style="color:#1C1D1F;"></i><h3>Today's attendance</h3><a href="#" class="head-spacer" onclick="event.preventDefault(); if (typeof switchContentView === 'function') switchContentView('attendance', event);" style="font-size:12px;font-weight:800;color:#0F5E75;text-decoration:none;">View roster</a></div>${rows}</section>`;
+        }
+
+        function renderDashboardHeaderSearchResults() {
+            const panel = document.getElementById('dashboardCalendarSearchResults');
+            if (!panel) return;
+            renderDashboardCalendarSearchResults(getDashboardCalendarSearchEntries(dashboardCalendarSearchQuery));
+        }
+
+        function refreshOperationsDashboardRedesign() {
+            const root = document.querySelector('[data-rd-ops-dashboard="1"]');
+            if (!root) return;
+            const model = dashboardBuildModel();
+            const kpis = document.getElementById('dashboardKpiStrip');
+            if (kpis) kpis.outerHTML = renderDashboardKpis(model);
+            const attention = document.getElementById('dashboardAttentionPanel');
+            if (attention) attention.outerHTML = renderDashboardAttentionPanel(model);
+            renderDashboardScheduleCard(document.getElementById('dashboardCalendarPanel'), model);
+            renderDashboardAttendanceCard(document.getElementById('dashboardAttendancePanel'), model);
+            const searchInput = document.getElementById('dashboardGlobalSearch');
+            if (searchInput) searchInput.value = dashboardCalendarSearchQuery;
+            renderDashboardHeaderSearchResults();
+        }
+
+        window.openDashboardClockAction = function () {
+            if (typeof switchContentView === 'function') switchContentView('attendance', null);
+        };
+
+        function renderOperationsDashboardRedesign(target, clinic) {
+            if (!target) return;
+            ensureOperationsDashboardStyles();
+            const model = dashboardBuildModel();
+            const identity = getDashboardCurrentUserClockStatus();
+            const clockedIn = !/not clocked/i.test(identity.status || '');
+            target.innerHTML = `<div class="rd-ops-dashboard" data-rd-ops-dashboard="1"><section class="rd-ops-card rd-ops-header"><div class="rd-ops-location"><span class="rd-ops-location-icon"><i class="fas fa-map-marker-alt"></i></span><div><strong>${escapeDashboardHtml(clinic.name)}</strong><span>${escapeDashboardHtml(clinic.address)}</span></div></div><div class="rd-ops-search"><i class="fas fa-search" aria-hidden="true"></i><input id="dashboardGlobalSearch" type="search" aria-label="Search tasks, equipment, staff" placeholder="Search tasks, equipment, staff&hellip;" value="${escapeDashboardHtml(dashboardCalendarSearchQuery)}"><div id="dashboardCalendarSearchResults" class="rd-ops-search-results" hidden></div></div><div class="rd-ops-header-right"><span class="rd-ops-status"><span class="rd-ops-status-dot ${clockedIn ? 'is-in' : ''}" aria-hidden="true"></span>System <span aria-hidden="true">&middot;</span> ${escapeDashboardHtml(identity.status)}</span><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.openDashboardClockAction()"><i class="fas fa-clock"></i>${clockedIn ? 'Clock out' : 'Clock in'}</button></div></section>${renderDashboardKpis(model)}<main class="rd-ops-main">${renderDashboardAttentionPanel(model)}<div class="rd-ops-column"><div id="dashboardCalendarPanel"></div><div id="dashboardAttendancePanel"></div></div></main></div>`;
+            const searchInput = document.getElementById('dashboardGlobalSearch');
+            if (searchInput) searchInput.addEventListener('input', event => { dashboardCalendarSearchQuery = event.target.value; renderDashboardHeaderSearchResults(); });
+            renderDashboardScheduleCard(document.getElementById('dashboardCalendarPanel'), model);
+            renderDashboardAttendanceCard(document.getElementById('dashboardAttendancePanel'), model);
+            renderDashboardHeaderSearchResults();
+        }
+
         function renderAttendanceDashboard(target, clinic) {
             const entries = getDashboardAttendanceEntries();
             const identity = getDashboardCurrentUserClockStatus();
@@ -58391,11 +58604,11 @@
         }
 
         function renderManagerDashboardLanding(target, model, clinic) {
-            renderAttendanceDashboard(target, clinic);
+            renderOperationsDashboardRedesign(target, clinic);
         }
 
         function renderUserDashboardLanding(target, model) {
-            renderAttendanceDashboard(target, getDashboardLandingClinic());
+            renderOperationsDashboardRedesign(target, getDashboardLandingClinic());
         }        function refreshDashboardLandingDataInBackground() {
             if (window.__rdDashboardLandingSyncStarted) return;
             window.__rdDashboardLandingSyncStarted = true;
