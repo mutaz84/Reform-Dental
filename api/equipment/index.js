@@ -28,10 +28,31 @@ function toBitOrNull(value) {
     return null;
 }
 
+function toDateOnlyOrNull(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString().slice(0, 10);
+}
+
+function toSafeStringOrNull(value, maxLen = 200) {
+    if (value === null || value === undefined) return null;
+    const text = String(value).trim();
+    return text ? text.slice(0, maxLen) : null;
+}
+
 function addColumnValue(request, columns, definitions, columnName, paramName, type, value) {
     if (!hasColumn(columns, columnName)) return;
     request.input(paramName, type, value);
     definitions.push({ columnName, paramName });
+}
+
+function addOptionalColumnValue(request, columns, definitions, columnName, paramName, type, value) {
+    if (value === undefined) return;
+    addColumnValue(request, columns, definitions, columnName, paramName, type, value);
 }
 
 async function resolveVisibleClinicId(pool, requestedClinicId, tenantUserId) {
@@ -82,7 +103,27 @@ function buildEquipmentColumnDefinitions(request, columns, body) {
     addColumnValue(request, columns, definitions, 'ImageUrl', 'imageUrl', sql.NVarChar(sql.MAX), getBodyValue(body, 'ImageUrl', 'imageUrl') || null);
     addColumnValue(request, columns, definitions, 'DocumentUrl', 'documentUrl', sql.NVarChar(sql.MAX), getBodyValue(body, 'documentUrl', 'DocumentUrl') || null);
     addColumnValue(request, columns, definitions, 'IsActive', 'isActive', sql.Bit, toBitOrNull(getBodyValue(body, 'isActive', 'IsActive')));
+    const scheduledDate = getBodyValue(body, 'scheduledDate', 'ScheduledDate', 'scheduleDate', 'ScheduleDate');
+    const scheduledTime = getBodyValue(body, 'scheduledTime', 'ScheduledTime', 'scheduleTime', 'ScheduleTime');
+    const dashboardScope = getBodyValue(body, 'dashboardScope', 'DashboardScope');
+    const dashboardScheduledBy = getBodyValue(body, 'dashboardScheduledBy', 'DashboardScheduledBy');
+    const dashboardScheduledByName = getBodyValue(body, 'dashboardScheduledByName', 'DashboardScheduledByName');
+    addOptionalColumnValue(request, columns, definitions, 'ScheduledDate', 'scheduledDate', sql.Date, scheduledDate === undefined ? undefined : toDateOnlyOrNull(scheduledDate));
+    addOptionalColumnValue(request, columns, definitions, 'ScheduledTime', 'scheduledTime', sql.NVarChar(20), scheduledTime === undefined ? undefined : toSafeStringOrNull(scheduledTime, 20));
+    addOptionalColumnValue(request, columns, definitions, 'DashboardScope', 'dashboardScope', sql.NVarChar(20), dashboardScope === undefined ? undefined : toSafeStringOrNull(dashboardScope, 20));
+    addOptionalColumnValue(request, columns, definitions, 'DashboardScheduledBy', 'dashboardScheduledBy', sql.NVarChar(100), dashboardScheduledBy === undefined ? undefined : toSafeStringOrNull(dashboardScheduledBy, 100));
+    addOptionalColumnValue(request, columns, definitions, 'DashboardScheduledByName', 'dashboardScheduledByName', sql.NVarChar(200), dashboardScheduledByName === undefined ? undefined : toSafeStringOrNull(dashboardScheduledByName, 200));
     return definitions;
+}
+
+async function ensureDashboardScheduleColumns(pool) {
+    await pool.request().query(`
+        IF COL_LENGTH('dbo.Equipment', 'ScheduledDate') IS NULL ALTER TABLE dbo.Equipment ADD ScheduledDate DATE NULL;
+        IF COL_LENGTH('dbo.Equipment', 'ScheduledTime') IS NULL ALTER TABLE dbo.Equipment ADD ScheduledTime NVARCHAR(20) NULL;
+        IF COL_LENGTH('dbo.Equipment', 'DashboardScope') IS NULL ALTER TABLE dbo.Equipment ADD DashboardScope NVARCHAR(20) NULL;
+        IF COL_LENGTH('dbo.Equipment', 'DashboardScheduledBy') IS NULL ALTER TABLE dbo.Equipment ADD DashboardScheduledBy NVARCHAR(100) NULL;
+        IF COL_LENGTH('dbo.Equipment', 'DashboardScheduledByName') IS NULL ALTER TABLE dbo.Equipment ADD DashboardScheduledByName NVARCHAR(200) NULL;
+    `);
 }
 
 module.exports = async function (context, req) {
@@ -104,6 +145,7 @@ module.exports = async function (context, req) {
 
     try {
         const pool = await getPool();
+        await ensureDashboardScheduleColumns(pool);
         const equipmentColumns = await getTableColumns(pool, 'Equipment');
         if (equipmentColumns.size === 0) {
             context.res = { status: 500, headers, body: { error: 'Equipment table not found.' } };

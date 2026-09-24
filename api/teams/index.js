@@ -18,6 +18,22 @@ function toBitOrNull(value) {
     return null;
 }
 
+function toDateOnlyOrNull(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString().slice(0, 10);
+}
+
+function toSafeStringOrNull(value, maxLen = 200) {
+    if (value === null || value === undefined) return null;
+    const text = String(value).trim();
+    return text ? text.slice(0, maxLen) : null;
+}
+
 function getBodyValue(body, ...keys) {
     for (const key of keys) {
         if (Object.prototype.hasOwnProperty.call(body, key) && body[key] !== undefined) {
@@ -39,6 +55,11 @@ function addColumnValue(request, columns, definitions, columnName, paramName, ty
     definitions.push({ columnName, paramName });
 }
 
+function addOptionalColumnValue(request, columns, definitions, columnName, paramName, type, value) {
+    if (value === undefined) return;
+    addColumnValue(request, columns, definitions, columnName, paramName, type, value);
+}
+
 async function ensureTeamsTable(pool) {
     await pool.request().query(`
         IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'Teams') AND type = 'U')
@@ -53,6 +74,12 @@ async function ensureTeamsTable(pool) {
                 Members       NVARCHAR(MAX),
                 OfficeId      NVARCHAR(50),
                 Schedule      NVARCHAR(200),
+                ScheduleDate  DATE,
+                ScheduleTime  NVARCHAR(20),
+                ScheduleNoDateTime BIT DEFAULT 0,
+                DashboardScope NVARCHAR(20),
+                DashboardScheduledBy NVARCHAR(100),
+                DashboardScheduledByName NVARCHAR(200),
                 ImageData     NVARCHAR(MAX),
                 DocumentData  NVARCHAR(MAX),
                 DocumentName  NVARCHAR(500),
@@ -64,6 +91,13 @@ async function ensureTeamsTable(pool) {
                 ModifiedDate  DATETIME2
             )
         END
+
+        IF COL_LENGTH('dbo.Teams', 'ScheduleDate') IS NULL ALTER TABLE dbo.Teams ADD ScheduleDate DATE NULL;
+        IF COL_LENGTH('dbo.Teams', 'ScheduleTime') IS NULL ALTER TABLE dbo.Teams ADD ScheduleTime NVARCHAR(20) NULL;
+        IF COL_LENGTH('dbo.Teams', 'ScheduleNoDateTime') IS NULL ALTER TABLE dbo.Teams ADD ScheduleNoDateTime BIT NOT NULL CONSTRAINT DF_Teams_ScheduleNoDateTime DEFAULT 0;
+        IF COL_LENGTH('dbo.Teams', 'DashboardScope') IS NULL ALTER TABLE dbo.Teams ADD DashboardScope NVARCHAR(20) NULL;
+        IF COL_LENGTH('dbo.Teams', 'DashboardScheduledBy') IS NULL ALTER TABLE dbo.Teams ADD DashboardScheduledBy NVARCHAR(100) NULL;
+        IF COL_LENGTH('dbo.Teams', 'DashboardScheduledByName') IS NULL ALTER TABLE dbo.Teams ADD DashboardScheduledByName NVARCHAR(200) NULL;
     `);
 }
 
@@ -77,6 +111,18 @@ function buildTeamColumnDefinitions(request, columns, body) {
     addColumnValue(request, columns, definitions, 'Members',        'members',        sql.NVarChar(sql.MAX), safeJson(getBodyValue(body, 'members', 'Members')));
     addColumnValue(request, columns, definitions, 'OfficeId',       'officeId',       sql.NVarChar(50),      getBodyValue(body, 'officeId', 'OfficeId') || null);
     addColumnValue(request, columns, definitions, 'Schedule',       'schedule',       sql.NVarChar(200),     getBodyValue(body, 'schedule', 'Schedule') || null);
+    const scheduleDate = getBodyValue(body, 'scheduleDate', 'ScheduleDate');
+    const scheduleTime = getBodyValue(body, 'scheduleTime', 'ScheduleTime');
+    const scheduleNoDateTime = getBodyValue(body, 'scheduleNoDateTime', 'ScheduleNoDateTime');
+    const dashboardScope = getBodyValue(body, 'dashboardScope', 'DashboardScope');
+    const dashboardScheduledBy = getBodyValue(body, 'dashboardScheduledBy', 'DashboardScheduledBy');
+    const dashboardScheduledByName = getBodyValue(body, 'dashboardScheduledByName', 'DashboardScheduledByName');
+    addOptionalColumnValue(request, columns, definitions, 'ScheduleDate', 'scheduleDate', sql.Date, scheduleDate === undefined ? undefined : toDateOnlyOrNull(scheduleDate));
+    addOptionalColumnValue(request, columns, definitions, 'ScheduleTime', 'scheduleTime', sql.NVarChar(20), scheduleTime === undefined ? undefined : toSafeStringOrNull(scheduleTime, 20));
+    addOptionalColumnValue(request, columns, definitions, 'ScheduleNoDateTime', 'scheduleNoDateTime', sql.Bit, scheduleNoDateTime === undefined ? undefined : toBitOrNull(scheduleNoDateTime));
+    addOptionalColumnValue(request, columns, definitions, 'DashboardScope', 'dashboardScope', sql.NVarChar(20), dashboardScope === undefined ? undefined : toSafeStringOrNull(dashboardScope, 20));
+    addOptionalColumnValue(request, columns, definitions, 'DashboardScheduledBy', 'dashboardScheduledBy', sql.NVarChar(100), dashboardScheduledBy === undefined ? undefined : toSafeStringOrNull(dashboardScheduledBy, 100));
+    addOptionalColumnValue(request, columns, definitions, 'DashboardScheduledByName', 'dashboardScheduledByName', sql.NVarChar(200), dashboardScheduledByName === undefined ? undefined : toSafeStringOrNull(dashboardScheduledByName, 200));
     addColumnValue(request, columns, definitions, 'ImageData',      'imageData',      sql.NVarChar(sql.MAX), getBodyValue(body, 'imageData', 'ImageData') || null);
     addColumnValue(request, columns, definitions, 'DocumentData',   'documentData',   sql.NVarChar(sql.MAX), getBodyValue(body, 'documentData', 'DocumentData') || null);
     addColumnValue(request, columns, definitions, 'DocumentName',   'documentName',   sql.NVarChar(500),     getBodyValue(body, 'documentName', 'DocumentName') || null);
