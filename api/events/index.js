@@ -1,5 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
-const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
+const { getRequestUserId, tenantClinicScopeSql, resolveWritableClinicId, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -45,6 +45,60 @@ function toDateTime(value, fallback = null) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return fallback;
     return date;
+}
+
+function valueOrNull(value) {
+    return value === undefined ? null : value;
+}
+
+function getHeaderValue(req, names) {
+    const headers = req?.headers || {};
+    const entries = Object.entries(headers);
+    for (const name of names) {
+        const found = entries.find(([key]) => String(key).toLowerCase() === String(name).toLowerCase());
+        if (found && found[1] !== undefined && found[1] !== null) return found[1];
+    }
+    return null;
+}
+
+async function getEffectiveTenantUserId(pool, req) {
+    const directUserId = getRequestUserId(req);
+    if (directUserId) return directUserId;
+
+    const candidates = [
+        getHeaderValue(req, ['x-username', 'x-user-name', 'x-user-email', 'x-user']),
+        req?.query?.username,
+        req?.query?.userName,
+        req?.query?.userEmail,
+        req?.query?.email,
+        req?.query?.name,
+        req?.body?.organizerUsername,
+        req?.body?.organizerName,
+        req?.body?.organizer,
+        req?.body?.createdByName
+    ];
+
+    for (const candidate of candidates) {
+        const resolvedUserId = await resolveUserId(pool, candidate);
+        if (resolvedUserId) return resolvedUserId;
+    }
+
+    return null;
+}
+
+async function resolveEventClinicId(pool, body, tenantUserId, hasClinicCol) {
+    if (!hasClinicCol) return toNullableInt(body?.clinicId);
+    const writableClinicId = await resolveWritableClinicId(pool, body, tenantUserId);
+    if (writableClinicId) return writableClinicId;
+
+    const request = pool.request().input(TENANT_PARAM, sql.Int, tenantUserId || 0);
+    const result = await request.query(`
+        SELECT TOP 1 Id
+        FROM Clinics
+        WHERE ${tenantClinicScopeSql('Id')}
+        ORDER BY Id
+    `);
+    return result.recordset[0]?.Id || null;
 }
 
 async function resolveUserId(pool, key) {
@@ -192,7 +246,7 @@ module.exports = async function (context, req) {
         'Content-Type': 'application/json; charset=utf-8',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id'
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id, X-Username, X-User-Name, X-User-Email'
     };
 
     if (req.method === 'OPTIONS') {
@@ -223,7 +277,7 @@ module.exports = async function (context, req) {
         const clinicSelect = hasClinicName ? ', c.Name AS ClinicName' : '';
         const clinicJoin = hasClinicName ? 'LEFT JOIN Clinics c ON c.Id = e.ClinicId' : '';
         const organizerJoinColumn = hasOrganizerUserId ? 'e.OrganizerUserId' : (hasCreatedBy ? 'e.CreatedBy' : 'NULL');
-        const tenantUserId = getRequestUserId(req);
+        const tenantUserId = await getEffectiveTenantUserId(pool, req);
 
         if (req.method === 'GET') {
             if (hasClinicCol && !tenantUserId) {
@@ -315,7 +369,8 @@ module.exports = async function (context, req) {
 
             const providedOrganizerId = toNullableInt(body.organizerUserId || body.createdBy);
             const organizerLookup = body.organizerName || body.organizer || body.organizerUsername || null;
-            const organizerUserId = providedOrganizerId || await resolveUserId(pool, organizerLookup);
+            const organizerUserId = providedOrganizerId || await resolveUserId(pool, organizerLookup) || tenantUserId;
+            const eventClinicId = await resolveEventClinicId(pool, body, tenantUserId || organizerUserId, hasClinicCol);
             const attendees = normalizeAttendees(body.attendees);
 
             const insertDefs = [
@@ -325,7 +380,7 @@ module.exports = async function (context, req) {
                 { column: 'StartDateTime', param: 'startDateTime', type: sql.DateTime2, value: startDateTime },
                 { column: 'EndDateTime', param: 'endDateTime', type: sql.DateTime2, value: endDateTime },
                 { column: 'AllDay', param: 'allDay', type: sql.Bit, value: !!body.allDay },
-                { column: 'ClinicId', param: 'clinicId', type: sql.Int, value: toNullableInt(body.clinicId) },
+                { column: 'ClinicId', param: 'clinicId', type: sql.Int, value: valueOrNull(eventClinicId) },
                 { column: 'RoomId', param: 'roomId', type: sql.Int, value: toNullableInt(body.roomId) },
                 { column: 'Color', param: 'color', type: sql.NVarChar(20), value: normalizeNullableString(body.color) },
                 { column: 'Priority', param: 'priority', type: sql.NVarChar(20), value: normalizeNullableString(body.priority) || 'medium' },
@@ -381,7 +436,8 @@ module.exports = async function (context, req) {
             const endDateTime = toDateTime(body.endDateTime || `${body.eventDate || ''}T${toIsoTime(body.endTime, toIsoTime(body.startTime))}:00`, startDateTime);
             const providedOrganizerId = toNullableInt(body.organizerUserId || body.createdBy);
             const organizerLookup = body.organizerName || body.organizer || body.organizerUsername || null;
-            const organizerUserId = providedOrganizerId || await resolveUserId(pool, organizerLookup);
+            const organizerUserId = providedOrganizerId || await resolveUserId(pool, organizerLookup) || tenantUserId;
+            const eventClinicId = await resolveEventClinicId(pool, body, tenantUserId || organizerUserId, hasClinicCol);
             const attendees = normalizeAttendees(body.attendees);
 
             const updateDefs = [
@@ -391,7 +447,7 @@ module.exports = async function (context, req) {
                 { column: 'StartDateTime', param: 'startDateTime', type: sql.DateTime2, value: startDateTime },
                 { column: 'EndDateTime', param: 'endDateTime', type: sql.DateTime2, value: endDateTime },
                 { column: 'AllDay', param: 'allDay', type: sql.Bit, value: !!body.allDay },
-                { column: 'ClinicId', param: 'clinicId', type: sql.Int, value: toNullableInt(body.clinicId) },
+                { column: 'ClinicId', param: 'clinicId', type: sql.Int, value: valueOrNull(eventClinicId) },
                 { column: 'RoomId', param: 'roomId', type: sql.Int, value: toNullableInt(body.roomId) },
                 { column: 'Color', param: 'color', type: sql.NVarChar(20), value: normalizeNullableString(body.color) },
                 { column: 'Priority', param: 'priority', type: sql.NVarChar(20), value: normalizeNullableString(body.priority) || 'medium' },

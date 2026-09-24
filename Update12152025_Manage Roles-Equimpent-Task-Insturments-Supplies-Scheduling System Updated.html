@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260924-dashboard-story-sync-v154';
+                const buildVersion = '20260924-dashboard-event-api-v155';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -58193,12 +58193,14 @@
                     (typeof getUserRecordId === 'function' ? getUserRecordId(session) : 0) ||
                     0
                 ) || null;
+                const username = String(session.username || session.Username || session.userName || localStorage.getItem('loggedInUser') || localStorage.getItem('username') || '').trim();
                 return {
                     id: numericId,
+                    username,
                     name: String(session.name || session.displayName || [session.firstName, session.lastName].filter(Boolean).join(' ') || localStorage.getItem('displayName') || localStorage.getItem('userName') || localStorage.getItem('loggedInUser') || 'Admin').trim()
                 };
             } catch (_) {
-                return { id: null, name: String(localStorage.getItem('displayName') || localStorage.getItem('userName') || 'Admin').trim() };
+                return { id: null, username: String(localStorage.getItem('loggedInUser') || localStorage.getItem('username') || '').trim(), name: String(localStorage.getItem('displayName') || localStorage.getItem('userName') || 'Admin').trim() };
             }
         }
 
@@ -58249,6 +58251,7 @@
                 return;
             }
             const creator = getDashboardCurrentCreator();
+            const selectedClinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
             const editingId = String(document.getElementById('dashboardEventEditId')?.value || '').trim();
             const savingToMine = dashboardCalendarScope === 'mine';
             const eventRecord = {
@@ -58261,6 +58264,9 @@
                 createdByName: creator.name,
                 organizerUserId: savingToMine ? creator.id : null,
                 organizerName: creator.name,
+                organizerUsername: creator.username || '',
+                clinicId: selectedClinicMeta?.selectedClinicId || null,
+                clinicName: selectedClinicMeta?.selectedClinicName || '',
                 type: 'other',
                 eventType: 'other',
                 status: 'scheduled',
@@ -61205,9 +61211,12 @@
                 priority: event.priority || 'medium',
                 status: event.status || 'scheduled',
                 clinicId: event.clinicId ? Number(event.clinicId) : null,
+                clinicName: event.clinicName || event.clinic || event.office || '',
                 roomId: event.roomId ? Number(event.roomId) : null,
+                createdBy: event.createdBy || event.organizerUserId || null,
                 organizerUserId: event.organizerUserId ? Number(event.organizerUserId) : null,
-                organizerName: event.organizerName || '',
+                organizerName: event.organizerName || event.createdByName || '',
+                organizerUsername: event.organizerUsername || event.createdByUsername || '',
                 color: event.color || event.backgroundColor || null,
                 attendees
             };
@@ -61226,22 +61235,30 @@
 
         async function getEventsTenantFetchInit(init = {}) {
             const headers = { ...(init.headers || {}) };
-            const hasTenantHeader = Object.keys(headers).some((key) => String(key).toLowerCase() === 'x-user-id');
-            if (hasTenantHeader) return { ...init, headers };
+            const hasHeader = (headerName) => Object.keys(headers).some((key) => String(key).toLowerCase() === String(headerName).toLowerCase());
+            const normalizeHeaderValue = (value) => String(value || '').trim();
 
             let tenantUserId = '';
+            let currentUser = null;
             try {
-                const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
+                currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
                 tenantUserId = (typeof getTenantUserIdCandidate === 'function') ? getTenantUserIdCandidate(currentUser) : '';
             } catch (_) {}
 
-            if (!tenantUserId && typeof getCurrentChatUserId === 'function') {
+            if (!tenantUserId && !hasHeader('x-user-id') && typeof getCurrentChatUserId === 'function') {
                 try {
                     tenantUserId = await getCurrentChatUserId();
                 } catch (_) {}
             }
 
-            if (tenantUserId) headers['X-User-Id'] = String(tenantUserId);
+            const username = normalizeHeaderValue(currentUser?.username || currentUser?.Username || currentUser?.userName || localStorage.getItem('loggedInUser') || localStorage.getItem('username'));
+            const displayName = normalizeHeaderValue(currentUser?.name || currentUser?.displayName || [currentUser?.firstName, currentUser?.lastName].filter(Boolean).join(' ') || localStorage.getItem('displayName') || localStorage.getItem('userName'));
+            const email = normalizeHeaderValue(currentUser?.workEmail || currentUser?.email || currentUser?.personalEmail || localStorage.getItem('userEmail') || localStorage.getItem('email'));
+
+            if (tenantUserId && !hasHeader('x-user-id')) headers['X-User-Id'] = String(tenantUserId);
+            if (username && !hasHeader('x-username')) headers['X-Username'] = username;
+            if (displayName && !hasHeader('x-user-name')) headers['X-User-Name'] = displayName;
+            if (email && !hasHeader('x-user-email')) headers['X-User-Email'] = email;
             return { ...init, headers };
         }
 
