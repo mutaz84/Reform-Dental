@@ -45,6 +45,17 @@ function serializeSnapshot(value) {
     return JSON.stringify(snapshot);
 }
 
+async function getTableColumns(pool, tableName) {
+    const result = await pool.request()
+        .input('tableName', sql.NVarChar(128), tableName)
+        .query('SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @tableName');
+    return new Set((result.recordset || []).map((row) => String(row.COLUMN_NAME || '').toLowerCase()));
+}
+
+function hasColumn(columns, name) {
+    return columns.has(String(name).toLowerCase());
+}
+
 function mapRow(row) {
     return {
         id: row.Id,
@@ -98,15 +109,20 @@ async function getCallerScope(pool, req) {
     const userId = getRequestUserId(req);
     if (!userId) return null;
 
+    const userColumns = await getTableColumns(pool, 'Users');
+    if (!hasColumn(userColumns, 'Id')) return null;
+
+    const subscriptionSelect = hasColumn(userColumns, 'SubscriptionId') ? 'SubscriptionId' : 'NULL AS SubscriptionId';
+
     const userResult = await pool.request()
         .input('userId', sql.Int, userId)
-        .query('SELECT TOP 1 Id, SubscriptionId FROM Users WHERE Id = @userId');
+        .query(`SELECT TOP 1 Id, ${subscriptionSelect} FROM Users WHERE Id = @userId`);
 
     const user = userResult.recordset?.[0];
     if (!user) return null;
 
     const platformAdmin = await isPlatformAdmin(pool, userId);
-    const subscriptionId = platformAdmin ? null : (Number(user.SubscriptionId) || null);
+    const subscriptionId = platformAdmin ? null : await resolveDashboardSubscriptionId(pool, userId, user.SubscriptionId);
 
     return {
         userId: Number(user.Id),
@@ -115,13 +131,63 @@ async function getCallerScope(pool, req) {
     };
 }
 
+async function resolveDashboardSubscriptionId(pool, userId, directSubscriptionId) {
+    const direct = Number(directSubscriptionId) || null;
+    if (direct) return direct;
+
+    const subscriptionColumns = await getTableColumns(pool, 'Subscriptions');
+    if (!hasColumn(subscriptionColumns, 'Id')) return null;
+
+    const hasStatus = hasColumn(subscriptionColumns, 'Status');
+    const statusFilter = hasStatus ? "AND ISNULL(s.Status, 'active') IN ('active', 'pending', 'cancellation_requested', 'paused')" : '';
+    const orderBy = hasStatus
+        ? "ORDER BY CASE WHEN s.Status = 'active' THEN 0 WHEN s.Status = 'pending' THEN 1 ELSE 2 END, s.Id DESC"
+        : 'ORDER BY s.Id DESC';
+
+    if (hasColumn(subscriptionColumns, 'OwnerUserId')) {
+        const owned = await pool.request()
+            .input('userId', sql.Int, userId)
+            .query(`
+                SELECT TOP 1 s.Id
+                FROM Subscriptions s
+                WHERE s.OwnerUserId = @userId
+                  ${statusFilter}
+                ${orderBy}`);
+        const ownedId = Number(owned.recordset?.[0]?.Id) || null;
+        if (ownedId) return ownedId;
+    }
+
+    const userClinicColumns = await getTableColumns(pool, 'UserClinics');
+    const subscriptionClinicColumns = await getTableColumns(pool, 'SubscriptionClinics');
+    if (
+        hasColumn(userClinicColumns, 'UserId')
+        && hasColumn(userClinicColumns, 'ClinicId')
+        && hasColumn(subscriptionClinicColumns, 'SubscriptionId')
+        && hasColumn(subscriptionClinicColumns, 'ClinicId')
+    ) {
+        const clinicLinked = await pool.request()
+            .input('userId', sql.Int, userId)
+            .query(`
+                SELECT TOP 1 sc.SubscriptionId AS Id
+                FROM UserClinics uc
+                INNER JOIN SubscriptionClinics sc ON sc.ClinicId = uc.ClinicId
+                INNER JOIN Subscriptions s ON s.Id = sc.SubscriptionId
+                WHERE uc.UserId = @userId
+                  ${statusFilter}
+                ${orderBy}`);
+        return Number(clinicLinked.recordset?.[0]?.Id) || null;
+    }
+
+    return null;
+}
+
 function addScopeFilter(request, scope, parts, alias = '') {
     request.input('scopeUserId', sql.Int, scope.userId);
     const prefix = alias ? `${alias}.` : '';
 
     if (scope.subscriptionId) {
         request.input('scopeSubscriptionId', sql.Int, scope.subscriptionId);
-        parts.push(`${prefix}SubscriptionId = @scopeSubscriptionId`);
+        parts.push(`(${prefix}SubscriptionId = @scopeSubscriptionId OR (${prefix}SubscriptionId IS NULL AND ${prefix}OwnerUserId = @scopeUserId))`);
     } else {
         parts.push(`${prefix}OwnerUserId = @scopeUserId`);
     }
@@ -204,6 +270,8 @@ module.exports = async function (context, req) {
                     SET Name = @name,
                         Description = @description,
                         SnapshotJson = @snapshotJson,
+                        SubscriptionId = @subscriptionId,
+                        OwnerUserId = @ownerUserId,
                         UpdatedAt = SYSUTCDATETIME()
                     WHERE ${existingWhere.join(' AND ')};
                 END

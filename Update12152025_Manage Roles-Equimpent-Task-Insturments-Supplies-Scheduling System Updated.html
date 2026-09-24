@@ -1,11 +1,11 @@
-﻿<html lang="en" data-accent="green" data-fontcolor="default" data-theme="light" data-role="admin" data-theme-preset="high-contrast"><head>
+<html lang="en" data-accent="green" data-fontcolor="default" data-theme="light" data-role="admin" data-theme-preset="high-contrast"><head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260924-dashboard-config-sync-v157';
+                const buildVersion = '20260924-dashboard-sql-sync-v158';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -128082,11 +128082,20 @@ console.log('? Global functions exported to window object');
       }
       function getDashboardSyncUserId() {
         const current = parseCurrentDashboardUser();
+        if (typeof getTenantUserIdCandidate === 'function') {
+          const tenantUserId = getTenantUserIdCandidate(current);
+          if (tenantUserId) return String(tenantUserId);
+        }
         const candidates = [
           current && (current.dbId ?? current.DBId ?? current.DbId),
           current && (current.id ?? current.Id),
           current && (current.userId ?? current.UserId),
-          window.currentDbUserId
+          window.currentDbUserId,
+          localStorage.getItem('currentDbUserId'),
+          localStorage.getItem('currentUserId'),
+          localStorage.getItem('userId'),
+          localStorage.getItem('loggedInUserId'),
+          localStorage.getItem('activeUserId')
         ];
         for (const value of candidates) {
           const numeric = Number(value);
@@ -128206,17 +128215,28 @@ console.log('? Global functions exported to window object');
           let remote = normalizeSavedDashboardList(await response.json().catch(() => []));
           const migrationKey = getDashboardMigrationKey();
           const migrationDone = localStorage.getItem(migrationKey) === '1';
-          if (!migrationDone) {
-            const remoteIds = new Set(remote.map(d => d.id));
-            const missingLocal = localBefore.filter(d => d.id && !remoteIds.has(d.id));
+          const remoteIds = new Set(remote.map(d => d.id));
+          const missingLocal = localBefore.filter(d => d.id && !remoteIds.has(d.id));
+          if (missingLocal.length) {
+            const syncResults = [];
             for (const dashboard of missingLocal) {
-              await syncSavedEntryToApi(dashboard, { silent: true, skipLocalMerge: true });
+              syncResults.push(await syncSavedEntryToApi(dashboard, { silent: true, skipLocalMerge: true }));
             }
-            try { localStorage.setItem(migrationKey, '1'); } catch (_) {}
-            if (missingLocal.length) {
-              const reread = await fetch(url, { headers: getDashboardSyncHeaders(), cache: 'no-store' });
-              if (reread.ok) remote = normalizeSavedDashboardList(await reread.json().catch(() => remote));
+            const allSynced = syncResults.every(Boolean);
+            if (allSynced) {
+              try { localStorage.setItem(migrationKey, '1'); } catch (_) {}
+            } else if (!migrationDone) {
+              try { localStorage.removeItem(migrationKey); } catch (_) {}
             }
+            const reread = await fetch(url, { headers: getDashboardSyncHeaders(), cache: 'no-store' });
+            if (reread.ok) remote = normalizeSavedDashboardList(await reread.json().catch(() => remote));
+            const nextRemoteIds = new Set(remote.map(d => d.id));
+            missingLocal.forEach((dashboard) => {
+              if (dashboard.id && !nextRemoteIds.has(dashboard.id)) {
+                remote.push(dashboard);
+                nextRemoteIds.add(dashboard.id);
+              }
+            });
           }
           savedCloudLastFetch = Date.now();
           writeSaved(remote, { silent: options.silentWrite === true });
