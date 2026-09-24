@@ -35,6 +35,55 @@ function getConfig() {
     return config;
 }
 
+async function ensureDutiesTables(pool) {
+    await pool.request().batch(`
+        IF OBJECT_ID('dbo.Duties', 'U') IS NULL
+        BEGIN
+            CREATE TABLE dbo.Duties (
+                Id INT IDENTITY(1,1) PRIMARY KEY,
+                Name NVARCHAR(255) NOT NULL,
+                Description NVARCHAR(MAX) NULL,
+                Schedule NVARCHAR(50) NULL,
+                ScheduleTime NVARCHAR(20) NULL,
+                ScheduleDay NVARCHAR(50) NULL,
+                Location NVARCHAR(255) NULL,
+                Priority NVARCHAR(50) NULL,
+                CreatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                ModifiedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                IsActive BIT NOT NULL DEFAULT 1
+            );
+        END;
+
+        IF COL_LENGTH('dbo.Duties', 'Name') IS NULL ALTER TABLE dbo.Duties ADD Name NVARCHAR(255) NULL;
+        IF COL_LENGTH('dbo.Duties', 'Description') IS NULL ALTER TABLE dbo.Duties ADD Description NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.Duties', 'Schedule') IS NULL ALTER TABLE dbo.Duties ADD Schedule NVARCHAR(50) NULL;
+        IF COL_LENGTH('dbo.Duties', 'ScheduleTime') IS NULL ALTER TABLE dbo.Duties ADD ScheduleTime NVARCHAR(20) NULL;
+        IF COL_LENGTH('dbo.Duties', 'ScheduleDay') IS NULL ALTER TABLE dbo.Duties ADD ScheduleDay NVARCHAR(50) NULL;
+        IF COL_LENGTH('dbo.Duties', 'Location') IS NULL ALTER TABLE dbo.Duties ADD Location NVARCHAR(255) NULL;
+        IF COL_LENGTH('dbo.Duties', 'Priority') IS NULL ALTER TABLE dbo.Duties ADD Priority NVARCHAR(50) NULL;
+        IF COL_LENGTH('dbo.Duties', 'CreatedDate') IS NULL ALTER TABLE dbo.Duties ADD CreatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
+        IF COL_LENGTH('dbo.Duties', 'ModifiedDate') IS NULL ALTER TABLE dbo.Duties ADD ModifiedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
+        IF COL_LENGTH('dbo.Duties', 'IsActive') IS NULL ALTER TABLE dbo.Duties ADD IsActive BIT NOT NULL DEFAULT 1;
+
+        IF OBJECT_ID('dbo.UserDutyAssignments', 'U') IS NULL
+        BEGIN
+            CREATE TABLE dbo.UserDutyAssignments (
+                UserId INT NOT NULL,
+                DutyId INT NOT NULL,
+                CreatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                CONSTRAINT PK_UserDutyAssignments PRIMARY KEY (UserId, DutyId)
+            );
+        END;
+
+        IF COL_LENGTH('dbo.UserDutyAssignments', 'UserId') IS NULL ALTER TABLE dbo.UserDutyAssignments ADD UserId INT NULL;
+        IF COL_LENGTH('dbo.UserDutyAssignments', 'DutyId') IS NULL ALTER TABLE dbo.UserDutyAssignments ADD DutyId INT NULL;
+        IF COL_LENGTH('dbo.UserDutyAssignments', 'CreatedDate') IS NULL ALTER TABLE dbo.UserDutyAssignments ADD CreatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_UserDutyAssignments_DutyId' AND object_id = OBJECT_ID('dbo.UserDutyAssignments'))
+            CREATE INDEX IX_UserDutyAssignments_DutyId ON dbo.UserDutyAssignments (DutyId);
+    `);
+}
+
 module.exports = async function (context, req) {
     // Handle CORS
     const headers = {
@@ -51,6 +100,7 @@ module.exports = async function (context, req) {
 
     try {
         const pool = await sql.connect(getConfig());
+        await ensureDutiesTables(pool);
         const id = req.params.id;
         const userId = req.query.userId;
 

@@ -84,26 +84,53 @@ async function fetchSubscriptionFull(pool, id) {
     return sub;
 }
 
-async function listSubscriptions(pool, { status, ownerUserId } = {}) {
+async function listSubscriptions(pool, { status, ownerUserId, subColumns } = {}) {
+    const subscriptionColumns = subColumns || await getTableColumns(pool, 'Subscriptions');
+    const planColumns = await getTableColumns(pool, 'SubscriptionPlans');
+    const clinicColumns = await getTableColumns(pool, 'SubscriptionClinics');
+    const userColumns = hasColumn(subscriptionColumns, 'OwnerUserId') ? await getTableColumns(pool, 'Users') : new Set();
+    const hasPlans = planColumns.size > 0;
+    const hasClinicCount = clinicColumns.size > 0 && hasColumn(clinicColumns, 'SubscriptionId');
+    const hasOwnerJoin = userColumns.size > 0 && hasColumn(userColumns, 'Id');
+    const hasPlanJoin = hasPlans && hasColumn(subscriptionColumns, 'PlanId') && hasColumn(planColumns, 'Id');
+
+    const planSelect = hasPlanJoin ? [
+        hasColumn(planColumns, 'Name') ? 'p.Name AS PlanName' : 'NULL AS PlanName',
+        hasColumn(planColumns, 'Price') ? 'p.Price AS PlanPrice' : 'NULL AS PlanPrice',
+        hasColumn(planColumns, 'BillingCycle') ? 'p.BillingCycle AS PlanBillingCycle' : 'NULL AS PlanBillingCycle',
+        hasColumn(planColumns, 'MaxClinics') ? 'p.MaxClinics AS PlanMaxClinics' : 'NULL AS PlanMaxClinics',
+        hasColumn(planColumns, 'MaxUsers') ? 'p.MaxUsers AS PlanMaxUsers' : 'NULL AS PlanMaxUsers'
+    ].join(',\n               ') : 'NULL AS PlanName, NULL AS PlanPrice, NULL AS PlanBillingCycle, NULL AS PlanMaxClinics, NULL AS PlanMaxUsers';
+    const planJoin = hasPlanJoin
+        ? 'LEFT JOIN SubscriptionPlans p ON p.Id = s.PlanId'
+        : '';
+    const ownerSelect = hasOwnerJoin ? [
+        hasColumn(userColumns, 'FirstName') ? 'u.FirstName AS OwnerFirstName' : 'NULL AS OwnerFirstName',
+        hasColumn(userColumns, 'LastName') ? 'u.LastName AS OwnerLastName' : 'NULL AS OwnerLastName',
+        hasColumn(userColumns, 'PersonalEmail') && hasColumn(userColumns, 'WorkEmail') ? 'ISNULL(u.PersonalEmail, u.WorkEmail) AS OwnerEmail' :
+            (hasColumn(userColumns, 'PersonalEmail') ? 'u.PersonalEmail AS OwnerEmail' :
+                (hasColumn(userColumns, 'WorkEmail') ? 'u.WorkEmail AS OwnerEmail' : 'NULL AS OwnerEmail'))
+    ].join(',\n               ') : 'NULL AS OwnerFirstName, NULL AS OwnerLastName, NULL AS OwnerEmail';
+    const ownerJoin = hasOwnerJoin ? 'LEFT JOIN Users u ON u.Id = s.OwnerUserId' : '';
+    const clinicCountSelect = hasClinicCount ? '(SELECT COUNT(*) FROM SubscriptionClinics sc WHERE sc.SubscriptionId = s.Id) AS ClinicCount' : '0 AS ClinicCount';
+    const orderBy = hasColumn(subscriptionColumns, 'RequestedAt') ? 's.RequestedAt DESC, s.Id DESC' : 's.Id DESC';
     const r = pool.request();
     const whereParts = [];
-    if (status) { r.input('status', sql.NVarChar(30), status); whereParts.push('s.Status = @status'); }
-    if (ownerUserId !== undefined && ownerUserId !== null && ownerUserId !== '') {
+    if (status && hasColumn(subscriptionColumns, 'Status')) { r.input('status', sql.NVarChar(30), status); whereParts.push('s.Status = @status'); }
+    if (hasColumn(subscriptionColumns, 'OwnerUserId') && ownerUserId !== undefined && ownerUserId !== null && ownerUserId !== '') {
         r.input('owner', sql.Int, toIntOrNull(ownerUserId));
         whereParts.push('s.OwnerUserId = @owner');
     }
     const whereClause = whereParts.length ? ('WHERE ' + whereParts.join(' AND ')) : '';
     const result = await r.query(`
-        SELECT s.*, p.Name AS PlanName, p.Price AS PlanPrice, p.BillingCycle AS PlanBillingCycle,
-               p.MaxClinics AS PlanMaxClinics, p.MaxUsers AS PlanMaxUsers,
-               u.FirstName AS OwnerFirstName, u.LastName AS OwnerLastName,
-               ISNULL(u.PersonalEmail, u.WorkEmail) AS OwnerEmail,
-               (SELECT COUNT(*) FROM SubscriptionClinics sc WHERE sc.SubscriptionId = s.Id) AS ClinicCount
+        SELECT s.*, ${planSelect},
+             ${ownerSelect},
+               ${clinicCountSelect}
         FROM Subscriptions s
-        LEFT JOIN SubscriptionPlans p ON p.Id = s.PlanId
-        LEFT JOIN Users u ON u.Id = s.OwnerUserId
+        ${planJoin}
+         ${ownerJoin}
         ${whereClause}
-        ORDER BY s.RequestedAt DESC, s.Id DESC`);
+        ORDER BY ${orderBy}`);
     return result.recordset || [];
 }
 
@@ -136,7 +163,11 @@ module.exports = async function (context, req) {
         const pool = await getPool();
         const subColumns = await getTableColumns(pool, 'Subscriptions');
         if (subColumns.size === 0) {
-            context.res = { status: 500, headers, body: { error: 'Subscriptions table not found. Run database/subscriptions-setup.sql in Azure SQL.' } };
+            if (req.method === 'GET') {
+                context.res = { status: 200, headers, body: toIntOrNull(req.params.id) ? null : [] };
+                return;
+            }
+            context.res = { status: 503, headers, body: { error: 'Subscriptions table not found. Run database/subscriptions-setup.sql in Azure SQL.' } };
             return;
         }
 
@@ -209,7 +240,8 @@ module.exports = async function (context, req) {
             }
             const list = await listSubscriptions(pool, {
                 status: req.query && req.query.status ? String(req.query.status) : undefined,
-                ownerUserId: listOwnerUserId === null ? undefined : listOwnerUserId
+                ownerUserId: listOwnerUserId === null ? undefined : listOwnerUserId,
+                subColumns
             });
             context.res = { status: 200, headers, body: list };
             return;
