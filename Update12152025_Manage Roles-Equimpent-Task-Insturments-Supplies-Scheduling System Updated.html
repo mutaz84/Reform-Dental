@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260924-dashboard-event-api-v155';
+                const buildVersion = '20260924-dashboard-event-sync-v156';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -61300,12 +61300,58 @@
             return true;
         }
 
+        function getCalendarEventSyncKey(event) {
+            if (!event) return '';
+            const title = String(event.title || event.Title || '').trim().toLowerCase();
+            const start = String(event.start || event.startDateTime || event.StartDateTime || '').trim();
+            const end = String(event.end || event.endDateTime || event.EndDateTime || start).trim();
+            const category = String(event.eventCategory || event.EventCategory || event.type || event.eventType || event.EventType || '').trim().toLowerCase();
+            return [title, start, end, category].join('|');
+        }
+
+        async function flushPendingCalendarEventsToApi(localEvents, mappedApiEvents) {
+            const remoteKeys = new Set((mappedApiEvents || []).map(getCalendarEventSyncKey).filter(Boolean));
+            const pending = (Array.isArray(localEvents) ? localEvents : [])
+                .filter((event) => event && event.apiSyncPending === true && event.isTask !== true && event.eventCategory !== 'task')
+                .filter((event) => !remoteKeys.has(getCalendarEventSyncKey(event)));
+            const retained = [];
+            let flushed = false;
+
+            for (const event of pending) {
+                try {
+                    const eventId = String(event.id || '').trim();
+                    const hasApiId = /^\d+$/.test(eventId);
+                    if (hasApiId) {
+                        await updateEventViaApi(eventId, event);
+                        if (event.dashboardScope) setDashboardEventScope(eventId, event.dashboardScope);
+                    } else {
+                        const apiId = await createEventViaApi(event);
+                        if (apiId !== undefined && apiId !== null && String(apiId).trim() && event.dashboardScope) {
+                            setDashboardEventScope(String(apiId), event.dashboardScope);
+                        }
+                    }
+                    flushed = true;
+                } catch (error) {
+                    console.warn('Pending calendar event API retry failed; keeping local copy.', error);
+                    retained.push({ ...event, dashboardBackup: true, apiSyncPending: true });
+                }
+            }
+
+            return { flushed, retained };
+        }
+
         async function syncEventDatabaseFromApi({ silent = true } = {}) {
             try {
-                const apiEvents = await fetchEventsFromApi();
-                const mapped = apiEvents.map(mapApiEventToCalendarEvent).filter(Boolean);
-                const preservedTasks = (eventDatabase || []).filter((event) => event && (event.isTask === true || event.eventCategory === 'task'));
-                eventDatabase = [...preservedTasks, ...mapped];
+                const localEvents = Array.isArray(loadEventDatabase()) ? [...eventDatabase] : [];
+                let apiEvents = await fetchEventsFromApi();
+                let mapped = apiEvents.map(mapApiEventToCalendarEvent).filter(Boolean);
+                const retryResult = await flushPendingCalendarEventsToApi(localEvents, mapped);
+                if (retryResult.flushed) {
+                    apiEvents = await fetchEventsFromApi();
+                    mapped = apiEvents.map(mapApiEventToCalendarEvent).filter(Boolean);
+                }
+                const preservedTasks = localEvents.filter((event) => event && (event.isTask === true || event.eventCategory === 'task'));
+                eventDatabase = [...preservedTasks, ...mapped, ...retryResult.retained];
                 saveEventDatabase(eventDatabase);
                 eventTypeResources = buildEventTypeResources();
 
