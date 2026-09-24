@@ -77,9 +77,31 @@ function requestJson(url, options, body) {
             });
         });
         req.on('error', reject);
+        req.setTimeout(10000, () => {
+            req.destroy(new Error('Clinic proxy request timed out'));
+        });
         if (data !== undefined) req.write(data);
         req.end();
     });
+}
+
+function shouldProxyClinicRequest(req) {
+    const headers = req.headers || {};
+    const host = [
+        headers['x-forwarded-host'],
+        headers['X-Forwarded-Host'],
+        headers['x-original-host'],
+        headers['X-Original-Host'],
+        headers['x-ms-original-host'],
+        headers['X-MS-ORIGINAL-HOST'],
+        headers.host,
+        headers.Host
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    if (host.includes('gray-forest-05ad14f10')) return false;
+    if (host.includes('black-sky-06e87aa10')) return true;
+
+    return String(process.env.PROXY_CLINICS_TO_GRAY_FOREST || '').trim() === '1';
 }
 
 function getClinicId(row) {
@@ -439,10 +461,12 @@ module.exports = async function (context, req) {
         return;
     }
 
-    await proxyClinicToGrayForest(context, req, headers);
-    return;
-
     try {
+        if (shouldProxyClinicRequest(req)) {
+            await proxyClinicToGrayForest(context, req, headers);
+            return;
+        }
+
         const pool = await getPool();
         const clinicColumns = await getTableColumns(pool, 'Clinics');
         if (clinicColumns.size === 0) {
