@@ -1,9 +1,81 @@
 const { sql, getPool, resetPool } = require('../shared/database');
 const { getRequestUserId, isPlatformAdmin } = require('../shared/tenant');
+const https = require('https');
+
+const GRAY_FOREST_DASHBOARD_CONFIGS_API_BASE = 'https://gray-forest-05ad14f10.3.azurestaticapps.net/api/dashboard-configs';
 
 const MAX_ID_LENGTH = 80;
 const MAX_NAME_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 1000;
+
+function requestJson(url, options, body) {
+    return new Promise((resolve, reject) => {
+        const data = body === undefined ? undefined : (typeof body === 'string' ? body : JSON.stringify(body || {}));
+        const request = https.request(url, {
+            method: options.method,
+            headers: {
+                ...options.headers,
+                ...(data !== undefined ? { 'Content-Length': Buffer.byteLength(data) } : {})
+            }
+        }, (response) => {
+            const chunks = [];
+            response.on('data', (chunk) => chunks.push(chunk));
+            response.on('end', () => {
+                const raw = Buffer.concat(chunks).toString('utf8');
+                let parsed = raw;
+                try { parsed = raw ? JSON.parse(raw) : null; } catch (_) {}
+                resolve({ status: response.statusCode || 500, body: parsed });
+            });
+        });
+        request.on('error', reject);
+        request.setTimeout(10000, () => {
+            request.destroy(new Error('Dashboard configs proxy request timed out'));
+        });
+        if (data !== undefined) request.write(data);
+        request.end();
+    });
+}
+
+function getForwardedHost(req) {
+    const headers = req.headers || {};
+    return [
+        headers['x-forwarded-host'],
+        headers['X-Forwarded-Host'],
+        headers['x-original-host'],
+        headers['X-Original-Host'],
+        headers['x-ms-original-host'],
+        headers['X-MS-ORIGINAL-HOST'],
+        headers.host,
+        headers.Host
+    ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function shouldProxyDashboardConfigsRequest(req) {
+    const host = getForwardedHost(req);
+    if (host.includes('gray-forest-05ad14f10')) return false;
+    if (host.includes('black-sky-06e87aa10')) return true;
+    return String(process.env.PROXY_DASHBOARD_CONFIGS_TO_GRAY_FOREST || '').trim() === '1';
+}
+
+async function proxyDashboardConfigsToGrayForest(context, req, responseHeaders) {
+    const id = normalizeDashboardId(req.params && req.params.id);
+    const url = new URL(id ? `${GRAY_FOREST_DASHBOARD_CONFIGS_API_BASE}/${encodeURIComponent(id)}` : GRAY_FOREST_DASHBOARD_CONFIGS_API_BASE);
+    Object.entries(req.query || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+    });
+
+    const proxyHeaders = { 'Content-Type': 'application/json' };
+    const headers = req.headers || {};
+    const userId = headers['x-user-id'] || headers['X-User-Id'];
+    if (userId) proxyHeaders['X-User-Id'] = String(userId);
+    const authorization = headers.authorization || headers.Authorization;
+    if (authorization) proxyHeaders.Authorization = String(authorization);
+
+    const method = String(req.method || '').toUpperCase();
+    const hasBody = !['GET', 'DELETE'].includes(method);
+    const result = await requestJson(url, { method, headers: proxyHeaders }, hasBody ? req.body : undefined);
+    context.res = { status: result.status, headers: responseHeaders, body: result.body };
+}
 
 function parseRequestBody(body) {
     if (body == null) return {};
@@ -208,6 +280,11 @@ module.exports = async function (context, req) {
 
     let pool;
     try {
+        if (shouldProxyDashboardConfigsRequest(req)) {
+            await proxyDashboardConfigsToGrayForest(context, req, headers);
+            return;
+        }
+
         pool = await getPool();
         await ensureDashboardConfigsTable(pool);
 
