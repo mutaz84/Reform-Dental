@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260924-dashboard-sql-sync-v158';
+                const buildVersion = '20260924-event-dedupe-v159';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -61309,11 +61309,51 @@
             return [title, start, end, category].join('|');
         }
 
+        function chooseCanonicalCalendarEventRecord(existing, candidate) {
+            const existingHasApiId = /^\d+$/.test(String(existing?.id || ''));
+            const candidateHasApiId = /^\d+$/.test(String(candidate?.id || ''));
+            if (candidateHasApiId && !existingHasApiId) return candidate;
+            if ((existing?.apiSyncPending === true || existing?.dashboardBackup === true) && candidate?.apiSyncPending !== true) return candidate;
+            return existing;
+        }
+
+        function dedupeCalendarEventList(events) {
+            const source = Array.isArray(events) ? events : [];
+            const result = [];
+            const indexByIdentity = new Map();
+            source.forEach((event) => {
+                if (!event) return;
+                const isTaskEvent = event.isTask === true || event.eventCategory === 'task';
+                const key = !isTaskEvent ? getCalendarEventSyncKey(event) : '';
+                const id = String(event.id || '').trim();
+                const identity = !isTaskEvent && key ? 'event-key:' + key : (id ? 'id:' + id : 'row:' + result.length);
+                if (indexByIdentity.has(identity)) {
+                    const index = indexByIdentity.get(identity);
+                    result[index] = chooseCanonicalCalendarEventRecord(result[index], event);
+                    return;
+                }
+                indexByIdentity.set(identity, result.length);
+                result.push(event);
+            });
+            return result;
+        }
+
         async function flushPendingCalendarEventsToApi(localEvents, mappedApiEvents) {
             const remoteKeys = new Set((mappedApiEvents || []).map(getCalendarEventSyncKey).filter(Boolean));
+            const pendingKeys = new Set();
             const pending = (Array.isArray(localEvents) ? localEvents : [])
                 .filter((event) => event && event.apiSyncPending === true && event.isTask !== true && event.eventCategory !== 'task')
-                .filter((event) => !remoteKeys.has(getCalendarEventSyncKey(event)));
+                .filter((event) => {
+                    const key = getCalendarEventSyncKey(event);
+                    if (key && remoteKeys.has(key)) {
+                        event.apiSyncPending = false;
+                        event.dashboardBackup = false;
+                        return false;
+                    }
+                    if (key && pendingKeys.has(key)) return false;
+                    if (key) pendingKeys.add(key);
+                    return true;
+                });
             const retained = [];
             let flushed = false;
 
@@ -61323,11 +61363,16 @@
                     const hasApiId = /^\d+$/.test(eventId);
                     if (hasApiId) {
                         await updateEventViaApi(eventId, event);
+                        event.apiSyncPending = false;
+                        event.dashboardBackup = false;
                         if (event.dashboardScope) setDashboardEventScope(eventId, event.dashboardScope);
                     } else {
                         const apiId = await createEventViaApi(event);
-                        if (apiId !== undefined && apiId !== null && String(apiId).trim() && event.dashboardScope) {
-                            setDashboardEventScope(String(apiId), event.dashboardScope);
+                        if (apiId !== undefined && apiId !== null && String(apiId).trim()) {
+                            event.id = String(apiId);
+                            event.apiSyncPending = false;
+                            event.dashboardBackup = false;
+                            if (event.dashboardScope) setDashboardEventScope(String(apiId), event.dashboardScope);
                         }
                     }
                     flushed = true;
@@ -61339,7 +61384,6 @@
 
             return { flushed, retained };
         }
-
         async function syncEventDatabaseFromApi({ silent = true } = {}) {
             try {
                 const localEvents = Array.isArray(loadEventDatabase()) ? [...eventDatabase] : [];
@@ -61347,11 +61391,12 @@
                 let mapped = apiEvents.map(mapApiEventToCalendarEvent).filter(Boolean);
                 const retryResult = await flushPendingCalendarEventsToApi(localEvents, mapped);
                 if (retryResult.flushed) {
+                    saveEventDatabase(dedupeCalendarEventList(localEvents));
                     apiEvents = await fetchEventsFromApi();
                     mapped = apiEvents.map(mapApiEventToCalendarEvent).filter(Boolean);
                 }
                 const preservedTasks = localEvents.filter((event) => event && (event.isTask === true || event.eventCategory === 'task'));
-                eventDatabase = [...preservedTasks, ...mapped, ...retryResult.retained];
+                eventDatabase = dedupeCalendarEventList([...preservedTasks, ...mapped, ...retryResult.retained]);
                 saveEventDatabase(eventDatabase);
                 eventTypeResources = buildEventTypeResources();
 
@@ -72438,8 +72483,12 @@ window.initializeCalendar = initializeCalendar;
                     eventDatabase.push(newEvent);
                     showNotification('Event created successfully!', 'success');
                 }
-                saveEventDatabase(eventDatabase);
+                delete newEvent.apiSyncPending;
+                delete newEvent.dashboardBackup;
+                saveEventDatabase(typeof dedupeCalendarEventList === 'function' ? dedupeCalendarEventList(eventDatabase) : eventDatabase);
             } catch (error) {
+                newEvent.apiSyncPending = true;
+                newEvent.dashboardBackup = true;
                 // Fallback to local persistence if API fails.
                 if (eventId) {
                     const index = eventDatabase.findIndex((ev) => String(ev.id) === String(eventId));
@@ -72451,7 +72500,7 @@ window.initializeCalendar = initializeCalendar;
                     eventDatabase.push(newEvent);
                     showNotification('Event saved locally (API unavailable).', 'warning');
                 }
-                saveEventDatabase(eventDatabase);
+                saveEventDatabase(typeof dedupeCalendarEventList === 'function' ? dedupeCalendarEventList(eventDatabase) : eventDatabase);
             }
             
             // Refresh calendar

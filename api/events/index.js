@@ -51,6 +51,35 @@ function valueOrNull(value) {
     return value === undefined ? null : value;
 }
 
+async function findExistingEventId(pool, eventColumns, values) {
+    const request = pool.request()
+        .input('title', sql.NVarChar(255), values.title)
+        .input('startDateTime', sql.DateTime2, values.startDateTime)
+        .input('endDateTime', sql.DateTime2, values.endDateTime);
+    const where = [
+        'LOWER(LTRIM(RTRIM(Title))) = LOWER(LTRIM(RTRIM(@title)))',
+        'StartDateTime = @startDateTime',
+        'EndDateTime = @endDateTime'
+    ];
+
+    if (hasColumn(eventColumns, 'ClinicId')) {
+        request.input('clinicId', sql.Int, valueOrNull(values.clinicId));
+        where.push('((ClinicId = @clinicId) OR (ClinicId IS NULL AND @clinicId IS NULL))');
+    }
+    if (hasColumn(eventColumns, 'EventCategory')) {
+        request.input('eventCategory', sql.NVarChar(50), normalizeNullableString(values.eventCategory) || 'event');
+        where.push('(EventCategory IS NULL OR LOWER(EventCategory) = LOWER(@eventCategory))');
+    }
+
+    const result = await request.query(`
+        SELECT TOP 1 Id
+        FROM Events
+        WHERE ${where.join(' AND ')}
+        ORDER BY Id ASC
+    `);
+    return result.recordset[0]?.Id || null;
+}
+
 function getHeaderValue(req, names) {
     const headers = req?.headers || {};
     const entries = Object.entries(headers);
@@ -372,6 +401,20 @@ module.exports = async function (context, req) {
             const organizerUserId = providedOrganizerId || await resolveUserId(pool, organizerLookup) || tenantUserId;
             const eventClinicId = await resolveEventClinicId(pool, body, tenantUserId || organizerUserId, hasClinicCol);
             const attendees = normalizeAttendees(body.attendees);
+            const eventCategory = normalizeNullableString(body.eventCategory) || 'event';
+
+            const existingEventId = await findExistingEventId(pool, eventColumns, {
+                title,
+                startDateTime,
+                endDateTime,
+                clinicId: eventClinicId,
+                eventCategory
+            });
+            if (existingEventId) {
+                await upsertEventAttendees(pool, existingEventId, attendees, hasEventAttendeesTable);
+                context.res = { status: 200, headers, body: { id: existingEventId, deduped: true } };
+                return;
+            }
 
             const insertDefs = [
                 { column: 'Title', param: 'title', type: sql.NVarChar(255), value: title },
@@ -389,7 +432,7 @@ module.exports = async function (context, req) {
             ];
 
             if (hasEventCategory) {
-                insertDefs.push({ column: 'EventCategory', param: 'eventCategory', type: sql.NVarChar(50), value: normalizeNullableString(body.eventCategory) || 'event' });
+                insertDefs.push({ column: 'EventCategory', param: 'eventCategory', type: sql.NVarChar(50), value: eventCategory });
             }
             if (hasLocation) {
                 insertDefs.push({ column: 'Location', param: 'location', type: sql.NVarChar(255), value: normalizeNullableString(body.location) });
