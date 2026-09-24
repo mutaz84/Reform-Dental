@@ -1,11 +1,11 @@
-<html lang="en" data-accent="green" data-fontcolor="default" data-theme="light" data-role="admin" data-theme-preset="high-contrast"><head>
+﻿<html lang="en" data-accent="green" data-fontcolor="default" data-theme="light" data-role="admin" data-theme-preset="high-contrast"><head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260924-dashboard-event-sync-v156';
+                const buildVersion = '20260924-dashboard-config-sync-v157';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -126767,7 +126767,7 @@ console.log('? Global functions exported to window object');
             <label class="cc-label">Description (optional)</label>
             <textarea id="ccSaveAsDesc" class="cc-input" rows="2" maxlength="400" placeholder="What does this dashboard show?"></textarea>
           </div>
-          <div class="cc-text-muted cc-text-sm" id="ccSaveAsHint">Saved to this device. View it later under <strong>Dashboards</strong>.</div>
+          <div class="cc-text-muted cc-text-sm" id="ccSaveAsHint">Saved to the shared dashboard library when the API is online. A local copy is kept on this device.</div>
         </div>
         <div class="cc-modal-footer">
           <button class="cc-btn" data-cc-close="ccSaveAsModal">Cancel</button>
@@ -126819,8 +126819,12 @@ console.log('? Global functions exported to window object');
       const PALETTE = ['#10b981','#3b82f6','#8b5cf6','#f59e0b','#ef4444','#14b8a6','#ec4899','#84cc16','#f97316','#06b6d4'];
       const STORAGE_KEY = 'reformDental.bi.v1';
       const SAVED_KEY = 'reformDental.bi.dashboards.v1';
+      const SAVED_SYNC_MIGRATION_KEY = 'reformDental.bi.dashboards.cloudMigration.v1';
       let currentSavedId = null;
       let readOnly = false;
+      let savedCloudLastFetch = 0;
+      let savedCloudRefreshPromise = null;
+      let savedCloudSyncWarningShown = false;
 
       const $ = (id) => document.getElementById(id);
 
@@ -126896,6 +126900,7 @@ console.log('? Global functions exported to window object');
 
         wireEvents();
         loadFromStorage();
+        refreshSavedFromApi({ silent: true, maxAgeMs: 5000 });
         // Try to seed from in-app data immediately so the user can start.
         populateAppTableSelect();
         if (!rawData.length) autoSeedFromAppData();
@@ -128068,12 +128073,159 @@ console.log('? Global functions exported to window object');
       };
 
       // ============ SAVED DASHBOARDS ============
+      function parseCurrentDashboardUser() {
+        try {
+          const raw = localStorage.getItem('currentUser') || '';
+          if (raw && raw.trim().charAt(0) === '{') return JSON.parse(raw);
+        } catch (_) {}
+        return null;
+      }
+      function getDashboardSyncUserId() {
+        const current = parseCurrentDashboardUser();
+        const candidates = [
+          current && (current.dbId ?? current.DBId ?? current.DbId),
+          current && (current.id ?? current.Id),
+          current && (current.userId ?? current.UserId),
+          window.currentDbUserId
+        ];
+        for (const value of candidates) {
+          const numeric = Number(value);
+          if (Number.isInteger(numeric) && numeric > 0) return String(numeric);
+        }
+        return '';
+      }
+      function getDashboardApiBase() {
+        const configured = (typeof window !== 'undefined' && typeof window.API_BASE_URL === 'string' && window.API_BASE_URL.trim())
+          ? window.API_BASE_URL.trim()
+          : (typeof API_BASE_URL === 'string' && API_BASE_URL.trim() ? API_BASE_URL.trim() : '/api');
+        return configured.replace(/\/+$/, '');
+      }
+      function getDashboardSyncUrl(id) {
+        const base = getDashboardApiBase();
+        if (!base) return '';
+        return base + '/dashboard-configs' + (id ? '/' + encodeURIComponent(id) : '');
+      }
+      function getDashboardSyncHeaders() {
+        const headers = { 'Content-Type': 'application/json' };
+        const userId = getDashboardSyncUserId();
+        if (userId) headers['X-User-Id'] = userId;
+        return headers;
+      }
+      function getDashboardMigrationKey() {
+        return SAVED_SYNC_MIGRATION_KEY + ':' + (getDashboardSyncUserId() || 'anonymous');
+      }
+      function normalizeSavedDashboardEntry(entry) {
+        if (!entry || typeof entry !== 'object') return null;
+        const id = String(entry.id || entry.Id || '').trim();
+        if (!id) return null;
+        const snapshot = entry.snapshot && typeof entry.snapshot === 'object'
+          ? entry.snapshot
+          : (entry.Snapshot && typeof entry.Snapshot === 'object' ? entry.Snapshot : {});
+        const name = String(entry.name || entry.Name || snapshot.dashName || 'Untitled Dashboard').trim() || 'Untitled Dashboard';
+        const now = new Date().toISOString();
+        return {
+          id,
+          name,
+          description: String(entry.description || entry.Description || '').trim(),
+          createdAt: entry.createdAt || entry.CreatedAt || entry.updatedAt || entry.UpdatedAt || now,
+          updatedAt: entry.updatedAt || entry.UpdatedAt || now,
+          snapshot
+        };
+      }
+      function normalizeSavedDashboardList(value) {
+        const arr = Array.isArray(value) ? value : [];
+        return arr.map(normalizeSavedDashboardEntry).filter(Boolean);
+      }
+      function dispatchSavedDashboardsUpdated() {
+        try { window.dispatchEvent(new CustomEvent('biStudioDashboardsUpdated')); } catch (_) {}
+      }
       function listSaved() {
-        try { const raw = localStorage.getItem(SAVED_KEY); const arr = raw ? JSON.parse(raw) : []; return Array.isArray(arr) ? arr : []; }
+        try { const raw = localStorage.getItem(SAVED_KEY); const arr = raw ? JSON.parse(raw) : []; return normalizeSavedDashboardList(arr); }
         catch(_) { return []; }
       }
-      function writeSaved(list) {
-        try { localStorage.setItem(SAVED_KEY, JSON.stringify(list || [])); } catch(_) {}
+      function writeSaved(list, options = {}) {
+        try { localStorage.setItem(SAVED_KEY, JSON.stringify(normalizeSavedDashboardList(list))); } catch(_) {}
+        if (!options.silent) dispatchSavedDashboardsUpdated();
+      }
+      function warnDashboardCloudSync(message) {
+        if (savedCloudSyncWarningShown) return;
+        savedCloudSyncWarningShown = true;
+        if (typeof showNotification === 'function') showNotification(message || 'Dashboard saved locally; cloud sync is unavailable.', 'warning');
+      }
+      async function syncSavedEntryToApi(entry, options = {}) {
+        const normalized = normalizeSavedDashboardEntry(entry);
+        const userId = getDashboardSyncUserId();
+        const url = normalized && userId ? getDashboardSyncUrl(normalized.id) : '';
+        if (!normalized || !url) return false;
+        try {
+          const response = await fetch(url, {
+            method: 'PUT',
+            headers: getDashboardSyncHeaders(),
+            body: JSON.stringify(normalized)
+          });
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          const saved = normalizeSavedDashboardEntry(await response.json().catch(() => normalized)) || normalized;
+          if (!options.skipLocalMerge) {
+            const list = listSaved();
+            const idx = list.findIndex(d => d.id === saved.id);
+            if (idx >= 0) list[idx] = saved; else list.push(saved);
+            writeSaved(list, { silent: true });
+          }
+          return true;
+        } catch (error) {
+          if (!options.silent) warnDashboardCloudSync('Dashboard saved locally; cloud sync failed.');
+          return false;
+        }
+      }
+      async function deleteSavedFromApi(id, options = {}) {
+        const normalizedId = String(id || '').trim();
+        const userId = getDashboardSyncUserId();
+        const url = normalizedId && userId ? getDashboardSyncUrl(normalizedId) : '';
+        if (!url) return false;
+        try {
+          const response = await fetch(url, { method: 'DELETE', headers: getDashboardSyncHeaders() });
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return true;
+        } catch (error) {
+          if (!options.silent) warnDashboardCloudSync('Dashboard removed locally; cloud delete failed.');
+          return false;
+        }
+      }
+      async function refreshSavedFromApi(options = {}) {
+        const maxAgeMs = Number(options.maxAgeMs || 0);
+        if (savedCloudLastFetch && maxAgeMs > 0 && Date.now() - savedCloudLastFetch < maxAgeMs) return listSaved();
+        if (savedCloudRefreshPromise) return savedCloudRefreshPromise;
+        const userId = getDashboardSyncUserId();
+        const url = userId ? getDashboardSyncUrl('') : '';
+        if (!url) return listSaved();
+
+        savedCloudRefreshPromise = (async () => {
+          const localBefore = listSaved();
+          const response = await fetch(url, { headers: getDashboardSyncHeaders(), cache: 'no-store' });
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          let remote = normalizeSavedDashboardList(await response.json().catch(() => []));
+          const migrationKey = getDashboardMigrationKey();
+          const migrationDone = localStorage.getItem(migrationKey) === '1';
+          if (!migrationDone) {
+            const remoteIds = new Set(remote.map(d => d.id));
+            const missingLocal = localBefore.filter(d => d.id && !remoteIds.has(d.id));
+            for (const dashboard of missingLocal) {
+              await syncSavedEntryToApi(dashboard, { silent: true, skipLocalMerge: true });
+            }
+            try { localStorage.setItem(migrationKey, '1'); } catch (_) {}
+            if (missingLocal.length) {
+              const reread = await fetch(url, { headers: getDashboardSyncHeaders(), cache: 'no-store' });
+              if (reread.ok) remote = normalizeSavedDashboardList(await reread.json().catch(() => remote));
+            }
+          }
+          savedCloudLastFetch = Date.now();
+          writeSaved(remote, { silent: options.silentWrite === true });
+          return remote;
+        })().catch((error) => {
+          if (!options.silent) warnDashboardCloudSync('Could not load shared dashboards; showing this device copy.');
+          return listSaved();
+        }).finally(() => { savedCloudRefreshPromise = null; });
+        return savedCloudRefreshPromise;
       }
       function snapshotState() {
         return {
@@ -128136,6 +128288,7 @@ console.log('? Global functions exported to window object');
         const entry = { id, name, description: desc, createdAt: now, updatedAt: now, snapshot: snapshotState() };
         list.push(entry);
         writeSaved(list);
+        syncSavedEntryToApi(entry);
         currentSavedId = id;
         updateSavedBadge();
         saveToStorage();
@@ -128151,12 +128304,14 @@ console.log('? Global functions exported to window object');
         list[idx].snapshot = snapshotState();
         list[idx].updatedAt = new Date().toISOString();
         writeSaved(list);
+        syncSavedEntryToApi(list[idx]);
         if (typeof showNotification === 'function') showNotification('Dashboard updated.', 'success');
       }
       function openOpenDashModal() {
         renderOpenDashList('');
         const s = $('ccOpenSearch'); if (s) s.value = '';
         openModal('ccOpenDashModal');
+        refreshSavedFromApi({ silent: true, maxAgeMs: 2000 }).then(() => renderOpenDashList(($('ccOpenSearch') || {}).value || ''));
       }
       function renderOpenDashList(q) {
         const list = listSaved();
@@ -128202,6 +128357,7 @@ console.log('? Global functions exported to window object');
       function deleteSavedById(id) {
         const list = listSaved().filter(d => d.id !== id);
         writeSaved(list);
+        deleteSavedFromApi(id);
         if (currentSavedId === id) { currentSavedId = null; updateSavedBadge(); }
       }
 
@@ -128236,6 +128392,8 @@ console.log('? Global functions exported to window object');
       // ============ PUBLIC API ============
       window.biStudio = {
         list: listSaved,
+        refreshSavedFromApi,
+        syncSavedEntryToApi,
         open: function(id) {
           // Ensure builder view is visible & initialized, then load.
           try { if (window.switchContentView) window.switchContentView('dashboard-summary'); } catch(_) {}
@@ -128513,8 +128671,10 @@ console.log('? Global functions exported to window object');
       'use strict';
       const $ = (id) => document.getElementById(id);
       const SAVED_KEY = 'reformDental.bi.dashboards.v1';
+      let galleryCloudRefreshPending = false;
 
       function listSaved() {
+        if (window.biStudio && typeof window.biStudio.list === 'function') return window.biStudio.list();
         try { const raw = localStorage.getItem(SAVED_KEY); const arr = raw ? JSON.parse(raw) : []; return Array.isArray(arr) ? arr : []; }
         catch(_) { return []; }
       }
@@ -128580,6 +128740,11 @@ console.log('? Global functions exported to window object');
       }
 
       window.renderDashboardsGallery = function() {
+        if (window.biStudio && typeof window.biStudio.refreshSavedFromApi === 'function' && !galleryCloudRefreshPending) {
+          galleryCloudRefreshPending = true;
+          window.biStudio.refreshSavedFromApi({ silent: true, maxAgeMs: 5000 })
+            .finally(() => { galleryCloudRefreshPending = false; });
+        }
         const list = listSaved();
         const sel = $('dgSelect');
         if (sel) {
@@ -128618,6 +128783,12 @@ console.log('? Global functions exported to window object');
         const print = $('dgPrintBtn'); if (print && !print.__wired) { print.__wired = true; print.addEventListener('click', dgPrintCurrent); }
         const exp = $('dgExportBtn'); if (exp && !exp.__wired) { exp.__wired = true; exp.addEventListener('click', dgExportCurrent); }
         const search = $('dgSearchInput'); if (search && !search.__wired) { search.__wired = true; search.addEventListener('input', (e) => { searchQuery = (e.target.value || '').trim(); renderCards(getFiltered(listSaved())); }); }
+        if (!window.__dgDashboardSyncEventWired) {
+          window.__dgDashboardSyncEventWired = true;
+          window.addEventListener('biStudioDashboardsUpdated', () => {
+            if ($('dgSelect') && typeof window.renderDashboardsGallery === 'function') window.renderDashboardsGallery();
+          });
+        }
       }
 
       if (document.readyState === 'loading') {
