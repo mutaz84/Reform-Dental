@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260925-permissions-api-save-v167';
+                const buildVersion = '20260925-permissions-only-save-v168';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -13069,6 +13069,37 @@
             }
         }
 
+        async function updateUserPermissionsViaAPI(userId, permissions) {
+            if (typeof API_BASE_URL === 'undefined') {
+                console.log('?? API_BASE_URL not defined, skipping permissions database sync');
+                return false;
+            }
+            try {
+                const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        permissionsOnly: true,
+                        permissions
+                    })
+                });
+
+                const result = await response.json().catch(() => ({}));
+                if (response.ok) {
+                    showSyncStatus('Permissions updated in database', true);
+                    return result && typeof result === 'object' ? result : { message: 'Permissions updated' };
+                }
+
+                console.error('? Permissions API error:', response.status, result);
+                showSyncStatus('Failed to update permissions: ' + (result.error || 'Unknown error'), false);
+                return false;
+            } catch (error) {
+                console.error('? Error updating permissions via API:', error);
+                showSyncStatus('Error updating permissions: ' + error.message, false);
+                return false;
+            }
+        }
+
         // Update existing user in database via API
         async function updateUserViaAPI(userId, userData) {
             if (typeof API_BASE_URL === 'undefined') {
@@ -22177,13 +22208,17 @@
                 }
             }
 
-            if (persistedUserId > 0 && typeof updateUserViaAPI === 'function') {
+            if (persistedUserId > 0) {
                 try {
-                    const result = await updateUserViaAPI(persistedUserId, {
-                        ...users[selectedPermissionUser],
-                        username: selectedPermissionUser,
-                        permissions: permissionsToSave
-                    });
+                    const result = typeof updateUserPermissionsViaAPI === 'function'
+                        ? await updateUserPermissionsViaAPI(persistedUserId, permissionsToSave)
+                        : (typeof updateUserViaAPI === 'function'
+                            ? await updateUserViaAPI(persistedUserId, {
+                                ...users[selectedPermissionUser],
+                                username: selectedPermissionUser,
+                                permissions: permissionsToSave
+                            })
+                            : false);
                     persisted = !!result;
                 } catch (error) {
                     console.error('Failed to persist permissions to API:', error);

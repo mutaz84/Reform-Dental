@@ -659,6 +659,55 @@ module.exports = async function (context, req) {
             }
 
             if (body && (
+                body.permissionsOnly === true || body.PermissionsOnly === true ||
+                String(body.permissionsOnly || '').toLowerCase() === 'true' ||
+                String(body.PermissionsOnly || '').toLowerCase() === 'true'
+            )) {
+                if (!hasColumn(userColumns, 'Permissions')) {
+                    context.res = { status: 400, headers, body: { error: 'Users.Permissions column not found.' } };
+                    return;
+                }
+
+                const permissionsSource = hasOwn(body, 'permissions') ? body.permissions : body.Permissions;
+                const permissionsValue = toJsonString(permissionsSource);
+                if (permissionsValue == null) {
+                    context.res = { status: 400, headers, body: { error: 'permissions payload is required.' } };
+                    return;
+                }
+
+                const setParts = ['Permissions = @permissions'];
+                if (hasColumn(userColumns, 'ModifiedDate')) {
+                    setParts.push('ModifiedDate = GETUTCDATE()');
+                }
+
+                const permissionsResult = await pool.request()
+                    .input('id', sql.Int, id)
+                    .input('permissions', sql.NVarChar(sql.MAX), permissionsValue)
+                    .query(`UPDATE Users SET ${setParts.join(', ')} WHERE Id = @id`);
+
+                const affectedRows = Array.isArray(permissionsResult.rowsAffected)
+                    ? permissionsResult.rowsAffected.reduce((sum, n) => sum + Number(n || 0), 0)
+                    : 0;
+
+                if (affectedRows === 0) {
+                    context.res = { status: 404, headers, body: { error: 'User not found or permissions not updated' } };
+                } else {
+                    context.res = {
+                        status: 200,
+                        headers,
+                        body: {
+                            message: 'Permissions updated',
+                            user: {
+                                Id: Number(id),
+                                Permissions: permissionsValue
+                            }
+                        }
+                    };
+                }
+                return;
+            }
+
+            if (body && (
                 body.deactivateOnly === true || body.DeactivateOnly === true ||
                 String(body.deactivateOnly || '').toLowerCase() === 'true' ||
                 String(body.DeactivateOnly || '').toLowerCase() === 'true'
