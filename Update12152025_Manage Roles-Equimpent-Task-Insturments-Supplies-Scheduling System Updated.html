@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260925-permissions-sql-repair-v169';
+                const buildVersion = '20260925-session-permissions-refresh-v170';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -10488,6 +10488,98 @@
             return null;
         }
 
+        async function refreshCurrentSessionPermissionsFromAPI(sessionUser) {
+            if (window.__currentSessionPermissionsRefreshInProgress) return false;
+            const username = String(sessionUser?.username || sessionUser?.Username || localStorage.getItem('loggedInUser') || '').trim();
+            if (!username || username.toLowerCase() === 'admin') return false;
+
+            const userId = Number(
+                sessionUser?.dbId || sessionUser?.id || sessionUser?.userId ||
+                window.currentDbUserId || localStorage.getItem('currentDbUserId') || 0
+            );
+
+            window.__currentSessionPermissionsRefreshInProgress = true;
+            try {
+                const apiBases = (typeof getUserApiBases === 'function')
+                    ? getUserApiBases()
+                    : [((typeof API_BASE_URL === 'string' && API_BASE_URL) ? API_BASE_URL : '/api')];
+                let apiUser = null;
+
+                if (userId > 0) {
+                    for (const base of apiBases) {
+                        try {
+                            const response = await fetch(`${String(base).replace(/\/+$/, '')}/users/${userId}?includeInactive=true`, {
+                                headers: { 'X-User-Id': String(userId) },
+                                cache: 'no-store'
+                            });
+                            if (!response.ok) continue;
+                            const payload = await response.json().catch(() => null);
+                            const candidate = payload && typeof payload === 'object'
+                                ? (payload.user || payload.data || payload.item || payload)
+                                : null;
+                            if (candidate && !Array.isArray(candidate)) {
+                                apiUser = candidate;
+                                break;
+                            }
+                        } catch (_) {}
+                    }
+                }
+
+                if (!apiUser && typeof fetchUsersFromAPI === 'function') {
+                    const users = await fetchUsersFromAPI(true);
+                    const normalizedUsername = username.toLowerCase();
+                    apiUser = Array.isArray(users)
+                        ? users.find((u) => String(u?.Username || u?.username || '').trim().toLowerCase() === normalizedUsername)
+                        : null;
+                }
+
+                if (!apiUser) return false;
+
+                const role = String(apiUser.Role || apiUser.role || sessionUser?.role || 'user').trim().toLowerCase() || 'user';
+                const normalizedPermissions = normalizePermissionsForRole(apiUser.Permissions ?? apiUser.permissions, role);
+                const users = loadUsers();
+                const existingKey = Object.keys(users || {}).find((key) => key.toLowerCase() === username.toLowerCase()) || username;
+                const existing = users[existingKey] || {};
+                const resolvedId = Number(apiUser.Id || apiUser.id || userId || existing.id || 0) || null;
+                const updatedUser = {
+                    ...existing,
+                    ...apiUser,
+                    id: resolvedId || existing.id,
+                    dbId: resolvedId || existing.dbId,
+                    username,
+                    role,
+                    firstName: apiUser.FirstName || apiUser.firstName || existing.firstName || '',
+                    lastName: apiUser.LastName || apiUser.lastName || existing.lastName || '',
+                    permissions: normalizedPermissions
+                };
+                users[existingKey] = updatedUser;
+                saveUsers(users);
+
+                const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
+                const currentUsername = String(currentUser.username || currentUser.Username || username).trim().toLowerCase();
+                if (currentUsername === username.toLowerCase()) {
+                    const refreshedSessionUser = buildSessionUserFromUsername(username, {
+                        ...currentUser,
+                        ...updatedUser,
+                        permissions: normalizedPermissions
+                    });
+                    localStorage.setItem('userRole', refreshedSessionUser.role || role);
+                    localStorage.setItem('userName', refreshedSessionUser.name || username);
+                    localStorage.setItem('currentUser', JSON.stringify(refreshedSessionUser));
+                    persistCurrentDbUserIdFromSession(refreshedSessionUser);
+                    updateUIForRole();
+                    if (typeof applyClinicIdentityFieldVisibility === 'function') applyClinicIdentityFieldVisibility();
+                }
+
+                return true;
+            } catch (error) {
+                console.warn('Current session permission refresh failed:', error);
+                return false;
+            } finally {
+                window.__currentSessionPermissionsRefreshInProgress = false;
+            }
+        }
+
         const LOGIN_AUDIT_HISTORY_KEY = 'rdLoginAuditHistory';
         const LOGIN_AUDIT_ACTIVE_SESSIONS_KEY = 'rdLoginAuditActiveSessions';
         const LOGIN_AUDIT_FORCED_USERS_KEY = 'rdLoginAuditForcedUsers';
@@ -11797,6 +11889,11 @@
                 
                 // Update UI for role
                 updateUIForRole();
+
+                if (typeof refreshCurrentSessionPermissionsFromAPI === 'function') {
+                    Promise.resolve(refreshCurrentSessionPermissionsFromAPI(normalizedSessionUser))
+                        .catch((error) => console.warn('Unable to refresh current session permissions:', error));
+                }
 
                 // Enforce clinic scoping based on the logged-in user's assigned office
                 if (typeof applyUserClinicScope === 'function') {
@@ -13140,6 +13237,11 @@
 
                 const result = await response.json().catch(() => ({}));
                 if (response.ok) {
+                    const verified = await verifyUserPermissionsViaAPI(userId, permissions);
+                    if (!verified) {
+                        showSyncStatus('Permissions save did not verify from database', false);
+                        return false;
+                    }
                     showSyncStatus('Permissions updated in database', true);
                     return result && typeof result === 'object' ? result : { message: 'Permissions updated' };
                 }
@@ -13150,6 +13252,39 @@
             } catch (error) {
                 console.error('? Error updating permissions via API:', error);
                 showSyncStatus('Error updating permissions: ' + error.message, false);
+                return false;
+            }
+        }
+
+        async function verifyUserPermissionsViaAPI(userId, expectedPermissions) {
+            if (typeof API_BASE_URL === 'undefined' || !API_BASE_URL) return false;
+            const numericUserId = Number(userId || 0);
+            if (!(numericUserId > 0)) return false;
+
+            try {
+                const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
+                const actorUserId = (typeof getTenantUserIdCandidate === 'function')
+                    ? getTenantUserIdCandidate(currentUser)
+                    : String(window.currentDbUserId || localStorage.getItem('currentDbUserId') || numericUserId || '');
+                const headers = actorUserId ? { 'X-User-Id': String(actorUserId) } : {};
+                const response = await fetch(`${API_BASE_URL}/users/${numericUserId}?includeInactive=true`, {
+                    headers,
+                    cache: 'no-store'
+                });
+                if (!response.ok) return false;
+
+                const payload = await response.json().catch(() => null);
+                const apiUser = Array.isArray(payload)
+                    ? payload.find((u) => Number(u?.Id || u?.id || 0) === numericUserId)
+                    : (payload?.user || payload?.data || payload?.item || payload);
+                if (!apiUser || typeof apiUser !== 'object') return false;
+
+                const role = apiUser.Role || apiUser.role || 'user';
+                const actualPermissions = normalizePermissionsForRole(apiUser.Permissions ?? apiUser.permissions, role);
+                const expectedNormalized = normalizePermissionsForRole(expectedPermissions, role);
+                return JSON.stringify(actualPermissions) === JSON.stringify(expectedNormalized);
+            } catch (error) {
+                console.warn('Permission save verification failed:', error);
                 return false;
             }
         }

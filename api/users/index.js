@@ -101,6 +101,8 @@ async function replaceUserPermissionRows(connectionOrTransaction, userId, permis
                 VALUES (@userId, @categoryKey, @permissionKey, @accessLevel)
             `);
     }
+
+    return rows.length;
 }
 
 async function hydrateUserPermissionsFromRows(pool, rows) {
@@ -827,7 +829,7 @@ module.exports = async function (context, req) {
                 if (affectedRows === 0) {
                     context.res = { status: 404, headers, body: { error: 'User not found or permissions not updated' } };
                 } else {
-                    await replaceUserPermissionRows(pool, id, permissionsValue);
+                    const permissionRowCount = await replaceUserPermissionRows(pool, id, permissionsValue);
                     context.res = {
                         status: 200,
                         headers,
@@ -836,7 +838,8 @@ module.exports = async function (context, req) {
                             user: {
                                 Id: Number(id),
                                 Permissions: permissionsValue
-                            }
+                            },
+                            permissionRowCount
                         }
                     };
                 }
