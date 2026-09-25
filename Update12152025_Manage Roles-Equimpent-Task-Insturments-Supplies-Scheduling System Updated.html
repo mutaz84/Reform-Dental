@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260925-session-permissions-refresh-v170';
+                const buildVersion = '20260925-vendor-permission-enforce-v171';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -12571,8 +12571,8 @@
         function hasPermission(category, permission, requiredLevel = 'full') {
             const { username, userRole } = getCurrentPermissionContext();
             
-            // Admin always has full access
-            if (userRole === 'admin') return true;
+            // Only the platform admin bypasses saved permission rows.
+            if (isPlatformAdminUser()) return true;
             
             const users = loadUsers();
             const user = getPermissionUserRecord(users, username);
@@ -12597,8 +12597,8 @@
         function getPermissionLevel(category, permission) {
             const { username, userRole } = getCurrentPermissionContext();
             
-            // Admin always has full access
-            if (userRole === 'admin') return 'full';
+            // Only the platform admin bypasses saved permission rows.
+            if (isPlatformAdminUser()) return 'full';
             
             const users = loadUsers();
             const user = getPermissionUserRecord(users, username);
@@ -25008,8 +25008,35 @@
             localStorage.setItem('vendors', JSON.stringify(vendors));
         }
 
+        function hasVendorPermission(permission, requiredLevel = 'full') {
+            try {
+                return typeof hasPermission === 'function' && hasPermission('vendors', permission, requiredLevel);
+            } catch (error) {
+                console.warn('Vendor permission check failed:', error);
+                return false;
+            }
+        }
+
+        function requireVendorPermission(permission, actionLabel) {
+            if (hasVendorPermission(permission)) return true;
+            if (typeof showNotification === 'function') {
+                showNotification(`You do not have permission to ${actionLabel}.`, 'error');
+            }
+            return false;
+        }
+
+        function syncVendorPermissionControls() {
+            const addBtn = document.getElementById('vendorAddBtn');
+            if (addBtn) addBtn.style.display = hasVendorPermission('create') ? '' : 'none';
+        }
+
         // Open vendors management modal - NOW SYNCS FROM API
         async function openVendorsManagement() {
+            syncVendorPermissionControls();
+            if (!hasVendorPermission('create') && !hasVendorPermission('edit')) {
+                if (typeof showNotification === 'function') showNotification('You do not have permission to manage vendors.', 'error');
+                return;
+            }
             console.log('openVendorsManagement called');
             const modal = document.getElementById('vendorsManagementModal');
             console.log('Vendors modal element:', modal);
@@ -36729,6 +36756,7 @@
             event.preventDefault();
             
             const editId = document.getElementById('editVendorId').value;
+            if (!requireVendorPermission(editId ? 'edit' : 'create', editId ? 'edit vendors' : 'create vendors')) return;
             const vendorName = document.getElementById('newVendorName').value.trim();
             
             // Get vendor type from dropdown
@@ -36874,12 +36902,19 @@
             const vendorsList = document.getElementById('vendorsList');
             
             if (!vendorsList) return;
+            if (!hasVendorPermission('view', 'readonly')) {
+                vendorsList.innerHTML = '<tr><td colspan="6" style="padding: 2rem; text-align: center; color: var(--text-tertiary);">You do not have permission to view vendors.</td></tr>';
+                return;
+            }
             
             if (vendors.length === 0) {
                 vendorsList.innerHTML = '<tr><td colspan="6" style="padding: 2rem; text-align: center; color: var(--text-tertiary);">No vendors added yet. Click "Add New Vendor" to get started.</td></tr>';
                 return;
             }
             
+            const canEditVendor = hasVendorPermission('edit');
+            const canDeleteVendor = hasVendorPermission('delete');
+
             vendorsList.innerHTML = vendors.map(vendor => {
                 const statusColor = vendor.isActive ? '#10b981' : '#ef4444';
                 return `
@@ -36901,12 +36936,16 @@
                             <button onclick="viewVendor(${vendor.vendorID})" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="View Vendor">
                                 <i class="fas fa-eye"></i>
                             </button>
+                            ${canEditVendor ? `
                             <button onclick="editVendor(${vendor.vendorID})" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Edit Vendor">
                                 <i class="fas fa-edit"></i>
                             </button>
+                            ` : ''}
+                            ${canDeleteVendor ? `
                             <button onclick="deleteVendor(${vendor.vendorID})" style="padding: 0.5rem 1rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Delete Vendor">
                                 <i class="fas fa-trash"></i>
                             </button>
+                            ` : ''}
                         </div>
                     </td>
                 </tr>
@@ -36916,6 +36955,7 @@
 
         // Open Add Vendor Form
         function openAddVendorForm() {
+            if (!requireVendorPermission('create', 'create vendors')) return;
             document.getElementById('vendorFormSection').style.display = 'block';
             document.getElementById('vendorFormTitle').textContent = 'Add New Vendor';
             document.getElementById('vendorSubmitBtn').innerHTML = '<i class="fas fa-plus-circle" style="margin-right: 0.5rem;"></i>Add Vendor';
@@ -36940,6 +36980,7 @@
 
         // Edit Vendor
         function editVendor(vendorID) {
+            if (!requireVendorPermission('edit', 'edit vendors')) return;
             const vendors = loadVendors();
             const vendor = vendors.find(v => v.vendorID === vendorID);
             
@@ -36993,6 +37034,10 @@
         
         // View Vendor Details
         function viewVendor(vendorID) {
+            if (!hasVendorPermission('view', 'readonly')) {
+                if (typeof showNotification === 'function') showNotification('You do not have permission to view vendors.', 'error');
+                return;
+            }
             const vendors = loadVendors();
             const vendor = vendors.find(v => v.vendorID == vendorID);
             
@@ -37003,6 +37048,7 @@
             
             const statusColor = vendor.isActive !== false ? '#10b981' : '#ef4444';
             const statusText = vendor.isActive !== false ? 'Active' : 'Inactive';
+            const canEditVendor = hasVendorPermission('edit');
             
             // Build full address
             let fullAddress = '-';
@@ -37122,9 +37168,11 @@
                         
                         <!-- Footer -->
                         <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
+                            ${canEditVendor ? `
                             <button onclick="closeViewVendorModal(); editVendor(${vendor.vendorID});" style="padding: 0.6rem 1.25rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
                                 <i class="fas fa-edit" style="margin-right: 0.5rem;"></i>Edit Vendor
                             </button>
+                            ` : ''}
                             <button onclick="closeViewVendorModal()" style="padding: 0.6rem 1.25rem; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-weight: 500;">
                                 Close
                             </button>
@@ -37165,6 +37213,7 @@
 
         // Delete vendor - NOW SYNCS WITH API
         async function deleteVendor(vendorID) {
+            if (!requireVendorPermission('delete', 'delete vendors')) return;
             if (confirm('Are you sure you want to delete this vendor?')) {
                 console.log('??? Deleting vendor with ID:', vendorID, 'Type:', typeof vendorID);
                 
@@ -37216,6 +37265,7 @@
         }
 
         function initializeVendorsView() {
+            syncVendorPermissionControls();
             populateVendorsPageTypeFilter();
             renderVendorsSummaryCards();
             renderVendorsPageList();
@@ -37307,6 +37357,7 @@
         }
 
         function openVendorFromCard(vendorID) {
+            if (!requireVendorPermission('edit', 'edit vendors')) return;
             openVendorsManagement();
             setTimeout(() => {
                 try { editVendor(vendorID); } catch (_) {}
@@ -37316,6 +37367,13 @@
         function renderVendorsPageList() {
             const container = document.getElementById('vendorsPageList');
             if (!container) return;
+
+            syncVendorPermissionControls();
+
+            if (!hasVendorPermission('view', 'readonly')) {
+                container.innerHTML = '<div class="vendor-empty">You do not have permission to view vendors.</div>';
+                return;
+            }
 
             const esc = (typeof escapeHtml === 'function') ? escapeHtml : (v) => String(v ?? '');
 
@@ -37402,6 +37460,8 @@
             }
 
             const fmt = (typeof formatActionBadge === 'function') ? formatActionBadge : (n) => n > 0 ? String(n) : '';
+            const canEditVendor = hasVendorPermission('edit');
+            const canDeleteVendor = hasVendorPermission('delete');
 
             const renderVendorCardMarkup = (v) => {
                 const active = v.isActive !== false;
@@ -37431,9 +37491,11 @@
                         <div class="equipment-card-photo">${thumbnail}</div>
                         <div class="equipment-card-top">
                             <h3 class="equipment-card-title">${esc(v.vendorName || '')}</h3>
+                            ${canEditVendor ? `
                             <button type="button" class="equipment-action-btn vendor-favorite-btn ${isFavorite ? 'is-favorite' : ''}" onclick="event.stopPropagation(); toggleVendorFavorite(${v.vendorID});" title="${favoriteTitle}" aria-label="${favoriteTitle}">
                                 <i class="${isFavorite ? 'fas' : 'far'} fa-star"></i>
                             </button>
+                            ` : ''}
                         </div>
                         <div class="equipment-card-meta">
                             ${typesLabel && typesLabel !== '-' ? `<span class="equipment-badge"><i class="fas fa-tag" style="opacity:0.8; margin-right:0.35rem;"></i>${esc(typesLabel)}</span>` : ''}
@@ -37459,12 +37521,16 @@
                                 <button type="button" class="equipment-action-btn act-docs" onclick="event.stopPropagation(); openVendorDocumentsModal(${v.vendorID});" title="Documents${docCount?` (${docCount})`:''}">
                                     <i class="fas ${docCount ? 'fa-folder-open' : 'fa-file-circle-plus'}"></i>${docCount ? `<span class="action-count-badge bg-docs">${fmt(docCount)}</span>` : ''}
                                 </button>
+                                ${canEditVendor ? `
                                 <button type="button" class="equipment-action-btn act-edit" onclick="event.stopPropagation(); openVendorFromCard(${v.vendorID});" title="Edit">
                                     <i class="fas fa-edit"></i>
                                 </button>
+                                ` : ''}
+                                ${canDeleteVendor ? `
                                 <button type="button" class="equipment-action-btn act-retire" onclick="event.stopPropagation(); ${active ? `archiveVendor(${v.vendorID})` : `restoreVendor(${v.vendorID})`};" title="${active ? 'Archive vendor' : 'Restore vendor'}">
                                     <i class="fas ${active ? 'fa-box-archive' : 'fa-rotate-left'}"></i>
                                 </button>
+                                ` : ''}
                             </div>
                         </div>
                     </div>
@@ -37801,6 +37867,7 @@
         }
 
         async function toggleVendorFavorite(vendorID) {
+            if (!requireVendorPermission('edit', 'edit vendors')) return;
             const v = findVendorById(vendorID);
             if (!v) return;
             const nextFavorite = v.isFavorite !== true;
@@ -37824,6 +37891,7 @@
 
         // ----- Quick active/inactive toggle from card -----
         async function setVendorActiveStatus(vendorID, makeActive) {
+            if (!requireVendorPermission('edit', 'edit vendors')) return;
             const v = findVendorById(vendorID);
             if (!v) return;
             const current = v.isActive !== false;
@@ -37888,6 +37956,10 @@
             if (typeof renderVendorsPageList === 'function') renderVendorsPageList();
         }
         function _handleVendorPhotoSelect(vendorID, input) {
+            if (!requireVendorPermission('edit', 'edit vendors')) {
+                if (input) input.value = '';
+                return;
+            }
             const file = input && input.files && input.files[0];
             if (!file) return;
             if (!/^image\//.test(file.type)) {
@@ -37910,6 +37982,7 @@
             reader.readAsDataURL(file);
         }
         async function _deleteVendorPhoto(vendorID) {
+            if (!requireVendorPermission('edit', 'edit vendors')) return;
             const v = findVendorById(vendorID);
             if (!v || !v.imageData) return;
             if (!confirm('Remove this vendor\u2019s photo?')) return;
@@ -37921,6 +37994,10 @@
 
         // ----- Vendor preview modal (read-only) -----
         function openVendorPreview(vendorID) {
+            if (!hasVendorPermission('view', 'readonly')) {
+                if (typeof showNotification === 'function') showNotification('You do not have permission to view vendors.', 'error');
+                return;
+            }
             const v = findVendorById(vendorID);
             if (!v) return;
             const esc = (typeof escapeHtml === 'function') ? escapeHtml : (s) => String(s ?? '');
@@ -37938,12 +38015,14 @@
             const docCount = countVendorDocuments(v);
             const initial = (v.vendorName || '?').toString().trim().charAt(0).toUpperCase() || '?';
             const hasPhoto = !!v.imageData;
+            const canEditVendor = hasVendorPermission('edit');
             const thumbInner = hasPhoto
                 ? `<img src="${esc(v.imageData)}" alt="${esc(v.vendorName || '')}" style="width:100%;height:140px;border-radius:10px;object-fit:cover;border:1px solid var(--border-color);display:block;">`
                 : `<div style="width:100%;height:140px;border-radius:10px;border:1px dashed var(--border-color);display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(124,58,237,0.12), rgba(14,165,233,0.10));color:#6d28d9;font-size:3rem;font-weight:800;">${esc(initial)}</div>`;
             const thumb = `
                 <div style="position:relative;">
                     ${thumbInner}
+                    ${canEditVendor ? `
                     <input type="file" id="vendorPhotoInput_${v.vendorID}" accept="image/*" style="display:none;" onchange="_handleVendorPhotoSelect(${v.vendorID}, this)">
                     <div style="position:absolute;left:0;right:0;bottom:0;display:flex;gap:0.35rem;padding:0.4rem;background:linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0));border-radius:0 0 10px 10px;">
                         <button type="button" onclick="document.getElementById('vendorPhotoInput_${v.vendorID}').click();" title="${hasPhoto ? 'Replace photo' : 'Upload photo'}" style="flex:1;padding:0.35rem 0.5rem;border:none;border-radius:6px;background:rgba(255,255,255,0.92);color:#0f172a;font-size:0.75rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.3rem;">
@@ -37951,6 +38030,7 @@
                         </button>
                         ${hasPhoto ? `<button type="button" onclick="_deleteVendorPhoto(${v.vendorID})" title="Remove photo" style="padding:0.35rem 0.55rem;border:none;border-radius:6px;background:#ef4444;color:white;font-size:0.75rem;font-weight:600;cursor:pointer;"><i class="fas fa-trash"></i></button>` : ''}
                     </div>
+                    ` : ''}
                 </div>`;
 
             const row = (label, value, icon, opts) => {
@@ -38009,7 +38089,9 @@
                     <button type="button" class="btn-secondary" onclick="openVendorServiceTicketsModal(${v.vendorID});" style="padding:0.5rem 0.85rem;"><i class="fas fa-wrench" style="margin-right:0.35rem;"></i>Tickets</button>
                     <button type="button" class="btn-secondary" onclick="openVendorNotesModal(${v.vendorID});" style="padding:0.5rem 0.85rem;"><i class="fas fa-sticky-note" style="margin-right:0.35rem;"></i>Notes</button>
                     <button type="button" class="btn-secondary" onclick="openVendorDocumentsModal(${v.vendorID});" style="padding:0.5rem 0.85rem;"><i class="fas fa-folder-open" style="margin-right:0.35rem;"></i>Documents</button>
+                    ${canEditVendor ? `
                     <button type="button" class="btn-primary" onclick="document.getElementById('vendorSubModal') && document.getElementById('vendorSubModal').remove(); openVendorFromCard(${v.vendorID});" style="padding:0.5rem 0.85rem;"><i class="fas fa-edit" style="margin-right:0.35rem;"></i>Edit Vendor</button>
+                    ` : ''}
                 </div>
             `;
             _openVendorSubModal('Vendor Preview', 'fa-truck', body);
@@ -38019,6 +38101,7 @@
 
         // ----- Archive / Restore -----
         async function archiveVendor(vendorID) {
+            if (!requireVendorPermission('delete', 'archive vendors')) return;
             const v = findVendorById(vendorID);
             if (!v) return;
             if (!confirm(`Archive vendor "${v.vendorName}"? You can restore it later.`)) return;
@@ -38038,6 +38121,7 @@
         }
 
         async function restoreVendor(vendorID) {
+            if (!requireVendorPermission('delete', 'restore vendors')) return;
             const v = findVendorById(vendorID);
             if (!v) return;
             _saveVendorRecord({ vendorID: v.vendorID, isActive: true, archivedDate: null });
@@ -38076,6 +38160,7 @@
             const v = findVendorById(vendorID);
             if (!v) return;
             const esc = (typeof escapeHtml === 'function') ? escapeHtml : (s) => String(s ?? '');
+            const canEditVendor = hasVendorPermission('edit');
             const journal = getVendorJournal(v).slice().reverse();
             const journalHtml = journal.length
                 ? journal.map(e => {
@@ -38083,7 +38168,9 @@
                     return `<div style="padding:0.55rem 0.7rem;border:1px solid var(--border-color);border-radius:8px;margin-bottom:0.45rem;background:var(--bg-secondary);">
                         <div style="display:flex;justify-content:space-between;gap:0.5rem;align-items:flex-start;">
                             <div style="font-size:0.84rem;color:var(--text-primary);white-space:pre-wrap;flex:1;">${esc(e.text || '')}</div>
+                            ${canEditVendor ? `
                             <button type="button" onclick="deleteVendorJournalEntry(${v.vendorID}, '${esc(String(e.id || ''))}')" style="border:none;background:transparent;color:var(--text-secondary);cursor:pointer;font-size:1rem;line-height:1;">&times;</button>
+                            ` : ''}
                         </div>
                         <div style="font-size:0.72rem;color:var(--text-tertiary);margin-top:0.2rem;">${esc(e.author || '')}${when ? ' \u00b7 ' + esc(when) : ''}</div>
                     </div>`;
@@ -38092,22 +38179,27 @@
 
             _openVendorSubModal(`Notes \u2014 ${esc(v.vendorName || '')}`, 'fa-sticky-note', `
                 <label style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:0.3rem;">Pinned notes</label>
-                <textarea id="vendorNotesPinned" rows="3" placeholder="Persistent notes about this vendor..." style="width:100%;padding:0.55rem;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);resize:vertical;box-sizing:border-box;">${esc(v.notes || '')}</textarea>
+                <textarea id="vendorNotesPinned" rows="3" placeholder="Persistent notes about this vendor..." ${canEditVendor ? '' : 'readonly'} style="width:100%;padding:0.55rem;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);resize:vertical;box-sizing:border-box;">${esc(v.notes || '')}</textarea>
+                ${canEditVendor ? `
                 <div style="display:flex;justify-content:flex-end;margin:0.45rem 0 1rem;">
                     <button type="button" onclick="saveVendorPinnedNotes(${v.vendorID})" class="btn-primary" style="padding:0.45rem 0.9rem;font-size:0.82rem;"><i class="fas fa-save" style="margin-right:0.35rem;"></i>Save</button>
                 </div>
+                ` : ''}
                 <div style="border-top:1px solid var(--border-color);padding-top:0.7rem;">
                     <label style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:0.3rem;">Journal</label>
+                    ${canEditVendor ? `
                     <div style="display:flex;gap:0.4rem;margin-bottom:0.7rem;">
                         <textarea id="vendorJournalInput" rows="2" placeholder="Add a journal entry..." style="flex:1;padding:0.5rem;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);resize:vertical;"></textarea>
                         <button type="button" onclick="addVendorJournalEntry(${v.vendorID})" class="btn-primary" style="align-self:flex-start;padding:0.55rem 0.85rem;font-size:0.82rem;"><i class="fas fa-plus"></i></button>
                     </div>
+                    ` : ''}
                     <div id="vendorJournalList">${journalHtml}</div>
                 </div>
             `);
         }
 
         function saveVendorPinnedNotes(vendorID) {
+            if (!requireVendorPermission('edit', 'edit vendors')) return;
             const ta = document.getElementById('vendorNotesPinned');
             if (!ta) return;
             _saveVendorRecord({ vendorID, notes: String(ta.value || '').trim() });
@@ -38116,6 +38208,7 @@
         }
 
         function addVendorJournalEntry(vendorID) {
+            if (!requireVendorPermission('edit', 'edit vendors')) return;
             const ta = document.getElementById('vendorJournalInput');
             const text = String(ta && ta.value || '').trim();
             if (!text) return;
@@ -38134,6 +38227,7 @@
         }
 
         function deleteVendorJournalEntry(vendorID, entryId) {
+            if (!requireVendorPermission('edit', 'edit vendors')) return;
             const v = findVendorById(vendorID);
             if (!v) return;
             const journal = (Array.isArray(v.journal) ? v.journal : []).filter(e => String(e.id) !== String(entryId));
@@ -38147,6 +38241,7 @@
             const v = findVendorById(vendorID);
             if (!v) return;
             const esc = (typeof escapeHtml === 'function') ? escapeHtml : (s) => String(s ?? '');
+            const canEditVendor = hasVendorPermission('edit');
             const docs = getVendorDocuments(v);
             const links = Array.isArray(v.links) ? v.links : [];
             const docsHtml = docs.length
@@ -38154,14 +38249,18 @@
                     <span style="font-size:0.84rem;color:var(--text-primary);"><i class="fas fa-file" style="opacity:0.7;margin-right:0.4rem;"></i>${esc(d.name || ('Document ' + (i+1)))}</span>
                     <div style="display:flex;gap:0.35rem;">
                         ${d.dataUrl ? `<a href="${esc(d.dataUrl)}" download="${esc(d.name || 'document')}" class="vendor-action-btn act-docs" style="padding:0.3rem 0.55rem;font-size:0.78rem;text-decoration:none;"><i class="fas fa-download"></i></a>` : ''}
+                        ${canEditVendor ? `
                         <button type="button" onclick="removeVendorDocument(${v.vendorID}, '${esc(String(d.id || i))}')" class="vendor-action-btn act-archive" style="padding:0.3rem 0.55rem;font-size:0.78rem;"><i class="fas fa-trash"></i></button>
+                        ` : ''}
                     </div>
                 </div>`).join('')
                 : '<div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.6rem;">No documents yet.</div>';
             const linksHtml = links.length
                 ? links.map((l, i) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:0.45rem 0.6rem;border:1px solid var(--border-color);border-radius:8px;margin-bottom:0.4rem;">
                     <a href="${esc(l.url || '')}" target="_blank" rel="noopener" style="font-size:0.84rem;color:var(--accent-primary);text-decoration:none;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><i class="fas fa-link" style="margin-right:0.35rem;"></i>${esc(l.label || l.url || 'Link')}</a>
+                    ${canEditVendor ? `
                     <button type="button" onclick="removeVendorLink(${v.vendorID}, ${i})" class="vendor-action-btn act-archive" style="padding:0.3rem 0.55rem;font-size:0.78rem;"><i class="fas fa-trash"></i></button>
+                    ` : ''}
                 </div>`).join('')
                 : '<div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.6rem;">No links yet.</div>';
 
@@ -38169,24 +38268,29 @@
                 <div style="margin-bottom:1rem;">
                     <label style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:0.3rem;">Files</label>
                     ${docsHtml}
+                    ${canEditVendor ? `
                     <label style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.45rem 0.75rem;border:1px dashed var(--border-color);border-radius:8px;cursor:pointer;font-size:0.82rem;color:var(--text-secondary);margin-top:0.3rem;">
                         <i class="fas fa-plus-circle" style="color:var(--accent-primary);"></i> Add file
                         <input type="file" onchange="uploadVendorDocument(${v.vendorID}, event)" style="display:none;">
                     </label>
+                    ` : ''}
                 </div>
                 <div style="border-top:1px solid var(--border-color);padding-top:0.7rem;">
                     <label style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:0.3rem;">Links</label>
                     ${linksHtml}
+                    ${canEditVendor ? `
                     <div style="display:flex;gap:0.4rem;margin-top:0.4rem;flex-wrap:wrap;">
                         <input type="url" id="vendorLinkUrl" placeholder="https://..." style="flex:2;min-width:140px;padding:0.45rem 0.55rem;border:1px solid var(--border-color);border-radius:7px;background:var(--bg-secondary);color:var(--text-primary);font-size:0.82rem;">
                         <input type="text" id="vendorLinkLabel" placeholder="Label (optional)" style="flex:1;min-width:100px;padding:0.45rem 0.55rem;border:1px solid var(--border-color);border-radius:7px;background:var(--bg-secondary);color:var(--text-primary);font-size:0.82rem;">
                         <button type="button" onclick="addVendorLink(${v.vendorID})" class="btn-primary" style="padding:0.45rem 0.85rem;font-size:0.82rem;">Add Link</button>
                     </div>
+                    ` : ''}
                 </div>
             `);
         }
 
         function uploadVendorDocument(vendorID, event) {
+            if (!requireVendorPermission('edit', 'edit vendors')) return;
             const file = event && event.target && event.target.files && event.target.files[0];
             if (!file) return;
             const v = findVendorById(vendorID); if (!v) return;
@@ -38207,6 +38311,7 @@
         }
 
         function removeVendorDocument(vendorID, docId) {
+            if (!requireVendorPermission('edit', 'edit vendors')) return;
             const v = findVendorById(vendorID); if (!v) return;
             const docs = getVendorDocuments(v).filter((d, i) => String(d.id || i) !== String(docId));
             _saveVendorRecord({ vendorID: v.vendorID, documents: docs });
@@ -38215,6 +38320,7 @@
         }
 
         function addVendorLink(vendorID) {
+            if (!requireVendorPermission('edit', 'edit vendors')) return;
             const v = findVendorById(vendorID); if (!v) return;
             const url = String(document.getElementById('vendorLinkUrl')?.value || '').trim();
             const label = String(document.getElementById('vendorLinkLabel')?.value || '').trim();
@@ -38227,6 +38333,7 @@
         }
 
         function removeVendorLink(vendorID, idx) {
+            if (!requireVendorPermission('edit', 'edit vendors')) return;
             const v = findVendorById(vendorID); if (!v) return;
             const links = (Array.isArray(v.links) ? v.links : []).filter((_, i) => i !== idx);
             _saveVendorRecord({ vendorID: v.vendorID, links });
@@ -98446,7 +98553,11 @@ function updateCategoryGearVisibility() {
     const canManageGears = normalizedRole === 'admin';
 
     document.querySelectorAll('.category-gear-btn').forEach(btn => {
-        btn.style.display = canManageGears ? 'inline-flex' : 'none';
+        const opensVendors = String(btn.getAttribute('onclick') || '').includes('openVendorsManagementFromGear');
+        const canShow = opensVendors && typeof hasVendorPermission === 'function'
+            ? (hasVendorPermission('create') || hasVendorPermission('edit'))
+            : canManageGears;
+        btn.style.display = canShow ? 'inline-flex' : 'none';
     });
 }
 

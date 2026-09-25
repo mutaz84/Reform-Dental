@@ -44,6 +44,86 @@ function bodyBit(obj, names, fallback = false) {
     return value === true || value === 1 || String(value).toLowerCase() === 'true' ? 1 : 0;
 }
 
+function normalizeAccessLevel(value) {
+    const level = String(value || '').trim().toLowerCase();
+    return ['full', 'readonly', 'hidden'].includes(level) ? level : '';
+}
+
+function defaultVendorPermissionLevel(role, permissionKey) {
+    const normalizedRole = String(role || 'user').trim().toLowerCase();
+    if (normalizedRole === 'admin' || normalizedRole === 'owner') return 'full';
+    if (normalizedRole === 'manager') return permissionKey === 'view' ? 'full' : (permissionKey === 'delete' ? 'hidden' : 'readonly');
+    return 'hidden';
+}
+
+function parsePermissionsValue(value) {
+    if (!value) return null;
+    if (typeof value === 'object' && !Array.isArray(value)) return value;
+    if (typeof value !== 'string') return null;
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+async function getVendorPermissionLevel(pool, userId, permissionKey) {
+    const numericUserId = Number(userId || 0);
+    if (!(numericUserId > 0)) return 'hidden';
+
+    const userColumns = await getTableColumns(pool, 'Users');
+    const selectParts = ['Id'];
+    if (hasColumn(userColumns, 'Username')) selectParts.push('Username');
+    if (hasColumn(userColumns, 'Role')) selectParts.push('Role');
+    if (hasColumn(userColumns, 'Permissions')) selectParts.push('Permissions');
+
+    const userResult = await pool.request()
+        .input('userId', sql.Int, numericUserId)
+        .query(`SELECT TOP 1 ${selectParts.join(', ')} FROM Users WHERE Id = @userId`);
+    const user = userResult.recordset && userResult.recordset[0];
+    if (!user) return 'hidden';
+
+    const username = String(user.Username || user.username || '').trim().toLowerCase();
+    if (username === 'admin') return 'full';
+
+    const hasPermissionRows = await pool.request()
+        .query("SELECT CASE WHEN OBJECT_ID(N'dbo.UserPermissions', N'U') IS NULL THEN 0 ELSE 1 END AS HasTable");
+    if (Number(hasPermissionRows.recordset?.[0]?.HasTable || 0) === 1) {
+        const rowResult = await pool.request()
+            .input('userId', sql.Int, numericUserId)
+            .input('permissionKey', sql.NVarChar(100), permissionKey)
+            .query(`
+                SELECT TOP 1 AccessLevel
+                FROM dbo.UserPermissions
+                WHERE UserId = @userId AND CategoryKey = 'vendors' AND PermissionKey = @permissionKey
+            `);
+        const rowLevel = normalizeAccessLevel(rowResult.recordset?.[0]?.AccessLevel);
+        if (rowLevel) return rowLevel;
+    }
+
+    const parsedPermissions = parsePermissionsValue(user.Permissions || user.permissions);
+    const jsonLevel = normalizeAccessLevel(parsedPermissions?.vendors?.[permissionKey]);
+    if (jsonLevel) return jsonLevel;
+
+    return defaultVendorPermissionLevel(user.Role || user.role, permissionKey);
+}
+
+async function requireVendorApiPermission(context, headers, pool, userId, permissionKey, requiredLevel = 'full') {
+    const level = await getVendorPermissionLevel(pool, userId, permissionKey);
+    const allowed = requiredLevel === 'readonly'
+        ? (level === 'full' || level === 'readonly')
+        : level === 'full';
+    if (allowed) return true;
+
+    context.res = {
+        status: 403,
+        headers,
+        body: { error: `Missing vendors.${permissionKey} permission`, permissionLevel: level || 'hidden' }
+    };
+    return false;
+}
+
 function requestJson(url, options, body) {
     return new Promise((resolve, reject) => {
         const data = body === undefined ? undefined : JSON.stringify(body || {});
@@ -115,6 +195,7 @@ module.exports = async function (context, req) {
         const callerUserId = getRequestUserId(req);
 
         if (req.method === 'GET') {
+            if (!(await requireVendorApiPermission(context, headers, pool, callerUserId, 'view', 'readonly'))) return;
             const includeInactive = /^(1|true|yes|all)$/i.test(String((req.query && (req.query.includeInactive || req.query.includeArchived || req.query.all)) || '').trim());
             if (id) {
                 const where = ['Id = @id'];
@@ -135,6 +216,7 @@ module.exports = async function (context, req) {
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {
+            if (!(await requireVendorApiPermission(context, headers, pool, callerUserId, 'create'))) return;
             const body = req.body;
             const hasImageUrl = hasColumn(vendorColumns, 'ImageUrl');
             const cols = ['Name'];
@@ -187,6 +269,7 @@ module.exports = async function (context, req) {
             const result = await request.query(`INSERT INTO Vendors (${cols.join(', ')}) OUTPUT INSERTED.Id VALUES (${vals.join(', ')})`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id, message: 'Vendor created successfully' } };
         } else if (req.method === 'PUT' && id) {
+            if (!(await requireVendorApiPermission(context, headers, pool, callerUserId, 'edit'))) return;
             const body = req.body;
             const hasImageUrl = hasColumn(vendorColumns, 'ImageUrl');
             const setClauses = ['Name=@name'];
@@ -242,6 +325,7 @@ module.exports = async function (context, req) {
             await request.query(`UPDATE Vendors SET ${setClauses.join(', ')} ${updateWhere}`);
             context.res = { status: 200, headers, body: { message: 'Vendor updated successfully' } };
         } else if (req.method === 'DELETE' && id) {
+            if (!(await requireVendorApiPermission(context, headers, pool, callerUserId, 'delete'))) return;
             const r = pool.request().input('id', sql.Int, id);
             const deleteWhere = hasSubscriptionId
                 ? `WHERE Id = @id AND ${tenantSubscriptionScope('SubscriptionId')}`
