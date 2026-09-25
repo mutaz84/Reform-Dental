@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260925-permissions-only-save-v168';
+                const buildVersion = '20260925-permissions-sql-repair-v169';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -11910,9 +11910,21 @@
                         const fullName = `${firstName} ${lastName}`.trim() || username;
                         const dbUserId = result.user?.Id ?? result.user?.id;
                         const officeLocation = (result.user.officeLocation || result.user.OfficeLocation || result.user.office || result.user.clinic || '').toString().trim();
+                        const rawApiPermissions = result.user.permissions ?? result.user.Permissions;
+                        const apiPermissionsMissing = isMissingPermissionPayload(rawApiPermissions);
+                        const cachedUsers = loadUsers();
+                        const cachedUser = getPermissionUserRecord(cachedUsers, username) || {};
+                        const rawSessionPermissions = apiPermissionsMissing && cachedUser.permissions
+                            ? cachedUser.permissions
+                            : rawApiPermissions;
+                        const sessionPermissions = normalizePermissionsForRole(rawSessionPermissions, role);
 
                         if (dbUserId) {
                             window.currentDbUserId = dbUserId;
+                            if (apiPermissionsMissing && typeof updateUserPermissionsViaAPI === 'function') {
+                                updateUserPermissionsViaAPI(dbUserId, sessionPermissions)
+                                    .catch((seedError) => console.warn('Unable to seed SQL permissions during login:', seedError));
+                            }
                         }
 
                         sessionUser = {
@@ -11924,7 +11936,7 @@
                             dbId: dbUserId,
                             officeLocation: officeLocation,
                             clinics: (typeof getClinicsFromUser === 'function') ? getClinicsFromUser(result.user) : (officeLocation ? [officeLocation] : []),
-                            permissions: getDefaultPermissions(role)
+                            permissions: sessionPermissions
                         };
                     }
                 } catch (apiError) {
@@ -11936,12 +11948,11 @@
                     const users = loadUsers();
                     if (users[username] && users[username].password === password) {
                         const user = users[username];
+                        const normalizedUserPermissions = normalizePermissionsForRole(user.permissions, user.role || 'user');
 
-                        if (!user.permissions) {
-                            user.permissions = getDefaultPermissions(user.role);
-                            users[username] = user;
-                            saveUsers(users);
-                        }
+                        user.permissions = normalizedUserPermissions;
+                        users[username] = user;
+                        saveUsers(users);
 
                         const dbUserId = user.id || user.dbId || user.Id;
                         const officeLocation = (user.officeLocation || user.OfficeLocation || user.office || user.Office || user.clinic || user.Clinic || '').toString().trim();
@@ -11959,7 +11970,7 @@
                             dbId: dbUserId,
                             officeLocation: officeLocation,
                             clinics: (typeof getClinicsFromUser === 'function') ? getClinicsFromUser(user) : (officeLocation ? [officeLocation] : []),
-                            permissions: user.permissions
+                            permissions: normalizedUserPermissions
                         };
                     }
                 }
@@ -12363,6 +12374,47 @@
             return allPermissions;
         }
 
+        function parsePermissionsValue(value) {
+            if (!value) return null;
+            if (typeof value === 'object' && !Array.isArray(value)) return value;
+            if (typeof value !== 'string') return null;
+            const trimmed = value.trim();
+            if (!trimmed) return null;
+            try {
+                const parsed = JSON.parse(trimmed);
+                return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function normalizePermissionsForRole(rawPermissions, role) {
+            const normalizedRole = String(role || 'user').trim().toLowerCase() || 'user';
+            const defaults = getDefaultPermissions(normalizedRole);
+            const parsed = parsePermissionsValue(rawPermissions);
+            const source = parsed || {};
+            const normalized = JSON.parse(JSON.stringify(defaults));
+
+            Object.keys(PERMISSION_CATEGORIES).forEach((categoryKey) => {
+                const sourceCategory = source[categoryKey];
+                if (!sourceCategory || typeof sourceCategory !== 'object' || Array.isArray(sourceCategory)) return;
+
+                Object.keys(PERMISSION_CATEGORIES[categoryKey].permissions).forEach((permissionKey) => {
+                    const value = sourceCategory[permissionKey];
+                    if (value === 'full' || value === 'readonly' || value === 'hidden') {
+                        normalized[categoryKey][permissionKey] = value;
+                    }
+                });
+            });
+
+            return normalized;
+        }
+
+        function isMissingPermissionPayload(value) {
+            const parsed = parsePermissionsValue(value);
+            return !parsed || Object.keys(parsed).length === 0;
+        }
+
         function getCurrentPermissionContext() {
             const rawCurrentUser = String(localStorage.getItem('currentUser') || '').trim();
             const storedRole = String(localStorage.getItem('userRole') || '').trim().toLowerCase();
@@ -12435,7 +12487,8 @@
                 return requiredLevel === 'readonly' ? (level === 'full' || level === 'readonly') : level === 'full';
             }
             
-            const level = user.permissions[category]?.[permission] || 'hidden';
+            const normalizedPermissions = normalizePermissionsForRole(user.permissions, user.role || userRole || 'user');
+            const level = normalizedPermissions[category]?.[permission] || 'hidden';
             
             if (requiredLevel === 'readonly') {
                 return level === 'full' || level === 'readonly';
@@ -12458,7 +12511,8 @@
                 return defaults[category]?.[permission] || 'hidden';
             }
             
-            return user.permissions[category]?.[permission] || 'hidden';
+            const normalizedPermissions = normalizePermissionsForRole(user.permissions, user.role || userRole || 'user');
+            return normalizedPermissions[category]?.[permission] || 'hidden';
         }
 
         function canViewClinicIdentityFields() {
@@ -14485,6 +14539,12 @@
                 : selectedComplianceTypeIds;
 
             if (isEditMode) {
+                const existingEditUser = users[addUserOriginalUsername] || users[username] || {};
+                userDraft.permissions = normalizePermissionsForRole(
+                    existingEditUser.permissions ?? existingEditUser.Permissions ?? userDraft.permissions,
+                    role
+                );
+
                 let editRecordId = Number(addUserEditRecordId);
                 if (!Number.isInteger(editRecordId) || editRecordId <= 0) {
                     if (typeof resolveUserRecordIdByUsernameFromAPI === 'function') {
@@ -22021,7 +22081,8 @@
             selectedPermissionUser = username;
             
             // Initialize temp permissions from user's current permissions or defaults
-            tempPermissions = JSON.parse(JSON.stringify(user.permissions || getDefaultPermissions(user.role)));
+            const normalizedUserPermissions = normalizePermissionsForRole(user.permissions ?? user.Permissions, user.role || 'user');
+            tempPermissions = JSON.parse(JSON.stringify(normalizedUserPermissions));
             
             // Update UI
             renderPermissionUsersList(document.getElementById('permUserSearch')?.value || '');
@@ -22185,7 +22246,7 @@
             }
             
             // Save permissions to user
-            const permissionsToSave = JSON.parse(JSON.stringify(tempPermissions));
+            const permissionsToSave = normalizePermissionsForRole(tempPermissions, users[selectedPermissionUser].role || 'user');
             users[selectedPermissionUser].permissions = permissionsToSave;
             users[selectedPermissionUser].modifiedDate = new Date().toISOString();
             saveUsers(users);
@@ -22227,7 +22288,8 @@
             
             // Update current user if they're editing themselves
             const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
-            if (currentUser.username === selectedPermissionUser) {
+            const currentUsername = String(currentUser.username || currentUser.Username || '').trim().toLowerCase();
+            if (currentUsername === String(selectedPermissionUser || '').trim().toLowerCase()) {
                 currentUser.permissions = permissionsToSave;
                 localStorage.setItem('currentUser', JSON.stringify(currentUser));
                 // Refresh UI to reflect permission changes
@@ -97354,6 +97416,7 @@ async function syncUsersFromAPI(options = {}) {
 
     // Keep an inspectable snapshot of raw API users for Manage Users diagnostics.
     const rawApiUsersByUsername = {};
+    const permissionsSqlSeeds = [];
 
     const detailedHrInfoByUserId = new Map();
     const fetchDetailedHrInfoByUserId = async (userId) => {
@@ -97442,16 +97505,11 @@ async function syncUsersFromAPI(options = {}) {
             hrInfo = existing.hrInfo;
         }
 
-        const rawPermissions = pickFirstNonEmpty(user.Permissions, user.permissions, existing.permissions);
-        let normalizedPermissions = rawPermissions;
-        if (typeof normalizedPermissions === 'string') {
-            try {
-                normalizedPermissions = JSON.parse(normalizedPermissions);
-            } catch (_) {}
-        }
-        if (!normalizedPermissions || (typeof normalizedPermissions === 'object' && !Array.isArray(normalizedPermissions) && Object.keys(normalizedPermissions).length === 0)) {
-            normalizedPermissions = (typeof getDefaultPermissions === 'function' ? getDefaultPermissions(user.Role || user.role || 'user') : {});
-        }
+        const rawApiPermissions = pickFirstNonEmpty(user.Permissions, user.permissions);
+        const apiPermissionsMissing = isMissingPermissionPayload(rawApiPermissions);
+        const roleForPermissions = user.Role || user.role || existing.role || 'user';
+        const rawPermissions = apiPermissionsMissing ? existing.permissions : rawApiPermissions;
+        const normalizedPermissions = normalizePermissionsForRole(rawPermissions, roleForPermissions);
 
         const resolvedOfficeLocation = normalizeOfficeLocationText(
             pickFirstNonEmpty(user.OfficeLocation, user.officeLocation, existing.officeLocation)
@@ -97513,6 +97571,14 @@ async function syncUsersFromAPI(options = {}) {
             permissions: normalizedPermissions
         };
 
+        if (apiPermissionsMissing) {
+            permissionsSqlSeeds.push({
+                id: Number(user.Id || user.id || 0),
+                username,
+                permissions: normalizedPermissions
+            });
+        }
+
         localUsers[username].photo = localUsers[username].photoData || localUsers[username].photo || null;
     }
     
@@ -97521,6 +97587,17 @@ async function syncUsersFromAPI(options = {}) {
     localStorage.setItem('appUsersRawFromAPI', JSON.stringify(rawApiUsersByUsername));
     window.__lastSyncedApiUsersByUsername = rawApiUsersByUsername;
     window.__lastSyncedUsersAt = new Date().toISOString();
+    if (permissionsSqlSeeds.length && typeof updateUserPermissionsViaAPI === 'function') {
+        for (const seed of permissionsSqlSeeds) {
+            if (!(seed.id > 0)) continue;
+            try {
+                await updateUserPermissionsViaAPI(seed.id, seed.permissions);
+                console.log('Seeded missing SQL permissions for user:', seed.username);
+            } catch (error) {
+                console.warn('Failed to seed missing SQL permissions for user:', seed.username, error);
+            }
+        }
+    }
     console.log('? Synced', Object.keys(localUsers).length, 'users from API (database is source of truth)');
     
     // Refresh in-memory resources immediately for callers that only run user sync.

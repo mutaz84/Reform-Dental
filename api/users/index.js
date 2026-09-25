@@ -12,6 +12,19 @@ function hasColumn(columns, name) {
     return columns.has(String(name).toLowerCase());
 }
 
+async function ensureUserPermissionsColumn(pool, userColumns) {
+    if (hasColumn(userColumns, 'Permissions')) return userColumns;
+
+    await pool.request().query(`
+        IF COL_LENGTH('dbo.Users', 'Permissions') IS NULL
+        BEGIN
+            ALTER TABLE dbo.Users ADD Permissions NVARCHAR(MAX) NULL
+        END
+    `);
+
+    return await getTableColumns(pool, 'Users');
+}
+
 function toNullableString(value) {
     if (value === undefined || value === null) return null;
     const normalized = String(value).trim();
@@ -393,11 +406,12 @@ module.exports = async function (context, req) {
         };
 
         if (req.method === 'GET') {
-            const userColumns = await getTableColumns(pool, 'Users');
+            let userColumns = await getTableColumns(pool, 'Users');
             if (userColumns.size === 0) {
                 context.res = { status: 500, headers, body: { error: 'Users table not found.' } };
                 return;
             }
+            userColumns = await ensureUserPermissionsColumn(pool, userColumns);
 
             const userClinicColumns = await getTableColumns(pool, 'UserClinics');
             const clinicColumns = await getTableColumns(pool, 'Clinics');
@@ -516,7 +530,8 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'POST') {
             const body = parseRequestBody(req.body);
-            const userColumns = await getTableColumns(pool, 'Users');
+            let userColumns = await getTableColumns(pool, 'Users');
+            userColumns = await ensureUserPermissionsColumn(pool, userColumns);
             const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
             const hasUsersSubscriptionId = hasColumn(userColumns, 'SubscriptionId');
             const callerUserId = getRequestUserId(req);
@@ -618,7 +633,8 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'PUT' && id) {
             const body = parseRequestBody(req.body);
-            const userColumns = await getTableColumns(pool, 'Users');
+            let userColumns = await getTableColumns(pool, 'Users');
+            userColumns = await ensureUserPermissionsColumn(pool, userColumns);
             const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
 
             if (body && (
@@ -769,7 +785,9 @@ module.exports = async function (context, req) {
             }
 
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
-            const permissionsValue = toJsonString(body.permissions || body.Permissions);
+            const permissionsValue = hasOwn(body, 'permissions')
+                ? toJsonString(body.permissions)
+                : (hasOwn(body, 'Permissions') ? toJsonString(body.Permissions) : null);
             const documentsValue = toJsonString(body.documents || body.Documents);
             const hrInfoValue = toJsonString(body.hrInfo || body.HRInfo);
             const hasClinicFields = hasOwn(body, 'clinicIds') || hasOwn(body, 'ClinicIds') || hasOwn(body, 'clinicId') || hasOwn(body, 'ClinicId');
@@ -861,7 +879,7 @@ module.exports = async function (context, req) {
                                 END
                             ),
                             HireDate=@hireDate, HourlyRate=@hourlyRate, Salary=@salary,
-                            Color=@color, ProfileImage=@profileImage, Permissions=@permissions,
+                            Color=@color, ProfileImage=@profileImage, Permissions=COALESCE(@permissions, Permissions),
                             SSN=@ssn, Title=@title, EmergencyContactName=@emergencyContactName,
                             EmergencyContactRelationship=@emergencyContactRelationship,
                             EmergencyContactPhone=@emergencyContactPhone, EmergencyContactEmail=@emergencyContactEmail,

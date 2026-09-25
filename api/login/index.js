@@ -19,6 +19,21 @@ function getConfig() {
     return {};
 }
 
+async function ensureUserPermissionsColumn(pool, context) {
+    try {
+        await pool.request().query(`
+            IF COL_LENGTH('dbo.Users', 'Permissions') IS NULL
+            BEGIN
+                ALTER TABLE dbo.Users ADD Permissions NVARCHAR(MAX) NULL
+            END
+        `);
+        return true;
+    } catch (error) {
+        context.log.warn('Unable to verify/create Users.Permissions column:', error.message);
+        return false;
+    }
+}
+
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json',
@@ -41,9 +56,11 @@ module.exports = async function (context, req) {
         }
 
         const pool = await sql.connect(getConfig());
+        const hasPermissionsColumn = await ensureUserPermissionsColumn(pool, context);
+        const permissionsSelect = hasPermissionsColumn ? ', Permissions' : '';
         const result = await pool.request()
             .input('username', sql.NVarChar, username)
-            .query('SELECT Id, Username, FirstName, LastName, Role, PasswordHash FROM Users WHERE Username = @username AND IsActive = 1');
+            .query(`SELECT Id, Username, FirstName, LastName, Role, PasswordHash${permissionsSelect} FROM Users WHERE Username = @username AND IsActive = 1`);
 
         if (result.recordset.length === 0) {
             context.res = { status: 401, headers, body: { error: 'Invalid credentials' } };
@@ -153,6 +170,8 @@ module.exports = async function (context, req) {
                     firstName: user.FirstName,
                     lastName: user.LastName,
                     role: user.Role,
+                    permissions: hasPermissionsColumn ? user.Permissions : null,
+                    Permissions: hasPermissionsColumn ? user.Permissions : null,
                     clinicIds,
                     clinics,
                     officeLocation
