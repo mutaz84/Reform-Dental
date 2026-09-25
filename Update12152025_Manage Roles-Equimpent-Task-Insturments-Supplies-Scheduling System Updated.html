@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260925-user-clinic-scope-v163';
+                const buildVersion = '20260925-dashboard-active-root-v164';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -59037,25 +59037,32 @@
             target.innerHTML = `<section class="rd-ops-card" id="opsAttendanceSection"><div class="rd-ops-section-head"><i class="fas fa-user-group" style="color:#1C1D1F;"></i><h3>Today's attendance</h3><a href="#" class="head-spacer" onclick="event.preventDefault(); if (typeof switchContentView === 'function') switchContentView('attendance', event);" style="font-size:12px;font-weight:800;color:#0F5E75;text-decoration:none;">View roster</a></div>${rows}</section>`;
         }
 
-        function renderDashboardHeaderSearchResults() {
-            const panel = document.getElementById('dashboardCalendarSearchResults');
+        function getActiveOperationsDashboardRoot(root) {
+            if (root?.querySelector) return root;
+            const roots = Array.from(document.querySelectorAll('[data-rd-ops-dashboard="1"]'));
+            return roots.find(item => !item.closest('[hidden]')) || roots[0] || null;
+        }
+
+        function renderDashboardHeaderSearchResults(root) {
+            const activeRoot = getActiveOperationsDashboardRoot(root);
+            const panel = activeRoot?.querySelector('#dashboardCalendarSearchResults') || document.getElementById('dashboardCalendarSearchResults');
             if (!panel) return;
             renderDashboardCalendarSearchResults(getDashboardCalendarSearchEntries(dashboardCalendarSearchQuery));
         }
 
-        function refreshOperationsDashboardRedesign() {
-            const root = document.querySelector('[data-rd-ops-dashboard="1"]');
+        function refreshOperationsDashboardRedesign(root) {
+            root = getActiveOperationsDashboardRoot(root);
             if (!root) return;
             const model = dashboardBuildModel();
-            const kpis = document.getElementById('dashboardKpiStrip');
+            const kpis = root.querySelector('#dashboardKpiStrip');
             if (kpis) kpis.outerHTML = renderDashboardKpis(model);
-            const attention = document.getElementById('dashboardAttentionPanel');
+            const attention = root.querySelector('#dashboardAttentionPanel');
             if (attention) attention.outerHTML = renderDashboardAttentionPanel(model);
-            renderDashboardScheduleCard(document.getElementById('dashboardCalendarPanel'), model);
-            renderDashboardAttendanceCard(document.getElementById('dashboardAttendancePanel'), model);
-            const searchInput = document.getElementById('dashboardGlobalSearch');
+            renderDashboardScheduleCard(root.querySelector('#dashboardCalendarPanel'), model);
+            renderDashboardAttendanceCard(root.querySelector('#dashboardAttendancePanel'), model);
+            const searchInput = root.querySelector('#dashboardGlobalSearch');
             if (searchInput) searchInput.value = dashboardCalendarSearchQuery;
-            renderDashboardHeaderSearchResults();
+            renderDashboardHeaderSearchResults(root);
         }
 
         window.openDashboardClockAction = function () {
@@ -59069,11 +59076,12 @@
             const identity = getDashboardCurrentUserClockStatus();
             const clockedIn = !/not clocked/i.test(identity.status || '');
             target.innerHTML = `<div class="rd-ops-dashboard" data-rd-ops-dashboard="1"><section class="rd-ops-card rd-ops-header"><div class="rd-ops-location"><span class="rd-ops-location-icon"><i class="fas fa-map-marker-alt"></i></span><div><strong>${escapeDashboardHtml(clinic.name)}</strong><span>${escapeDashboardHtml(clinic.address)}</span></div></div><div class="rd-ops-search"><i class="fas fa-search" aria-hidden="true"></i><input id="dashboardGlobalSearch" type="search" aria-label="Search tasks, equipment, staff" placeholder="Search tasks, equipment, staff&hellip;" value="${escapeDashboardHtml(dashboardCalendarSearchQuery)}"><div id="dashboardCalendarSearchResults" class="rd-ops-search-results" hidden></div></div><div class="rd-ops-header-right"><span class="rd-ops-status"><span class="rd-ops-status-dot ${clockedIn ? 'is-in' : ''}" aria-hidden="true"></span>System <span aria-hidden="true">&middot;</span> ${escapeDashboardHtml(identity.status)}</span><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.openDashboardClockAction()"><i class="fas fa-clock"></i>${clockedIn ? 'Clock out' : 'Clock in'}</button></div></section>${renderDashboardKpis(model)}<main class="rd-ops-main">${renderDashboardAttentionPanel(model)}<div class="rd-ops-column"><div id="dashboardCalendarPanel"></div><div id="dashboardAttendancePanel"></div></div></main></div>`;
-            const searchInput = document.getElementById('dashboardGlobalSearch');
-            if (searchInput) searchInput.addEventListener('input', event => { dashboardCalendarSearchQuery = event.target.value; renderDashboardHeaderSearchResults(); });
-            renderDashboardScheduleCard(document.getElementById('dashboardCalendarPanel'), model);
-            renderDashboardAttendanceCard(document.getElementById('dashboardAttendancePanel'), model);
-            renderDashboardHeaderSearchResults();
+            const root = target.querySelector('[data-rd-ops-dashboard="1"]');
+            const searchInput = root?.querySelector('#dashboardGlobalSearch');
+            if (searchInput) searchInput.addEventListener('input', event => { dashboardCalendarSearchQuery = event.target.value; renderDashboardHeaderSearchResults(root); });
+            renderDashboardScheduleCard(root?.querySelector('#dashboardCalendarPanel'), model);
+            renderDashboardAttendanceCard(root?.querySelector('#dashboardAttendancePanel'), model);
+            renderDashboardHeaderSearchResults(root);
         }
 
         function renderAttendanceDashboard(target, clinic) {
@@ -59126,17 +59134,23 @@
             const userLanding = document.getElementById('userDashboardLanding');
             if (!managerLanding || !userLanding) return;
             const role = getDashboardLandingRole();
-            managerLanding.hidden = role !== 'manager';
-            userLanding.hidden = role === 'manager';
+            const isManagerDashboard = role === 'manager';
+            managerLanding.hidden = !isManagerDashboard;
+            userLanding.hidden = isManagerDashboard;
             const clinic = getDashboardLandingClinic();
             const model = buildDashboardModel();
-            renderManagerDashboardLanding(managerLanding, model, clinic);
-            renderUserDashboardLanding(userLanding, model);
+            if (isManagerDashboard) {
+                userLanding.innerHTML = '';
+                renderManagerDashboardLanding(managerLanding, model, clinic);
+            } else {
+                managerLanding.innerHTML = '';
+                renderUserDashboardLanding(userLanding, model);
+            }
             document.querySelectorAll('[data-dashboard-clinic-name]').forEach(el => { el.textContent = clinic.name; });
             document.querySelectorAll('[data-dashboard-clinic-address]').forEach(el => { el.textContent = clinic.address; });
             document.querySelectorAll('[data-dashboard-user-name]').forEach(el => { el.textContent = getDashboardLandingUserName(); });
-            managerLanding.hidden = role !== 'manager';
-            userLanding.hidden = role === 'manager';
+            managerLanding.hidden = !isManagerDashboard;
+            userLanding.hidden = isManagerDashboard;
             if (!options.skipSync) refreshDashboardLandingDataInBackground();
         }
         window.renderDashboardLanding = renderDashboardLanding;
