@@ -45,6 +45,14 @@ function getForwardedHost(req) {
         headers['X-Original-Host'],
         headers['x-ms-original-host'],
         headers['X-MS-ORIGINAL-HOST'],
+        headers['x-ms-original-url'],
+        headers['X-MS-ORIGINAL-URL'],
+        headers['x-original-url'],
+        headers['X-Original-URL'],
+        headers.origin,
+        headers.Origin,
+        headers.referer,
+        headers.Referer,
         headers.host,
         headers.Host
     ].filter(Boolean).join(' ').toLowerCase();
