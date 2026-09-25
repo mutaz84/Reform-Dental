@@ -249,6 +249,7 @@ function tenantSubscriptionScope(columnExpr = 'SubscriptionId') {
     return `(
         EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
         OR ${columnExpr} = (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})
+        OR (${columnExpr} IS NULL AND (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM}) IS NULL)
     )`;
 }
 
