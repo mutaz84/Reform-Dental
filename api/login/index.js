@@ -20,6 +20,9 @@ function getConfig() {
 }
 
 async function ensureUserPermissionsColumn(pool, context) {
+    let hasPermissionsColumn = false;
+    let hasPermissionsTable = false;
+
     try {
         await pool.request().query(`
             IF COL_LENGTH('dbo.Users', 'Permissions') IS NULL
@@ -27,11 +30,71 @@ async function ensureUserPermissionsColumn(pool, context) {
                 ALTER TABLE dbo.Users ADD Permissions NVARCHAR(MAX) NULL
             END
         `);
-        return true;
+        hasPermissionsColumn = true;
     } catch (error) {
         context.log.warn('Unable to verify/create Users.Permissions column:', error.message);
-        return false;
     }
+
+    try {
+        await pool.request().query(`
+            IF OBJECT_ID('dbo.UserPermissions', 'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.UserPermissions (
+                    Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_UserPermissions PRIMARY KEY,
+                    UserId INT NOT NULL,
+                    CategoryKey NVARCHAR(100) NOT NULL,
+                    PermissionKey NVARCHAR(100) NOT NULL,
+                    AccessLevel NVARCHAR(20) NOT NULL,
+                    CreatedDate DATETIME2 NOT NULL CONSTRAINT DF_UserPermissions_CreatedDate DEFAULT SYSUTCDATETIME(),
+                    ModifiedDate DATETIME2 NOT NULL CONSTRAINT DF_UserPermissions_ModifiedDate DEFAULT SYSUTCDATETIME(),
+                    CONSTRAINT FK_UserPermissions_Users_UserId FOREIGN KEY (UserId) REFERENCES dbo.Users(Id) ON DELETE CASCADE,
+                    CONSTRAINT CK_UserPermissions_AccessLevel CHECK (AccessLevel IN ('full', 'readonly', 'hidden')),
+                    CONSTRAINT UX_UserPermissions_User_Category_Permission UNIQUE (UserId, CategoryKey, PermissionKey)
+                );
+            END;
+
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_UserPermissions_UserId' AND object_id = OBJECT_ID('dbo.UserPermissions'))
+            BEGIN
+                CREATE INDEX IX_UserPermissions_UserId ON dbo.UserPermissions(UserId);
+            END;
+        `);
+        hasPermissionsTable = true;
+    } catch (error) {
+        context.log.warn('Unable to verify/create dbo.UserPermissions table:', error.message);
+    }
+
+    return { hasPermissionsColumn, hasPermissionsTable };
+}
+
+function normalizePermissionAccessLevel(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'full' || normalized === 'readonly' || normalized === 'hidden' ? normalized : null;
+}
+
+async function readUserPermissionsFromTable(pool, userId) {
+    const targetUserId = Number(userId || 0);
+    if (!(targetUserId > 0)) return null;
+
+    const result = await pool.request()
+        .input('userId', sql.Int, targetUserId)
+        .query(`
+            SELECT CategoryKey, PermissionKey, AccessLevel
+            FROM dbo.UserPermissions
+            WHERE UserId = @userId
+            ORDER BY CategoryKey, PermissionKey
+        `);
+
+    const permissions = {};
+    (result.recordset || []).forEach((row) => {
+        const categoryKey = String(row.CategoryKey || '').trim();
+        const permissionKey = String(row.PermissionKey || '').trim();
+        const accessLevel = normalizePermissionAccessLevel(row.AccessLevel);
+        if (!categoryKey || !permissionKey || !accessLevel) return;
+        if (!permissions[categoryKey]) permissions[categoryKey] = {};
+        permissions[categoryKey][permissionKey] = accessLevel;
+    });
+
+    return Object.keys(permissions).length ? JSON.stringify(permissions) : null;
 }
 
 module.exports = async function (context, req) {
@@ -56,7 +119,9 @@ module.exports = async function (context, req) {
         }
 
         const pool = await sql.connect(getConfig());
-        const hasPermissionsColumn = await ensureUserPermissionsColumn(pool, context);
+        const permissionStorage = await ensureUserPermissionsColumn(pool, context);
+        const hasPermissionsColumn = !!permissionStorage?.hasPermissionsColumn;
+        const hasPermissionsTable = !!permissionStorage?.hasPermissionsTable;
         const permissionsSelect = hasPermissionsColumn ? ', Permissions' : '';
         const result = await pool.request()
             .input('username', sql.NVarChar, username)
@@ -68,6 +133,8 @@ module.exports = async function (context, req) {
         }
 
         const user = result.recordset[0];
+    const permissionsFromTable = hasPermissionsTable ? await readUserPermissionsFromTable(pool, user.Id) : null;
+        const permissionsPayload = permissionsFromTable || (hasPermissionsColumn ? user.Permissions : null);
         // Simple password check (in production, use bcrypt.compare)
         if (user.PasswordHash !== password && password !== 'admin123') {
             context.res = { status: 401, headers, body: { error: 'Invalid credentials' } };
@@ -170,8 +237,8 @@ module.exports = async function (context, req) {
                     firstName: user.FirstName,
                     lastName: user.LastName,
                     role: user.Role,
-                    permissions: hasPermissionsColumn ? user.Permissions : null,
-                    Permissions: hasPermissionsColumn ? user.Permissions : null,
+                    permissions: permissionsPayload,
+                    Permissions: permissionsPayload,
                     clinicIds,
                     clinics,
                     officeLocation
