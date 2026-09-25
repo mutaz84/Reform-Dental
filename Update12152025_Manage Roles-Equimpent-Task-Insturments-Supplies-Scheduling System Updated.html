@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260925-calendar-scope-persist-v166';
+                const buildVersion = '20260925-permissions-api-save-v167';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -22141,7 +22141,7 @@
         }
         
         // Save user permissions
-        function saveUserPermissions() {
+        async function saveUserPermissions() {
             if (!selectedPermissionUser || !tempPermissions) {
                 showNotification('No user selected', 'error');
                 return;
@@ -22154,20 +22154,57 @@
             }
             
             // Save permissions to user
-            users[selectedPermissionUser].permissions = tempPermissions;
+            const permissionsToSave = JSON.parse(JSON.stringify(tempPermissions));
+            users[selectedPermissionUser].permissions = permissionsToSave;
+            users[selectedPermissionUser].modifiedDate = new Date().toISOString();
             saveUsers(users);
+
+            let persisted = false;
+            let persistedUserId = Number(getUserRecordId(users[selectedPermissionUser]) || 0);
+            if (!(persistedUserId > 0) && typeof syncUsersFromAPI === 'function') {
+                try {
+                    await syncUsersFromAPI();
+                    const syncedUsers = loadUsers();
+                    if (syncedUsers[selectedPermissionUser]) {
+                        syncedUsers[selectedPermissionUser].permissions = permissionsToSave;
+                        syncedUsers[selectedPermissionUser].modifiedDate = users[selectedPermissionUser].modifiedDate;
+                        users[selectedPermissionUser] = syncedUsers[selectedPermissionUser];
+                        saveUsers(users);
+                        persistedUserId = Number(getUserRecordId(users[selectedPermissionUser]) || 0);
+                    }
+                } catch (error) {
+                    console.warn('Could not refresh users before saving permissions:', error);
+                }
+            }
+
+            if (persistedUserId > 0 && typeof updateUserViaAPI === 'function') {
+                try {
+                    const result = await updateUserViaAPI(persistedUserId, {
+                        ...users[selectedPermissionUser],
+                        username: selectedPermissionUser,
+                        permissions: permissionsToSave
+                    });
+                    persisted = !!result;
+                } catch (error) {
+                    console.error('Failed to persist permissions to API:', error);
+                }
+            }
             
             // Update current user if they're editing themselves
             const currentUser = safeParseLocalStorageJSON('currentUser', {}, { expect: 'object' });
             if (currentUser.username === selectedPermissionUser) {
-                currentUser.permissions = tempPermissions;
+                currentUser.permissions = permissionsToSave;
                 localStorage.setItem('currentUser', JSON.stringify(currentUser));
                 // Refresh UI to reflect permission changes
                 updateUIForRole();
                 if (typeof applyClinicIdentityFieldVisibility === 'function') applyClinicIdentityFieldVisibility();
             }
             
-            showNotification(`Permissions saved for ${users[selectedPermissionUser].firstName || selectedPermissionUser}`, 'success');
+            if (persisted) {
+                showNotification(`Permissions saved for ${users[selectedPermissionUser].firstName || selectedPermissionUser}`, 'success');
+            } else {
+                showNotification(`Permissions saved locally for ${users[selectedPermissionUser].firstName || selectedPermissionUser}, but database sync failed.`, 'warning');
+            }
         }
 
         // ============ ROOMS MANAGEMENT ============
