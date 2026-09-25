@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260925-calendar-action-bar-v162';
+                const buildVersion = '20260925-user-clinic-scope-v163';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -10467,6 +10467,27 @@
             };
         }
 
+        function persistCurrentDbUserIdFromSession(user) {
+            const raw = String(user?.dbId ?? user?.DbId ?? user?.DBId ?? user?.userId ?? user?.UserId ?? user?.id ?? user?.Id ?? '').trim();
+            const dbUserId = /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
+            if (dbUserId && Number.isFinite(dbUserId) && dbUserId > 0) {
+                window.currentDbUserId = dbUserId;
+                localStorage.setItem('currentDbUserId', String(dbUserId));
+                localStorage.setItem('currentUserId', String(dbUserId));
+                localStorage.setItem('loggedInUserId', String(dbUserId));
+                localStorage.setItem('userId', String(dbUserId));
+                localStorage.setItem('activeUserId', String(dbUserId));
+                return dbUserId;
+            }
+            window.currentDbUserId = null;
+            localStorage.removeItem('currentDbUserId');
+            localStorage.removeItem('currentUserId');
+            localStorage.removeItem('loggedInUserId');
+            localStorage.removeItem('userId');
+            localStorage.removeItem('activeUserId');
+            return null;
+        }
+
         const LOGIN_AUDIT_HISTORY_KEY = 'rdLoginAuditHistory';
         const LOGIN_AUDIT_ACTIVE_SESSIONS_KEY = 'rdLoginAuditActiveSessions';
         const LOGIN_AUDIT_FORCED_USERS_KEY = 'rdLoginAuditForcedUsers';
@@ -11760,6 +11781,7 @@
                 localStorage.setItem('userRole', normalizedSessionUser.role || 'user');
                 localStorage.setItem('userName', normalizedSessionUser.name || loggedInUser);
                 localStorage.setItem('currentUser', JSON.stringify(normalizedSessionUser));
+                persistCurrentDbUserIdFromSession(normalizedSessionUser);
                 if (typeof window.applyTenantCacheResetForUser === 'function') {
                     window.applyTenantCacheResetForUser(null, normalizedSessionUser);
                 }
@@ -11954,6 +11976,7 @@
                     localStorage.setItem('userRole', normalizedSessionUser.role);
                     localStorage.setItem('userName', normalizedSessionUser.name);
                     localStorage.setItem('currentUser', JSON.stringify(normalizedSessionUser));
+                    persistCurrentDbUserIdFromSession(normalizedSessionUser);
                     if (typeof window.applyTenantCacheResetForUser === 'function') {
                         window.applyTenantCacheResetForUser(null, normalizedSessionUser);
                     }
@@ -23482,6 +23505,11 @@
                     value.forEach(pushRef);
                     return;
                 }
+                if (value && typeof value === 'object') {
+                    pushRef(value.Name || value.name || value.officeName || value.clinicName || value.OfficeLocation || value.officeLocation || value.Clinic || value.clinic);
+                    pushRef(value.Id || value.id || value.dbId || value.clinicID || value.ClinicId || value.clinicId || value.officeID || value.OfficeID || value.officeId);
+                    return;
+                }
                 const raw = String(value || '').trim();
                 if (!raw) return;
                 refs.push(raw);
@@ -23510,6 +23538,11 @@
             const pushRef = (value) => {
                 if (Array.isArray(value)) {
                     value.forEach(pushRef);
+                    return;
+                }
+                if (value && typeof value === 'object') {
+                    pushRef(value.Id || value.id || value.dbId || value.clinicID || value.ClinicId || value.clinicId || value.officeID || value.OfficeID || value.officeId);
+                    pushRef(value.Name || value.name || value.officeName || value.clinicName || value.OfficeLocation || value.officeLocation || value.Clinic || value.clinic);
                     return;
                 }
                 const raw = String(value || '').trim();
@@ -56210,11 +56243,20 @@
         }
 
         function getDashboardLandingClinic() {
-            const selectedValue = String(
-                (typeof clinicFilter !== 'undefined' && clinicFilter) ||
-                document.getElementById('clinicFilterSelect')?.value ||
-                ''
-            ).trim();
+            const selectedSource = (typeof clinicFilter !== 'undefined' && clinicFilter) || document.getElementById('clinicFilterSelect')?.value || '';
+            const clinicText = value => {
+                if (value === undefined || value === null) return '';
+                if (typeof value === 'object') {
+                    return String(value.name || value.Name || value.officeName || value.OfficeName || value.clinicName || value.ClinicName || value.label || value.title || '').trim();
+                }
+                const text = String(value || '').trim();
+                return text.toLowerCase() === '[object object]' ? '' : text;
+            };
+            const clinicId = value => {
+                if (!value || typeof value !== 'object') return null;
+                return (typeof toNumericId === 'function') ? toNumericId(value.dbId || value.Id || value.id || value.clinicID || value.ClinicId || value.clinicId || value.officeID || value.OfficeID || value.officeId) : null;
+            };
+            const selectedValue = clinicText(selectedSource);
             const allClinics = Array.isArray(window.masterData?.clinics) ? window.masterData.clinics : [];
             let offices = [];
             try {
@@ -56222,9 +56264,9 @@
             } catch (_) {}
 
             const normalize = value => String(value || '').trim().toLowerCase();
-            const selectedNumeric = (typeof toNumericId === 'function') ? (toNumericId(selectedValue) || toNumericId(selectedValue.replace(/^clinic-/i, ''))) : null;
+            const selectedNumeric = clinicId(selectedSource) || ((typeof toNumericId === 'function') ? (toNumericId(selectedValue) || toNumericId(selectedValue.replace(/^clinic-/i, ''))) : null);
             const getRecordId = record => (typeof toNumericId === 'function') ? toNumericId(record?.dbId || record?.clinicID || record?.officeID || record?.id || record?.officeId) : null;
-            const clinicRecord = selectedValue ? (
+            const clinicRecord = (selectedValue || selectedNumeric) ? (
                 allClinics.find(clinic => normalize(clinic?.name || clinic?.officeName || clinic?.clinicName) === normalize(selectedValue) || (selectedNumeric && getRecordId(clinic) === selectedNumeric)) ||
                 offices.find(office => normalize(office?.officeName || office?.name || office?.clinicName) === normalize(selectedValue) || (selectedNumeric && getRecordId(office) === selectedNumeric)) ||
                 window.masterData?.getClinicByName?.(selectedValue)
@@ -60108,13 +60150,23 @@
         }
         
         function getSelectedClinicMetadata() {
-            const selectedClinicRaw = String(clinicFilter || '').trim();
-            if (!selectedClinicRaw) {
+            const selectedClinicSource = clinicFilter || '';
+            const selectedClinicRaw = (() => {
+                if (selectedClinicSource && typeof selectedClinicSource === 'object') {
+                    return String(selectedClinicSource.name || selectedClinicSource.Name || selectedClinicSource.officeName || selectedClinicSource.OfficeName || selectedClinicSource.clinicName || selectedClinicSource.ClinicName || selectedClinicSource.label || selectedClinicSource.title || '').trim();
+                }
+                const text = String(selectedClinicSource || '').trim();
+                return text.toLowerCase() === '[object object]' ? '' : text;
+            })();
+            const selectedSourceNumeric = selectedClinicSource && typeof selectedClinicSource === 'object'
+                ? toNumericId(selectedClinicSource.dbId || selectedClinicSource.Id || selectedClinicSource.id || selectedClinicSource.clinicID || selectedClinicSource.ClinicId || selectedClinicSource.clinicId || selectedClinicSource.officeID || selectedClinicSource.OfficeID || selectedClinicSource.officeId)
+                : null;
+            if (!selectedClinicRaw && !selectedSourceNumeric) {
                 return { selectedClinicName: '', selectedClinicKey: '', selectedClinicId: null };
             }
 
             const allClinics = Array.isArray(window.masterData?.clinics) ? window.masterData.clinics : [];
-            const selectedClinicNumeric = toNumericId(selectedClinicRaw) || toNumericId(selectedClinicRaw.replace(/^clinic-/i, ''));
+            const selectedClinicNumeric = selectedSourceNumeric || toNumericId(selectedClinicRaw) || toNumericId(selectedClinicRaw.replace(/^clinic-/i, ''));
             const selectedClinic = allClinics.find(c => {
                 const clinicName = String(c?.name || c?.officeName || c?.clinicName || '').trim();
                 const clinicKey = clinicName.toLowerCase();
