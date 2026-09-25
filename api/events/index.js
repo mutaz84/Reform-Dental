@@ -51,6 +51,23 @@ function valueOrNull(value) {
     return value === undefined ? null : value;
 }
 
+function normalizeDashboardScope(value) {
+    const scope = normalizeNullableString(value);
+    if (!scope) return null;
+    return /^office$/i.test(scope) ? 'office' : (/^mine$/i.test(scope) ? 'mine' : null);
+}
+
+async function ensureEventDashboardScopeColumn(pool, eventColumns) {
+    if (hasColumn(eventColumns, 'DashboardScope')) return eventColumns;
+    await pool.request().query(`
+        IF COL_LENGTH('Events', 'DashboardScope') IS NULL
+        BEGIN
+            ALTER TABLE Events ADD DashboardScope NVARCHAR(20) NULL
+        END
+    `);
+    return await getTableColumns(pool, 'Events');
+}
+
 async function findExistingEventId(pool, eventColumns, values) {
     const request = pool.request()
         .input('title', sql.NVarChar(255), values.title)
@@ -73,6 +90,10 @@ async function findExistingEventId(pool, eventColumns, values) {
     if (hasColumn(eventColumns, 'OrganizerUserId')) {
         request.input('organizerUserId', sql.Int, valueOrNull(values.organizerUserId));
         where.push('((OrganizerUserId = @organizerUserId) OR (OrganizerUserId IS NULL AND @organizerUserId IS NULL))');
+    }
+    if (hasColumn(eventColumns, 'DashboardScope')) {
+        request.input('dashboardScope', sql.NVarChar(20), normalizeDashboardScope(values.dashboardScope));
+        where.push('((DashboardScope = @dashboardScope) OR (DashboardScope IS NULL AND @dashboardScope IS NULL))');
     }
 
     const result = await request.query(`
@@ -294,17 +315,26 @@ function mapEventRow(row, attendees = []) {
         color: row.Color || null,
         priority: row.Priority || 'medium',
         status: row.Status || 'scheduled',
+        dashboardScope: row.DashboardScope || null,
         organizerUserId: row.OrganizerUserId || null,
         organizerName,
         attendees: Array.isArray(attendees) ? attendees : []
     };
 }
 
-function eventPrivateVisibilitySql(columnExpr = 'e.OrganizerUserId') {
+function eventPrivateVisibilitySql(organizerExpr = 'e.OrganizerUserId', scopeExpr = null) {
+    const adminClause = `EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')`;
+    if (scopeExpr) {
+        return `(
+            ${adminClause}
+            OR LOWER(COALESCE(${scopeExpr}, CASE WHEN ${organizerExpr} IS NULL THEN 'office' ELSE 'mine' END)) = 'office'
+            OR ${organizerExpr} = @${TENANT_PARAM}
+        )`;
+    }
     return `(
-        ${columnExpr} IS NULL
-        OR ${columnExpr} = @${TENANT_PARAM}
-        OR EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
+        ${organizerExpr} IS NULL
+        OR ${organizerExpr} = @${TENANT_PARAM}
+        OR ${adminClause}
     )`;
 }
 
@@ -325,11 +355,13 @@ module.exports = async function (context, req) {
     try {
         pool = await getPool();
         const id = toNullableInt(req.params.id);
-        const eventColumns = await getTableColumns(pool, 'Events');
+        let eventColumns = await getTableColumns(pool, 'Events');
+        eventColumns = await ensureEventDashboardScopeColumn(pool, eventColumns);
         const attendeesColumns = await getTableColumns(pool, 'EventAttendees').catch(() => new Set());
         const hasEventAttendeesTable = attendeesColumns.size > 0;
 
         const hasEventCategory = hasColumn(eventColumns, 'EventCategory');
+        const hasDashboardScope = hasColumn(eventColumns, 'DashboardScope');
         const hasLocation = hasColumn(eventColumns, 'Location');
         const hasOrganizerUserId = hasColumn(eventColumns, 'OrganizerUserId');
         const hasCreatedBy = hasColumn(eventColumns, 'CreatedBy');
@@ -353,7 +385,7 @@ module.exports = async function (context, req) {
             }
             if (id) {
                 const tenantClause = hasClinicCol ? ` AND ${tenantClinicScopeSql('e.ClinicId')}` : '';
-                const privateEventClause = hasOrganizerUserId ? ` AND ${eventPrivateVisibilitySql('e.OrganizerUserId')}` : '';
+                const privateEventClause = hasOrganizerUserId ? ` AND ${eventPrivateVisibilitySql('e.OrganizerUserId', hasDashboardScope ? 'e.DashboardScope' : null)}` : '';
                 const query = `
                     SELECT
                         e.*,
@@ -400,7 +432,7 @@ module.exports = async function (context, req) {
             }
             if (hasOrganizerUserId) {
                 if (!hasClinicCol) request.input(TENANT_PARAM, sql.Int, tenantUserId || 0);
-                whereClause += ` AND ${eventPrivateVisibilitySql('e.OrganizerUserId')}`;
+                whereClause += ` AND ${eventPrivateVisibilitySql('e.OrganizerUserId', hasDashboardScope ? 'e.DashboardScope' : null)}`;
             }
 
             const query = `
@@ -449,6 +481,7 @@ module.exports = async function (context, req) {
             const eventClinicId = await resolveEventClinicId(pool, body, tenantUserId || createdByUserId || organizerUserId, hasClinicCol);
             const attendees = normalizeAttendees(body.attendees);
             const eventCategory = normalizeNullableString(body.eventCategory) || 'event';
+            const dashboardScope = normalizeDashboardScope(body.dashboardScope || body.DashboardScope);
 
             const existingEventId = await findExistingEventId(pool, eventColumns, {
                 title,
@@ -456,7 +489,8 @@ module.exports = async function (context, req) {
                 endDateTime,
                 clinicId: eventClinicId,
                 eventCategory,
-                organizerUserId
+                organizerUserId,
+                dashboardScope
             });
             if (existingEventId) {
                 await upsertEventAttendees(pool, existingEventId, attendees, hasEventAttendeesTable);
@@ -481,6 +515,9 @@ module.exports = async function (context, req) {
 
             if (hasEventCategory) {
                 insertDefs.push({ column: 'EventCategory', param: 'eventCategory', type: sql.NVarChar(50), value: eventCategory });
+            }
+            if (hasDashboardScope) {
+                insertDefs.push({ column: 'DashboardScope', param: 'dashboardScope', type: sql.NVarChar(20), value: dashboardScope });
             }
             if (hasLocation) {
                 insertDefs.push({ column: 'Location', param: 'location', type: sql.NVarChar(255), value: normalizeNullableString(body.location) });
@@ -532,6 +569,7 @@ module.exports = async function (context, req) {
             const organizerUserId = hasOrganizerUserIdInBody ? providedOrganizerId : (providedOrganizerId || await resolveUserId(pool, organizerLookup) || tenantUserId);
             const eventClinicId = await resolveEventClinicId(pool, body, tenantUserId || organizerUserId, hasClinicCol);
             const attendees = normalizeAttendees(body.attendees);
+            const dashboardScope = normalizeDashboardScope(body.dashboardScope || body.DashboardScope);
             const actorUserId = await getMutationActorUserId(pool, req);
             const auth = await authorizeEventMutation(pool, eventColumns, id, actorUserId);
             if (!auth.ok) {
@@ -555,6 +593,9 @@ module.exports = async function (context, req) {
 
             if (hasEventCategory) {
                 updateDefs.push({ column: 'EventCategory', param: 'eventCategory', type: sql.NVarChar(50), value: normalizeNullableString(body.eventCategory) || 'event' });
+            }
+            if (hasDashboardScope) {
+                updateDefs.push({ column: 'DashboardScope', param: 'dashboardScope', type: sql.NVarChar(20), value: dashboardScope });
             }
             if (hasLocation) {
                 updateDefs.push({ column: 'Location', param: 'location', type: sql.NVarChar(255), value: normalizeNullableString(body.location) });

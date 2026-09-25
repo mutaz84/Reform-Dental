@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260925-calendar-private-events-v165';
+                const buildVersion = '20260925-calendar-scope-persist-v166';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -57494,13 +57494,13 @@
             const mappedScope = String(scopeMap?.[id] || '').trim().toLowerCase();
             const itemScope = String(item?.dashboardScope || item?.DashboardScope || '').trim().toLowerCase();
             const organizerKey = dashboardOwnerKey(item?.organizerUserId ?? item?.OrganizerUserId ?? item?.dashboardScheduledBy);
+            if (itemScope === 'office') return { isMine: false, isOffice: true };
+            if (itemScope === 'mine') return { isMine: organizerKey ? ownershipKeys.has(organizerKey) : dashboardEntryIsMine(item || {}, ownershipKeys), isOffice: false };
+            if (mappedScope === 'mine') return { isMine: true, isOffice: false };
+            if (mappedScope === 'office') return { isMine: false, isOffice: true };
             if (organizerKey) {
                 return { isMine: ownershipKeys.has(organizerKey), isOffice: false };
             }
-            if (mappedScope === 'mine') return { isMine: true, isOffice: false };
-            if (mappedScope === 'office') return { isMine: false, isOffice: true };
-            if (itemScope === 'mine') return { isMine: dashboardEntryIsMine(item || {}, ownershipKeys), isOffice: false };
-            if (itemScope === 'office') return { isMine: false, isOffice: true };
             return { isMine: false, isOffice: true };
         }
 
@@ -59061,7 +59061,9 @@
             const activeDate = dashboardLocalDateIso(dashboardCalendarDate);
             const dateLabel = dashboardCalendarDate.toLocaleDateString([], { weekday:'long', month:'short', day:'numeric', year:'numeric' });
             const isMode = mode => (mode === 'calendar' ? dashboardCalendarViewMode === 'calendar' : dashboardCalendarViewMode === mode);
-            target.innerHTML = `<section class="rd-ops-card" id="opsScheduleSection"><div class="rd-ops-schedule-head"><div class="rd-ops-schedule-title"><h3>Today's schedule</h3><span>${escapeDashboardHtml(dateLabel)}</span></div><div class="rd-ops-date-nav"><button type="button" class="rd-ops-btn" aria-label="Previous day" onclick="window.shiftDashboardCalendar(-1)"><i class="fas fa-chevron-left"></i></button><button type="button" class="rd-ops-btn" onclick="window.resetDashboardCalendar()">Today</button><button type="button" class="rd-ops-btn" aria-label="Next day" onclick="window.shiftDashboardCalendar(1)"><i class="fas fa-chevron-right"></i></button></div></div><div class="rd-ops-toolbar"><span class="rd-ops-segment" role="group" aria-label="Schedule view"><button type="button" class="${isMode('calendar') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('calendar')">Day</button><button type="button" class="${isMode('week') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('week')">Week</button><button type="button" class="${isMode('month') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('month')">Month</button><button type="button" class="${isMode('list') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('list')">List</button></span><button type="button" class="rd-ops-btn" onclick="window.setDashboardCalendarScope(dashboardCalendarScope === 'mine' ? 'office' : 'mine')">${dashboardCalendarScope === 'mine' ? 'My calendar' : 'Office calendar'} <i class="fas fa-chevron-down" aria-hidden="true"></i></button><button type="button" class="rd-ops-btn rd-ops-btn-primary rd-ops-toolbar-push" onclick="window.toggleDashboardEventForm(true)"><i class="fas fa-plus"></i>Add event</button></div>${renderDashboardEventForm()}${renderDashboardScheduleBody(entries, activeDate)}</section>`;
+            const isScope = scope => dashboardCalendarScope === scope;
+            const scopeSegmentHtml = `<span class="rd-ops-segment" role="group" aria-label="Calendar scope"><button type="button" class="${isScope('mine') ? 'active' : ''}" onclick="window.setDashboardCalendarScope('mine')">My calendar</button><button type="button" class="${isScope('office') ? 'active' : ''}" onclick="window.setDashboardCalendarScope('office')">Office calendar</button></span>`;
+            target.innerHTML = `<section class="rd-ops-card" id="opsScheduleSection"><div class="rd-ops-schedule-head"><div class="rd-ops-schedule-title"><h3>Today's schedule</h3><span>${escapeDashboardHtml(dateLabel)}</span></div><div class="rd-ops-date-nav"><button type="button" class="rd-ops-btn" aria-label="Previous day" onclick="window.shiftDashboardCalendar(-1)"><i class="fas fa-chevron-left"></i></button><button type="button" class="rd-ops-btn" onclick="window.resetDashboardCalendar()">Today</button><button type="button" class="rd-ops-btn" aria-label="Next day" onclick="window.shiftDashboardCalendar(1)"><i class="fas fa-chevron-right"></i></button></div></div><div class="rd-ops-toolbar"><span class="rd-ops-segment" role="group" aria-label="Schedule view"><button type="button" class="${isMode('calendar') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('calendar')">Day</button><button type="button" class="${isMode('week') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('week')">Week</button><button type="button" class="${isMode('month') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('month')">Month</button><button type="button" class="${isMode('list') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('list')">List</button></span>${scopeSegmentHtml}<button type="button" class="rd-ops-btn rd-ops-btn-primary rd-ops-toolbar-push" onclick="window.toggleDashboardEventForm(true)"><i class="fas fa-plus"></i>Add event</button></div>${renderDashboardEventForm()}${renderDashboardScheduleBody(entries, activeDate)}</section>`;
         }
 
         function renderDashboardAttendanceCard(target, model = dashboardBuildModel()) {
@@ -61374,6 +61376,7 @@
                 office: clinicName,
                 roomId: item.roomId || item.RoomId || null,
                 allDay: Boolean(item.allDay || item.AllDay),
+                dashboardScope: item.dashboardScope || item.DashboardScope || null,
                 color: item.color || item.Color || null,
                 backgroundColor: item.color || item.Color || null,
                 organizerUserId: organizerUserId ? String(organizerUserId) : null,
@@ -61399,6 +61402,7 @@
                 location: event.location || '',
                 priority: event.priority || 'medium',
                 status: event.status || 'scheduled',
+                dashboardScope: event.dashboardScope || event.DashboardScope || null,
                 clinicId: event.clinicId ? Number(event.clinicId) : null,
                 clinicName: event.clinicName || event.clinic || event.office || '',
                 roomId: event.roomId ? Number(event.roomId) : null,
@@ -61498,6 +61502,49 @@
             return [title, start, end, category].join('|');
         }
 
+        function normalizeCalendarDashboardScope(value) {
+            const scope = String(value || '').trim().toLowerCase();
+            return scope === 'office' ? 'office' : (scope === 'mine' ? 'mine' : '');
+        }
+
+        async function syncDashboardScopeMetadataToApi(localEvents, mappedApiEvents) {
+            const localList = Array.isArray(localEvents) ? localEvents : [];
+            const apiList = Array.isArray(mappedApiEvents) ? mappedApiEvents : [];
+            const remoteById = new Map(apiList.map(event => [String(event?.id || '').trim(), event]).filter(([id]) => id));
+            const remoteByKey = new Map(apiList.map(event => [getCalendarEventSyncKey(event), event]).filter(([key]) => key));
+            let changed = false;
+            let creator = { id: null };
+            try { creator = getDashboardCurrentCreator(); } catch (_) {}
+
+            for (const local of localList) {
+                const scope = normalizeCalendarDashboardScope(local?.dashboardScope || local?.DashboardScope);
+                if (!scope || local?.apiSyncPending === true || local?.dashboardBackup === true) continue;
+                const localId = String(local?.id || '').trim();
+                const remote = (localId && remoteById.get(localId)) || remoteByKey.get(getCalendarEventSyncKey(local));
+                const apiId = String(remote?.id || localId || '').trim();
+                if (!apiId || !/^\d+$/.test(apiId)) continue;
+
+                const remoteScope = normalizeCalendarDashboardScope(remote?.dashboardScope || remote?.DashboardScope);
+                const desiredOrganizer = scope === 'mine' ? (local.organizerUserId || local.createdBy || creator.id || remote?.organizerUserId || null) : null;
+                const remoteOrganizer = remote?.organizerUserId || null;
+                if (remoteScope === scope && String(remoteOrganizer || '') === String(desiredOrganizer || '')) continue;
+
+                try {
+                    await updateEventViaApi(apiId, {
+                        ...remote,
+                        ...local,
+                        id: apiId,
+                        dashboardScope: scope,
+                        organizerUserId: desiredOrganizer,
+                        createdBy: local.createdBy || remote?.createdBy || desiredOrganizer || creator.id || null
+                    });
+                    changed = true;
+                } catch (_) {}
+            }
+
+            return changed;
+        }
+
         function chooseCanonicalCalendarEventRecord(existing, candidate) {
             const existingHasApiId = /^\d+$/.test(String(existing?.id || ''));
             const candidateHasApiId = /^\d+$/.test(String(candidate?.id || ''));
@@ -61581,6 +61628,10 @@
                 const retryResult = await flushPendingCalendarEventsToApi(localEvents, mapped);
                 if (retryResult.flushed) {
                     saveEventDatabase(dedupeCalendarEventList(localEvents));
+                    apiEvents = await fetchEventsFromApi();
+                    mapped = apiEvents.map(mapApiEventToCalendarEvent).filter(Boolean);
+                }
+                if (await syncDashboardScopeMetadataToApi(localEvents, mapped)) {
                     apiEvents = await fetchEventsFromApi();
                     mapped = apiEvents.map(mapApiEventToCalendarEvent).filter(Boolean);
                 }
