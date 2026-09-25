@@ -80,6 +80,32 @@ async function findExistingEventId(pool, eventColumns, values) {
     return result.recordset[0]?.Id || null;
 }
 
+async function getMutationActorUserId(pool, req) {
+    const directUserId = getRequestUserId(req);
+    if (directUserId) return directUserId;
+
+    const headerIdentity = getHeaderValue(req, ['x-username', 'x-user-name', 'x-user-email', 'x-user']);
+    return await resolveUserId(pool, headerIdentity);
+}
+
+async function authorizeEventMutation(pool, eventColumns, eventId, actorUserId) {
+    const ownerColumns = ['OrganizerUserId', 'CreatedBy'].filter((column) => hasColumn(eventColumns, column));
+    const selectColumns = ['Id', ...ownerColumns].join(', ');
+    const result = await pool.request()
+        .input('id', sql.Int, eventId)
+        .query(`SELECT TOP 1 ${selectColumns} FROM Events WHERE Id = @id`);
+    const row = result.recordset?.[0] || null;
+    if (!row) return { ok: false, status: 404, body: { error: 'Event not found' } };
+    if (!ownerColumns.length) return { ok: true };
+
+    const actorId = Number(actorUserId) || 0;
+    if (!actorId) return { ok: false, status: 401, body: { error: 'A valid X-User-Id is required to modify this event.' } };
+
+    const ownsEvent = ownerColumns.some((column) => Number(row[column]) === actorId);
+    if (!ownsEvent) return { ok: false, status: 403, body: { error: 'Only the event creator can modify this event.' } };
+    return { ok: true };
+}
+
 function getHeaderValue(req, names) {
     const headers = req?.headers || {};
     const entries = Object.entries(headers);
@@ -482,6 +508,12 @@ module.exports = async function (context, req) {
             const organizerUserId = providedOrganizerId || await resolveUserId(pool, organizerLookup) || tenantUserId;
             const eventClinicId = await resolveEventClinicId(pool, body, tenantUserId || organizerUserId, hasClinicCol);
             const attendees = normalizeAttendees(body.attendees);
+            const actorUserId = await getMutationActorUserId(pool, req);
+            const auth = await authorizeEventMutation(pool, eventColumns, id, actorUserId);
+            if (!auth.ok) {
+                context.res = { status: auth.status, headers, body: auth.body };
+                return;
+            }
 
             const updateDefs = [
                 { column: 'Title', param: 'title', type: sql.NVarChar(255), value: normalizeNullableString(body.title) },
@@ -543,6 +575,13 @@ module.exports = async function (context, req) {
         if (req.method === 'DELETE') {
             if (!id) {
                 context.res = { status: 400, headers, body: { error: 'id is required for delete' } };
+                return;
+            }
+
+            const actorUserId = await getMutationActorUserId(pool, req);
+            const auth = await authorizeEventMutation(pool, eventColumns, id, actorUserId);
+            if (!auth.ok) {
+                context.res = { status: auth.status, headers, body: auth.body };
                 return;
             }
 
