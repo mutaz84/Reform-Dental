@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260925-owner-calendar-crud-v161';
+                const buildVersion = '20260925-calendar-action-bar-v162';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -57770,7 +57770,12 @@
                 event.stopPropagation();
                 if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
             }
-            if (entry.kind === 'Calendar' && entry.id) window.selectDashboardEvent(entry.id);
+            if (entry.kind === 'Calendar' && entry.id) {
+                window.selectDashboardEvent(entry.id);
+                showDashboardCalendarEventActionBar(entry);
+            } else {
+                hideDashboardCalendarEventActionBar();
+            }
             openDashboardOperation(entry);
             return true;
         }
@@ -58902,6 +58907,52 @@
             return ownerNames.some(value => actorNames.has(dashboardNormalizeText(value).toLowerCase()));
         }
 
+        function hideDashboardCalendarEventActionBar() {
+            document.getElementById('dashboardCalendarEventActionBar')?.remove();
+        }
+
+        function showDashboardCalendarEventActionBar(entry) {
+            hideDashboardCalendarEventActionBar();
+            if (!dashboardCalendarEntryCanModify(entry)) return;
+            const eventId = String(entry?.id || '').trim();
+            if (!eventId) return;
+
+            const bar = document.createElement('div');
+            bar.id = 'dashboardCalendarEventActionBar';
+            bar.setAttribute('role', 'toolbar');
+            bar.setAttribute('aria-label', 'Calendar event actions');
+            bar.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:10060;display:flex;align-items:center;gap:10px;max-width:min(560px,calc(100vw - 24px));padding:8px 10px;border:1px solid #D9D6CF;border-radius:12px;background:#fff;box-shadow:0 18px 42px rgba(28,29,31,.18);font-family:Manrope,Segoe UI,system-ui,sans-serif;';
+            bar.innerHTML = '<span style="min-width:0;display:flex;align-items:center;gap:8px;padding:0 6px;color:#1C1D1F;font-size:13px;font-weight:800;"><i class="far fa-calendar" aria-hidden="true" style="color:#0F5E75;"></i><strong style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></strong></span><button type="button" class="rd-ops-btn" data-action="edit" title="Edit event" aria-label="Edit event" style="height:34px;width:38px;padding:0;"><i class="fas fa-pen"></i></button><button type="button" class="rd-ops-btn" data-action="delete" title="Delete event" aria-label="Delete event" style="height:34px;width:38px;padding:0;color:#A3261A;"><i class="fas fa-trash"></i></button><button type="button" class="rd-ops-btn" data-action="close" title="Close actions" aria-label="Close actions" style="height:34px;width:38px;padding:0;"><i class="fas fa-times"></i></button>';
+            const titleNode = bar.querySelector('strong');
+            if (titleNode) titleNode.textContent = dashboardSentenceCase(entry.title || 'Calendar event');
+            bar.querySelector('[data-action="edit"]')?.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                hideDashboardCalendarEventActionBar();
+                window.editDashboardEvent(eventId);
+            });
+            bar.querySelector('[data-action="delete"]')?.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                hideDashboardCalendarEventActionBar();
+                window.deleteDashboardEvent(eventId);
+            });
+            bar.querySelector('[data-action="close"]')?.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                hideDashboardCalendarEventActionBar();
+            });
+            document.body.appendChild(bar);
+        }
+
+        document.addEventListener('click', event => {
+            const bar = document.getElementById('dashboardCalendarEventActionBar');
+            if (!bar) return;
+            if (bar.contains(event.target)) return;
+            if (event.target.closest('[data-dashboard-event-id]')) return;
+            hideDashboardCalendarEventActionBar();
+        }, true);
+
         function dashboardScheduleEntryHtml(entry) {
             const type = dashboardTypeClass({ operationType: entry.kind, title: entry.title });
             const startLabel = entry.start.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
@@ -58914,8 +58965,7 @@
             const serviceTicketId = /service/i.test(entry.kind || '') ? String(entry.id || '').trim() : '';
             const entryId = String(entry.id || (/equipment/i.test(entry.kind || '') ? equipmentId : '') || '').trim();
             const unscheduleButton = canUnschedule ? '<button type="button" class="rd-ops-btn" style="height:30px;padding:0 10px;font-size:12px;" onclick="event.preventDefault();event.stopPropagation();window.unscheduleDashboardOperation(this);">Unschedule</button>' : '';
-            const calendarEventActions = entry.kind === 'Calendar' && eventId && dashboardCalendarEntryCanModify(entry) ? `<span class="rd-ops-event-crud" style="display:inline-flex;gap:6px;flex-shrink:0;"><button type="button" class="rd-ops-btn" title="Edit event" aria-label="Edit event" style="height:30px;width:34px;padding:0;" onclick="event.preventDefault();event.stopPropagation();window.editDashboardEvent('${eventId}');"><i class="fas fa-pen"></i></button><button type="button" class="rd-ops-btn" title="Delete event" aria-label="Delete event" style="height:30px;width:34px;padding:0;color:#A3261A;" onclick="event.preventDefault();event.stopPropagation();window.deleteDashboardEvent('${eventId}');"><i class="fas fa-trash"></i></button></span>` : '';
-            const rowActionHtml = calendarEventActions || unscheduleButton;
+            const rowActionHtml = unscheduleButton;
             return `<div class="rd-ops-scheduled-item" role="button" tabindex="0" data-dashboard-event-id="${eventId}" data-dashboard-scheduled-operation="${canUnschedule ? 'true' : 'false'}" data-entry-kind="${escapeDashboardHtml(entry.kind || '')}" data-entry-title="${escapeDashboardHtml(entry.title || '')}" data-entry-id="${escapeDashboardHtml(entryId)}" data-entry-view="${escapeDashboardHtml(entry.view || '')}" data-service-ticket-id="${escapeDashboardHtml(serviceTicketId)}" data-service-equipment-id="${escapeDashboardHtml(equipmentId)}" data-equipment-id="${escapeDashboardHtml(equipmentId)}" data-schedule-date="${escapeDashboardHtml(dashboardLocalDateIso(entry.start) || '')}" data-schedule-time="${escapeDashboardHtml(entry.start.toTimeString().slice(0, 5))}" onclick="window.openDashboardScheduledStory(this,event)" onkeydown="if(event.key==='Enter'||event.key===' '){window.openDashboardScheduledStory(this,event)}" style="--event-tone:${escapeDashboardHtml(entry.tone || '#0F5E75')};"><div class="rd-ops-scheduled-time">${escapeDashboardHtml(startLabel)}<span>${escapeDashboardHtml(endLabel)}</span></div><span class="rd-ops-scheduled-kind ${type.cls}" aria-hidden="true"><i class="${type.icon}"></i></span><div class="rd-ops-scheduled-body"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;"><strong>${escapeDashboardHtml(dashboardSentenceCase(entry.title))}</strong>${rowActionHtml}</div><span>${escapeDashboardHtml(entry.kind)} <span aria-hidden="true">&middot;</span> ${escapeDashboardHtml(owner)}</span></div></div>`;
         }
 
