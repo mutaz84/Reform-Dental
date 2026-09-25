@@ -70,6 +70,10 @@ async function findExistingEventId(pool, eventColumns, values) {
         request.input('eventCategory', sql.NVarChar(50), normalizeNullableString(values.eventCategory) || 'event');
         where.push('(EventCategory IS NULL OR LOWER(EventCategory) = LOWER(@eventCategory))');
     }
+    if (hasColumn(eventColumns, 'OrganizerUserId')) {
+        request.input('organizerUserId', sql.Int, valueOrNull(values.organizerUserId));
+        where.push('((OrganizerUserId = @organizerUserId) OR (OrganizerUserId IS NULL AND @organizerUserId IS NULL))');
+    }
 
     const result = await request.query(`
         SELECT TOP 1 Id
@@ -296,6 +300,14 @@ function mapEventRow(row, attendees = []) {
     };
 }
 
+function eventPrivateVisibilitySql(columnExpr = 'e.OrganizerUserId') {
+    return `(
+        ${columnExpr} IS NULL
+        OR ${columnExpr} = @${TENANT_PARAM}
+        OR EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
+    )`;
+}
+
 module.exports = async function (context, req) {
     const headers = {
         'Content-Type': 'application/json; charset=utf-8',
@@ -341,6 +353,7 @@ module.exports = async function (context, req) {
             }
             if (id) {
                 const tenantClause = hasClinicCol ? ` AND ${tenantClinicScopeSql('e.ClinicId')}` : '';
+                const privateEventClause = hasOrganizerUserId ? ` AND ${eventPrivateVisibilitySql('e.OrganizerUserId')}` : '';
                 const query = `
                     SELECT
                         e.*,
@@ -350,10 +363,11 @@ module.exports = async function (context, req) {
                     FROM Events e
                     LEFT JOIN Users u ON u.Id = ${organizerJoinColumn}
                     ${clinicJoin}
-                    WHERE e.Id = @id${tenantClause}
+                    WHERE e.Id = @id${tenantClause}${privateEventClause}
                 `;
                 const reqBuilder = pool.request().input('id', sql.Int, id);
                 if (hasClinicCol) reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
+                else if (hasOrganizerUserId) reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId || 0);
                 const result = await reqBuilder.query(query);
                 const row = result.recordset[0] || null;
                 if (!row) {
@@ -383,6 +397,10 @@ module.exports = async function (context, req) {
             if (hasClinicCol) {
                 request.input(TENANT_PARAM, sql.Int, tenantUserId);
                 whereClause += ` AND ${tenantClinicScopeSql('e.ClinicId')}`;
+            }
+            if (hasOrganizerUserId) {
+                if (!hasClinicCol) request.input(TENANT_PARAM, sql.Int, tenantUserId || 0);
+                whereClause += ` AND ${eventPrivateVisibilitySql('e.OrganizerUserId')}`;
             }
 
             const query = `
@@ -422,10 +440,13 @@ module.exports = async function (context, req) {
                 return;
             }
 
-            const providedOrganizerId = toNullableInt(body.organizerUserId || body.createdBy);
+            const hasOrganizerUserIdInBody = Object.prototype.hasOwnProperty.call(body, 'organizerUserId') || Object.prototype.hasOwnProperty.call(body, 'OrganizerUserId');
+            const requestedOrganizerUserId = body.organizerUserId ?? body.OrganizerUserId;
+            const providedOrganizerId = toNullableInt(requestedOrganizerUserId);
             const organizerLookup = body.organizerName || body.organizer || body.organizerUsername || null;
-            const organizerUserId = providedOrganizerId || await resolveUserId(pool, organizerLookup) || tenantUserId;
-            const eventClinicId = await resolveEventClinicId(pool, body, tenantUserId || organizerUserId, hasClinicCol);
+            const createdByUserId = toNullableInt(body.createdBy || body.CreatedBy) || providedOrganizerId || await resolveUserId(pool, organizerLookup) || tenantUserId;
+            const organizerUserId = hasOrganizerUserIdInBody ? providedOrganizerId : createdByUserId;
+            const eventClinicId = await resolveEventClinicId(pool, body, tenantUserId || createdByUserId || organizerUserId, hasClinicCol);
             const attendees = normalizeAttendees(body.attendees);
             const eventCategory = normalizeNullableString(body.eventCategory) || 'event';
 
@@ -434,7 +455,8 @@ module.exports = async function (context, req) {
                 startDateTime,
                 endDateTime,
                 clinicId: eventClinicId,
-                eventCategory
+                eventCategory,
+                organizerUserId
             });
             if (existingEventId) {
                 await upsertEventAttendees(pool, existingEventId, attendees, hasEventAttendeesTable);
@@ -454,7 +476,7 @@ module.exports = async function (context, req) {
                 { column: 'Color', param: 'color', type: sql.NVarChar(20), value: normalizeNullableString(body.color) },
                 { column: 'Priority', param: 'priority', type: sql.NVarChar(20), value: normalizeNullableString(body.priority) || 'medium' },
                 { column: 'Status', param: 'status', type: sql.NVarChar(50), value: normalizeNullableString(body.status) || 'scheduled' },
-                { column: 'CreatedBy', param: 'createdBy', type: sql.Int, value: organizerUserId }
+                { column: 'CreatedBy', param: 'createdBy', type: sql.Int, value: createdByUserId }
             ];
 
             if (hasEventCategory) {
@@ -503,9 +525,11 @@ module.exports = async function (context, req) {
             const body = req.body || {};
             const startDateTime = toDateTime(body.startDateTime || `${body.eventDate || ''}T${toIsoTime(body.startTime)}:00`);
             const endDateTime = toDateTime(body.endDateTime || `${body.eventDate || ''}T${toIsoTime(body.endTime, toIsoTime(body.startTime))}:00`, startDateTime);
-            const providedOrganizerId = toNullableInt(body.organizerUserId || body.createdBy);
+            const hasOrganizerUserIdInBody = Object.prototype.hasOwnProperty.call(body, 'organizerUserId') || Object.prototype.hasOwnProperty.call(body, 'OrganizerUserId');
+            const requestedOrganizerUserId = body.organizerUserId ?? body.OrganizerUserId;
+            const providedOrganizerId = toNullableInt(requestedOrganizerUserId);
             const organizerLookup = body.organizerName || body.organizer || body.organizerUsername || null;
-            const organizerUserId = providedOrganizerId || await resolveUserId(pool, organizerLookup) || tenantUserId;
+            const organizerUserId = hasOrganizerUserIdInBody ? providedOrganizerId : (providedOrganizerId || await resolveUserId(pool, organizerLookup) || tenantUserId);
             const eventClinicId = await resolveEventClinicId(pool, body, tenantUserId || organizerUserId, hasClinicCol);
             const attendees = normalizeAttendees(body.attendees);
             const actorUserId = await getMutationActorUserId(pool, req);

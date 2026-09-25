@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260925-dashboard-active-root-v164';
+                const buildVersion = '20260925-calendar-private-events-v165';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -57423,9 +57423,25 @@
             }
         }
 
+        function getDashboardEventScopeStorageKey() {
+            const candidates = [
+                window.currentDbUserId,
+                localStorage.getItem('currentDbUserId'),
+                localStorage.getItem('currentUserId'),
+                localStorage.getItem('loggedInUserId'),
+                localStorage.getItem('userId'),
+                localStorage.getItem('activeUserId'),
+                localStorage.getItem('loggedInUser'),
+                localStorage.getItem('username'),
+                localStorage.getItem('currentUsername')
+            ];
+            const key = candidates.map(value => String(value ?? '').trim().toLowerCase()).find(Boolean) || 'anonymous';
+            return `dashboardCalendarEventScopes:${key}`;
+        }
+
         function getDashboardEventScopeMap() {
             try {
-                const parsed = JSON.parse(localStorage.getItem('dashboardCalendarEventScopes') || '{}');
+                const parsed = JSON.parse(localStorage.getItem(getDashboardEventScopeStorageKey()) || '{}');
                 return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
             } catch (_) {
                 return {};
@@ -57437,7 +57453,7 @@
             if (!id) return;
             const map = getDashboardEventScopeMap();
             map[id] = scope === 'office' ? 'office' : 'mine';
-            localStorage.setItem('dashboardCalendarEventScopes', JSON.stringify(map));
+            localStorage.setItem(getDashboardEventScopeStorageKey(), JSON.stringify(map));
         }
 
         function clearDashboardEventScope(eventId) {
@@ -57445,7 +57461,7 @@
             if (!id) return;
             const map = getDashboardEventScopeMap();
             delete map[id];
-            localStorage.setItem('dashboardCalendarEventScopes', JSON.stringify(map));
+            localStorage.setItem(getDashboardEventScopeStorageKey(), JSON.stringify(map));
         }
 
         function getDashboardOwnershipKeys() {
@@ -57466,6 +57482,26 @@
             if (!ownershipKeys.size) return false;
             const candidates = [item?.assignee, item?.Assignee, item?.assignedTo, item?.AssignedTo, item?.assignedToId, item?.AssignedToId, item?.claimedBy, item?.ClaimedBy, item?.organizerUserId, item?.OrganizerUserId, item?.organizerName, item?.OrganizerName, item?.createdBy, item?.CreatedBy, item?.createdByName, item?.CreatedByName].map(value => String(value ?? '').trim().toLowerCase()).filter(Boolean);
             return candidates.some(value => ownershipKeys.has(value));
+        }
+
+        function dashboardOwnerKey(value) {
+            const text = String(value ?? '').trim().toLowerCase();
+            return text && !['0', 'null', 'undefined', 'nan'].includes(text) ? text : '';
+        }
+
+        function dashboardCalendarScopeState(item, ownershipKeys, scopeMap) {
+            const id = String(item?.id ?? item?.Id ?? '').trim();
+            const mappedScope = String(scopeMap?.[id] || '').trim().toLowerCase();
+            const itemScope = String(item?.dashboardScope || item?.DashboardScope || '').trim().toLowerCase();
+            const organizerKey = dashboardOwnerKey(item?.organizerUserId ?? item?.OrganizerUserId ?? item?.dashboardScheduledBy);
+            if (organizerKey) {
+                return { isMine: ownershipKeys.has(organizerKey), isOffice: false };
+            }
+            if (mappedScope === 'mine') return { isMine: true, isOffice: false };
+            if (mappedScope === 'office') return { isMine: false, isOffice: true };
+            if (itemScope === 'mine') return { isMine: dashboardEntryIsMine(item || {}, ownershipKeys), isOffice: false };
+            if (itemScope === 'office') return { isMine: false, isOffice: true };
+            return { isMine: false, isOffice: true };
         }
 
         function getDashboardCalendarEntries(day = dashboardCalendarDate) {
@@ -57493,14 +57529,13 @@
                 if (!scheduleTime && rawIsDateOnly) parsed.setHours(defaultHour, 0, 0, 0);
                 if (dashboardLocalDateIso(parsed) !== targetISO) return;
                 const assigneeRaw = String(item?.assignee || item?.Assignee || item?.assignedTo || item?.AssignedTo || item?.assignedEmployee || item?.AssignedEmployee || item?.organizerName || item?.OrganizerName || '').trim();
-                const rawOrganizerId = String(item?.organizerUserId ?? item?.OrganizerUserId ?? item?.dashboardScheduledBy ?? '').trim().toLowerCase();
-                const calendarOrganizerId = ['', 'null', 'undefined', 'nan', '0'].includes(rawOrganizerId) ? '' : rawOrganizerId;
-                const mappedScope = scopeMap[String(item?.id ?? item?.Id ?? '').trim()];
                 const itemScope = String(item?.dashboardScope || '').trim().toLowerCase();
+                const calendarScopeState = kind === 'Calendar' ? dashboardCalendarScopeState(item, ownershipKeys, scopeMap) : null;
                 const isMine = kind === 'Calendar'
-                    ? (mappedScope ? mappedScope === 'mine' : (calendarOrganizerId ? ownershipKeys.has(calendarOrganizerId) : false))
+                    ? calendarScopeState.isMine
                     : (itemScope ? itemScope === 'mine' : dashboardEntryIsMine(item || {}, ownershipKeys));
-                entries.push({ id: item?.id || item?.Id || item?.ticketId || item?.TicketId || item?.assignmentId || item?.AssignmentId || '', title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || item?.notes || item?.Notes || '').trim(), createdByName: String(item?.createdByName || item?.organizerName || item?.OrganizerName || item?.dashboardScheduledByName || item?.createdBy || item?.CreatedBy || '').trim(), assigneeRaw, isMine, hasTime, start: parsed, end: new Date(parsed.getTime() + 45 * 60000), view, kind, tone, record: item });
+                const isOffice = kind === 'Calendar' ? calendarScopeState.isOffice : !isMine;
+                entries.push({ id: item?.id || item?.Id || item?.ticketId || item?.TicketId || item?.assignmentId || item?.AssignmentId || '', title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || item?.notes || item?.Notes || '').trim(), createdByName: String(item?.createdByName || item?.organizerName || item?.OrganizerName || item?.dashboardScheduledByName || item?.createdBy || item?.CreatedBy || '').trim(), assigneeRaw, isMine, isOffice, hasTime, start: parsed, end: new Date(parsed.getTime() + 45 * 60000), view, kind, tone, record: item });
             };
             const tasks = (Array.isArray(window.tasksData) && window.tasksData.length ? window.tasksData : readArray('tasksData')).filter((item) => !isSyntheticDashboardTestEntry(String(item?.title || item?.Title || item?.name || item?.Name || '')));
             tasks.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.date, 'task-hub', 'Task', '#2563eb'));
@@ -57550,14 +57585,13 @@
                 const status = String(item?.status || item?.Status || item?.workStatus || '').trim().toLowerCase();
                 if (isClosed(status)) return;
                 const id = String(item?.id ?? item?.Id ?? item?.ticketId ?? item?.TicketId ?? item?.assignmentId ?? item?.AssignmentId ?? '').trim();
-                const rawOrganizerId = String(item?.organizerUserId ?? item?.OrganizerUserId ?? item?.dashboardScheduledBy ?? '').trim().toLowerCase();
-                const calendarOrganizerId = ['', 'null', 'undefined', 'nan', '0'].includes(rawOrganizerId) ? '' : rawOrganizerId;
-                const mappedScope = scopeMap[id];
                 const itemScope = String(item?.dashboardScope || '').trim().toLowerCase();
+                const calendarScopeState = kind === 'Calendar' ? dashboardCalendarScopeState(item, ownershipKeys, scopeMap) : null;
                 const isMine = kind === 'Calendar'
-                    ? (mappedScope ? mappedScope === 'mine' : (calendarOrganizerId ? ownershipKeys.has(calendarOrganizerId) : false))
+                    ? calendarScopeState.isMine
                     : (itemScope ? itemScope === 'mine' : dashboardEntryIsMine(item || {}, ownershipKeys));
-                if (dashboardCalendarScope === 'mine' ? !isMine : isMine) return;
+                const isOffice = kind === 'Calendar' ? calendarScopeState.isOffice : !isMine;
+                if (dashboardCalendarScope === 'mine' ? !isMine : !isOffice) return;
                 results.push({ id, title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || item?.notes || item?.Notes || '').trim(), date: parsed, view, kind });
             };
             const tasks = (Array.isArray(window.tasksData) && window.tasksData.length ? window.tasksData : readArray('tasksData')).filter((item) => !isSyntheticDashboardTestEntry(String(item?.title || item?.Title || item?.name || item?.Name || '')));
@@ -57630,14 +57664,13 @@
                 if (isClosed(status)) return;
                 const dayOnly = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
                 if (dayOnly < monthStart || dayOnly > monthEnd) return;
-                const rawOrganizerId = String(item?.organizerUserId ?? item?.OrganizerUserId ?? item?.dashboardScheduledBy ?? '').trim().toLowerCase();
-                const calendarOrganizerId = ['', 'null', 'undefined', 'nan', '0'].includes(rawOrganizerId) ? '' : rawOrganizerId;
-                const mappedScope = scopeMap[String(item?.id ?? item?.Id ?? '').trim()];
                 const itemScope = String(item?.dashboardScope || '').trim().toLowerCase();
+                const calendarScopeState = kind === 'Calendar' ? dashboardCalendarScopeState(item, ownershipKeys, scopeMap) : null;
                 const isMine = kind === 'Calendar'
-                    ? (mappedScope ? mappedScope === 'mine' : (calendarOrganizerId ? ownershipKeys.has(calendarOrganizerId) : false))
+                    ? calendarScopeState.isMine
                     : (itemScope ? itemScope === 'mine' : dashboardEntryIsMine(item || {}, ownershipKeys));
-                const matchesScope = dashboardCalendarScope === 'mine' ? isMine : !isMine;
+                const isOffice = kind === 'Calendar' ? calendarScopeState.isOffice : !isMine;
+                const matchesScope = dashboardCalendarScope === 'mine' ? isMine : isOffice;
                 if (!matchesScope) return;
                 const iso = dashboardLocalDateIso(dayOnly);
                 if (!byDay[iso]) byDay[iso] = [];
@@ -57705,7 +57738,7 @@
 
         function renderDashboardCalendarPanel(target) {
             const allEntries = getDashboardCalendarEntries();
-            const entries = (dashboardCalendarScope === 'mine' ? allEntries.filter(entry => entry.isMine) : allEntries.filter(entry => !entry.isMine)).slice(0, 12);
+            const entries = (dashboardCalendarScope === 'mine' ? allEntries.filter(entry => entry.isMine) : allEntries.filter(entry => entry.isOffice)).slice(0, 12);
             const startHour = 7;
             const endHour = 19;
             const minutes = value => value.getHours() * 60 + value.getMinutes();
@@ -57782,7 +57815,7 @@
 
         function getDashboardVisibleCalendarEntries() {
             const allEntries = getDashboardCalendarEntries();
-            return (dashboardCalendarScope === 'mine' ? allEntries.filter(entry => entry.isMine) : allEntries.filter(entry => !entry.isMine)).slice(0, 12);
+            return (dashboardCalendarScope === 'mine' ? allEntries.filter(entry => entry.isMine) : allEntries.filter(entry => entry.isOffice)).slice(0, 12);
         }
 
         function getDashboardCalendarEntryFromCard(card) {
