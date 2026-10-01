@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20260925-vendor-permission-enforce-v171';
+                const buildVersion = '20261001-calendar-event-types-v172';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -61007,6 +61007,82 @@
             }
         }
 
+        const CALENDAR_EVENT_TYPE_CONFIG = {
+            appointment: { label: 'Appointment', dateMode: 'single_timed', scopeType: 'employee', availabilityImpact: 'busy', category: 'dental', color: '#3b82f6' },
+            duty: { label: 'Duty', dateMode: 'single_timed', scopeType: 'employee', availabilityImpact: 'busy', category: 'dental', color: '#10b981' },
+            meeting: { label: 'Meeting', dateMode: 'single_timed', scopeType: 'team', availabilityImpact: 'busy', category: 'general', color: '#6366f1' },
+            training: { label: 'Training', dateMode: 'timed_range', scopeType: 'team', availabilityImpact: 'busy', category: 'general', color: '#f59e0b' },
+            'time-off': { label: 'Time Off', dateMode: 'date_range', scopeType: 'employee', availabilityImpact: 'unavailable', category: 'pto', color: '#ef4444' },
+            pto: { label: 'PTO', dateMode: 'date_range', scopeType: 'employee', availabilityImpact: 'unavailable', category: 'pto', color: '#ef4444' },
+            vacation: { label: 'Vacation', dateMode: 'date_range', scopeType: 'employee', availabilityImpact: 'unavailable', category: 'pto', color: '#14b8a6' },
+            'sick-leave': { label: 'Sick Leave', dateMode: 'date_range', scopeType: 'employee', availabilityImpact: 'unavailable', category: 'pto', color: '#f97316' },
+            'office-closure': { label: 'Office Closure', dateMode: 'date_range', scopeType: 'clinic', availabilityImpact: 'closed', category: 'closure', color: '#991b1b' },
+            holiday: { label: 'Holiday', dateMode: 'date_range', scopeType: 'clinic', availabilityImpact: 'closed', category: 'closure', color: '#dc2626' },
+            'vendor-visit': { label: 'Vendor Visit', dateMode: 'single_timed', scopeType: 'clinic', availabilityImpact: 'info', category: 'vendor', color: '#8b5cf6' },
+            'equipment-service': { label: 'Equipment Service', dateMode: 'timed_range', scopeType: 'equipment', availabilityImpact: 'blocked', category: 'equipment', color: '#0ea5e9' },
+            reminder: { label: 'Reminder', dateMode: 'single_day', scopeType: 'user', availabilityImpact: 'none', category: 'general', color: '#64748b' },
+            deadline: { label: 'Deadline', dateMode: 'single_day', scopeType: 'user', availabilityImpact: 'none', category: 'general', color: '#be123c' },
+            announcement: { label: 'Announcement', dateMode: 'date_range', scopeType: 'clinic', availabilityImpact: 'none', category: 'general', color: '#7c3aed' },
+            maintenance: { label: 'Maintenance', dateMode: 'timed_range', scopeType: 'clinic', availabilityImpact: 'blocked', category: 'general', color: '#f97316' },
+            project: { label: 'Project', dateMode: 'date_range', scopeType: 'team', availabilityImpact: 'none', category: 'general', color: '#06b6d4' },
+            other: { label: 'Other', dateMode: 'single_timed', scopeType: 'user', availabilityImpact: 'busy', category: 'general', color: '#6b7280' }
+        };
+
+        function getCalendarEventTypeConfig(type) {
+            const key = String(type || 'other').trim().toLowerCase() || 'other';
+            return CALENDAR_EVENT_TYPE_CONFIG[key] || CALENDAR_EVENT_TYPE_CONFIG.other;
+        }
+
+        function getCalendarEventDateKey(value) {
+            if (!value) return '';
+            const text = String(value || '').trim();
+            const literal = text.match(/^(\d{4}-\d{2}-\d{2})/);
+            if (literal && literal[1]) return literal[1];
+            const parsed = new Date(value);
+            return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().split('T')[0];
+        }
+
+        function getCalendarEventRange(event) {
+            const startKey = getCalendarEventDateKey(event?.start || event?.startDateTime || event?.StartDateTime || event?.eventDate || event?.EventDate || event?.date);
+            const endKey = getCalendarEventDateKey(event?.end || event?.endDateTime || event?.EndDateTime || event?.endDate || event?.EndDate || event?.eventDate || event?.EventDate || event?.date || event?.start);
+            if (!startKey && !endKey) return { startKey: '', endKey: '' };
+            const normalizedStart = startKey || endKey;
+            const normalizedEnd = endKey || normalizedStart;
+            return normalizedEnd < normalizedStart
+                ? { startKey: normalizedEnd, endKey: normalizedStart }
+                : { startKey: normalizedStart, endKey: normalizedEnd };
+        }
+
+        function calendarEventCoversDate(event, dayKey) {
+            const dateKey = getCalendarEventDateKey(dayKey);
+            if (!dateKey) return false;
+            const range = getCalendarEventRange(event);
+            return !!(range.startKey && dateKey >= range.startKey && dateKey <= range.endKey);
+        }
+
+        function calendarEventOverlapsDateRange(event, startDay, endDay) {
+            const startKey = getCalendarEventDateKey(startDay);
+            const endKey = getCalendarEventDateKey(endDay || startDay);
+            const range = getCalendarEventRange(event);
+            return !!(range.startKey && startKey && endKey && range.startKey <= endKey && range.endKey >= startKey);
+        }
+
+        function isCalendarEventAllDayOrRange(event) {
+            const range = getCalendarEventRange(event);
+            if (range.startKey && range.endKey && range.startKey !== range.endKey) return true;
+            if (event?.allDay === true || event?.AllDay === true) return true;
+            const config = getCalendarEventTypeConfig(event?.type || event?.eventType || event?.EventType);
+            if (config.dateMode === 'date_range' || config.dateMode === 'single_day') return true;
+            const timeText = String(event?.start || '').split('T')[1] || '';
+            return !timeText || /^00:00(?::00)?(?:\.\d+)?(?:Z)?$/.test(timeText);
+        }
+
+        function formatCalendarEventDateRange(event) {
+            const range = getCalendarEventRange(event);
+            if (!range.startKey) return '';
+            if (!range.endKey || range.startKey === range.endKey) return range.startKey;
+            return `${range.startKey} to ${range.endKey}`;
+        }
         // Get filtered events based on current filters
         function getFilteredEvents() {
             // Show both task and event-management records; working-hours blocks are injected separately.
@@ -61730,6 +61806,9 @@
             const clinicName = item.clinicName || item.ClinicName || item.clinic || item.Clinic || item.office || item.Office || null;
             const attendees = normalizeEventAttendees(item.attendees || item.Attendees || []);
             const attendeeNames = attendees.map((a) => a.displayName).filter(Boolean);
+            const eventType = String(item.eventType || item.EventType || 'other').toLowerCase();
+            const typeConfig = getCalendarEventTypeConfig(eventType);
+            const allDay = Boolean(item.allDay || item.AllDay) || typeConfig.dateMode === 'date_range' || typeConfig.dateMode === 'single_day';
             const resolvedOrganizerResource = (typeof resolveEmployeeResourceId === 'function')
                 ? (resolveEmployeeResourceId(organizerUserId || organizerName) || organizerUserId || organizerName || null)
                 : (organizerUserId || organizerName || null);
@@ -61739,8 +61818,11 @@
                 title: item.title || item.Title || 'Untitled Event',
                 start,
                 end: end || start,
-                type: String(item.eventType || item.EventType || 'other').toLowerCase(),
-                eventCategory: item.eventCategory || item.EventCategory || getEventCategory(item.eventType || item.EventType || 'other'),
+                type: eventType,
+                dateMode: typeConfig.dateMode,
+                scopeType: typeConfig.scopeType,
+                availabilityImpact: typeConfig.availabilityImpact,
+                eventCategory: item.eventCategory || item.EventCategory || typeConfig.category || getEventCategory(eventType),
                 description: item.description || item.Description || '',
                 notes: item.notes || item.Notes || '',
                 location: item.location || item.Location || '',
@@ -61751,10 +61833,10 @@
                 clinic: clinicName,
                 office: clinicName,
                 roomId: item.roomId || item.RoomId || null,
-                allDay: Boolean(item.allDay || item.AllDay),
+                allDay,
                 dashboardScope: item.dashboardScope || item.DashboardScope || null,
-                color: item.color || item.Color || null,
-                backgroundColor: item.color || item.Color || null,
+                color: item.color || item.Color || typeConfig.color || null,
+                backgroundColor: item.color || item.Color || typeConfig.color || null,
                 organizerUserId: organizerUserId ? String(organizerUserId) : null,
                 organizerName: organizerName || null,
                 employee: resolvedOrganizerResource ? String(resolvedOrganizerResource) : null,
@@ -61767,6 +61849,9 @@
         function mapCalendarEventToApiPayload(event) {
             const attendees = normalizeEventAttendees(event.attendees || event.attendeesText || []);
             const eventType = String(event.type || 'other').toLowerCase();
+            const range = getCalendarEventRange(event);
+            const startTime = String(event.start || '').split('T')[1]?.slice(0, 5) || '00:00';
+            const endTime = String(event.end || event.start || '').split('T')[1]?.slice(0, 5) || startTime;
 
             return {
                 title: event.title,
@@ -61774,6 +61859,10 @@
                 eventCategory: event.eventCategory || getEventCategory(eventType),
                 startDateTime: event.start,
                 endDateTime: event.end || event.start,
+                eventDate: range.startKey || null,
+                startTime,
+                endTime,
+                allDay: event.allDay === true || isCalendarEventAllDayOrRange(event),
                 description: event.description || '',
                 location: event.location || '',
                 priority: event.priority || 'medium',
@@ -65261,8 +65350,17 @@ window.initializeCalendar = initializeCalendar;
                     };
 
                     const dayEvents = filteredEvents
-                        .filter(event => parseEventStart(event).dateKey === selectedDateKey)
-                        .map(event => ({ event, startMeta: parseEventStart(event) }))
+                        .filter(event => calendarEventCoversDate(event, selectedDateKey))
+                        .map(event => {
+                            const startMeta = parseEventStart(event);
+                            if (startMeta.dateKey !== selectedDateKey && calendarEventCoversDate(event, selectedDateKey)) {
+                                startMeta.dateKey = selectedDateKey;
+                                startMeta.minutes = null;
+                                startMeta.allDay = true;
+                                startMeta.label = 'All Day';
+                            }
+                            return { event, startMeta };
+                        })
                         .sort((a, b) => {
                             if (a.startMeta.allDay && !b.startMeta.allDay) return -1;
                             if (!a.startMeta.allDay && b.startMeta.allDay) return 1;
@@ -65364,23 +65462,7 @@ window.initializeCalendar = initializeCalendar;
                         filteredEvents = getFilteredEvents();
                     }
                     
-                    const dayEvents = filteredEvents.filter(e => {
-                        if (!e || !e.start) return false;
-                        let startDateKey = '';
-
-                        if (typeof e.start === 'string') {
-                            startDateKey = (e.start.split('T')[0] || '').trim();
-                        } else if (e.start instanceof Date) {
-                            startDateKey = formatDateKey(e.start);
-                        } else if (typeof e.start === 'object') {
-                            const dt = e.start.dateTime || e.start.date || '';
-                            if (typeof dt === 'string') {
-                                startDateKey = (dt.split('T')[0] || '').trim();
-                            }
-                        }
-
-                        return startDateKey === dateStr;
-                    });
+                    const dayEvents = filteredEvents.filter(e => calendarEventCoversDate(e, dateStr));
                     
                     if (dayEvents.length === 0) return '';
                     
@@ -65531,14 +65613,15 @@ window.initializeCalendar = initializeCalendar;
                             }
                         }
 
-                        if (!eventDate || eventDate !== dateStr) return false;
+                        if (!calendarEventCoversDate(event, dateStr)) return false;
 
                         const isAllDay = !eventTime || /^00:00(?::00)?(?:\.\d+)?(?:Z)?$/.test(eventTime);
 
                         if (allDayOnly) {
-                            return isAllDay;
+                            return isAllDay || isCalendarEventAllDayOrRange(event);
                         }
 
+                        if (!eventDate || eventDate !== dateStr) return false;
                         if (!eventTime || isAllDay) return false;
                         
                         const [eventHour, eventMinute] = eventTime.split(':').map(n => parseInt(n, 10));
@@ -65718,8 +65801,13 @@ window.initializeCalendar = initializeCalendar;
                         
                         const parsed = parseEventDateTime(event.start);
                         const eventDate = parsed.datePart;
-                        if (eventDate !== dateStr) {
+                        if (!calendarEventCoversDate(event, dateStr)) {
                             slotLog('  - Date mismatch:', eventDate, '!==', dateStr);
+                            return false;
+                        }
+
+                        if (eventDate !== dateStr) {
+                            slotLog('  - Covered by range but not start date; skipping timed slot rendering');
                             return false;
                         }
                         
@@ -66807,7 +66895,7 @@ window.initializeCalendar = initializeCalendar;
                         filteredEvents = getFilteredEvents();
                     }
                     
-                    const dayEvents = filteredEvents.filter(e => e.start && e.start.startsWith(dateStr));
+                    const dayEvents = filteredEvents.filter(e => calendarEventCoversDate(e, dateStr));
                     
                     if (dayEvents.length === 0) {
                         // No events - offer to create a task
@@ -72907,6 +72995,47 @@ window.initializeCalendar = initializeCalendar;
             modal.classList.remove('active');
         }
 
+        function syncCalendarEventTypeFormControls(preserveExistingRange = false) {
+            const typeEl = document.getElementById('eventType');
+            const startDateEl = document.getElementById('eventStartDate');
+            const endDateEl = document.getElementById('eventEndDate');
+            const startTimeEl = document.getElementById('eventStartTime');
+            const endTimeEl = document.getElementById('eventEndTime');
+            const startTimeField = document.getElementById('eventStartTimeField');
+            const endDateField = document.getElementById('eventEndDateField');
+            const endTimeField = document.getElementById('eventEndTimeField');
+            if (!typeEl || !startDateEl || !endDateEl || !startTimeEl || !endTimeEl) return;
+
+            const config = getCalendarEventTypeConfig(typeEl.value);
+            const dateMode = config.dateMode || 'single_timed';
+            const usesTimes = dateMode === 'single_timed' || dateMode === 'timed_range';
+            const usesEndDate = dateMode === 'date_range' || dateMode === 'timed_range';
+
+            if (startTimeField) startTimeField.style.display = usesTimes ? '' : 'none';
+            if (endTimeField) endTimeField.style.display = usesTimes ? '' : 'none';
+            if (endDateField) endDateField.style.display = usesEndDate ? '' : 'none';
+
+            startTimeEl.required = usesTimes;
+            endTimeEl.required = usesTimes;
+            endDateEl.required = usesEndDate;
+
+            if (!usesTimes) {
+                startTimeEl.value = '00:00';
+                endTimeEl.value = '23:59';
+            } else {
+                if (!startTimeEl.value) startTimeEl.value = '09:00';
+                if (!endTimeEl.value) endTimeEl.value = '10:00';
+            }
+
+            if (startDateEl.value) {
+                if (!usesEndDate) {
+                    endDateEl.value = startDateEl.value;
+                } else if (!endDateEl.value || (!preserveExistingRange && endDateEl.value < startDateEl.value)) {
+                    endDateEl.value = startDateEl.value;
+                }
+            }
+        }
+        window.syncCalendarEventTypeFormControls = syncCalendarEventTypeFormControls;
         function openAddEventModal(prefilledData = {}) {
             const modal = document.getElementById('addEventModal');
             const form = document.getElementById('eventForm');
@@ -72986,15 +73115,15 @@ window.initializeCalendar = initializeCalendar;
                         : (prefilledData.attendeesText || '');
                 
                 if (prefilledData.start) {
-                    const startDate = new Date(prefilledData.start);
-                    document.getElementById('eventStartDate').value = startDate.toISOString().split('T')[0];
-                    document.getElementById('eventStartTime').value = startDate.toTimeString().slice(0, 5);
+                    const startText = String(prefilledData.start || '');
+                    document.getElementById('eventStartDate').value = getCalendarEventDateKey(startText);
+                    document.getElementById('eventStartTime').value = startText.split('T')[1]?.slice(0, 5) || '00:00';
                 }
                 
                 if (prefilledData.end) {
-                    const endDate = new Date(prefilledData.end);
-                    document.getElementById('eventEndDate').value = endDate.toISOString().split('T')[0];
-                    document.getElementById('eventEndTime').value = endDate.toTimeString().slice(0, 5);
+                    const endText = String(prefilledData.end || '');
+                    document.getElementById('eventEndDate').value = getCalendarEventDateKey(endText);
+                    document.getElementById('eventEndTime').value = endText.split('T')[1]?.slice(0, 5) || '23:59';
                 }
             } else {
                 // Set default times if not prefilled
@@ -73013,6 +73142,8 @@ window.initializeCalendar = initializeCalendar;
                 }
                 document.getElementById('eventStatus').value = 'scheduled';
             }
+
+            syncCalendarEventTypeFormControls(true);
             
             // Show modal
             modal.style.display = 'flex';
@@ -73045,22 +73176,41 @@ window.initializeCalendar = initializeCalendar;
             const description = document.getElementById('eventDescription').value;
             const notes = document.getElementById('eventNotes').value;
             
-            // Determine event category based on type
-            let eventCategory = 'general';
-            if (type === 'appointment' || type === 'duty') {
-                eventCategory = 'dental';
-            } else if (type === 'pto' || type === 'vacation' || type === 'sick-leave') {
-                eventCategory = 'pto';
+            const typeConfig = getCalendarEventTypeConfig(type);
+            const dateMode = typeConfig.dateMode || 'single_timed';
+            const usesTimes = dateMode === 'single_timed' || dateMode === 'timed_range';
+            const usesEndDate = dateMode === 'date_range' || dateMode === 'timed_range';
+            const normalizedStartDate = startDate;
+            const normalizedEndDate = usesEndDate ? (endDate || startDate) : startDate;
+            const normalizedStartTime = usesTimes ? (startTime || '09:00') : '00:00';
+            const normalizedEndTime = usesTimes ? (endTime || '10:00') : '23:59';
+            const allDay = !usesTimes;
+            const eventCategory = typeConfig.category || 'general';
+
+            if (!normalizedStartDate || !normalizedEndDate) {
+                showNotification('Please select valid event dates.', 'error');
+                return;
+            }
+
+            if (normalizedEndDate < normalizedStartDate) {
+                showNotification('End date cannot be before start date.', 'error');
+                return;
+            }
+
+            if (usesTimes && normalizedEndDate === normalizedStartDate && normalizedEndTime <= normalizedStartTime) {
+                showNotification('End time must be after start time.', 'error');
+                return;
             }
 
             const attendees = normalizeEventAttendees(attendeesText);
+            const eventColor = typeConfig.color || '#3b82f6';
             
             // Create event object
             const newEvent = {
                 id: eventId || 'event-' + Date.now(),
                 title: title,
-                start: `${startDate}T${startTime}:00`,
-                end: `${endDate}T${endTime}:00`,
+                start: `${normalizedStartDate}T${normalizedStartTime}:00`,
+                end: `${normalizedEndDate}T${normalizedEndTime}:00`,
                 resourceId: organizer,
                 employee: organizer,
                 organizerUserId: organizer,
@@ -73074,7 +73224,13 @@ window.initializeCalendar = initializeCalendar;
                 description: description,
                 notes: notes,
                 type: type,
+                dateMode: dateMode,
+                scopeType: typeConfig.scopeType || 'user',
+                availabilityImpact: typeConfig.availabilityImpact || 'busy',
                 eventCategory: eventCategory,
+                allDay: allDay,
+                color: eventColor,
+                backgroundColor: eventColor,
                 paid: false,
                 overdue: false
             };
@@ -73261,10 +73417,7 @@ window.initializeCalendar = initializeCalendar;
                 
                 // Filter events by date range
                 if (startDate && endDate) {
-                    events = events.filter(event => {
-                        const eventStart = new Date(event.start);
-                        return eventStart >= startDate && eventStart <= endDate;
-                    });
+                    events = events.filter(event => calendarEventOverlapsDateRange(event, startDate, endDate));
                 }
             }
             
@@ -73296,13 +73449,16 @@ window.initializeCalendar = initializeCalendar;
                 
                 // Date
                 const startDate = new Date(event.start);
-                const dateStr = startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                const range = getCalendarEventRange(event);
+                const dateStr = range.startKey && range.endKey && range.startKey !== range.endKey
+                    ? formatCalendarEventDateRange(event)
+                    : startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                 
                 // Time
                 const timeStr = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
                 const endDate = event.end ? new Date(event.end) : null;
                 const endTimeStr = endDate ? endDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '';
-                const fullTimeStr = endTimeStr ? `${timeStr} - ${endTimeStr}` : timeStr;
+                const fullTimeStr = isCalendarEventAllDayOrRange(event) ? 'All Day' : (endTimeStr ? `${timeStr} - ${endTimeStr}` : timeStr);
                 
                 // Employee name
                 const employeeResource = employeeResources.find(e => e.id === event.employee);
@@ -73656,7 +73812,7 @@ window.initializeCalendar = initializeCalendar;
             
             // Get today's events
             const today = new Date().toISOString().split('T')[0];
-            let todayEvents = eventDatabase.filter(e => e.start.startsWith(today));
+            let todayEvents = eventDatabase.filter(e => calendarEventCoversDate(e, today));
             
             // Filter by role
             if (currentRole === 'user') {
@@ -73678,7 +73834,10 @@ window.initializeCalendar = initializeCalendar;
             let html = '';
             todayEvents.forEach(event => {
                 const startTime = new Date(event.start);
-                const timeStr = startTime.toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'});
+                const rangeLabel = formatCalendarEventDateRange(event);
+                const timeStr = isCalendarEventAllDayOrRange(event)
+                    ? (rangeLabel && rangeLabel !== today ? rangeLabel : 'All Day')
+                    : startTime.toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'});
                 const organizerName = event.organizerName || event.employee || 'Unassigned';
                 
                 html += `
@@ -90304,21 +90463,31 @@ document.addEventListener('keydown', function(e) {
                     <i class="fas fa-tag" style="margin-right: 0.5rem; color: var(--accent-primary);"></i>
                     Event Type *
                 </label>
-                <select id="eventType" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-size: 1rem;">
+                <select id="eventType" required onchange="syncCalendarEventTypeFormControls(false)" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-size: 1rem;">
                     <optgroup label="Appointments & Clinical Events">
                         <option value="appointment">Appointment</option>
                         <option value="duty">Duty</option>
+                        <option value="vendor-visit">Vendor Visit</option>
+                        <option value="equipment-service">Equipment Service</option>
                     </optgroup>
                     <optgroup label="Time Off">
+                        <option value="time-off">Time Off</option>
                         <option value="pto">PTO (Paid Time Off)</option>
                         <option value="vacation">Vacation</option>
                         <option value="sick-leave">Sick Leave</option>
+                    </optgroup>
+                    <optgroup label="Clinic & Office">
+                        <option value="office-closure">Office Closure</option>
+                        <option value="holiday">Holiday</option>
+                        <option value="announcement">Announcement</option>
                     </optgroup>
                     <optgroup label="Other Events">
                         <option value="meeting">Meeting</option>
                         <option value="training">Training</option>
                         <option value="maintenance">Maintenance</option>
                         <option value="project">Project</option>
+                        <option value="reminder">Reminder</option>
+                        <option value="deadline">Deadline</option>
                         <option value="other">Other</option>
                     </optgroup>
                 </select>
@@ -90326,14 +90495,14 @@ document.addEventListener('keydown', function(e) {
             
             <!-- Date and Time -->
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
-                <div>
+                <div id="eventStartDateField">
                     <label style="display: block; margin-bottom: 0.5rem; color: var(--text-primary); font-weight: 600;">
                         <i class="fas fa-calendar" style="margin-right: 0.5rem; color: var(--accent-primary);"></i>
                         Start Date *
                     </label>
-                    <input type="date" id="eventStartDate" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-size: 1rem;">
+                    <input type="date" id="eventStartDate" required onchange="syncCalendarEventTypeFormControls(false)" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-size: 1rem;">
                 </div>
-                <div>
+                <div id="eventStartTimeField">
                     <label style="display: block; margin-bottom: 0.5rem; color: var(--text-primary); font-weight: 600;">
                         <i class="fas fa-clock" style="margin-right: 0.5rem; color: var(--accent-primary);"></i>
                         Start Time *
@@ -90343,14 +90512,14 @@ document.addEventListener('keydown', function(e) {
             </div>
             
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
-                <div>
+                <div id="eventEndDateField">
                     <label style="display: block; margin-bottom: 0.5rem; color: var(--text-primary); font-weight: 600;">
                         <i class="fas fa-calendar" style="margin-right: 0.5rem; color: var(--accent-primary);"></i>
                         End Date *
                     </label>
                     <input type="date" id="eventEndDate" required style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-size: 1rem;">
                 </div>
-                <div>
+                <div id="eventEndTimeField">
                     <label style="display: block; margin-bottom: 0.5rem; color: var(--text-primary); font-weight: 600;">
                         <i class="fas fa-clock" style="margin-right: 0.5rem; color: var(--accent-primary);"></i>
                         End Time *
