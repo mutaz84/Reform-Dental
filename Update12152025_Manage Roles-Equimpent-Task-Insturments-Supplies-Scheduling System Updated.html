@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261002-dashboard-event-type-compact-v175';
+                const buildVersion = '20261002-dashboard-event-type-dropdowns-v176';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -58734,52 +58734,78 @@
 
         function dashboardEventTypeGroups() {
             return [
-                { label: 'Appointments & Clinical', values: ['appointment', 'duty', 'vendor-visit', 'equipment-service'] },
-                { label: 'Time Off & Closures', values: ['time-off', 'pto', 'vacation', 'sick-leave', 'office-closure', 'holiday'] },
-                { label: 'General Events', values: ['announcement', 'meeting', 'training', 'maintenance', 'project', 'reminder', 'deadline', 'other'] }
+                { key: 'clinical', label: 'Appointments & Clinical', values: ['appointment', 'duty', 'vendor-visit', 'equipment-service'] },
+                { key: 'time-off', label: 'Time Off & Closures', values: ['time-off', 'pto', 'vacation', 'sick-leave', 'office-closure', 'holiday'] },
+                { key: 'general', label: 'General Events', values: ['announcement', 'meeting', 'training', 'maintenance', 'project', 'reminder', 'deadline', 'other'] }
             ];
         }
 
-        function dashboardEventTypeMetaHtml(config) {
-            const dateMode = ({ single_timed: 'Timed', timed_range: 'Timed range', date_range: 'Date range', single_day: 'All day' })[config?.dateMode] || 'Event';
-            const scope = ({ employee: 'Employee', team: 'Team', clinic: 'Clinic', equipment: 'Equipment', user: 'Personal' })[config?.scopeType] || 'Calendar';
-            return `${escapeDashboardHtml(dateMode)} <span aria-hidden="true">&middot;</span> ${escapeDashboardHtml(scope)}`;
+        function dashboardEventTypeGroupByKey(categoryKey) {
+            const key = String(categoryKey || '').trim().toLowerCase();
+            return dashboardEventTypeGroups().find(group => group.key === key) || dashboardEventTypeGroups()[0];
         }
 
-        function dashboardEventTypeOptionsHtml(selectedType = 'appointment') {
-            const selected = String(selectedType || 'appointment').toLowerCase();
-            const option = (value, label) => `<option value="${value}"${selected === value ? ' selected' : ''}>${label}</option>`;
-            return `<optgroup label="Appointments & Clinical Events">${option('appointment', 'Appointment')}${option('duty', 'Duty')}${option('vendor-visit', 'Vendor Visit')}${option('equipment-service', 'Equipment Service')}</optgroup><optgroup label="Time Off & Closures">${option('time-off', 'Time Off')}${option('pto', 'PTO (Paid Time Off)')}${option('vacation', 'Vacation')}${option('sick-leave', 'Sick Leave')}${option('office-closure', 'Office Closure')}${option('holiday', 'Holiday')}</optgroup><optgroup label="General Events">${option('announcement', 'Announcement')}${option('meeting', 'Meeting')}${option('training', 'Training')}${option('maintenance', 'Maintenance')}${option('project', 'Project')}${option('reminder', 'Reminder')}${option('deadline', 'Deadline')}${option('other', 'Other')}</optgroup>`;
+        function dashboardEventTypeGroupForType(type) {
+            const key = String(type || 'appointment').trim().toLowerCase() || 'appointment';
+            return dashboardEventTypeGroups().find(group => group.values.includes(key)) || dashboardEventTypeGroups()[0];
         }
 
-        function dashboardEventTypePickerHtml(selectedType = 'appointment') {
+        function dashboardEventTypeCategoryOptionsHtml(selectedType = 'appointment') {
+            const activeGroup = dashboardEventTypeGroupForType(selectedType);
+            return dashboardEventTypeGroups().map(group => `<option value="${escapeDashboardHtml(group.key)}"${group.key === activeGroup.key ? ' selected' : ''}>${escapeDashboardHtml(group.label)}</option>`).join('');
+        }
+
+        function dashboardEventTypeOptionsHtml(selectedType = 'appointment', categoryKey = '') {
             const selected = String(selectedType || 'appointment').toLowerCase();
-            const groups = dashboardEventTypeGroups().map(group => {
-                const buttons = group.values.map(value => {
-                    const config = getDashboardEventTypeConfig(value);
-                    const active = selected === value;
-                    return `<button type="button" role="radio" aria-checked="${active ? 'true' : 'false'}" class="rd-ops-event-type-card ${active ? 'active' : ''}" data-dashboard-event-type-option="${escapeDashboardHtml(value)}" style="--event-type-color:${escapeDashboardHtml(config.color || '#0F5E75')};" onclick="window.selectDashboardEventType(this.dataset.dashboardEventTypeOption)"><span class="rd-ops-event-type-swatch" aria-hidden="true"></span><span class="rd-ops-event-type-copy"><strong>${escapeDashboardHtml(config.label || value)}</strong><span>${dashboardEventTypeMetaHtml(config)}</span></span></button>`;
-                }).join('');
-                return `<div class="rd-ops-event-type-group"><div class="rd-ops-event-type-group-title">${escapeDashboardHtml(group.label)}</div><div class="rd-ops-event-type-options">${buttons}</div></div>`;
+            const group = categoryKey ? dashboardEventTypeGroupByKey(categoryKey) : dashboardEventTypeGroupForType(selected);
+            const selectedValue = group.values.includes(selected) ? selected : group.values[0];
+            return group.values.map(value => {
+                const config = getDashboardEventTypeConfig(value);
+                return `<option value="${escapeDashboardHtml(value)}"${selectedValue === value ? ' selected' : ''}>${escapeDashboardHtml(config.label || value)}</option>`;
             }).join('');
-            return `<div class="rd-ops-event-type-picker" role="radiogroup" aria-label="Event type">${groups}</div>`;
         }
 
         function updateDashboardEventTypePicker(selectedType) {
             const selected = String(selectedType || document.getElementById('dashboardEventType')?.value || 'appointment').trim().toLowerCase() || 'appointment';
-            document.querySelectorAll('.rd-ops-event-type-card[data-dashboard-event-type-option]').forEach(button => {
-                const active = String(button.dataset.dashboardEventTypeOption || '').toLowerCase() === selected;
-                button.classList.toggle('active', active);
-                button.setAttribute('aria-checked', active ? 'true' : 'false');
-            });
+            const group = dashboardEventTypeGroupForType(selected);
+            const categoryEl = document.getElementById('dashboardEventTypeCategory');
+            const typeEl = document.getElementById('dashboardEventType');
+            if (categoryEl) categoryEl.value = group.key;
+            if (typeEl) {
+                if (typeEl.dataset.dashboardEventTypeCategory !== group.key || !Array.from(typeEl.options || []).some(option => option.value === selected)) {
+                    typeEl.innerHTML = dashboardEventTypeOptionsHtml(selected, group.key);
+                    typeEl.dataset.dashboardEventTypeCategory = group.key;
+                }
+                typeEl.value = selected;
+            }
         }
 
-        window.selectDashboardEventType = function (type) {
+        window.selectDashboardEventType = function (type, preserveExistingRange = false) {
+            const selected = String(type || 'appointment').trim().toLowerCase() || 'appointment';
+            const group = dashboardEventTypeGroupForType(selected);
+            const categoryEl = document.getElementById('dashboardEventTypeCategory');
             const typeEl = document.getElementById('dashboardEventType');
             if (!typeEl) return;
-            typeEl.value = String(type || 'appointment').trim().toLowerCase() || 'appointment';
-            if (typeof window.syncDashboardEventTypeFormControls === 'function') window.syncDashboardEventTypeFormControls(false);
+            if (categoryEl) categoryEl.value = group.key;
+            typeEl.innerHTML = dashboardEventTypeOptionsHtml(selected, group.key);
+            typeEl.dataset.dashboardEventTypeCategory = group.key;
+            typeEl.value = selected;
+            if (typeof window.syncDashboardEventTypeFormControls === 'function') window.syncDashboardEventTypeFormControls(!!preserveExistingRange);
             else updateDashboardEventTypePicker(typeEl.value);
+        };
+
+        window.selectDashboardEventTypeCategory = function (categoryKey) {
+            const categoryEl = document.getElementById('dashboardEventTypeCategory');
+            const typeEl = document.getElementById('dashboardEventType');
+            const group = dashboardEventTypeGroupByKey(categoryKey);
+            if (!typeEl) return;
+            const currentType = String(typeEl.value || '').trim().toLowerCase();
+            const selected = group.values.includes(currentType) ? currentType : group.values[0];
+            if (categoryEl) categoryEl.value = group.key;
+            typeEl.innerHTML = dashboardEventTypeOptionsHtml(selected, group.key);
+            typeEl.dataset.dashboardEventTypeCategory = group.key;
+            typeEl.value = selected;
+            if (typeof window.syncDashboardEventTypeFormControls === 'function') window.syncDashboardEventTypeFormControls(false);
         };
 
         function syncDashboardEventTypeFormControls(preserveExistingRange = false) {
@@ -58951,7 +58977,9 @@
             document.getElementById('dashboardEventEditId').value = String(eventId);
             document.getElementById('dashboardEventTitle').value = eventRecord.title || '';
             document.getElementById('dashboardEventDescription').value = eventRecord.description || '';
-            document.getElementById('dashboardEventType').value = String(eventRecord.type || eventRecord.eventType || 'appointment').toLowerCase();
+            const eventType = String(eventRecord.type || eventRecord.eventType || 'appointment').toLowerCase();
+            if (typeof window.selectDashboardEventType === 'function') window.selectDashboardEventType(eventType, true);
+            else document.getElementById('dashboardEventType').value = eventType;
             document.getElementById('dashboardEventDate').value = dashboardScheduleDateOnly(startText) || start.toISOString().slice(0, 10);
             document.getElementById('dashboardEventEndDate').value = dashboardScheduleDateOnly(endText) || end.toISOString().slice(0, 10);
             document.getElementById('dashboardEventStart').value = (startText.split('T')[1] || '').slice(0, 5) || start.toTimeString().slice(0, 5);
@@ -59485,7 +59513,7 @@
 
         function renderDashboardEventForm() {
             const eventDate = escapeDashboardHtml(dashboardLocalDateIso(dashboardCalendarDate));
-            return `<div id="dashboardEventForm" class="rd-ops-event-form" hidden style="display:none;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><select id="dashboardEventType" class="rd-ops-event-type-native" required aria-label="Event type" tabindex="-1" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)">${dashboardEventTypeOptionsHtml()}</select>${dashboardEventTypePickerHtml()}<input id="dashboardEventDate" type="date" aria-label="Start date" value="${eventDate}" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)"><input id="dashboardEventEndDate" type="date" aria-label="End date" value="${eventDate}"><input id="dashboardEventStart" type="time" aria-label="Start time" value="09:00"><input id="dashboardEventEnd" type="time" aria-label="End time" value="09:45"><span class="rd-ops-event-actions"><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardEvent()">Save</button><button type="button" class="rd-ops-btn" onclick="window.cancelDashboardEventForm()">Cancel</button></span></div>`;
+            return `<div id="dashboardEventForm" class="rd-ops-event-form" hidden style="display:none;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><select id="dashboardEventTypeCategory" aria-label="Event category" onchange="window.selectDashboardEventTypeCategory && window.selectDashboardEventTypeCategory(this.value)">${dashboardEventTypeCategoryOptionsHtml()}</select><select id="dashboardEventType" required aria-label="Event type" data-dashboard-event-type-category="clinical" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)">${dashboardEventTypeOptionsHtml()}</select><input id="dashboardEventDate" type="date" aria-label="Start date" value="${eventDate}" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)"><input id="dashboardEventEndDate" type="date" aria-label="End date" value="${eventDate}"><input id="dashboardEventStart" type="time" aria-label="Start time" value="09:00"><input id="dashboardEventEnd" type="time" aria-label="End time" value="09:45"><span class="rd-ops-event-actions"><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardEvent()">Save</button><button type="button" class="rd-ops-btn" onclick="window.cancelDashboardEventForm()">Cancel</button></span></div>`;
         }
 
         function dashboardCalendarEntryCanModify(entry) {
