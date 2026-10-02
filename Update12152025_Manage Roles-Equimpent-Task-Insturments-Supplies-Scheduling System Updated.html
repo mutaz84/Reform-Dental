@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261002-dashboard-event-type-filtered-list-v177';
+                const buildVersion = '20261002-dashboard-attendees-location-v178';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -57854,8 +57854,41 @@
             return keys;
         }
 
+        function dashboardEventAttendeesText(raw) {
+            const attendees = (typeof normalizeEventAttendees === 'function') ? normalizeEventAttendees(raw || []) : [];
+            return attendees.map(item => item.displayName || item.email || item.userId || '').filter(Boolean).join(', ');
+        }
+
+        function dashboardEventAttendeeMatchesOwnership(item, ownershipKeys) {
+            if (!ownershipKeys?.size) return false;
+            const attendees = (typeof normalizeEventAttendees === 'function')
+                ? normalizeEventAttendees(item?.attendees || item?.Attendees || item?.attendeesText || item?.AttendeesText || '')
+                : [];
+            return attendees.some(attendee => [attendee.userId, attendee.displayName, attendee.email].some(value => ownershipKeys.has(String(value ?? '').trim().toLowerCase())));
+        }
+
+        function dashboardEventPeopleOptionsHtml() {
+            let resources = Array.isArray(window.employeeResources) ? window.employeeResources : [];
+            if (!resources.length && typeof loadEmployeeResourcesFromUsers === 'function') {
+                try { resources = loadEmployeeResourcesFromUsers() || []; } catch (_) { resources = []; }
+            }
+            const seen = new Set();
+            return resources.map(resource => {
+                const name = String(resource?.title || resource?.name || '').trim();
+                const username = String(resource?.extendedProps?.username || '').trim();
+                const email = String(resource?.extendedProps?.email || '').trim();
+                const value = name || username || email;
+                const key = value.toLowerCase();
+                if (!value || seen.has(key)) return '';
+                seen.add(key);
+                const label = [username && username !== value ? username : '', email].filter(Boolean).join(' · ');
+                return `<option value="${escapeDashboardHtml(value)}"${label ? ` label="${escapeDashboardHtml(label)}"` : ''}></option>`;
+            }).join('');
+        }
+
         function dashboardEntryIsMine(item, ownershipKeys) {
             if (!ownershipKeys.size) return false;
+            if (dashboardEventAttendeeMatchesOwnership(item, ownershipKeys)) return true;
             const candidates = [item?.assignee, item?.Assignee, item?.assignedTo, item?.AssignedTo, item?.assignedToId, item?.AssignedToId, item?.claimedBy, item?.ClaimedBy, item?.organizerUserId, item?.OrganizerUserId, item?.organizerName, item?.OrganizerName, item?.createdBy, item?.CreatedBy, item?.createdByName, item?.CreatedByName].map(value => String(value ?? '').trim().toLowerCase()).filter(Boolean);
             return candidates.some(value => ownershipKeys.has(value));
         }
@@ -57870,14 +57903,15 @@
             const mappedScope = String(scopeMap?.[id] || '').trim().toLowerCase();
             const itemScope = String(item?.dashboardScope || item?.DashboardScope || '').trim().toLowerCase();
             const organizerKey = dashboardOwnerKey(item?.organizerUserId ?? item?.OrganizerUserId ?? item?.dashboardScheduledBy);
-            if (itemScope === 'office') return { isMine: false, isOffice: true };
-            if (itemScope === 'mine') return { isMine: organizerKey ? ownershipKeys.has(organizerKey) : dashboardEntryIsMine(item || {}, ownershipKeys), isOffice: false };
+            const attendeeMine = dashboardEventAttendeeMatchesOwnership(item, ownershipKeys);
+            if (itemScope === 'office') return { isMine: attendeeMine, isOffice: true };
+            if (itemScope === 'mine') return { isMine: attendeeMine || (organizerKey ? ownershipKeys.has(organizerKey) : dashboardEntryIsMine(item || {}, ownershipKeys)), isOffice: false };
             if (mappedScope === 'mine') return { isMine: true, isOffice: false };
             if (mappedScope === 'office') return { isMine: false, isOffice: true };
             if (organizerKey) {
-                return { isMine: ownershipKeys.has(organizerKey), isOffice: false };
+                return { isMine: attendeeMine || ownershipKeys.has(organizerKey), isOffice: false };
             }
-            return { isMine: false, isOffice: true };
+            return { isMine: attendeeMine, isOffice: true };
         }
 
         function getDashboardCalendarEntries(day = dashboardCalendarDate) {
@@ -57914,7 +57948,8 @@
                 const isMine = kind === 'Calendar'
                     ? calendarScopeState.isMine
                     : (itemScope ? itemScope === 'mine' : dashboardEntryIsMine(item || {}, ownershipKeys));
-                const isOffice = kind === 'Calendar' ? calendarScopeState.isOffice : !isMine;
+                const matchesOfficeLocation = kind === 'Calendar' && typeof itemMatchesSelectedClinic === 'function' ? itemMatchesSelectedClinic(item) : true;
+                const isOffice = (kind === 'Calendar' ? calendarScopeState.isOffice : !isMine) && matchesOfficeLocation;
                 let entryAllDay = false;
                 try { entryAllDay = kind === 'Calendar' && typeof isCalendarEventAllDayOrRange === 'function' && isCalendarEventAllDayOrRange(item); } catch (_) {}
                 const rawEnd = item?.end || item?.End || item?.endDateTime || item?.EndDateTime || item?.endDate || item?.EndDate || '';
@@ -57927,7 +57962,7 @@
                     entryAllDay = true;
                     entryEnd = new Date(`${targetISO}T23:59:00`);
                 }
-                entries.push({ id: item?.id || item?.Id || item?.ticketId || item?.TicketId || item?.assignmentId || item?.AssignmentId || '', title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || item?.notes || item?.Notes || '').trim(), createdByName: String(item?.createdByName || item?.organizerName || item?.OrganizerName || item?.dashboardScheduledByName || item?.createdBy || item?.CreatedBy || '').trim(), assigneeRaw, isMine, isOffice, hasTime: hasTime && !entryAllDay, allDay: entryAllDay, start: parsed, end: entryEnd, view, kind, tone, record: item });
+                entries.push({ id: item?.id || item?.Id || item?.ticketId || item?.TicketId || item?.assignmentId || item?.AssignmentId || '', title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || item?.notes || item?.Notes || '').trim(), createdByName: String(item?.createdByName || item?.organizerName || item?.OrganizerName || item?.dashboardScheduledByName || item?.createdBy || item?.CreatedBy || '').trim(), assigneeRaw, location: String(item?.location || item?.Location || item?.clinicName || item?.ClinicName || item?.office || item?.Office || '').trim(), attendeesText: dashboardEventAttendeesText(item?.attendees || item?.Attendees || item?.attendeesText || item?.AttendeesText || ''), isMine, isOffice, hasTime: hasTime && !entryAllDay, allDay: entryAllDay, start: parsed, end: entryEnd, view, kind, tone, record: item });
             };
             const tasks = (Array.isArray(window.tasksData) && window.tasksData.length ? window.tasksData : readArray('tasksData')).filter((item) => !isSyntheticDashboardTestEntry(String(item?.title || item?.Title || item?.name || item?.Name || '')));
             tasks.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.date, 'task-hub', 'Task', '#2563eb'));
@@ -57967,7 +58002,7 @@
             const isSyntheticServiceTicket = (ticket) => !!(ticket?.isAutoGenerated || ticket?.IsAutoGenerated || ticket?.isDashboardTest || ticket?.IsDashboardTest);
             const results = [];
             const add = (item, title, value, view, kind, options = {}) => {
-                const haystack = [title, item?.description, item?.Description, item?.notes, item?.Notes, item?.createdByName, item?.organizerName, item?.assignee, item?.assignedTo, item?.assignedEmployee, item?.type, item?.category, item?.status, item?.workStatus].map(value => String(value ?? '')).join(' ').toLowerCase();
+                const haystack = [title, item?.description, item?.Description, item?.notes, item?.Notes, item?.location, item?.Location, dashboardEventAttendeesText(item?.attendees || item?.Attendees || item?.attendeesText || item?.AttendeesText || ''), item?.createdByName, item?.organizerName, item?.assignee, item?.assignedTo, item?.assignedEmployee, item?.type, item?.category, item?.status, item?.workStatus].map(value => String(value ?? '')).join(' ').toLowerCase();
                 if (!haystack.includes(needle)) return;
                 const scheduleDate = dashboardScheduleDateOnly(options.date || value);
                 const scheduleTime = dashboardScheduleTimeOnly(options.time || value);
@@ -57982,7 +58017,8 @@
                 const isMine = kind === 'Calendar'
                     ? calendarScopeState.isMine
                     : (itemScope ? itemScope === 'mine' : dashboardEntryIsMine(item || {}, ownershipKeys));
-                const isOffice = kind === 'Calendar' ? calendarScopeState.isOffice : !isMine;
+                const matchesOfficeLocation = kind === 'Calendar' && typeof itemMatchesSelectedClinic === 'function' ? itemMatchesSelectedClinic(item) : true;
+                const isOffice = (kind === 'Calendar' ? calendarScopeState.isOffice : !isMine) && matchesOfficeLocation;
                 if (dashboardCalendarScope === 'mine' ? !isMine : !isOffice) return;
                 results.push({ id, title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || item?.notes || item?.Notes || '').trim(), date: parsed, view, kind });
             };
@@ -58064,7 +58100,8 @@
                 const isMine = kind === 'Calendar'
                     ? calendarScopeState.isMine
                     : (itemScope ? itemScope === 'mine' : dashboardEntryIsMine(item || {}, ownershipKeys));
-                const isOffice = kind === 'Calendar' ? calendarScopeState.isOffice : !isMine;
+                const matchesOfficeLocation = kind === 'Calendar' && typeof itemMatchesSelectedClinic === 'function' ? itemMatchesSelectedClinic(item) : true;
+                const isOffice = (kind === 'Calendar' ? calendarScopeState.isOffice : !isMine) && matchesOfficeLocation;
                 const matchesScope = dashboardCalendarScope === 'mine' ? isMine : isOffice;
                 if (!matchesScope) return;
                 if (calendarRange && calendarRange.startKey && calendarRange.endKey) {
@@ -58866,6 +58903,8 @@
                 dashboardEventTitle: '',
                 dashboardEventDescription: '',
                 dashboardEventType: 'appointment',
+                dashboardEventLocation: '',
+                dashboardEventAttendees: '',
                 dashboardEventDate: date,
                 dashboardEventEndDate: date,
                 dashboardEventStart: '09:00',
@@ -58887,6 +58926,8 @@
             const title = String(document.getElementById('dashboardEventTitle')?.value || '').trim();
             const description = String(document.getElementById('dashboardEventDescription')?.value || '').trim();
             const type = String(document.getElementById('dashboardEventType')?.value || 'appointment').trim().toLowerCase() || 'appointment';
+            const location = String(document.getElementById('dashboardEventLocation')?.value || '').trim();
+            const attendees = (typeof normalizeEventAttendees === 'function') ? normalizeEventAttendees(document.getElementById('dashboardEventAttendees')?.value || '') : [];
             const dateValue = String(document.getElementById('dashboardEventDate')?.value || '').trim();
             const endDateValue = String(document.getElementById('dashboardEventEndDate')?.value || '').trim();
             const startValue = String(document.getElementById('dashboardEventStart')?.value || '').trim();
@@ -58913,17 +58954,22 @@
             const editingId = String(document.getElementById('dashboardEventEditId')?.value || '').trim();
             const savingToMine = dashboardCalendarScope === 'mine';
             const eventColor = typeConfig.color || '#0e9384';
+            const resolvedLocation = location || selectedClinicMeta?.selectedClinicName || '';
             const eventRecord = {
                 id: editingId || `dashboard-event-${Date.now()}`,
                 title,
                 description,
                 start: start.toISOString(),
                 end: end.toISOString(),
+                location: resolvedLocation,
                 createdBy: creator.id,
                 createdByName: creator.name,
                 organizerUserId: savingToMine ? creator.id : null,
                 organizerName: creator.name,
                 organizerUsername: creator.username || '',
+                attendees,
+                attendeesText: attendees.map(item => item.displayName || item.email || item.userId || '').filter(Boolean).join(', '),
+                requiresAttendance: attendees.length > 0,
                 clinicId: selectedClinicMeta?.selectedClinicId || null,
                 clinicName: selectedClinicMeta?.selectedClinicName || '',
                 type,
@@ -58977,7 +59023,7 @@
                     if (Array.isArray(synced)) {
                         const syncedIndex = synced.findIndex(item => String(item?.id || '') === String(eventRecord.id));
                         if (syncedIndex >= 0) {
-                            synced[syncedIndex] = { ...synced[syncedIndex], dashboardScope: eventRecord.dashboardScope, organizerUserId: eventRecord.organizerUserId, organizerName: eventRecord.organizerName, createdBy: eventRecord.createdBy, createdByName: eventRecord.createdByName, type: eventRecord.type, eventType: eventRecord.eventType, dateMode: eventRecord.dateMode, scopeType: eventRecord.scopeType, availabilityImpact: eventRecord.availabilityImpact, eventCategory: eventRecord.eventCategory, allDay: eventRecord.allDay, color: eventRecord.color, backgroundColor: eventRecord.backgroundColor };
+                            synced[syncedIndex] = { ...synced[syncedIndex], dashboardScope: eventRecord.dashboardScope, organizerUserId: eventRecord.organizerUserId, organizerName: eventRecord.organizerName, createdBy: eventRecord.createdBy, createdByName: eventRecord.createdByName, type: eventRecord.type, eventType: eventRecord.eventType, dateMode: eventRecord.dateMode, scopeType: eventRecord.scopeType, availabilityImpact: eventRecord.availabilityImpact, eventCategory: eventRecord.eventCategory, allDay: eventRecord.allDay, color: eventRecord.color, backgroundColor: eventRecord.backgroundColor, location: eventRecord.location, attendees: eventRecord.attendees, attendeesText: eventRecord.attendeesText, requiresAttendance: eventRecord.requiresAttendance };
                             localStorage.setItem('calendarEvents', JSON.stringify(synced));
                         }
                     }
@@ -58998,6 +59044,8 @@
             document.getElementById('dashboardEventEditId').value = String(eventId);
             document.getElementById('dashboardEventTitle').value = eventRecord.title || '';
             document.getElementById('dashboardEventDescription').value = eventRecord.description || '';
+            document.getElementById('dashboardEventLocation').value = eventRecord.location || eventRecord.Location || eventRecord.clinicName || eventRecord.ClinicName || '';
+            document.getElementById('dashboardEventAttendees').value = eventRecord.attendeesText || dashboardEventAttendeesText(eventRecord.attendees || eventRecord.Attendees || '');
             const eventType = String(eventRecord.type || eventRecord.eventType || 'appointment').toLowerCase();
             if (typeof window.selectDashboardEventType === 'function') window.selectDashboardEventType(eventType, true);
             else document.getElementById('dashboardEventType').value = eventType;
@@ -59534,7 +59582,9 @@
 
         function renderDashboardEventForm() {
             const eventDate = escapeDashboardHtml(dashboardLocalDateIso(dashboardCalendarDate));
-            return `<div id="dashboardEventForm" class="rd-ops-event-form" hidden style="display:none;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><select id="dashboardEventType" class="rd-ops-event-type-native" required aria-label="Event type" tabindex="-1" data-dashboard-event-type-category="clinical" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)">${dashboardEventTypeOptionsHtml()}</select>${dashboardEventTypePickerHtml()}<input id="dashboardEventDate" type="date" aria-label="Start date" value="${eventDate}" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)"><input id="dashboardEventEndDate" type="date" aria-label="End date" value="${eventDate}"><input id="dashboardEventStart" type="time" aria-label="Start time" value="09:00"><input id="dashboardEventEnd" type="time" aria-label="End time" value="09:45"><span class="rd-ops-event-actions"><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardEvent()">Save</button><button type="button" class="rd-ops-btn" onclick="window.cancelDashboardEventForm()">Cancel</button></span></div>`;
+            const selectedClinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
+            const locationValue = escapeDashboardHtml(selectedClinicMeta?.selectedClinicName || '');
+            return `<div id="dashboardEventForm" class="rd-ops-event-form" hidden style="display:none;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><select id="dashboardEventType" class="rd-ops-event-type-native" required aria-label="Event type" tabindex="-1" data-dashboard-event-type-category="clinical" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)">${dashboardEventTypeOptionsHtml()}</select>${dashboardEventTypePickerHtml()}<input id="dashboardEventLocation" placeholder="Location" aria-label="Event location" value="${locationValue}"><input id="dashboardEventAttendees" list="dashboardEventPeopleOptions" placeholder="People required (comma-separated)" aria-label="People required"><datalist id="dashboardEventPeopleOptions">${dashboardEventPeopleOptionsHtml()}</datalist><input id="dashboardEventDate" type="date" aria-label="Start date" value="${eventDate}" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)"><input id="dashboardEventEndDate" type="date" aria-label="End date" value="${eventDate}"><input id="dashboardEventStart" type="time" aria-label="Start time" value="09:00"><input id="dashboardEventEnd" type="time" aria-label="End time" value="09:45"><span class="rd-ops-event-actions"><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardEvent()">Save</button><button type="button" class="rd-ops-btn" onclick="window.cancelDashboardEventForm()">Cancel</button></span></div>`;
         }
 
         function dashboardCalendarEntryCanModify(entry) {
@@ -59626,6 +59676,8 @@
             const startLabel = entry.start.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
             const endLabel = entry.end.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
             const owner = dashboardNormalizeText(entry.createdByName || entry.assigneeRaw || 'Scheduled item');
+            const location = dashboardNormalizeText(entry.location || entry.record?.location || entry.record?.Location || '');
+            const attendeesText = dashboardNormalizeText(entry.attendeesText || entry.record?.attendeesText || dashboardEventAttendeesText(entry.record?.attendees || entry.record?.Attendees || ''));
             const eventId = entry.kind === 'Calendar' ? escapeDashboardHtml(entry.id) : '';
             const canUnschedule = /^(Service|Equipment|Assignment)$/i.test(entry.kind || '');
             const record = entry.record || {};
@@ -59634,7 +59686,8 @@
             const entryId = String(entry.id || (/equipment/i.test(entry.kind || '') ? equipmentId : '') || '').trim();
             const unscheduleButton = canUnschedule ? '<button type="button" class="rd-ops-btn" style="height:30px;padding:0 10px;font-size:12px;" onclick="event.preventDefault();event.stopPropagation();window.unscheduleDashboardOperation(this);">Unschedule</button>' : '';
             const rowActionHtml = unscheduleButton;
-            return `<div class="rd-ops-scheduled-item" role="button" tabindex="0" data-dashboard-event-id="${eventId}" data-dashboard-scheduled-operation="${canUnschedule ? 'true' : 'false'}" data-entry-kind="${escapeDashboardHtml(entry.kind || '')}" data-entry-title="${escapeDashboardHtml(entry.title || '')}" data-entry-id="${escapeDashboardHtml(entryId)}" data-entry-view="${escapeDashboardHtml(entry.view || '')}" data-service-ticket-id="${escapeDashboardHtml(serviceTicketId)}" data-service-equipment-id="${escapeDashboardHtml(equipmentId)}" data-equipment-id="${escapeDashboardHtml(equipmentId)}" data-schedule-date="${escapeDashboardHtml(dashboardLocalDateIso(entry.start) || '')}" data-schedule-time="${escapeDashboardHtml(entry.start.toTimeString().slice(0, 5))}" onclick="window.openDashboardScheduledStory(this,event)" onkeydown="if(event.key==='Enter'||event.key===' '){window.openDashboardScheduledStory(this,event)}" style="--event-tone:${escapeDashboardHtml(entry.tone || '#0F5E75')};"><div class="rd-ops-scheduled-time">${escapeDashboardHtml(startLabel)}<span>${escapeDashboardHtml(endLabel)}</span></div><span class="rd-ops-scheduled-kind ${type.cls}" aria-hidden="true"><i class="${type.icon}"></i></span><div class="rd-ops-scheduled-body"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;"><strong>${escapeDashboardHtml(dashboardSentenceCase(entry.title))}</strong>${rowActionHtml}</div><span>${escapeDashboardHtml(entry.kind)} <span aria-hidden="true">&middot;</span> ${escapeDashboardHtml(owner)}</span></div></div>`;
+            const metaParts = [entry.kind, owner, location ? `At ${location}` : '', attendeesText ? `With ${attendeesText}` : ''].filter(Boolean);
+            return `<div class="rd-ops-scheduled-item" role="button" tabindex="0" data-dashboard-event-id="${eventId}" data-dashboard-scheduled-operation="${canUnschedule ? 'true' : 'false'}" data-entry-kind="${escapeDashboardHtml(entry.kind || '')}" data-entry-title="${escapeDashboardHtml(entry.title || '')}" data-entry-id="${escapeDashboardHtml(entryId)}" data-entry-view="${escapeDashboardHtml(entry.view || '')}" data-service-ticket-id="${escapeDashboardHtml(serviceTicketId)}" data-service-equipment-id="${escapeDashboardHtml(equipmentId)}" data-equipment-id="${escapeDashboardHtml(equipmentId)}" data-schedule-date="${escapeDashboardHtml(dashboardLocalDateIso(entry.start) || '')}" data-schedule-time="${escapeDashboardHtml(entry.start.toTimeString().slice(0, 5))}" onclick="window.openDashboardScheduledStory(this,event)" onkeydown="if(event.key==='Enter'||event.key===' '){window.openDashboardScheduledStory(this,event)}" style="--event-tone:${escapeDashboardHtml(entry.tone || '#0F5E75')};"><div class="rd-ops-scheduled-time">${escapeDashboardHtml(startLabel)}<span>${escapeDashboardHtml(endLabel)}</span></div><span class="rd-ops-scheduled-kind ${type.cls}" aria-hidden="true"><i class="${type.icon}"></i></span><div class="rd-ops-scheduled-body"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;"><strong>${escapeDashboardHtml(dashboardSentenceCase(entry.title))}</strong>${rowActionHtml}</div><span>${escapeDashboardHtml(metaParts.join(' · '))}</span></div></div>`;
         }
 
         function renderDashboardScheduleBody(entries, activeDate) {
