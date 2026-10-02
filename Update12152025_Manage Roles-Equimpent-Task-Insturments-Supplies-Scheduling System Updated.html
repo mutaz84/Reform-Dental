@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261002-dashboard-people-picker-fix-v180';
+                const buildVersion = '20261002-dashboard-simple-events-v182';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -58869,7 +58869,13 @@
 
         function dashboardEventTypeOptionsHtml(selectedType = 'appointment', categoryKey = '') {
             const selected = String(selectedType || 'appointment').toLowerCase();
-            const group = categoryKey ? dashboardEventTypeGroupByKey(categoryKey) : dashboardEventTypeGroupForType(selected);
+            if (!categoryKey) {
+                return dashboardEventTypeGroups().map(group => `<optgroup label="${escapeDashboardHtml(group.label)}">${group.values.map(value => {
+                    const config = getDashboardEventTypeConfig(value);
+                    return `<option value="${escapeDashboardHtml(value)}"${selected === value ? ' selected' : ''}>${escapeDashboardHtml(config.label || value)}</option>`;
+                }).join('')}</optgroup>`).join('');
+            }
+            const group = dashboardEventTypeGroupByKey(categoryKey);
             const selectedValue = group.values.includes(selected) ? selected : group.values[0];
             return group.values.map(value => {
                 const config = getDashboardEventTypeConfig(value);
@@ -58898,14 +58904,18 @@
             const selected = String(selectedType || document.getElementById('dashboardEventType')?.value || 'appointment').trim().toLowerCase() || 'appointment';
             const group = dashboardEventTypeGroupForType(selected);
             const typeEl = document.getElementById('dashboardEventType');
+            const picker = document.querySelector('[data-dashboard-event-type-picker="true"]');
             if (typeEl) {
-                if (typeEl.dataset.dashboardEventTypeCategory !== group.key || !Array.from(typeEl.options || []).some(option => option.value === selected)) {
-                    typeEl.innerHTML = dashboardEventTypeOptionsHtml(selected, group.key);
-                    typeEl.dataset.dashboardEventTypeCategory = group.key;
+                if (typeEl.tagName === 'SELECT') {
+                    if (!Array.from(typeEl.options || []).some(option => option.value === selected)) {
+                        typeEl.innerHTML = dashboardEventTypeOptionsHtml(selected, picker ? group.key : '');
+                    } else if (picker && typeEl.dataset.dashboardEventTypeCategory !== group.key) {
+                        typeEl.innerHTML = dashboardEventTypeOptionsHtml(selected, group.key);
+                        typeEl.dataset.dashboardEventTypeCategory = group.key;
+                    }
                 }
                 typeEl.value = selected;
             }
-            const picker = document.querySelector('[data-dashboard-event-type-picker="true"]');
             if (picker) {
                 picker.dataset.dashboardEventTypeCategory = group.key;
                 picker.querySelectorAll('[data-dashboard-event-type-category]').forEach(button => {
@@ -58921,7 +58931,8 @@
             const group = dashboardEventTypeGroupForType(selected);
             const typeEl = document.getElementById('dashboardEventType');
             if (!typeEl) return;
-            typeEl.innerHTML = dashboardEventTypeOptionsHtml(selected, group.key);
+            const picker = document.querySelector('[data-dashboard-event-type-picker="true"]');
+            if (typeEl.tagName === 'SELECT') typeEl.innerHTML = dashboardEventTypeOptionsHtml(selected, picker ? group.key : '');
             typeEl.dataset.dashboardEventTypeCategory = group.key;
             typeEl.value = selected;
             if (typeof window.syncDashboardEventTypeFormControls === 'function') window.syncDashboardEventTypeFormControls(!!preserveExistingRange);
@@ -58934,7 +58945,7 @@
             if (!typeEl) return;
             const currentType = String(typeEl.value || '').trim().toLowerCase();
             const selected = group.values.includes(currentType) ? currentType : group.values[0];
-            typeEl.innerHTML = dashboardEventTypeOptionsHtml(selected, group.key);
+            if (typeEl.tagName === 'SELECT') typeEl.innerHTML = dashboardEventTypeOptionsHtml(selected, group.key);
             typeEl.dataset.dashboardEventTypeCategory = group.key;
             typeEl.value = selected;
             if (typeof window.syncDashboardEventTypeFormControls === 'function') window.syncDashboardEventTypeFormControls(false);
@@ -58976,7 +58987,7 @@
                 dashboardEventEditId: '',
                 dashboardEventTitle: '',
                 dashboardEventDescription: '',
-                dashboardEventType: 'appointment',
+                dashboardEventType: 'meeting',
                 dashboardEventLocation: '',
                 dashboardEventAttendees: '',
                 dashboardEventDate: date,
@@ -59660,7 +59671,7 @@
             const eventDate = escapeDashboardHtml(dashboardLocalDateIso(dashboardCalendarDate));
             const selectedClinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
             const locationValue = escapeDashboardHtml(selectedClinicMeta?.selectedClinicName || '');
-            return `<div id="dashboardEventForm" class="rd-ops-event-form" hidden style="display:none;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><select id="dashboardEventType" class="rd-ops-event-type-native" required aria-label="Event type" tabindex="-1" data-dashboard-event-type-category="clinical" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)">${dashboardEventTypeOptionsHtml()}</select>${dashboardEventTypePickerHtml()}<input id="dashboardEventLocation" placeholder="Location" aria-label="Event location" value="${locationValue}">${dashboardEventPeoplePickerHtml()}<input id="dashboardEventDate" type="date" aria-label="Start date" value="${eventDate}" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)"><input id="dashboardEventEndDate" type="date" aria-label="End date" value="${eventDate}"><input id="dashboardEventStart" type="time" aria-label="Start time" value="09:00"><input id="dashboardEventEnd" type="time" aria-label="End time" value="09:45"><span class="rd-ops-event-actions"><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardEvent()">Save</button><button type="button" class="rd-ops-btn" onclick="window.cancelDashboardEventForm()">Cancel</button></span></div>`;
+            return `<div id="dashboardEventForm" class="rd-ops-event-form" hidden style="display:none;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventType" type="hidden" value="meeting" data-dashboard-event-type-category="general"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><input id="dashboardEventLocation" placeholder="Location" aria-label="Event location" value="${locationValue}">${dashboardEventPeoplePickerHtml()}<input id="dashboardEventDate" type="date" aria-label="Start date" value="${eventDate}" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)"><input id="dashboardEventEndDate" type="date" aria-label="End date" value="${eventDate}"><input id="dashboardEventStart" type="time" aria-label="Start time" value="09:00"><input id="dashboardEventEnd" type="time" aria-label="End time" value="09:45"><span class="rd-ops-event-actions"><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardEvent()">Save</button><button type="button" class="rd-ops-btn" onclick="window.cancelDashboardEventForm()">Cancel</button></span></div>`;
         }
 
         function dashboardCalendarEntryCanModify(entry) {
