@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261002-dashboard-attendees-location-v178';
+                const buildVersion = '20261002-dashboard-people-multiselect-v179';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -57867,7 +57867,7 @@
             return attendees.some(attendee => [attendee.userId, attendee.displayName, attendee.email].some(value => ownershipKeys.has(String(value ?? '').trim().toLowerCase())));
         }
 
-        function dashboardEventPeopleOptionsHtml() {
+        function dashboardEventPeopleOptions() {
             let resources = Array.isArray(window.employeeResources) ? window.employeeResources : [];
             if (!resources.length && typeof loadEmployeeResourcesFromUsers === 'function') {
                 try { resources = loadEmployeeResourcesFromUsers() || []; } catch (_) { resources = []; }
@@ -57879,11 +57879,59 @@
                 const email = String(resource?.extendedProps?.email || '').trim();
                 const value = name || username || email;
                 const key = value.toLowerCase();
-                if (!value || seen.has(key)) return '';
+                if (!value || seen.has(key)) return null;
                 seen.add(key);
                 const label = [username && username !== value ? username : '', email].filter(Boolean).join(' · ');
-                return `<option value="${escapeDashboardHtml(value)}"${label ? ` label="${escapeDashboardHtml(label)}"` : ''}></option>`;
+                return { value, label };
+            }).filter(Boolean);
+        }
+
+        function dashboardEventPeopleOptionsHtml(selectedText = '') {
+            const selected = new Set(String(selectedText || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean));
+            const options = dashboardEventPeopleOptions();
+            if (!options.length) return '<div class="rd-ops-people-empty">No staff found.</div>';
+            return options.map(person => {
+                const checked = selected.has(person.value.toLowerCase());
+                return `<label class="rd-ops-people-option"><input type="checkbox" value="${escapeDashboardHtml(person.value)}"${checked ? ' checked' : ''} onchange="window.syncDashboardEventPeoplePickerFromChecks && window.syncDashboardEventPeoplePickerFromChecks()"><span><strong>${escapeDashboardHtml(person.value)}</strong>${person.label ? `<small>${escapeDashboardHtml(person.label)}</small>` : ''}</span></label>`;
             }).join('');
+        }
+
+        function dashboardEventPeopleSummaryText(selectedText = '') {
+            const names = String(selectedText || '').split(',').map(value => value.trim()).filter(Boolean);
+            if (!names.length) return 'People required';
+            if (names.length <= 2) return names.join(', ');
+            return `${names.length} people selected`;
+        }
+
+        function dashboardEventPeoplePickerHtml(selectedText = '') {
+            const escaped = escapeDashboardHtml(selectedText || '');
+            return `<div class="rd-ops-people-picker" data-dashboard-people-picker="true"><input id="dashboardEventAttendees" type="hidden" value="${escaped}"><button type="button" class="rd-ops-people-toggle" aria-haspopup="listbox" aria-expanded="false" onclick="window.toggleDashboardEventPeoplePicker && window.toggleDashboardEventPeoplePicker()"><span id="dashboardEventPeopleSummary">${escapeDashboardHtml(dashboardEventPeopleSummaryText(selectedText))}</span><i class="fas fa-chevron-down" aria-hidden="true"></i></button><div id="dashboardEventPeopleMenu" class="rd-ops-people-menu" hidden>${dashboardEventPeopleOptionsHtml(selectedText)}</div></div>`;
+        }
+
+        function updateDashboardEventPeoplePicker(selectedText = '') {
+            const input = document.getElementById('dashboardEventAttendees');
+            const value = String(selectedText || '').split(',').map(item => item.trim()).filter(Boolean).join(', ');
+            if (input) input.value = value;
+            const summary = document.getElementById('dashboardEventPeopleSummary');
+            if (summary) summary.textContent = dashboardEventPeopleSummaryText(value);
+            const selected = new Set(value.split(',').map(item => item.trim().toLowerCase()).filter(Boolean));
+            document.querySelectorAll('#dashboardEventPeopleMenu input[type="checkbox"]').forEach(checkbox => {
+                checkbox.checked = selected.has(String(checkbox.value || '').trim().toLowerCase());
+            });
+        }
+
+        window.toggleDashboardEventPeoplePicker = function (show) {
+            const menu = document.getElementById('dashboardEventPeopleMenu');
+            const toggle = document.querySelector('.rd-ops-people-toggle');
+            if (!menu) return;
+            const nextOpen = show === undefined ? menu.hidden : !!show;
+            menu.hidden = !nextOpen;
+            if (toggle) toggle.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+        };
+
+        window.syncDashboardEventPeoplePickerFromChecks = function () {
+            const values = Array.from(document.querySelectorAll('#dashboardEventPeopleMenu input[type="checkbox"]:checked')).map(input => String(input.value || '').trim()).filter(Boolean);
+            updateDashboardEventPeoplePicker(values.join(', '));
         }
 
         function dashboardEntryIsMine(item, ownershipKeys) {
@@ -58914,6 +58962,7 @@
                 const element = document.getElementById(id);
                 if (element) element.value = value;
             });
+            updateDashboardEventPeoplePicker('');
             syncDashboardEventTypeFormControls(false);
         }
 
@@ -59045,7 +59094,7 @@
             document.getElementById('dashboardEventTitle').value = eventRecord.title || '';
             document.getElementById('dashboardEventDescription').value = eventRecord.description || '';
             document.getElementById('dashboardEventLocation').value = eventRecord.location || eventRecord.Location || eventRecord.clinicName || eventRecord.ClinicName || '';
-            document.getElementById('dashboardEventAttendees').value = eventRecord.attendeesText || dashboardEventAttendeesText(eventRecord.attendees || eventRecord.Attendees || '');
+            updateDashboardEventPeoplePicker(eventRecord.attendeesText || dashboardEventAttendeesText(eventRecord.attendees || eventRecord.Attendees || ''));
             const eventType = String(eventRecord.type || eventRecord.eventType || 'appointment').toLowerCase();
             if (typeof window.selectDashboardEventType === 'function') window.selectDashboardEventType(eventType, true);
             else document.getElementById('dashboardEventType').value = eventType;
@@ -59370,6 +59419,7 @@
             style.textContent += `.rd-ops-picker-overlay{--ops-border:#E4E2DC;--ops-secondary-border:#D9D6CF;--ops-primary:#1C1D1F;--ops-accent:#0F5E75}`;
             style.textContent += `.rd-ops-event-form{display:none;grid-template-columns:minmax(190px,1.35fr) minmax(160px,1fr) minmax(142px,.8fr);gap:10px;margin-bottom:14px;padding:12px;background:#F4F3EF;border:1px solid #E4E2DC;border-radius:10px;max-width:100%;overflow:hidden}.rd-ops-event-form input,.rd-ops-event-form select{min-width:0;width:100%;height:40px;border:1px solid #D9D6CF;border-radius:8px;padding:0 10px;background:#fff;color:#1C1D1F;font:600 13px Manrope,'Segoe UI',system-ui,sans-serif}.rd-ops-event-form .rd-ops-event-type-native{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}.rd-ops-event-type-picker{grid-column:1/-1;display:grid;gap:12px;max-height:320px;overflow:auto;padding:12px;background:#fff;border:1px solid #D9D6CF;border-radius:12px;scrollbar-width:thin}.rd-ops-event-type-group{display:grid;gap:8px}.rd-ops-event-type-group-title{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#5B5F66}.rd-ops-event-type-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:8px}.rd-ops-event-type-card{appearance:none;min-width:0;min-height:58px;display:grid;grid-template-columns:12px minmax(0,1fr);gap:10px;align-items:center;text-align:left;padding:10px 11px;border:1px solid #E4E2DC;border-radius:10px;background:#FCFBF8;color:#1C1D1F;cursor:pointer;font:600 13px Manrope,'Segoe UI',system-ui,sans-serif;transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,transform .16s ease}.rd-ops-event-type-card:hover{border-color:#B9D7DE;background:#F8FCFD}.rd-ops-event-type-card.active{border-color:#0F5E75;background:linear-gradient(180deg,#fff 0%,#F1FAFC 100%);box-shadow:0 0 0 2px rgba(15,94,117,.14),0 8px 18px rgba(28,29,31,.08);transform:translateY(-1px)}.rd-ops-event-type-swatch{width:10px;height:32px;border-radius:999px;background:var(--event-type-color,#0F5E75);box-shadow:0 0 0 3px color-mix(in srgb,var(--event-type-color,#0F5E75) 15%,transparent)}.rd-ops-event-type-copy{min-width:0;display:grid;gap:2px}.rd-ops-event-type-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:1.2;color:#1C1D1F}.rd-ops-event-type-copy span{font-size:11px;line-height:1.25;color:#5B5F66}.rd-ops-event-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}.rd-ops-event-form .rd-ops-btn{height:44px;min-width:90px}@media(min-width:1024px){.rd-ops-main{grid-template-columns:minmax(300px,420px) minmax(0,1fr)}#opsOverdueSection,#opsUnscheduledSection{padding:14px 16px}.rd-ops-row{padding:10px 0}.rd-ops-icon{width:34px;height:34px}.rd-ops-day-schedule{min-height:440px}.rd-ops-empty{min-height:300px}}@media(min-width:1600px){.rd-ops-main{grid-template-columns:400px minmax(0,1fr)}.rd-ops-day-schedule{min-height:560px}.rd-ops-empty{min-height:420px}}@media(max-width:760px){.rd-ops-event-form{grid-template-columns:1fr}.rd-ops-event-type-options{grid-template-columns:1fr}.rd-ops-event-actions{justify-content:stretch}.rd-ops-event-form .rd-ops-btn{width:100%}}`;
             style.textContent += `.rd-ops-event-type-picker{gap:8px;max-height:240px;padding:8px;border-radius:10px}.rd-ops-event-type-categories{display:flex;gap:6px;flex-wrap:wrap}.rd-ops-event-type-category{appearance:none;height:30px;padding:0 10px;border:1px solid #D9D6CF;border-radius:999px;background:#F4F3EF;color:#4A4E55;cursor:pointer;font:800 11px Manrope,'Segoe UI',system-ui,sans-serif}.rd-ops-event-type-category.active{background:#0F5E75;border-color:#0F5E75;color:#fff}.rd-ops-event-type-group{gap:6px}.rd-ops-event-type-group-title{font-size:10px;line-height:1}.rd-ops-event-type-options{grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:6px}.rd-ops-event-type-card{min-height:38px;grid-template-columns:8px minmax(0,1fr);gap:8px;padding:7px 8px;border-radius:8px}.rd-ops-event-type-card.active{box-shadow:0 0 0 1px rgba(15,94,117,.2),0 5px 12px rgba(28,29,31,.07);transform:none}.rd-ops-event-type-swatch{width:7px;height:22px}.rd-ops-event-type-copy{gap:0}.rd-ops-event-type-copy strong{font-size:12px}.rd-ops-event-type-copy span{display:none}@media(max-width:760px){.rd-ops-event-type-picker{max-height:260px}.rd-ops-event-type-options{grid-template-columns:repeat(2,minmax(0,1fr))}}`;
+            style.textContent += `.rd-ops-event-form{overflow:visible}.rd-ops-people-picker{position:relative;min-width:0}.rd-ops-people-picker input[type="hidden"]{display:none}.rd-ops-people-toggle{width:100%;height:40px;display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid #D9D6CF;border-radius:8px;background:#fff;color:#1C1D1F;padding:0 10px;cursor:pointer;font:600 13px Manrope,'Segoe UI',system-ui,sans-serif;text-align:left}.rd-ops-people-toggle span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rd-ops-people-toggle i{font-size:11px;color:#5B5F66}.rd-ops-people-menu{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:80;max-height:220px;overflow:auto;padding:6px;background:#fff;border:1px solid #D9D6CF;border-radius:10px;box-shadow:0 12px 30px rgba(28,29,31,.16);display:grid;gap:4px}.rd-ops-people-option{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;align-items:center;padding:7px 8px;border-radius:8px;cursor:pointer;color:#1C1D1F}.rd-ops-people-option:hover{background:#F4F3EF}.rd-ops-people-option input{width:16px!important;height:16px!important;margin:0;accent-color:#0F5E75}.rd-ops-people-option span{min-width:0;display:grid;gap:1px}.rd-ops-people-option strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.2}.rd-ops-people-option small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:#5B5F66}.rd-ops-people-empty{padding:9px;color:#5B5F66;font-size:12px;font-weight:700}`;
             document.head.appendChild(style);
         }
 
@@ -59584,7 +59634,7 @@
             const eventDate = escapeDashboardHtml(dashboardLocalDateIso(dashboardCalendarDate));
             const selectedClinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
             const locationValue = escapeDashboardHtml(selectedClinicMeta?.selectedClinicName || '');
-            return `<div id="dashboardEventForm" class="rd-ops-event-form" hidden style="display:none;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><select id="dashboardEventType" class="rd-ops-event-type-native" required aria-label="Event type" tabindex="-1" data-dashboard-event-type-category="clinical" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)">${dashboardEventTypeOptionsHtml()}</select>${dashboardEventTypePickerHtml()}<input id="dashboardEventLocation" placeholder="Location" aria-label="Event location" value="${locationValue}"><input id="dashboardEventAttendees" list="dashboardEventPeopleOptions" placeholder="People required (comma-separated)" aria-label="People required"><datalist id="dashboardEventPeopleOptions">${dashboardEventPeopleOptionsHtml()}</datalist><input id="dashboardEventDate" type="date" aria-label="Start date" value="${eventDate}" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)"><input id="dashboardEventEndDate" type="date" aria-label="End date" value="${eventDate}"><input id="dashboardEventStart" type="time" aria-label="Start time" value="09:00"><input id="dashboardEventEnd" type="time" aria-label="End time" value="09:45"><span class="rd-ops-event-actions"><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardEvent()">Save</button><button type="button" class="rd-ops-btn" onclick="window.cancelDashboardEventForm()">Cancel</button></span></div>`;
+            return `<div id="dashboardEventForm" class="rd-ops-event-form" hidden style="display:none;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><select id="dashboardEventType" class="rd-ops-event-type-native" required aria-label="Event type" tabindex="-1" data-dashboard-event-type-category="clinical" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)">${dashboardEventTypeOptionsHtml()}</select>${dashboardEventTypePickerHtml()}<input id="dashboardEventLocation" placeholder="Location" aria-label="Event location" value="${locationValue}">${dashboardEventPeoplePickerHtml()}<input id="dashboardEventDate" type="date" aria-label="Start date" value="${eventDate}" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)"><input id="dashboardEventEndDate" type="date" aria-label="End date" value="${eventDate}"><input id="dashboardEventStart" type="time" aria-label="Start time" value="09:00"><input id="dashboardEventEnd" type="time" aria-label="End time" value="09:45"><span class="rd-ops-event-actions"><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardEvent()">Save</button><button type="button" class="rd-ops-btn" onclick="window.cancelDashboardEventForm()">Cancel</button></span></div>`;
         }
 
         function dashboardCalendarEntryCanModify(entry) {
