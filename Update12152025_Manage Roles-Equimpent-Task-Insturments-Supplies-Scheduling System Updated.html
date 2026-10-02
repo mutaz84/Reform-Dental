@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261001-calendar-event-types-v172';
+                const buildVersion = '20261001-dashboard-calendar-types-v173';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -57896,14 +57896,18 @@
                 if (options.requireDateTime && (!scheduleDate || !scheduleTime)) return;
                 if (!raw && (!scheduleDate || !scheduleTime)) return;
                 const parseValue = scheduleDate && scheduleTime ? `${scheduleDate}T${scheduleTime}:00` : raw;
-                const parsed = new Date(parseValue);
+                let parsed = new Date(parseValue);
                 if (Number.isNaN(parsed.getTime())) return;
                 const status = String(item?.status || item?.Status || item?.workStatus || '').trim().toLowerCase();
                 if (isClosed(status)) return;
                 const rawIsDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
                 const hasTime = !!scheduleTime || !rawIsDateOnly;
                 if (!scheduleTime && rawIsDateOnly) parsed.setHours(defaultHour, 0, 0, 0);
-                if (dashboardLocalDateIso(parsed) !== targetISO) return;
+                const parsedDateIso = dashboardLocalDateIso(parsed);
+                let coversTargetDate = false;
+                try { coversTargetDate = kind === 'Calendar' && typeof calendarEventCoversDate === 'function' && calendarEventCoversDate(item, targetISO); } catch (_) {}
+                if (parsedDateIso !== targetISO && !coversTargetDate) return;
+                if (parsedDateIso !== targetISO && coversTargetDate) parsed = new Date(`${targetISO}T00:00:00`);
                 const assigneeRaw = String(item?.assignee || item?.Assignee || item?.assignedTo || item?.AssignedTo || item?.assignedEmployee || item?.AssignedEmployee || item?.organizerName || item?.OrganizerName || '').trim();
                 const itemScope = String(item?.dashboardScope || '').trim().toLowerCase();
                 const calendarScopeState = kind === 'Calendar' ? dashboardCalendarScopeState(item, ownershipKeys, scopeMap) : null;
@@ -57911,7 +57915,19 @@
                     ? calendarScopeState.isMine
                     : (itemScope ? itemScope === 'mine' : dashboardEntryIsMine(item || {}, ownershipKeys));
                 const isOffice = kind === 'Calendar' ? calendarScopeState.isOffice : !isMine;
-                entries.push({ id: item?.id || item?.Id || item?.ticketId || item?.TicketId || item?.assignmentId || item?.AssignmentId || '', title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || item?.notes || item?.Notes || '').trim(), createdByName: String(item?.createdByName || item?.organizerName || item?.OrganizerName || item?.dashboardScheduledByName || item?.createdBy || item?.CreatedBy || '').trim(), assigneeRaw, isMine, isOffice, hasTime, start: parsed, end: new Date(parsed.getTime() + 45 * 60000), view, kind, tone, record: item });
+                let entryAllDay = false;
+                try { entryAllDay = kind === 'Calendar' && typeof isCalendarEventAllDayOrRange === 'function' && isCalendarEventAllDayOrRange(item); } catch (_) {}
+                const rawEnd = item?.end || item?.End || item?.endDateTime || item?.EndDateTime || item?.endDate || item?.EndDate || '';
+                let entryEnd = new Date(parsed.getTime() + 45 * 60000);
+                if (kind === 'Calendar' && rawEnd) {
+                    const endParsed = new Date(rawEnd);
+                    if (!Number.isNaN(endParsed.getTime())) entryEnd = endParsed;
+                }
+                if (kind === 'Calendar' && (entryAllDay || coversTargetDate)) {
+                    entryAllDay = true;
+                    entryEnd = new Date(`${targetISO}T23:59:00`);
+                }
+                entries.push({ id: item?.id || item?.Id || item?.ticketId || item?.TicketId || item?.assignmentId || item?.AssignmentId || '', title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || item?.notes || item?.Notes || '').trim(), createdByName: String(item?.createdByName || item?.organizerName || item?.OrganizerName || item?.dashboardScheduledByName || item?.createdBy || item?.CreatedBy || '').trim(), assigneeRaw, isMine, isOffice, hasTime: hasTime && !entryAllDay, allDay: entryAllDay, start: parsed, end: entryEnd, view, kind, tone, record: item });
             };
             const tasks = (Array.isArray(window.tasksData) && window.tasksData.length ? window.tasksData : readArray('tasksData')).filter((item) => !isSyntheticDashboardTestEntry(String(item?.title || item?.Title || item?.name || item?.Name || '')));
             tasks.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.date, 'task-hub', 'Task', '#2563eb'));
@@ -58039,7 +58055,10 @@
                 const status = String(item?.status || item?.Status || item?.workStatus || '').trim().toLowerCase();
                 if (isClosed(status)) return;
                 const dayOnly = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
-                if (dayOnly < monthStart || dayOnly > monthEnd) return;
+                let calendarRange = null;
+                try { calendarRange = kind === 'Calendar' && typeof getCalendarEventRange === 'function' ? getCalendarEventRange(item) : null; } catch (_) {}
+                const dayInMonth = !(dayOnly < monthStart || dayOnly > monthEnd);
+                if (!dayInMonth && !(calendarRange && calendarRange.startKey && calendarRange.endKey)) return;
                 const itemScope = String(item?.dashboardScope || '').trim().toLowerCase();
                 const calendarScopeState = kind === 'Calendar' ? dashboardCalendarScopeState(item, ownershipKeys, scopeMap) : null;
                 const isMine = kind === 'Calendar'
@@ -58048,6 +58067,21 @@
                 const isOffice = kind === 'Calendar' ? calendarScopeState.isOffice : !isMine;
                 const matchesScope = dashboardCalendarScope === 'mine' ? isMine : isOffice;
                 if (!matchesScope) return;
+                if (calendarRange && calendarRange.startKey && calendarRange.endKey) {
+                    const rangeStart = new Date(`${calendarRange.startKey}T00:00:00`);
+                    const rangeEnd = new Date(`${calendarRange.endKey}T00:00:00`);
+                    if (!Number.isNaN(rangeStart.getTime()) && !Number.isNaN(rangeEnd.getTime())) {
+                        const firstDay = rangeStart < monthStart ? new Date(monthStart) : rangeStart;
+                        const lastDay = rangeEnd > monthEnd ? new Date(monthEnd) : rangeEnd;
+                        for (let cursor = new Date(firstDay); cursor <= lastDay; cursor.setDate(cursor.getDate() + 1)) {
+                            const iso = dashboardLocalDateIso(cursor);
+                            if (!byDay[iso]) byDay[iso] = [];
+                            byDay[iso].push({ title: String(title || 'Untitled').trim(), tone });
+                        }
+                        return;
+                    }
+                }
+                if (!dayInMonth) return;
                 const iso = dashboardLocalDateIso(dayOnly);
                 if (!byDay[iso]) byDay[iso] = [];
                 byDay[iso].push({ title: String(title || 'Untitled').trim(), tone });
@@ -58156,7 +58190,8 @@
             const monthGridHtml = dashboardCalendarViewMode === 'month' ? renderDashboardMonthGridHtml(dashboardCalendarDate) : '';
             const unscheduled = getDashboardUnscheduledMineEntries();
             const unscheduledHtml = unscheduled.length ? unscheduled.map(item => dashboardGlanceRowHtml(item)).join('') : '<div style="color:var(--text-secondary,#64748b);font-size:.76rem;padding:.3rem 0;">Nothing unscheduled for today.</div>';
-            target.innerHTML = `<div style="display:grid;grid-template-columns:minmax(0,1fr) 210px;gap:.6rem;align-items:start;"><div class="rd-dashboard-panel" style="width:100%;padding:.7rem .8rem;"><div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.55rem;flex-wrap:wrap;"><h3 style="margin:0;font-size:1rem;"><i class="fas fa-calendar-days" style="color:#2563eb;margin-right:.45rem;"></i>Operations Calendar</h3>${viewTabsHtml}${scopeTabsHtml}<span style="margin-left:auto;color:var(--text-secondary,#64748b);font-size:.75rem;">${escapeDashboardHtml(dateLabel)}</span><button type="button" class="rd-dashboard-calendar-add" onclick="window.toggleDashboardEventForm()"><i class="fas fa-plus"></i> Add event</button><button type="button" aria-label="Previous day" title="Previous day" onclick="window.shiftDashboardCalendar(-1)" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;cursor:pointer;padding:.2rem .45rem;">‹</button><button type="button" onclick="window.resetDashboardCalendar()" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;cursor:pointer;padding:.2rem .45rem;font-size:.7rem;">Today</button><button type="button" aria-label="Next day" title="Next day" onclick="window.shiftDashboardCalendar(1)" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;cursor:pointer;padding:.2rem .45rem;">›</button></div><div id="dashboardEventForm" hidden style="display:none;grid-template-columns:2fr 1.4fr 1fr 1fr;gap:.4rem;margin-bottom:.65rem;padding:.55rem;background:var(--bg-secondary,#f8fafc);border:1px solid var(--border-color,#d1d5db);border-radius:6px;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><input id="dashboardEventDate" type="date" value="${dashboardCalendarDate.toISOString().slice(0,10)}" aria-label="Event date"><input id="dashboardEventStart" type="time" value="09:00" aria-label="Start time"><input id="dashboardEventEnd" type="time" value="09:45" aria-label="End time"><div style="grid-column:1/-1;display:flex;gap:.4rem;justify-content:flex-end;"><button type="button" onclick="window.saveDashboardEvent()" style="border:0;border-radius:5px;padding:.35rem .65rem;background:#2563eb;color:#fff;cursor:pointer;"><i class="fas fa-check"></i> Save event</button><button type="button" onclick="window.toggleDashboardEventForm(false)" style="border:1px solid var(--border-color,#d1d5db);border-radius:5px;padding:.35rem .65rem;background:var(--card-bg,#fff);cursor:pointer;">Cancel</button></div></div>${dashboardCalendarViewMode === 'month' ? `<div style="padding:.2rem 0;">${monthGridHtml}</div>` : dashboardCalendarViewMode === 'list' ? `<div style="max-height:${(endHour - startHour) * 46}px;overflow-y:auto;">${listRows}</div>` : `<div style="overflow-x:auto;overflow-y:hidden;"><div data-dashboard-calendar-dropzone="true" data-calendar-start-hour="${startHour}" data-calendar-end-hour="${endHour}" style="position:relative;padding-left:0;min-height:${(endHour - startHour) * 46}px;min-width:${gridInnerWidth}px;">${entries.length ? '' : '<div style="position:absolute;left:66px;top:45%;color:var(--text-secondary,#64748b);font-size:.8rem;">No operations scheduled for this date.</div>'}<div>${hourRows}</div>${blocks}</div></div>`}</div><div class="rd-dashboard-panel" style="width:100%;padding:.6rem .65rem;"><h3 style="margin:0 0 .4rem;font-size:.85rem;"><i class="fas fa-list-check" style="color:#b45309;margin-right:.35rem;"></i>Unscheduled Today</h3>${unscheduledHtml}</div></div>`;
+            const dashboardEventFormHtml = renderDashboardEventForm();
+            target.innerHTML = `<div style="display:grid;grid-template-columns:minmax(0,1fr) 210px;gap:.6rem;align-items:start;"><div class="rd-dashboard-panel" style="width:100%;padding:.7rem .8rem;"><div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.55rem;flex-wrap:wrap;"><h3 style="margin:0;font-size:1rem;"><i class="fas fa-calendar-days" style="color:#2563eb;margin-right:.45rem;"></i>Operations Calendar</h3>${viewTabsHtml}${scopeTabsHtml}<span style="margin-left:auto;color:var(--text-secondary,#64748b);font-size:.75rem;">${escapeDashboardHtml(dateLabel)}</span><button type="button" class="rd-dashboard-calendar-add" onclick="window.toggleDashboardEventForm()"><i class="fas fa-plus"></i> Add event</button><button type="button" aria-label="Previous day" title="Previous day" onclick="window.shiftDashboardCalendar(-1)" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;cursor:pointer;padding:.2rem .45rem;">‹</button><button type="button" onclick="window.resetDashboardCalendar()" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;cursor:pointer;padding:.2rem .45rem;font-size:.7rem;">Today</button><button type="button" aria-label="Next day" title="Next day" onclick="window.shiftDashboardCalendar(1)" style="border:1px solid var(--border-color,#d1d5db);background:var(--card-bg,#fff);border-radius:5px;cursor:pointer;padding:.2rem .45rem;">›</button></div>${dashboardEventFormHtml}${dashboardCalendarViewMode === 'month' ? `<div style="padding:.2rem 0;">${monthGridHtml}</div>` : dashboardCalendarViewMode === 'list' ? `<div style="max-height:${(endHour - startHour) * 46}px;overflow-y:auto;">${listRows}</div>` : `<div style="overflow-x:auto;overflow-y:hidden;"><div data-dashboard-calendar-dropzone="true" data-calendar-start-hour="${startHour}" data-calendar-end-hour="${endHour}" style="position:relative;padding-left:0;min-height:${(endHour - startHour) * 46}px;min-width:${gridInnerWidth}px;">${entries.length ? '' : '<div style="position:absolute;left:66px;top:45%;color:var(--text-secondary,#64748b);font-size:.8rem;">No operations scheduled for this date.</div>'}<div>${hourRows}</div>${blocks}</div></div>`}</div><div class="rd-dashboard-panel" style="width:100%;padding:.6rem .65rem;"><h3 style="margin:0 0 .4rem;font-size:.85rem;"><i class="fas fa-list-check" style="color:#b45309;margin-right:.35rem;"></i>Unscheduled Today</h3>${unscheduledHtml}</div></div>`;
         }
 
         window.selectDashboardEvent = function (eventId) {
@@ -58666,8 +58701,71 @@
             const nextVisible = show === undefined ? form.hidden : !!show;
             form.hidden = !nextVisible;
             form.style.display = nextVisible ? 'grid' : 'none';
-            if (!form.hidden) document.getElementById('dashboardEventTitle')?.focus();
+            if (!form.hidden) {
+                if (typeof window.syncDashboardEventTypeFormControls === 'function') window.syncDashboardEventTypeFormControls(true);
+                document.getElementById('dashboardEventTitle')?.focus();
+            }
         };
+
+        function getDashboardEventTypeConfig(type) {
+            const configs = {
+                appointment: { label: 'Appointment', dateMode: 'single_timed', scopeType: 'employee', availabilityImpact: 'busy', category: 'dental', color: '#3b82f6' },
+                duty: { label: 'Duty', dateMode: 'single_timed', scopeType: 'employee', availabilityImpact: 'busy', category: 'dental', color: '#10b981' },
+                meeting: { label: 'Meeting', dateMode: 'single_timed', scopeType: 'team', availabilityImpact: 'busy', category: 'general', color: '#6366f1' },
+                training: { label: 'Training', dateMode: 'timed_range', scopeType: 'team', availabilityImpact: 'busy', category: 'general', color: '#f59e0b' },
+                'time-off': { label: 'Time Off', dateMode: 'date_range', scopeType: 'employee', availabilityImpact: 'unavailable', category: 'pto', color: '#ef4444' },
+                pto: { label: 'PTO', dateMode: 'date_range', scopeType: 'employee', availabilityImpact: 'unavailable', category: 'pto', color: '#ef4444' },
+                vacation: { label: 'Vacation', dateMode: 'date_range', scopeType: 'employee', availabilityImpact: 'unavailable', category: 'pto', color: '#14b8a6' },
+                'sick-leave': { label: 'Sick Leave', dateMode: 'date_range', scopeType: 'employee', availabilityImpact: 'unavailable', category: 'pto', color: '#f97316' },
+                'office-closure': { label: 'Office Closure', dateMode: 'date_range', scopeType: 'clinic', availabilityImpact: 'closed', category: 'closure', color: '#991b1b' },
+                holiday: { label: 'Holiday', dateMode: 'date_range', scopeType: 'clinic', availabilityImpact: 'closed', category: 'closure', color: '#dc2626' },
+                'vendor-visit': { label: 'Vendor Visit', dateMode: 'single_timed', scopeType: 'clinic', availabilityImpact: 'info', category: 'vendor', color: '#8b5cf6' },
+                'equipment-service': { label: 'Equipment Service', dateMode: 'timed_range', scopeType: 'equipment', availabilityImpact: 'blocked', category: 'equipment', color: '#0ea5e9' },
+                reminder: { label: 'Reminder', dateMode: 'single_day', scopeType: 'user', availabilityImpact: 'none', category: 'general', color: '#64748b' },
+                deadline: { label: 'Deadline', dateMode: 'single_day', scopeType: 'user', availabilityImpact: 'none', category: 'general', color: '#be123c' },
+                announcement: { label: 'Announcement', dateMode: 'date_range', scopeType: 'clinic', availabilityImpact: 'none', category: 'general', color: '#7c3aed' },
+                maintenance: { label: 'Maintenance', dateMode: 'timed_range', scopeType: 'clinic', availabilityImpact: 'blocked', category: 'general', color: '#f97316' },
+                project: { label: 'Project', dateMode: 'date_range', scopeType: 'team', availabilityImpact: 'none', category: 'general', color: '#06b6d4' },
+                other: { label: 'Other', dateMode: 'single_timed', scopeType: 'user', availabilityImpact: 'busy', category: 'general', color: '#6b7280' }
+            };
+            const key = String(type || 'appointment').trim().toLowerCase() || 'appointment';
+            return configs[key] || configs.appointment;
+        }
+
+        function dashboardEventTypeOptionsHtml(selectedType = 'appointment') {
+            const selected = String(selectedType || 'appointment').toLowerCase();
+            const option = (value, label) => `<option value="${value}"${selected === value ? ' selected' : ''}>${label}</option>`;
+            return `<optgroup label="Appointments & Clinical Events">${option('appointment', 'Appointment')}${option('duty', 'Duty')}${option('vendor-visit', 'Vendor Visit')}${option('equipment-service', 'Equipment Service')}</optgroup><optgroup label="Time Off & Closures">${option('time-off', 'Time Off')}${option('pto', 'PTO (Paid Time Off)')}${option('vacation', 'Vacation')}${option('sick-leave', 'Sick Leave')}${option('office-closure', 'Office Closure')}${option('holiday', 'Holiday')}</optgroup><optgroup label="General Events">${option('announcement', 'Announcement')}${option('meeting', 'Meeting')}${option('training', 'Training')}${option('maintenance', 'Maintenance')}${option('project', 'Project')}${option('reminder', 'Reminder')}${option('deadline', 'Deadline')}${option('other', 'Other')}</optgroup>`;
+        }
+
+        function syncDashboardEventTypeFormControls(preserveExistingRange = false) {
+            const typeEl = document.getElementById('dashboardEventType');
+            const startDateEl = document.getElementById('dashboardEventDate');
+            const endDateEl = document.getElementById('dashboardEventEndDate');
+            const startTimeEl = document.getElementById('dashboardEventStart');
+            const endTimeEl = document.getElementById('dashboardEventEnd');
+            if (!typeEl || !startDateEl || !endDateEl || !startTimeEl || !endTimeEl) return;
+            const config = getDashboardEventTypeConfig(typeEl.value);
+            const dateMode = config.dateMode || 'single_timed';
+            const usesTimes = dateMode === 'single_timed' || dateMode === 'timed_range';
+            const usesEndDate = dateMode === 'date_range' || dateMode === 'timed_range';
+            endDateEl.style.display = usesEndDate ? '' : 'none';
+            startTimeEl.style.display = usesTimes ? '' : 'none';
+            endTimeEl.style.display = usesTimes ? '' : 'none';
+            endDateEl.required = usesEndDate;
+            startTimeEl.required = usesTimes;
+            endTimeEl.required = usesTimes;
+            if (!startDateEl.value) startDateEl.value = dashboardLocalDateIso(dashboardCalendarDate) || dashboardLocalDateIso(new Date());
+            if (!preserveExistingRange || !endDateEl.value || !usesEndDate) endDateEl.value = startDateEl.value;
+            if (!usesTimes) {
+                startTimeEl.value = '00:00';
+                endTimeEl.value = '23:59';
+            } else {
+                if (!startTimeEl.value) startTimeEl.value = '09:00';
+                if (!endTimeEl.value) endTimeEl.value = '09:45';
+            }
+        }
+        window.syncDashboardEventTypeFormControls = syncDashboardEventTypeFormControls;
 
         function resetDashboardEventForm() {
             const date = dashboardLocalDateIso(dashboardCalendarDate) || dashboardLocalDateIso(new Date());
@@ -58675,7 +58773,9 @@
                 dashboardEventEditId: '',
                 dashboardEventTitle: '',
                 dashboardEventDescription: '',
+                dashboardEventType: 'appointment',
                 dashboardEventDate: date,
+                dashboardEventEndDate: date,
                 dashboardEventStart: '09:00',
                 dashboardEventEnd: '09:45'
             };
@@ -58683,6 +58783,7 @@
                 const element = document.getElementById(id);
                 if (element) element.value = value;
             });
+            syncDashboardEventTypeFormControls(false);
         }
 
         window.cancelDashboardEventForm = function () {
@@ -58693,23 +58794,33 @@
         window.saveDashboardEvent = async function () {
             const title = String(document.getElementById('dashboardEventTitle')?.value || '').trim();
             const description = String(document.getElementById('dashboardEventDescription')?.value || '').trim();
+            const type = String(document.getElementById('dashboardEventType')?.value || 'appointment').trim().toLowerCase() || 'appointment';
             const dateValue = String(document.getElementById('dashboardEventDate')?.value || '').trim();
+            const endDateValue = String(document.getElementById('dashboardEventEndDate')?.value || '').trim();
             const startValue = String(document.getElementById('dashboardEventStart')?.value || '').trim();
             const endValue = String(document.getElementById('dashboardEventEnd')?.value || '').trim();
-            if (!title || !dateValue || !startValue || !endValue) {
-                if (typeof showNotification === 'function') showNotification('Enter an event title, date, start time, and end time.', 'warning');
+            const typeConfig = getDashboardEventTypeConfig(type);
+            const dateMode = typeConfig.dateMode || 'single_timed';
+            const usesTimes = dateMode === 'single_timed' || dateMode === 'timed_range';
+            const usesEndDate = dateMode === 'date_range' || dateMode === 'timed_range';
+            const normalizedEndDate = usesEndDate ? (endDateValue || dateValue) : dateValue;
+            const normalizedStartTime = usesTimes ? (startValue || '09:00') : '00:00';
+            const normalizedEndTime = usesTimes ? (endValue || '09:45') : '23:59';
+            if (!title || !dateValue || !normalizedEndDate || (usesTimes && (!startValue || !endValue))) {
+                if (typeof showNotification === 'function') showNotification(usesTimes ? 'Enter an event title, date, start time, and end time.' : 'Enter an event title and date range.', 'warning');
                 return;
             }
-            const start = new Date(`${dateValue}T${startValue}`);
-            const end = new Date(`${dateValue}T${endValue}`);
-            if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
-                if (typeof showNotification === 'function') showNotification('The end time must be after the start time.', 'warning');
+            const start = new Date(`${dateValue}T${normalizedStartTime}`);
+            const end = new Date(`${normalizedEndDate}T${normalizedEndTime}`);
+            if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start || (usesTimes && end <= start)) {
+                if (typeof showNotification === 'function') showNotification(usesTimes ? 'The event end must be after the start.' : 'The end date must be on or after the start date.', 'warning');
                 return;
             }
             const creator = getDashboardCurrentCreator();
             const selectedClinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
             const editingId = String(document.getElementById('dashboardEventEditId')?.value || '').trim();
             const savingToMine = dashboardCalendarScope === 'mine';
+            const eventColor = typeConfig.color || '#0e9384';
             const eventRecord = {
                 id: editingId || `dashboard-event-${Date.now()}`,
                 title,
@@ -58723,13 +58834,18 @@
                 organizerUsername: creator.username || '',
                 clinicId: selectedClinicMeta?.selectedClinicId || null,
                 clinicName: selectedClinicMeta?.selectedClinicName || '',
-                type: 'other',
-                eventType: 'other',
+                type,
+                eventType: type,
+                dateMode,
+                scopeType: typeConfig.scopeType || 'user',
+                availabilityImpact: typeConfig.availabilityImpact || 'busy',
                 status: 'scheduled',
                 priority: 'medium',
-                eventCategory: 'dashboard-operation',
+                eventCategory: typeConfig.category || 'general',
                 dashboardScope: dashboardCalendarScope,
-                allDay: false
+                allDay: !usesTimes,
+                color: eventColor,
+                backgroundColor: eventColor
             };
             let apiSaved = false;
             try {
@@ -58769,7 +58885,7 @@
                     if (Array.isArray(synced)) {
                         const syncedIndex = synced.findIndex(item => String(item?.id || '') === String(eventRecord.id));
                         if (syncedIndex >= 0) {
-                            synced[syncedIndex] = { ...synced[syncedIndex], dashboardScope: eventRecord.dashboardScope, organizerUserId: eventRecord.organizerUserId, organizerName: eventRecord.organizerName, createdBy: eventRecord.createdBy, createdByName: eventRecord.createdByName };
+                            synced[syncedIndex] = { ...synced[syncedIndex], dashboardScope: eventRecord.dashboardScope, organizerUserId: eventRecord.organizerUserId, organizerName: eventRecord.organizerName, createdBy: eventRecord.createdBy, createdByName: eventRecord.createdByName, type: eventRecord.type, eventType: eventRecord.eventType, dateMode: eventRecord.dateMode, scopeType: eventRecord.scopeType, availabilityImpact: eventRecord.availabilityImpact, eventCategory: eventRecord.eventCategory, allDay: eventRecord.allDay, color: eventRecord.color, backgroundColor: eventRecord.backgroundColor };
                             localStorage.setItem('calendarEvents', JSON.stringify(synced));
                         }
                     }
@@ -58785,12 +58901,17 @@
             if (!eventRecord) return;
             const start = new Date(eventRecord.start);
             const end = new Date(eventRecord.end || eventRecord.start);
+            const startText = String(eventRecord.start || '');
+            const endText = String(eventRecord.end || eventRecord.start || '');
             document.getElementById('dashboardEventEditId').value = String(eventId);
             document.getElementById('dashboardEventTitle').value = eventRecord.title || '';
             document.getElementById('dashboardEventDescription').value = eventRecord.description || '';
-            document.getElementById('dashboardEventDate').value = start.toISOString().slice(0, 10);
-            document.getElementById('dashboardEventStart').value = start.toTimeString().slice(0, 5);
-            document.getElementById('dashboardEventEnd').value = end.toTimeString().slice(0, 5);
+            document.getElementById('dashboardEventType').value = String(eventRecord.type || eventRecord.eventType || 'appointment').toLowerCase();
+            document.getElementById('dashboardEventDate').value = dashboardScheduleDateOnly(startText) || start.toISOString().slice(0, 10);
+            document.getElementById('dashboardEventEndDate').value = dashboardScheduleDateOnly(endText) || end.toISOString().slice(0, 10);
+            document.getElementById('dashboardEventStart').value = (startText.split('T')[1] || '').slice(0, 5) || start.toTimeString().slice(0, 5);
+            document.getElementById('dashboardEventEnd').value = (endText.split('T')[1] || '').slice(0, 5) || end.toTimeString().slice(0, 5);
+            syncDashboardEventTypeFormControls(true);
             window.toggleDashboardEventForm(true);
         };
 
@@ -59105,7 +59226,7 @@
             .rd-ops-dashboard{--ops-bg:#F4F3EF;--ops-card:#fff;--ops-border:#E4E2DC;--ops-divider:#EFEDE8;--ops-secondary-border:#D9D6CF;--ops-primary:#1C1D1F;--ops-secondary:#5B5F66;--ops-tertiary:#4A4E55;--ops-accent:#0F5E75;font-family:Manrope,'Segoe UI',system-ui,sans-serif;background:var(--ops-bg);color:var(--ops-primary);padding:28px 32px;display:flex;flex-direction:column;gap:22px;min-height:100%;box-sizing:border-box}.rd-ops-dashboard *{box-sizing:border-box}.rd-ops-card{background:var(--ops-card);border:1px solid var(--ops-border);border-radius:14px;padding:18px 20px}.rd-ops-header{display:grid;grid-template-columns:auto minmax(260px,1fr) auto;gap:20px;align-items:center}.rd-ops-location{display:grid;grid-template-columns:40px minmax(0,1fr);gap:12px;align-items:center;min-width:240px}.rd-ops-location-icon{width:40px;height:40px;border-radius:10px;background:var(--ops-accent);color:#fff;display:inline-flex;align-items:center;justify-content:center}.rd-ops-location strong{font-size:17px;font-weight:800;line-height:1.15}.rd-ops-location span{font-size:13px;color:var(--ops-secondary)}.rd-ops-search{position:relative;min-width:0}.rd-ops-search input{width:100%;height:44px;border:0;border-radius:9px;background:var(--ops-bg);color:var(--ops-primary);padding:0 14px 0 40px;font:600 13px Manrope,'Segoe UI',system-ui,sans-serif}.rd-ops-search i{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--ops-secondary);font-size:13px}.rd-ops-search-results{position:absolute;z-index:90;top:calc(100% + 6px);left:0;right:0;max-height:300px;overflow:auto;background:#fff;border:1px solid var(--ops-border);border-radius:10px;box-shadow:0 12px 28px rgba(28,29,31,.14)}.rd-ops-header-right{display:flex;align-items:center;justify-content:flex-end;gap:14px;white-space:nowrap}.rd-ops-status{display:inline-flex;align-items:center;gap:7px;color:var(--ops-secondary);font-size:13px}.rd-ops-status-dot{width:7px;height:7px;border-radius:999px;background:#A9ADB3}.rd-ops-status-dot.is-in{background:#16824A}.rd-ops-btn{height:36px;border-radius:9px;border:1px solid var(--ops-secondary-border);background:#fff;color:var(--ops-primary);font-weight:700;font-size:13px;padding:0 14px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:7px;text-decoration:none;white-space:nowrap;flex:0 0 auto}.rd-ops-btn-primary{background:var(--ops-accent);border-color:var(--ops-accent);color:#fff}.rd-ops-header .rd-ops-btn{height:44px;border-radius:10px}.rd-ops-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.rd-ops-kpi{border:1px solid var(--ops-border);border-radius:12px;background:#fff;padding:15px 16px;text-align:left;cursor:pointer;min-height:82px}.rd-ops-kpi.is-alert{background:#FFF4F2;border-color:#F3C9C2}.rd-ops-kpi-number{font-size:36px;line-height:1;font-weight:800;font-variant-numeric:tabular-nums;color:var(--ops-primary)}.rd-ops-kpi.is-alert .rd-ops-kpi-number{color:#A3261A}.rd-ops-kpi.is-amber .rd-ops-kpi-number{color:#9A4A06}.rd-ops-kpi-label{display:block;margin-top:3px;font-size:13px;font-weight:800;color:var(--ops-primary)}.rd-ops-kpi-sub{display:block;margin-top:2px;font-size:12px;color:var(--ops-secondary)}.rd-ops-main{display:grid;grid-template-columns:1.35fr 1fr;gap:20px;align-items:start}.rd-ops-column{display:flex;flex-direction:column;gap:14px;min-width:0}.rd-ops-section-head{display:flex;align-items:center;gap:9px;margin-bottom:10px}.rd-ops-section-head h3{font-size:16px;line-height:1.2;font-weight:800;margin:0}.rd-ops-section-head .head-spacer{margin-left:auto}.rd-ops-count-pill{border-radius:999px;background:#F1F0EC;color:#4A4E55;font-size:12px;font-weight:800;padding:2px 8px}.rd-ops-hint{font-size:12px;color:var(--ops-secondary);margin-left:auto}.rd-ops-list{display:flex;flex-direction:column}.rd-ops-row{display:grid;grid-template-columns:40px minmax(0,1fr);gap:10px 12px;align-items:start;padding:13px 0;border-bottom:1px solid var(--ops-divider);background:transparent}.rd-ops-row[draggable="true"]{cursor:grab}.rd-ops-row[draggable="true"]:active{cursor:grabbing}.rd-ops-row:last-child{border-bottom:0}.rd-ops-icon{width:40px;height:40px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:15px}.rd-ops-icon.maintenance,.rd-ops-icon.battery{background:#EAF4F6;color:#0F5E75}.rd-ops-icon.cleaning{background:#E8F5F0;color:#187A4B}.rd-ops-icon.lab{background:#EEE9FA;color:#5C3AA3}.rd-ops-icon.office{background:#FFF2DE;color:#9A4A06}.rd-ops-icon.default{background:#EEF2F6;color:#4A4E55}.rd-ops-row-title{font-size:15px;line-height:1.22;font-weight:700;color:var(--ops-primary);margin:0 0 3px}.rd-ops-meta{font-size:13px;line-height:1.28;color:var(--ops-secondary)}.rd-ops-meta .unassigned{color:#9A4A06;font-weight:700}.rd-ops-row-actions{grid-column:2;display:flex;align-items:center;gap:8px;justify-content:flex-start;flex-wrap:wrap;min-width:0;max-width:100%}.rd-ops-due{text-align:left}.rd-ops-due strong{display:block;font-size:13px;line-height:1.15;color:#A3261A;font-weight:800}.rd-ops-due span{display:block;margin-top:3px;font-size:12px;color:var(--ops-secondary)}.rd-ops-chip{display:inline-flex;align-items:center;min-height:24px;border-radius:999px;padding:4px 10px;font-size:12px;line-height:1;font-weight:700;white-space:nowrap}.rd-ops-chip-low{background:#F1F0EC;color:#4A4E55}.rd-ops-chip-medium{background:#FDF1DC;color:#8A4B08}.rd-ops-chip-high{background:#FFF4F2;color:#A3261A}.rd-ops-chip-status{background:#F1F0EC;color:#4A4E55}.rd-ops-schedule-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:start;margin-bottom:16px}.rd-ops-schedule-title h3{margin:0;font-size:16px;font-weight:800}.rd-ops-schedule-title span{display:block;margin-top:2px;color:var(--ops-secondary);font-size:13px}.rd-ops-date-nav{display:inline-flex;gap:8px}.rd-ops-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}.rd-ops-segment{display:inline-flex;border:1px solid var(--ops-secondary-border);border-radius:9px;overflow:hidden;height:36px}.rd-ops-segment button{border:0;border-left:1px solid var(--ops-secondary-border);background:#fff;color:#4A4E55;padding:0 13px;font-size:12px;font-weight:700;cursor:pointer}.rd-ops-segment button:first-child{border-left:0}.rd-ops-segment button.active{background:#0F5E75;color:#fff}.rd-ops-toolbar-push{margin-left:auto}.rd-ops-empty{border:1px dashed #D9D6CF;border-radius:12px;min-height:156px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--ops-secondary)}.rd-ops-empty-icon{width:40px;height:40px;border-radius:10px;background:#EAF4F6;color:#0F5E75;display:inline-flex;align-items:center;justify-content:center;margin-bottom:10px}.rd-ops-empty strong{display:block;color:var(--ops-primary);font-size:14px;margin-bottom:6px}.rd-ops-empty span{font-size:13px;max-width:340px}.rd-ops-time-grid{position:relative;min-height:260px;overflow:auto;border-top:1px solid var(--ops-divider)}.rd-ops-hour{height:48px;border-bottom:1px solid var(--ops-divider);position:relative}.rd-ops-hour-label{position:absolute;left:0;top:-9px;width:58px;background:#fff;color:var(--ops-secondary);font-size:12px;font-weight:700}.rd-ops-event{position:absolute;left:68px;right:8px;border-left:4px solid #0F5E75;border-radius:8px;background:#EAF4F6;padding:6px 9px;overflow:hidden;cursor:pointer}.rd-ops-event strong{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rd-ops-event span{display:block;font-size:12px;color:var(--ops-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rd-ops-now-line{position:absolute;left:58px;right:0;height:2px;background:#C83224;z-index:5}.rd-ops-attendance-empty{display:flex;align-items:center;gap:10px;background:#F1F0EC;border-radius:9px;padding:13px;color:var(--ops-secondary);font-size:13px}.rd-ops-att-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--ops-divider)}.rd-ops-att-row:last-child{border-bottom:0}.rd-ops-att-row strong{display:block;font-size:14px}.rd-ops-att-row span{display:block;font-size:12px;color:var(--ops-secondary)}@media(max-width:1023px){.rd-ops-dashboard{padding:22px 18px}.rd-ops-header{grid-template-columns:1fr}.rd-ops-header-right{justify-content:flex-start;flex-wrap:wrap}.rd-ops-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.rd-ops-main{grid-template-columns:1fr}.rd-ops-toolbar-push{margin-left:0}}`;
             style.textContent += `.rd-ops-picker-overlay{position:fixed;inset:0;z-index:10020;background:rgba(28,29,31,.36);display:flex;align-items:center;justify-content:center;padding:18px}.rd-ops-picker{width:min(440px,calc(100vw - 28px));background:#fff;border:1px solid var(--ops-border,#E4E2DC);border-radius:14px;box-shadow:0 24px 70px rgba(28,29,31,.24);padding:18px}.rd-ops-picker-head{display:flex;gap:12px;align-items:flex-start;margin-bottom:14px}.rd-ops-picker-icon{width:40px;height:40px;border-radius:10px;background:#EAF4F6;color:#0F5E75;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}.rd-ops-picker h3{margin:0;font-size:17px;line-height:1.2;font-weight:800}.rd-ops-picker p{margin:4px 0 0;color:#5B5F66;font-size:13px;line-height:1.35}.rd-ops-picker-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}.rd-ops-picker label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:800;color:#4A4E55}.rd-ops-picker input{height:40px;border:1px solid #D9D6CF;border-radius:9px;padding:0 10px;font:600 13px Manrope,'Segoe UI',system-ui,sans-serif;color:#1C1D1F}.rd-ops-picker-actions{display:flex;justify-content:flex-end;gap:10px}.rd-ops-day-schedule{min-height:260px;border:1px dashed #D9D6CF;border-radius:12px;padding:12px;background:#FCFBF8;display:flex;flex-direction:column;gap:10px}.rd-ops-day-hint{display:flex;align-items:center;gap:8px;color:#5B5F66;font-size:12px;font-weight:700;padding:2px 2px 6px}.rd-ops-scheduled-item{display:grid;grid-template-columns:76px 38px minmax(0,1fr);gap:10px;align-items:start;border:1px solid #E4E2DC;border-left:4px solid var(--event-tone,#0F5E75);border-radius:10px;background:#fff;padding:11px;cursor:pointer}.rd-ops-scheduled-time{font-size:12px;font-weight:800;color:#1C1D1F;line-height:1.25}.rd-ops-scheduled-time span{display:block;color:#5B5F66;font-weight:700;margin-top:2px}.rd-ops-scheduled-body strong{display:block;font-size:14px;line-height:1.2;color:#1C1D1F;margin-bottom:4px}.rd-ops-scheduled-body span{display:block;font-size:12px;line-height:1.3;color:#5B5F66}.rd-ops-scheduled-kind{display:inline-flex;width:38px;height:38px;border-radius:9px;align-items:center;justify-content:center;background:#EAF4F6;color:#0F5E75}@media(max-width:640px){.rd-ops-picker-grid{grid-template-columns:1fr}.rd-ops-scheduled-item{grid-template-columns:1fr}.rd-ops-scheduled-kind{display:none}}`;
             style.textContent += `.rd-ops-picker-overlay{--ops-border:#E4E2DC;--ops-secondary-border:#D9D6CF;--ops-primary:#1C1D1F;--ops-accent:#0F5E75}`;
-            style.textContent += `.rd-ops-event-form{display:none;grid-template-columns:minmax(190px,1.35fr) minmax(160px,1fr) minmax(142px,.8fr);gap:10px;margin-bottom:14px;padding:12px;background:#F4F3EF;border:1px solid #E4E2DC;border-radius:10px;max-width:100%;overflow:hidden}.rd-ops-event-form input{min-width:0;width:100%}.rd-ops-event-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}.rd-ops-event-form .rd-ops-btn{height:44px;min-width:90px}@media(min-width:1024px){.rd-ops-main{grid-template-columns:minmax(300px,420px) minmax(0,1fr)}#opsOverdueSection,#opsUnscheduledSection{padding:14px 16px}.rd-ops-row{padding:10px 0}.rd-ops-icon{width:34px;height:34px}.rd-ops-day-schedule{min-height:440px}.rd-ops-empty{min-height:300px}}@media(min-width:1600px){.rd-ops-main{grid-template-columns:400px minmax(0,1fr)}.rd-ops-day-schedule{min-height:560px}.rd-ops-empty{min-height:420px}}@media(max-width:760px){.rd-ops-event-form{grid-template-columns:1fr}.rd-ops-event-actions{justify-content:stretch}.rd-ops-event-form .rd-ops-btn{width:100%}}`;
+            style.textContent += `.rd-ops-event-form{display:none;grid-template-columns:minmax(190px,1.35fr) minmax(160px,1fr) minmax(142px,.8fr);gap:10px;margin-bottom:14px;padding:12px;background:#F4F3EF;border:1px solid #E4E2DC;border-radius:10px;max-width:100%;overflow:hidden}.rd-ops-event-form input,.rd-ops-event-form select{min-width:0;width:100%;height:40px;border:1px solid #D9D6CF;border-radius:8px;padding:0 10px;background:#fff;color:#1C1D1F;font:600 13px Manrope,'Segoe UI',system-ui,sans-serif}.rd-ops-event-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}.rd-ops-event-form .rd-ops-btn{height:44px;min-width:90px}@media(min-width:1024px){.rd-ops-main{grid-template-columns:minmax(300px,420px) minmax(0,1fr)}#opsOverdueSection,#opsUnscheduledSection{padding:14px 16px}.rd-ops-row{padding:10px 0}.rd-ops-icon{width:34px;height:34px}.rd-ops-day-schedule{min-height:440px}.rd-ops-empty{min-height:300px}}@media(min-width:1600px){.rd-ops-main{grid-template-columns:400px minmax(0,1fr)}.rd-ops-day-schedule{min-height:560px}.rd-ops-empty{min-height:420px}}@media(max-width:760px){.rd-ops-event-form{grid-template-columns:1fr}.rd-ops-event-actions{justify-content:stretch}.rd-ops-event-form .rd-ops-btn{width:100%}}`;
             document.head.appendChild(style);
         }
 
@@ -59317,7 +59438,8 @@
         }
 
         function renderDashboardEventForm() {
-            return `<div id="dashboardEventForm" class="rd-ops-event-form" hidden style="display:none;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><input id="dashboardEventDate" type="date" aria-label="Event date" value="${escapeDashboardHtml(dashboardLocalDateIso(dashboardCalendarDate))}"><input id="dashboardEventStart" type="time" aria-label="Start time" value="09:00"><input id="dashboardEventEnd" type="time" aria-label="End time" value="09:45"><span class="rd-ops-event-actions"><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardEvent()">Save</button><button type="button" class="rd-ops-btn" onclick="window.cancelDashboardEventForm()">Cancel</button></span></div>`;
+            const eventDate = escapeDashboardHtml(dashboardLocalDateIso(dashboardCalendarDate));
+            return `<div id="dashboardEventForm" class="rd-ops-event-form" hidden style="display:none;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><select id="dashboardEventType" required aria-label="Event type" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)">${dashboardEventTypeOptionsHtml()}</select><input id="dashboardEventDate" type="date" aria-label="Start date" value="${eventDate}" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)"><input id="dashboardEventEndDate" type="date" aria-label="End date" value="${eventDate}"><input id="dashboardEventStart" type="time" aria-label="Start time" value="09:00"><input id="dashboardEventEnd" type="time" aria-label="End time" value="09:45"><span class="rd-ops-event-actions"><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardEvent()">Save</button><button type="button" class="rd-ops-btn" onclick="window.cancelDashboardEventForm()">Cancel</button></span></div>`;
         }
 
         function dashboardCalendarEntryCanModify(entry) {
