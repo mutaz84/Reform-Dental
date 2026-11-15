@@ -58,12 +58,16 @@ function normalizeDashboardScope(value) {
 }
 
 async function ensureEventDashboardScopeColumn(pool, eventColumns) {
-    if (hasColumn(eventColumns, 'DashboardScope')) return eventColumns;
+    if (hasColumn(eventColumns, 'DashboardScope') && hasColumn(eventColumns, 'CalendarLayoutId') && hasColumn(eventColumns, 'CalendarColumnId')) return eventColumns;
     await pool.request().query(`
         IF COL_LENGTH('Events', 'DashboardScope') IS NULL
         BEGIN
             ALTER TABLE Events ADD DashboardScope NVARCHAR(20) NULL
         END
+        IF COL_LENGTH('Events', 'CalendarLayoutId') IS NULL
+            ALTER TABLE Events ADD CalendarLayoutId NVARCHAR(80) NULL
+        IF COL_LENGTH('Events', 'CalendarColumnId') IS NULL
+            ALTER TABLE Events ADD CalendarColumnId NVARCHAR(80) NULL
     `);
     return await getTableColumns(pool, 'Events');
 }
@@ -94,6 +98,11 @@ async function findExistingEventId(pool, eventColumns, values) {
     if (hasColumn(eventColumns, 'DashboardScope')) {
         request.input('dashboardScope', sql.NVarChar(20), normalizeDashboardScope(values.dashboardScope));
         where.push('((DashboardScope = @dashboardScope) OR (DashboardScope IS NULL AND @dashboardScope IS NULL))');
+    }
+    for (const column of ['CalendarLayoutId', 'CalendarColumnId']) {
+        if (!hasColumn(eventColumns, column)) continue;
+        request.input(column, sql.NVarChar(80), normalizeNullableString(values[column]));
+        where.push(`((${column} = @${column}) OR (${column} IS NULL AND @${column} IS NULL))`);
     }
 
     const result = await request.query(`
@@ -316,6 +325,8 @@ function mapEventRow(row, attendees = []) {
         priority: row.Priority || 'medium',
         status: row.Status || 'scheduled',
         dashboardScope: row.DashboardScope || null,
+        calendarLayoutId: row.CalendarLayoutId || null,
+        calendarColumnId: row.CalendarColumnId || null,
         organizerUserId: row.OrganizerUserId || null,
         organizerName,
         attendees: Array.isArray(attendees) ? attendees : []
@@ -490,7 +501,9 @@ module.exports = async function (context, req) {
                 clinicId: eventClinicId,
                 eventCategory,
                 organizerUserId,
-                dashboardScope
+                dashboardScope,
+                CalendarLayoutId: body.calendarLayoutId,
+                CalendarColumnId: body.calendarColumnId
             });
             if (existingEventId) {
                 await upsertEventAttendees(pool, existingEventId, attendees, hasEventAttendeesTable);
@@ -518,6 +531,9 @@ module.exports = async function (context, req) {
             }
             if (hasDashboardScope) {
                 insertDefs.push({ column: 'DashboardScope', param: 'dashboardScope', type: sql.NVarChar(20), value: dashboardScope });
+            }
+            for (const [column, param] of [['CalendarLayoutId', 'calendarLayoutId'], ['CalendarColumnId', 'calendarColumnId']]) {
+                if (hasColumn(eventColumns, column)) insertDefs.push({ column, param, type: sql.NVarChar(80), value: normalizeNullableString(body[param]) });
             }
             if (hasLocation) {
                 insertDefs.push({ column: 'Location', param: 'location', type: sql.NVarChar(255), value: normalizeNullableString(body.location) });
@@ -596,6 +612,9 @@ module.exports = async function (context, req) {
             }
             if (hasDashboardScope) {
                 updateDefs.push({ column: 'DashboardScope', param: 'dashboardScope', type: sql.NVarChar(20), value: dashboardScope });
+            }
+            for (const [column, param] of [['CalendarLayoutId', 'calendarLayoutId'], ['CalendarColumnId', 'calendarColumnId']]) {
+                if (hasColumn(eventColumns, column) && Object.prototype.hasOwnProperty.call(body, param)) updateDefs.push({ column, param, type: sql.NVarChar(80), value: normalizeNullableString(body[param]) });
             }
             if (hasLocation) {
                 updateDefs.push({ column: 'Location', param: 'location', type: sql.NVarChar(255), value: normalizeNullableString(body.location) });

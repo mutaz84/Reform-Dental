@@ -1,5 +1,5 @@
 const sql = require('mssql');
-const { getRequestUserId, isPlatformAdmin } = require('../shared/tenant');
+const { getRequestUserId, isPlatformAdmin, resolveVisibleClinicId } = require('../shared/tenant');
 
 const PLATFORM_BRANDING_KEYS = new Set(['companyName', 'tagline', 'logoData']);
 const OFFICE_PLAN_KEYS = new Set([
@@ -99,7 +99,7 @@ module.exports = async function (context, req) {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id'
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id, X-Username, X-User-Name, X-User-Email'
     };
 
     if (req.method === 'OPTIONS') {
@@ -114,6 +114,18 @@ module.exports = async function (context, req) {
         const requestUserId = getRequestUserId(req);
         const isPlatformOwner = await isPlatformAdmin(pool, requestUserId);
         const subscriptionId = isPlatformOwner ? null : await getSubscriptionIdForUser(pool, requestUserId);
+        const calendarBody = parseRequestBody(req.body);
+        const wantsCalendar = req.query?.calendarClinicId !== undefined || calendarBody.calendarLayouts !== undefined;
+        let calendarKey = null;
+        if (wantsCalendar) {
+            const requestedClinicId = Number(req.query?.calendarClinicId || calendarBody.calendarClinicId || 0);
+            const clinicId = requestedClinicId > 0 ? await resolveVisibleClinicId(pool, requestedClinicId, requestUserId) : null;
+            if (!clinicId || clinicId !== requestedClinicId) {
+                context.res = { status: 403, headers, body: { error: 'Select a clinic you can access.' } };
+                return;
+            }
+            calendarKey = `calendarLayouts:clinic:${clinicId}`;
+        }
 
         if (req.method === 'GET') {
             // Get all settings
@@ -125,10 +137,16 @@ module.exports = async function (context, req) {
             result.recordset.forEach(row => {
                 const key = String(row.SettingKey || '');
                 if (!key) return;
+                if (key === 'calendarLayouts' || key.startsWith('calendarLayouts:')) return;
                 if (key.includes(':subscription:')) return;
                 if (OFFICE_PLAN_KEYS.has(key) && !isPlatformOwner) return;
                 settings[key] = parseSettingValue(row.SettingValue);
             });
+
+            if (calendarKey) {
+                const row = result.recordset.find(item => item.SettingKey === calendarKey);
+                settings.calendarLayouts = row ? parseSettingValue(row.SettingValue) : [];
+            }
 
             if (subscriptionId) {
                 result.recordset.forEach(row => {
@@ -146,7 +164,35 @@ module.exports = async function (context, req) {
         } else if (req.method === 'POST' || req.method === 'PUT') {
             // Save settings
             const body = parseRequestBody(req.body);
+            if (Object.keys(body).some(key => key.startsWith('calendarLayouts:'))) {
+                context.res = { status: 400, headers, body: { error: 'Use calendarLayouts with calendarClinicId.' } };
+                return;
+            }
+            if (body.calendarLayouts !== undefined) {
+                const actor = await pool.request().input('calendarActorId', sql.Int, requestUserId)
+                    .query('SELECT TOP 1 Role FROM Users WHERE Id = @calendarActorId');
+                const role = String(actor.recordset?.[0]?.Role || '').trim().toLowerCase();
+                if (!isPlatformOwner && !['admin', 'owner', 'manager-admin', 'manageradmin'].includes(role)) {
+                    context.res = { status: 403, headers, body: { error: 'Only administrators can change calendar layouts.' } };
+                    return;
+                }
+                const layouts = body.calendarLayouts;
+                const validId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
+                const validName = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 80;
+                const valid = Array.isArray(layouts) && layouts.length <= 20 &&
+                    new Set(layouts.map(layout => layout?.id)).size === layouts.length && layouts.every(layout =>
+                        layout && validId(layout.id) && validName(layout.name) && Array.isArray(layout.columns) && layout.columns.length <= 30 &&
+                        new Set(layout.columns.map(column => column?.id)).size === layout.columns.length && layout.columns.every(column =>
+                            column && validId(column.id) && validName(column.name) && /^#[0-9a-f]{6}$/i.test(column.color || '') && typeof column.active === 'boolean'));
+                if (!valid) {
+                    context.res = { status: 400, headers, body: { error: 'Invalid calendar layouts or columns.' } };
+                    return;
+                }
+                await upsertSetting(pool, calendarKey, JSON.stringify(layouts), true);
+            }
             const knownKeys = new Set([
+                'calendarLayouts',
+                'calendarClinicId',
                 'companyName',
                 'tagline',
                 'logoData',

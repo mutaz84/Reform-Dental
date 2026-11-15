@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261002-dashboard-simple-events-v182';
+                const buildVersion = '20261115-dashboard-calendar-columns-v184';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -916,6 +916,10 @@
                         <button id="manageRoomsMenuItem" onclick="openRoomsManagement(); toggleSettingsMenu();" style="width: 100%; text-align: left; padding: 0.75rem 1rem; background: none; border: none; color: var(--text-primary); cursor: pointer; display: none; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='none'">
                             <i class="fas fa-door-open" style="margin-right: 0.75rem; width: 20px; color: var(--accent-primary);"></i>
                             <span>Manage Rooms</span>
+                        </button>
+                        <button id="calendarSettingsMenuItem" onclick="window.openDashboardCalendarSettings(); toggleSettingsMenu();" style="width:100%;text-align:left;padding:0.75rem 1rem;background:none;border:none;color:var(--text-primary);cursor:pointer;display:none;">
+                            <i class="fas fa-calendar-days" style="margin-right:0.75rem;width:20px;color:var(--accent-primary);"></i>
+                            <span>Calendar Settings</span>
                         </button>
                         <button id="manageUsersMenuItem" onclick="openUserManagement(); toggleSettingsMenu();" style="width: 100%; text-align: left; padding: 0.75rem 1rem; background: none; border: none; color: var(--text-primary); cursor: pointer; display: none; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='none'">
                             <i class="fas fa-users-cog" style="margin-right: 0.75rem; width: 20px; color: var(--accent-primary);"></i>
@@ -13381,6 +13385,8 @@
             }
             
             // Apply permissions to menu items
+            const calendarSettingsMenuItem = document.getElementById('calendarSettingsMenuItem');
+            if (calendarSettingsMenuItem) calendarSettingsMenuItem.style.display = canManageDashboardCalendarLayouts() ? 'block' : 'none';
             setMenuVisibility(manageOfficesMenuItem, 'clinics', 'view');
             setMenuVisibility(manageRoomsMenuItem, 'rooms', 'view');
             setMenuVisibility(manageUsersMenuItem, 'users', 'view_all');
@@ -58004,7 +58010,7 @@
                 if (options.requireDateTime && (!scheduleDate || !scheduleTime)) return;
                 if (!raw && (!scheduleDate || !scheduleTime)) return;
                 const parseValue = scheduleDate && scheduleTime ? `${scheduleDate}T${scheduleTime}:00` : raw;
-                let parsed = new Date(parseValue);
+                let parsed = new Date(kind === 'Calendar' ? raw : parseValue);
                 if (Number.isNaN(parsed.getTime())) return;
                 const status = String(item?.status || item?.Status || item?.workStatus || '').trim().toLowerCase();
                 if (isClosed(status)) return;
@@ -58013,7 +58019,11 @@
                 if (!scheduleTime && rawIsDateOnly) parsed.setHours(defaultHour, 0, 0, 0);
                 const parsedDateIso = dashboardLocalDateIso(parsed);
                 let coversTargetDate = false;
-                try { coversTargetDate = kind === 'Calendar' && typeof calendarEventCoversDate === 'function' && calendarEventCoversDate(item, targetISO); } catch (_) {}
+                if (kind === 'Calendar') {
+                    const targetEnd = new Date(targetDate); targetEnd.setDate(targetEnd.getDate() + 1);
+                    const rangeEnd = new Date(item.end || item.End || item.endDateTime || item.EndDateTime || parsed);
+                    coversTargetDate = parsed < targetEnd && rangeEnd > targetDate;
+                }
                 if (parsedDateIso !== targetISO && !coversTargetDate) return;
                 if (parsedDateIso !== targetISO && coversTargetDate) parsed = new Date(`${targetISO}T00:00:00`);
                 const assigneeRaw = String(item?.assignee || item?.Assignee || item?.assignedTo || item?.AssignedTo || item?.assignedEmployee || item?.AssignedEmployee || item?.organizerName || item?.OrganizerName || '').trim();
@@ -58025,16 +58035,16 @@
                 const matchesOfficeLocation = kind === 'Calendar' && typeof itemMatchesSelectedClinic === 'function' ? itemMatchesSelectedClinic(item) : true;
                 const isOffice = (kind === 'Calendar' ? calendarScopeState.isOffice : !isMine) && matchesOfficeLocation;
                 let entryAllDay = false;
-                try { entryAllDay = kind === 'Calendar' && typeof isCalendarEventAllDayOrRange === 'function' && isCalendarEventAllDayOrRange(item); } catch (_) {}
+                entryAllDay = kind === 'Calendar' && (item.allDay === true || item.AllDay === true || rawIsDateOnly);
                 const rawEnd = item?.end || item?.End || item?.endDateTime || item?.EndDateTime || item?.endDate || item?.EndDate || '';
                 let entryEnd = new Date(parsed.getTime() + 45 * 60000);
                 if (kind === 'Calendar' && rawEnd) {
                     const endParsed = new Date(rawEnd);
                     if (!Number.isNaN(endParsed.getTime())) entryEnd = endParsed;
                 }
-                if (kind === 'Calendar' && (entryAllDay || coversTargetDate)) {
-                    entryAllDay = true;
-                    entryEnd = new Date(`${targetISO}T23:59:00`);
+                if (kind === 'Calendar') {
+                    const nextDate = new Date(targetDate); nextDate.setDate(nextDate.getDate() + 1);
+                    if (entryAllDay || entryEnd > nextDate) entryEnd = nextDate;
                 }
                 entries.push({ id: item?.id || item?.Id || item?.ticketId || item?.TicketId || item?.assignmentId || item?.AssignmentId || '', title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || item?.notes || item?.Notes || '').trim(), createdByName: String(item?.createdByName || item?.organizerName || item?.OrganizerName || item?.dashboardScheduledByName || item?.createdBy || item?.CreatedBy || '').trim(), assigneeRaw, location: String(item?.location || item?.Location || item?.clinicName || item?.ClinicName || item?.office || item?.Office || '').trim(), attendeesText: dashboardEventAttendeesText(item?.attendees || item?.Attendees || item?.attendeesText || item?.AttendeesText || ''), isMine, isOffice, hasTime: hasTime && !entryAllDay, allDay: entryAllDay, start: parsed, end: entryEnd, view, kind, tone, record: item });
             };
@@ -58337,7 +58347,7 @@
 
         function getDashboardVisibleCalendarEntries() {
             const allEntries = getDashboardCalendarEntries();
-            return (dashboardCalendarScope === 'mine' ? allEntries.filter(entry => entry.isMine) : allEntries.filter(entry => entry.isOffice)).slice(0, 12);
+            return dashboardCalendarScope === 'mine' ? allEntries.filter(entry => entry.isMine) : allEntries.filter(entry => entry.isOffice);
         }
 
         function getDashboardCalendarEntryFromCard(card) {
@@ -58346,7 +58356,10 @@
             const title = dashboardText(card.querySelector('strong')?.textContent);
             const meta = Array.from(card.querySelectorAll('span')).map(span => dashboardText(span.textContent)).find(text => text.includes('·')) || '';
             const kind = dashboardText(meta.split('·')[0]);
-            const entries = getDashboardVisibleCalendarEntries();
+            const cardDate = String(card.getAttribute('data-schedule-date') || '');
+            const entries = dashboardCalendarViewMode === 'week' && /^\d{4}-\d{2}-\d{2}$/.test(cardDate)
+                ? getDashboardCalendarEntries(new Date(`${cardDate}T00:00:00`)).filter(entry => dashboardCalendarScope === 'mine' ? entry.isMine : entry.isOffice)
+                : getDashboardVisibleCalendarEntries();
             const byId = eventId ? entries.find(entry => String(entry.id || '') === eventId) : null;
             if (byId) return byId;
             const withTime = entries.find(entry => {
@@ -58407,13 +58420,15 @@
         }
 
         function getDashboardCalendarDropzone(event) {
-            if (dashboardCalendarViewMode !== 'calendar') return null;
+            if (dashboardCalendarViewMode !== 'calendar' && dashboardCalendarViewMode !== 'week') return null;
             return event?.target?.closest?.('[data-dashboard-calendar-dropzone]') || null;
         }
 
         function getDashboardCalendarDropSlot(event, dropzone) {
             const rect = dropzone.getBoundingClientRect();
-            const startHour = Number(dropzone.dataset.calendarStartHour || 7) || 7;
+            const clickedTime = event.type === 'click' ? event.target.closest('[data-calendar-time]')?.dataset.calendarTime : null;
+            if (clickedTime) return { date: dropzone.dataset.calendarDate || dashboardLocalDateIso(dashboardCalendarDate), time: clickedTime };
+            const startHour = Number(dropzone.dataset.calendarStartHour ?? 7);
             const endHour = Number(dropzone.dataset.calendarEndHour || 19) || 19;
             const totalMinutes = Math.max(15, (endHour - startHour) * 60);
             const relativeY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
@@ -58422,7 +58437,7 @@
             const hour = startHour + Math.floor(roundedMinutes / 60);
             const minute = roundedMinutes % 60;
             return {
-                date: dashboardLocalDateIso(dashboardCalendarDate),
+                date: dropzone.dataset.calendarDate || dashboardLocalDateIso(dashboardCalendarDate),
                 time: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
             };
         }
@@ -58813,6 +58828,7 @@
             form.hidden = !nextVisible;
             form.style.display = nextVisible ? 'grid' : 'none';
             if (!form.hidden) {
+                if (typeof window.syncDashboardEventScopeFormControls === 'function') window.syncDashboardEventScopeFormControls(false);
                 if (typeof window.syncDashboardEventTypeFormControls === 'function') window.syncDashboardEventTypeFormControls(true);
                 document.getElementById('dashboardEventTitle')?.focus();
             }
@@ -58950,6 +58966,49 @@
             typeEl.value = selected;
             if (typeof window.syncDashboardEventTypeFormControls === 'function') window.syncDashboardEventTypeFormControls(false);
         };
+        function dashboardEventFormScope() {
+            const value = String(document.getElementById('dashboardEventScope')?.value || dashboardCalendarScope || 'mine').trim().toLowerCase();
+            return value === 'office' ? 'office' : 'mine';
+        }
+
+        function syncDashboardEventScopeFormControls(clearPeopleWhenPersonal = false) {
+            const scope = dashboardEventFormScope();
+            const scopeEl = document.getElementById('dashboardEventScope');
+            if (scopeEl) scopeEl.value = scope;
+            document.querySelectorAll('[data-dashboard-event-scope]').forEach(button => {
+                button.classList.toggle('active', String(button.dataset.dashboardEventScope || '') === scope);
+            });
+            const peoplePicker = document.querySelector('[data-dashboard-people-picker="true"]');
+            const columnField = document.getElementById('dashboardEventColumnField');
+            if (columnField) columnField.style.display = scope === 'office' ? '' : 'none';
+            if (peoplePicker) {
+                const isPersonal = scope === 'mine';
+                peoplePicker.hidden = isPersonal;
+                peoplePicker.style.display = isPersonal ? 'none' : '';
+                if (isPersonal && clearPeopleWhenPersonal) updateDashboardEventPeoplePicker('');
+            }
+        }
+
+        window.setDashboardEventFormScope = function (scope) {
+            const scopeEl = document.getElementById('dashboardEventScope');
+            if (scopeEl) scopeEl.value = scope === 'office' ? 'office' : 'mine';
+            syncDashboardEventScopeFormControls(true);
+        };
+        window.syncDashboardEventScopeFormControls = syncDashboardEventScopeFormControls;
+
+        function dashboardEventDateMode() {
+            const modeEl = document.getElementById('dashboardEventDateMode');
+            const value = String(modeEl?.value || 'single').trim().toLowerCase();
+            const mode = value === 'range' ? 'range' : 'single';
+            if (modeEl) modeEl.value = mode;
+            return mode;
+        }
+
+        window.setDashboardEventDateMode = function (mode, preserveExistingRange = false) {
+            const modeEl = document.getElementById('dashboardEventDateMode');
+            if (modeEl) modeEl.value = mode === 'range' ? 'range' : 'single';
+            if (typeof window.syncDashboardEventTypeFormControls === 'function') window.syncDashboardEventTypeFormControls(!!preserveExistingRange);
+        };
 
         function syncDashboardEventTypeFormControls(preserveExistingRange = false) {
             const typeEl = document.getElementById('dashboardEventType');
@@ -58958,10 +59017,9 @@
             const startTimeEl = document.getElementById('dashboardEventStart');
             const endTimeEl = document.getElementById('dashboardEventEnd');
             if (!typeEl || !startDateEl || !endDateEl || !startTimeEl || !endTimeEl) return;
-            const config = getDashboardEventTypeConfig(typeEl.value);
-            const dateMode = config.dateMode || 'single_timed';
-            const usesTimes = dateMode === 'single_timed' || dateMode === 'timed_range';
-            const usesEndDate = dateMode === 'date_range' || dateMode === 'timed_range';
+            const dateMode = dashboardEventDateMode();
+            const usesTimes = true;
+            const usesEndDate = dateMode === 'range';
             endDateEl.style.display = usesEndDate ? '' : 'none';
             startTimeEl.style.display = usesTimes ? '' : 'none';
             endTimeEl.style.display = usesTimes ? '' : 'none';
@@ -58969,6 +59027,7 @@
             startTimeEl.required = usesTimes;
             endTimeEl.required = usesTimes;
             if (!startDateEl.value) startDateEl.value = dashboardLocalDateIso(dashboardCalendarDate) || dashboardLocalDateIso(new Date());
+            endDateEl.min = startDateEl.value;
             if (!preserveExistingRange || !endDateEl.value || !usesEndDate) endDateEl.value = startDateEl.value;
             if (!usesTimes) {
                 startTimeEl.value = '00:00';
@@ -58977,6 +59036,10 @@
                 if (!startTimeEl.value) startTimeEl.value = '09:00';
                 if (!endTimeEl.value) endTimeEl.value = '09:45';
             }
+            document.querySelectorAll('[data-dashboard-event-date-mode]').forEach(button => {
+                button.classList.toggle('active', String(button.dataset.dashboardEventDateMode || '') === dateMode);
+            });
+            syncDashboardEventScopeFormControls(false);
             updateDashboardEventTypePicker(typeEl.value);
         }
         window.syncDashboardEventTypeFormControls = syncDashboardEventTypeFormControls;
@@ -58988,6 +59051,9 @@
                 dashboardEventTitle: '',
                 dashboardEventDescription: '',
                 dashboardEventType: 'meeting',
+                dashboardEventScope: dashboardCalendarScope === 'office' ? 'office' : 'mine',
+                dashboardEventDateMode: 'single',
+                dashboardEventColumn: '',
                 dashboardEventLocation: '',
                 dashboardEventAttendees: '',
                 dashboardEventDate: date,
@@ -59000,6 +59066,7 @@
                 if (element) element.value = value;
             });
             updateDashboardEventPeoplePicker('');
+            syncDashboardEventScopeFormControls(true);
             syncDashboardEventTypeFormControls(false);
         }
 
@@ -59012,21 +59079,30 @@
             const title = String(document.getElementById('dashboardEventTitle')?.value || '').trim();
             const description = String(document.getElementById('dashboardEventDescription')?.value || '').trim();
             const type = String(document.getElementById('dashboardEventType')?.value || 'appointment').trim().toLowerCase() || 'appointment';
+            const eventScope = dashboardEventFormScope();
+            const columnValue = eventScope === 'office' ? String(document.getElementById('dashboardEventColumn')?.value || '') : '';
+            const [calendarLayoutId = '', calendarColumnId = ''] = columnValue.split(':');
             const location = String(document.getElementById('dashboardEventLocation')?.value || '').trim();
-            const attendees = (typeof normalizeEventAttendees === 'function') ? normalizeEventAttendees(document.getElementById('dashboardEventAttendees')?.value || '') : [];
+            const rawAttendees = (typeof normalizeEventAttendees === 'function') ? normalizeEventAttendees(document.getElementById('dashboardEventAttendees')?.value || '') : [];
+            const attendees = eventScope === 'office' ? rawAttendees : [];
             const dateValue = String(document.getElementById('dashboardEventDate')?.value || '').trim();
             const endDateValue = String(document.getElementById('dashboardEventEndDate')?.value || '').trim();
             const startValue = String(document.getElementById('dashboardEventStart')?.value || '').trim();
             const endValue = String(document.getElementById('dashboardEventEnd')?.value || '').trim();
             const typeConfig = getDashboardEventTypeConfig(type);
-            const dateMode = typeConfig.dateMode || 'single_timed';
-            const usesTimes = dateMode === 'single_timed' || dateMode === 'timed_range';
-            const usesEndDate = dateMode === 'date_range' || dateMode === 'timed_range';
+            const formDateMode = dashboardEventDateMode();
+            const dateMode = formDateMode === 'range' ? 'timed_range' : 'single_timed';
+            const usesTimes = true;
+            const usesEndDate = formDateMode === 'range';
             const normalizedEndDate = usesEndDate ? (endDateValue || dateValue) : dateValue;
             const normalizedStartTime = usesTimes ? (startValue || '09:00') : '00:00';
             const normalizedEndTime = usesTimes ? (endValue || '09:45') : '23:59';
             if (!title || !dateValue || !normalizedEndDate || (usesTimes && (!startValue || !endValue))) {
                 if (typeof showNotification === 'function') showNotification(usesTimes ? 'Enter an event title, date, start time, and end time.' : 'Enter an event title and date range.', 'warning');
+                return;
+            }
+            if (eventScope === 'office' && !attendees.length) {
+                if (typeof showNotification === 'function') showNotification('Choose people for office events, or switch to Personal.', 'warning');
                 return;
             }
             const start = new Date(`${dateValue}T${normalizedStartTime}`);
@@ -59038,7 +59114,7 @@
             const creator = getDashboardCurrentCreator();
             const selectedClinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
             const editingId = String(document.getElementById('dashboardEventEditId')?.value || '').trim();
-            const savingToMine = dashboardCalendarScope === 'mine';
+            const savingToMine = eventScope === 'mine';
             const eventColor = typeConfig.color || '#0e9384';
             const resolvedLocation = location || selectedClinicMeta?.selectedClinicName || '';
             const eventRecord = {
@@ -59055,18 +59131,20 @@
                 organizerUsername: creator.username || '',
                 attendees,
                 attendeesText: attendees.map(item => item.displayName || item.email || item.userId || '').filter(Boolean).join(', '),
-                requiresAttendance: attendees.length > 0,
+                requiresAttendance: !savingToMine && attendees.length > 0,
                 clinicId: selectedClinicMeta?.selectedClinicId || null,
                 clinicName: selectedClinicMeta?.selectedClinicName || '',
                 type,
                 eventType: type,
                 dateMode,
-                scopeType: typeConfig.scopeType || 'user',
+                scopeType: savingToMine ? 'user' : 'team',
                 availabilityImpact: typeConfig.availabilityImpact || 'busy',
                 status: 'scheduled',
                 priority: 'medium',
                 eventCategory: typeConfig.category || 'general',
-                dashboardScope: dashboardCalendarScope,
+                dashboardScope: eventScope,
+                calendarLayoutId: calendarLayoutId || null,
+                calendarColumnId: calendarColumnId || null,
                 allDay: !usesTimes,
                 color: eventColor,
                 backgroundColor: eventColor
@@ -59084,7 +59162,7 @@
             } catch (error) {
                 console.error('Dashboard event API save failed; event is only stored locally on this machine.', error);
             }
-            setDashboardEventScope(eventRecord.id, dashboardCalendarScope);
+            setDashboardEventScope(eventRecord.id, eventScope);
             let events = [];
             try { events = JSON.parse(localStorage.getItem('calendarEvents') || '[]'); } catch (_) { events = []; }
             if (!Array.isArray(events)) events = [];
@@ -59130,15 +59208,22 @@
             document.getElementById('dashboardEventEditId').value = String(eventId);
             document.getElementById('dashboardEventTitle').value = eventRecord.title || '';
             document.getElementById('dashboardEventDescription').value = eventRecord.description || '';
+            const editScope = dashboardCalendarScopeState(eventRecord, getDashboardOwnershipKeys(), getDashboardEventScopeMap()).isOffice ? 'office' : 'mine';
+            document.getElementById('dashboardEventScope').value = editScope;
+            const columnValue = eventRecord.calendarLayoutId && eventRecord.calendarColumnId ? `${eventRecord.calendarLayoutId}:${eventRecord.calendarColumnId}` : '';
+            const columnSelect = document.getElementById('dashboardEventColumn');
+            columnSelect.innerHTML = dashboardCalendarColumnOptions(columnValue);
+            columnSelect.value = columnValue;
             document.getElementById('dashboardEventLocation').value = eventRecord.location || eventRecord.Location || eventRecord.clinicName || eventRecord.ClinicName || '';
             updateDashboardEventPeoplePicker(eventRecord.attendeesText || dashboardEventAttendeesText(eventRecord.attendees || eventRecord.Attendees || ''));
             const eventType = String(eventRecord.type || eventRecord.eventType || 'appointment').toLowerCase();
             if (typeof window.selectDashboardEventType === 'function') window.selectDashboardEventType(eventType, true);
             else document.getElementById('dashboardEventType').value = eventType;
-            document.getElementById('dashboardEventDate').value = dashboardScheduleDateOnly(startText) || start.toISOString().slice(0, 10);
-            document.getElementById('dashboardEventEndDate').value = dashboardScheduleDateOnly(endText) || end.toISOString().slice(0, 10);
-            document.getElementById('dashboardEventStart').value = (startText.split('T')[1] || '').slice(0, 5) || start.toTimeString().slice(0, 5);
-            document.getElementById('dashboardEventEnd').value = (endText.split('T')[1] || '').slice(0, 5) || end.toTimeString().slice(0, 5);
+            document.getElementById('dashboardEventDate').value = dashboardLocalDateIso(start);
+            document.getElementById('dashboardEventEndDate').value = dashboardLocalDateIso(end);
+            document.getElementById('dashboardEventDateMode').value = dashboardLocalDateIso(start) === dashboardLocalDateIso(end) ? 'single' : 'range';
+            document.getElementById('dashboardEventStart').value = start.toTimeString().slice(0, 5);
+            document.getElementById('dashboardEventEnd').value = end.toTimeString().slice(0, 5);
             syncDashboardEventTypeFormControls(true);
             window.toggleDashboardEventForm(true);
         };
@@ -59168,7 +59253,7 @@
 
         window.shiftDashboardCalendar = function (offset) {
             if (dashboardCalendarViewMode === 'month') dashboardCalendarDate.setMonth(dashboardCalendarDate.getMonth() + Number(offset || 0));
-            else dashboardCalendarDate.setDate(dashboardCalendarDate.getDate() + Number(offset || 0));
+            else dashboardCalendarDate.setDate(dashboardCalendarDate.getDate() + Number(offset || 0) * (dashboardCalendarViewMode === 'week' ? 7 : 1));
             refreshDashboardScheduleSurfaces();
         };
         window.resetDashboardCalendar = function () { dashboardCalendarDate = new Date(); refreshDashboardScheduleSurfaces(); };
@@ -59671,7 +59756,17 @@
             const eventDate = escapeDashboardHtml(dashboardLocalDateIso(dashboardCalendarDate));
             const selectedClinicMeta = (typeof getSelectedClinicMetadata === 'function') ? getSelectedClinicMetadata() : null;
             const locationValue = escapeDashboardHtml(selectedClinicMeta?.selectedClinicName || '');
-            return `<div id="dashboardEventForm" class="rd-ops-event-form" hidden style="display:none;"><input id="dashboardEventEditId" type="hidden"><input id="dashboardEventType" type="hidden" value="meeting" data-dashboard-event-type-category="general"><input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><input id="dashboardEventLocation" placeholder="Location" aria-label="Event location" value="${locationValue}">${dashboardEventPeoplePickerHtml()}<input id="dashboardEventDate" type="date" aria-label="Start date" value="${eventDate}" onchange="window.syncDashboardEventTypeFormControls && window.syncDashboardEventTypeFormControls(false)"><input id="dashboardEventEndDate" type="date" aria-label="End date" value="${eventDate}"><input id="dashboardEventStart" type="time" aria-label="Start time" value="09:00"><input id="dashboardEventEnd" type="time" aria-label="End time" value="09:45"><span class="rd-ops-event-actions"><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardEvent()">Save</button><button type="button" class="rd-ops-btn" onclick="window.cancelDashboardEventForm()">Cancel</button></span></div>`;
+            const scope = dashboardCalendarScope === 'office' ? 'office' : 'mine';
+            return `<div id="dashboardEventForm" class="rd-ops-event-form" hidden style="display:none;">
+                <input id="dashboardEventEditId" type="hidden"><input id="dashboardEventType" type="hidden" value="meeting" data-dashboard-event-type-category="general"><input id="dashboardEventScope" type="hidden" value="${scope}"><input id="dashboardEventDateMode" type="hidden" value="single">
+                <span class="rd-ops-segment" role="group" aria-label="Event calendar"><button type="button" data-dashboard-event-scope="mine" class="${scope === 'mine' ? 'active' : ''}" onclick="window.setDashboardEventFormScope('mine')">Personal</button><button type="button" data-dashboard-event-scope="office" class="${scope === 'office' ? 'active' : ''}" onclick="window.setDashboardEventFormScope('office')">Office</button></span>
+                <input id="dashboardEventTitle" required placeholder="Event title" aria-label="Event title"><input id="dashboardEventDescription" placeholder="Description" aria-label="Description"><input id="dashboardEventLocation" placeholder="Location" aria-label="Event location" value="${locationValue}">
+                ${dashboardEventPeoplePickerHtml()}
+                <label id="dashboardEventColumnField" style="display:${scope === 'office' ? 'grid' : 'none'};gap:4px;min-width:0;font-size:12px;">Calendar column<select id="dashboardEventColumn" aria-label="Calendar column">${dashboardCalendarColumnOptions()}</select></label>
+                <span class="rd-ops-segment" role="group" aria-label="Event dates"><button type="button" class="active" data-dashboard-event-date-mode="single" onclick="window.setDashboardEventDateMode('single')">Single date</button><button type="button" data-dashboard-event-date-mode="range" onclick="window.setDashboardEventDateMode('range')">Date range</button></span>
+                <input id="dashboardEventDate" type="date" aria-label="Start date" value="${eventDate}" onchange="window.syncDashboardEventTypeFormControls(true)"><input id="dashboardEventEndDate" type="date" aria-label="End date" value="${eventDate}" style="display:none;"><input id="dashboardEventStart" type="time" aria-label="Start time" value="09:00"><input id="dashboardEventEnd" type="time" aria-label="End time" value="09:45">
+                <span class="rd-ops-event-actions"><button type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardEvent()">Save</button><button type="button" class="rd-ops-btn" onclick="window.cancelDashboardEventForm()">Cancel</button></span>
+            </div>`;
         }
 
         function dashboardCalendarEntryCanModify(entry) {
@@ -59777,19 +59872,252 @@
             return `<div class="rd-ops-scheduled-item" role="button" tabindex="0" data-dashboard-event-id="${eventId}" data-dashboard-scheduled-operation="${canUnschedule ? 'true' : 'false'}" data-entry-kind="${escapeDashboardHtml(entry.kind || '')}" data-entry-title="${escapeDashboardHtml(entry.title || '')}" data-entry-id="${escapeDashboardHtml(entryId)}" data-entry-view="${escapeDashboardHtml(entry.view || '')}" data-service-ticket-id="${escapeDashboardHtml(serviceTicketId)}" data-service-equipment-id="${escapeDashboardHtml(equipmentId)}" data-equipment-id="${escapeDashboardHtml(equipmentId)}" data-schedule-date="${escapeDashboardHtml(dashboardLocalDateIso(entry.start) || '')}" data-schedule-time="${escapeDashboardHtml(entry.start.toTimeString().slice(0, 5))}" onclick="window.openDashboardScheduledStory(this,event)" onkeydown="if(event.key==='Enter'||event.key===' '){window.openDashboardScheduledStory(this,event)}" style="--event-tone:${escapeDashboardHtml(entry.tone || '#0F5E75')};"><div class="rd-ops-scheduled-time">${escapeDashboardHtml(startLabel)}<span>${escapeDashboardHtml(endLabel)}</span></div><span class="rd-ops-scheduled-kind ${type.cls}" aria-hidden="true"><i class="${type.icon}"></i></span><div class="rd-ops-scheduled-body"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;"><strong>${escapeDashboardHtml(dashboardSentenceCase(entry.title))}</strong>${rowActionHtml}</div><span>${escapeDashboardHtml(metaParts.join(' · '))}</span></div></div>`;
         }
 
+        const dashboardCalendarLayoutsCache = new Map();
+        let dashboardCalendarLayoutDraft = [];
+        let dashboardCalendarDraftId = '';
+        let dashboardCalendarDraftClinic = 0;
+
+        function dashboardCalendarClinicId() {
+            const metadata = typeof getSelectedClinicMetadata === 'function' ? getSelectedClinicMetadata() : null;
+            return Number(metadata?.selectedClinicId || 0) || 0;
+        }
+
+        function dashboardCalendarLayoutsKey() {
+            return `rd:calendarLayouts:${getDashboardCurrentCreator().id || 'guest'}:${dashboardCalendarClinicId()}`;
+        }
+
+        function dashboardCalendarLayouts() {
+            const key = dashboardCalendarLayoutsKey();
+            if (!dashboardCalendarLayoutsCache.has(key)) {
+                let layouts = [];
+                try { layouts = JSON.parse(localStorage.getItem(key) || '[]'); } catch (_) {}
+                dashboardCalendarLayoutsCache.set(key, { layouts: Array.isArray(layouts) ? layouts : [], attemptedAt: 0, pending: null });
+            }
+            return dashboardCalendarLayoutsCache.get(key).layouts;
+        }
+
+        async function loadDashboardCalendarLayouts(force = false) {
+            dashboardCalendarLayouts();
+            const key = dashboardCalendarLayoutsKey();
+            const state = dashboardCalendarLayoutsCache.get(key);
+            const clinicId = dashboardCalendarClinicId();
+            if (!clinicId || state.pending || (!force && Date.now() - state.attemptedAt < 60000)) return state.pending;
+            state.attemptedAt = Date.now();
+            state.pending = (async () => {
+                try {
+                    const response = await fetch(`${getEventsApiBaseUrl()}/settings?calendarClinicId=${clinicId}`, await getEventsTenantFetchInit({ cache: 'no-store' }));
+                    if (!response.ok) throw new Error(`Calendar settings could not load (${response.status}).`);
+                    const payload = await response.json();
+                    const layouts = Array.isArray(payload.calendarLayouts) ? payload.calendarLayouts : [];
+                    const changed = JSON.stringify(layouts) !== JSON.stringify(state.layouts);
+                    state.layouts = layouts;
+                    localStorage.setItem(key, JSON.stringify(layouts));
+                    const form = document.getElementById('dashboardEventForm');
+                    if (changed && key === dashboardCalendarLayoutsKey() && (!form || form.hidden)) refreshDashboardScheduleSurfaces();
+                    return true;
+                } catch (error) {
+                    if (force && typeof showNotification === 'function') showNotification(error.message, 'warning');
+                    return false;
+                } finally { state.pending = null; }
+            })();
+            return state.pending;
+        }
+
+        function dashboardSelectedCalendarLayout() {
+            const layouts = dashboardCalendarLayouts();
+            const selectedId = localStorage.getItem(`${dashboardCalendarLayoutsKey()}:selected`);
+            return layouts.find(layout => layout.id === selectedId) || layouts[0] || null;
+        }
+
+        window.setDashboardCalendarLayout = function (id) {
+            localStorage.setItem(`${dashboardCalendarLayoutsKey()}:selected`, id);
+            refreshDashboardScheduleSurfaces();
+        };
+
+        function dashboardCalendarColumnOptions(selected = '') {
+            const options = dashboardCalendarLayouts().map(layout => `<optgroup label="${escapeDashboardHtml(layout.name)}">${layout.columns.filter(column => column.active || `${layout.id}:${column.id}` === selected).map(column => `<option value="${escapeDashboardHtml(`${layout.id}:${column.id}`)}"${`${layout.id}:${column.id}` === selected ? ' selected' : ''}>${escapeDashboardHtml(column.name)}${column.active ? '' : ' (inactive)'}</option>`).join('')}</optgroup>`).join('');
+            return `<option value="">Unassigned</option>${options}`;
+        }
+
+        function canManageDashboardCalendarLayouts() {
+            const role = String(localStorage.getItem('userRole') || '').toLowerCase();
+            return (typeof isPlatformAdminUser === 'function' && isPlatformAdminUser()) || ['admin', 'owner', 'manager-admin', 'manageradmin'].includes(role);
+        }
+
+        function renderDashboardCalendarSettingsEditor() {
+            const host = document.getElementById('dashboardCalendarSettingsEditor');
+            if (!host) return;
+            const layout = dashboardCalendarLayoutDraft.find(item => item.id === dashboardCalendarDraftId);
+            const iconButton = (action, columnId, icon, label) => `<button type="button" class="rd-ops-btn" data-column-id="${escapeDashboardHtml(columnId)}" onclick="window.changeDashboardCalendarColumn('${action}',this.dataset.columnId)" title="${label}" aria-label="${label}"><i class="fas fa-${icon}" aria-hidden="true"></i></button>`;
+            host.innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;"><select aria-label="Calendar layout" onchange="window.selectDashboardCalendarDraft(this.value)" style="min-width:180px;max-width:100%;padding:8px;">${dashboardCalendarLayoutDraft.map(item => `<option value="${escapeDashboardHtml(item.id)}"${item.id === dashboardCalendarDraftId ? ' selected' : ''}>${escapeDashboardHtml(item.name)}</option>`).join('')}</select><button type="button" class="rd-ops-btn" onclick="window.changeDashboardCalendarColumn('new-layout')"><i class="fas fa-plus"></i>Add layout</button></div>${layout ? `<label style="display:grid;gap:6px;max-width:400px;margin-bottom:20px;">Layout name<input aria-label="Layout name" maxlength="80" value="${escapeDashboardHtml(layout.name)}" oninput="window.updateDashboardCalendarLayoutName(this.value)" style="padding:8px;min-width:0;"></label><div style="overflow-x:auto;"><table style="width:100%;min-width:540px;border-collapse:collapse;text-align:left;"><thead><tr><th>Column</th><th>Color</th><th>Active</th><th>Order / remove</th></tr></thead><tbody>${layout.columns.map(column => `<tr data-calendar-column-editor="${escapeDashboardHtml(column.id)}"><td style="padding:8px 8px 8px 0;"><input aria-label="Column name" data-field="name" maxlength="80" value="${escapeDashboardHtml(column.name)}" oninput="window.updateDashboardCalendarColumn(this)" style="width:100%;box-sizing:border-box;padding:8px;"></td><td><input type="color" aria-label="Column color" data-field="color" value="${escapeDashboardHtml(column.color)}" oninput="window.updateDashboardCalendarColumn(this)"></td><td><input type="checkbox" aria-label="Active column" data-field="active" ${column.active ? 'checked' : ''} onchange="window.updateDashboardCalendarColumn(this)"></td><td style="white-space:nowrap;">${iconButton('up', column.id, 'arrow-up', 'Move column up')}${iconButton('down', column.id, 'arrow-down', 'Move column down')}${iconButton('remove', column.id, 'trash', 'Remove column')}</td></tr>`).join('')}</tbody></table></div><div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;"><button type="button" class="rd-ops-btn" onclick="window.changeDashboardCalendarColumn('add')"><i class="fas fa-plus"></i>Add column</button><button type="button" class="rd-ops-btn" onclick="window.changeDashboardCalendarColumn('delete-layout')"><i class="fas fa-trash"></i>Delete layout</button></div>` : ''}<div style="margin-top:24px;display:flex;gap:12px;"><button id="dashboardCalendarSettingsSave" type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardCalendarLayouts()"><i class="fas fa-save"></i>Save</button><button type="button" class="rd-ops-btn" onclick="window.closeDashboardCalendarSettings()">Cancel</button></div>`;
+        }
+
+        window.selectDashboardCalendarDraft = function (id) {
+            dashboardCalendarDraftId = id;
+            renderDashboardCalendarSettingsEditor();
+        };
+
+        window.updateDashboardCalendarLayoutName = function (name) {
+            const layout = dashboardCalendarLayoutDraft.find(item => item.id === dashboardCalendarDraftId);
+            if (layout) layout.name = name;
+        };
+
+        window.updateDashboardCalendarColumn = function (input) {
+            const layout = dashboardCalendarLayoutDraft.find(item => item.id === dashboardCalendarDraftId);
+            const column = layout?.columns.find(item => item.id === input.closest('[data-calendar-column-editor]').dataset.calendarColumnEditor);
+            if (column) column[input.dataset.field] = input.dataset.field === 'active' ? input.checked : input.value;
+        };
+
+        window.changeDashboardCalendarColumn = function (action, columnId) {
+            const layout = dashboardCalendarLayoutDraft.find(item => item.id === dashboardCalendarDraftId);
+            const newId = () => `cal-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+            if (action === 'new-layout') {
+                if (dashboardCalendarLayoutDraft.length >= 20) return;
+                dashboardCalendarDraftId = newId();
+                dashboardCalendarLayoutDraft.push({ id: dashboardCalendarDraftId, name: 'New layout', columns: [] });
+            } else if (action === 'delete-layout' && layout) {
+                if (!window.confirm(`Delete layout "${layout.name}"?`)) return;
+                dashboardCalendarLayoutDraft = dashboardCalendarLayoutDraft.filter(item => item !== layout);
+                dashboardCalendarDraftId = dashboardCalendarLayoutDraft[0]?.id || '';
+            } else if (layout) {
+                const index = layout.columns.findIndex(column => column.id === columnId);
+                if (action === 'add' && layout.columns.length < 30) layout.columns.push({ id: newId(), name: `Column ${layout.columns.length + 1}`, color: '#0F5E75', active: true });
+                if (action === 'remove' && index >= 0) layout.columns.splice(index, 1);
+                const next = index + (action === 'up' ? -1 : 1);
+                if ((action === 'up' || action === 'down') && index >= 0 && next >= 0 && next < layout.columns.length) [layout.columns[index], layout.columns[next]] = [layout.columns[next], layout.columns[index]];
+            }
+            renderDashboardCalendarSettingsEditor();
+        };
+
+        window.openDashboardCalendarSettings = async function () {
+            if (!canManageDashboardCalendarLayouts()) return;
+            dashboardCalendarDraftClinic = dashboardCalendarClinicId();
+            if (!dashboardCalendarDraftClinic) { window.alert('Select a clinic before editing calendar layouts.'); return; }
+            let modal = document.getElementById('dashboardCalendarSettingsModal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'dashboardCalendarSettingsModal';
+                modal.style.cssText = 'display:none;position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,.4);align-items:center;justify-content:center;';
+                modal.innerHTML = '<div class="rd-ops-dashboard" style="width:min(850px,94vw);min-height:0;max-height:90vh;overflow:auto;background:var(--card-bg,#fff);padding:24px;box-sizing:border-box;border-radius:8px;"><h3>Calendar Settings</h3><div id="dashboardCalendarSettingsEditor"></div></div>';
+                document.body.appendChild(modal);
+            }
+            modal.style.display = 'flex';
+            document.getElementById('dashboardCalendarSettingsEditor').textContent = 'Loading...';
+            const loaded = await loadDashboardCalendarLayouts(true);
+            if (!loaded || dashboardCalendarDraftClinic !== dashboardCalendarClinicId()) {
+                document.getElementById('dashboardCalendarSettingsEditor').innerHTML = '<p>Calendar settings are unavailable.</p><button type="button" class="rd-ops-btn" onclick="window.openDashboardCalendarSettings()">Retry</button><button type="button" class="rd-ops-btn" onclick="window.closeDashboardCalendarSettings()">Close</button>';
+                return;
+            }
+            dashboardCalendarLayoutDraft = JSON.parse(JSON.stringify(dashboardCalendarLayouts()));
+            dashboardCalendarDraftId = dashboardCalendarLayoutDraft[0]?.id || '';
+            renderDashboardCalendarSettingsEditor();
+        };
+
+        window.closeDashboardCalendarSettings = function () {
+            const modal = document.getElementById('dashboardCalendarSettingsModal');
+            if (modal) modal.style.display = 'none';
+            if (typeof window.switchContentView === 'function') window.switchContentView('dashboard', null);
+        };
+
+        window.saveDashboardCalendarLayouts = async function () {
+            if (!canManageDashboardCalendarLayouts() || !dashboardCalendarDraftClinic || dashboardCalendarDraftClinic !== dashboardCalendarClinicId()) return;
+            if (dashboardCalendarLayoutDraft.some(layout => !layout.name.trim() || layout.columns.some(column => !column.name.trim()))) {
+                window.alert('Enter a name for every layout and column.');
+                return;
+            }
+            const button = document.getElementById('dashboardCalendarSettingsSave');
+            const settingsKey = dashboardCalendarLayoutsKey();
+            const clinicId = dashboardCalendarDraftClinic;
+            const layouts = JSON.parse(JSON.stringify(dashboardCalendarLayoutDraft));
+            if (button) button.disabled = true;
+            try {
+                const response = await fetch(`${getEventsApiBaseUrl()}/settings`, await getEventsTenantFetchInit({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ calendarClinicId: clinicId, calendarLayouts: layouts }) }));
+                if (!response.ok) throw new Error(`Calendar settings were not saved (${response.status}).`);
+                dashboardCalendarLayoutsCache.get(settingsKey).layouts = layouts;
+                localStorage.setItem(settingsKey, JSON.stringify(layouts));
+                refreshDashboardScheduleSurfaces();
+                if (typeof showNotification === 'function') showNotification('Calendar layouts saved.', 'success');
+                window.closeDashboardCalendarSettings();
+            } catch (error) { window.alert(error.message); }
+            finally { if (button) button.disabled = false; }
+        };
+
+        window.openDashboardCalendarCell = function (lane, event) {
+            if (event.target.closest('[data-dashboard-event-id]')) return;
+            const slot = getDashboardCalendarDropSlot(event, lane);
+            resetDashboardEventForm();
+            document.getElementById('dashboardEventDate').value = slot.date;
+            document.getElementById('dashboardEventEndDate').value = slot.date;
+            document.getElementById('dashboardEventStart').value = slot.time;
+            const endMinutes = Math.min(1439, Number(slot.time.slice(0, 2)) * 60 + Number(slot.time.slice(3)) + 30);
+            document.getElementById('dashboardEventEnd').value = `${String(Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`;
+            document.getElementById('dashboardEventColumn').value = lane.dataset.calendarColumn || '';
+            window.toggleDashboardEventForm(true);
+            document.getElementById('dashboardEventForm')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        };
+
         function renderDashboardScheduleBody(entries, activeDate) {
             if (dashboardCalendarViewMode === 'month') return `<div>${renderDashboardMonthGridHtml(dashboardCalendarDate)}</div>`;
-            if (dashboardCalendarViewMode === 'list' || dashboardCalendarViewMode === 'week') {
+            if (dashboardCalendarViewMode === 'list') {
                 return entries.length ? `<div class="rd-ops-list">${entries.map(dashboardScheduleEntryHtml).join('')}</div>` : `<div class="rd-ops-empty" data-dashboard-calendar-dropzone="true" data-calendar-start-hour="7" data-calendar-end-hour="19"><span class="rd-ops-empty-icon"><i class="far fa-calendar"></i></span><strong>Nothing scheduled today</strong><span>Drag an item here to choose a date and time, or add an event.</span></div>`;
             }
-            if (!entries.length) return `<div class="rd-ops-empty" data-dashboard-calendar-dropzone="true" data-calendar-start-hour="7" data-calendar-end-hour="19"><span class="rd-ops-empty-icon"><i class="far fa-calendar"></i></span><strong>Nothing scheduled today</strong><span>Drag an item here to choose a date and time, or add an event.</span></div>`;
-            const firstHour = Math.min(7, ...entries.map(entry => entry.start.getHours()));
-            const lastHour = Math.max(18, ...entries.map(entry => entry.end.getHours() + 1));
-            return `<div class="rd-ops-day-schedule" data-dashboard-calendar-dropzone="true" data-calendar-start-hour="${firstHour}" data-calendar-end-hour="${lastHour}"><div class="rd-ops-day-hint"><i class="far fa-calendar-plus"></i><span>Drop here to choose a date and time.</span></div>${entries.map(dashboardScheduleEntryHtml).join('')}</div>`;
+            const isWeek = dashboardCalendarViewMode === 'week';
+            const layout = dashboardCalendarScope === 'office' ? dashboardSelectedCalendarLayout() : null;
+            const firstDate = new Date(`${activeDate}T00:00:00`);
+            if (isWeek) firstDate.setDate(firstDate.getDate() - firstDate.getDay());
+            const columns = isWeek ? Array.from({ length: 7 }, (_, index) => {
+                const date = new Date(firstDate);
+                date.setDate(date.getDate() + index);
+                return { id: '', date: dashboardLocalDateIso(date), name: date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) };
+            }) : [{ id: '', date: activeDate, name: dashboardCalendarScope === 'mine' ? 'My calendar' : 'Unassigned' }, ...(layout?.columns || []).filter(column => column.active).map(column => ({ ...column, date: activeDate }))];
+            const firstHour = 0;
+            const lastHour = 24;
+            const hourHeight = 64;
+            const headers = columns.map(column => `<div style="position:sticky;top:0;z-index:5;background:var(--card-bg,#fff);padding:12px;border-left:1px solid #D9D6CF;border-top:3px solid ${column.color || '#0F5E75'};font-weight:700;text-align:center;overflow-wrap:anywhere;">${escapeDashboardHtml(column.name)}</div>`).join('');
+            const times = Array.from({ length: 24 }, (_, hour) => `<div style="height:${hourHeight}px;box-sizing:border-box;padding:4px;font-size:12px;border-top:1px solid #D9D6CF;">${hour % 12 || 12} ${hour < 12 ? 'AM' : 'PM'}</div>`).join('');
+            const lanes = columns.map(column => {
+                const dayEntries = (isWeek ? getDashboardCalendarEntries(new Date(`${column.date}T00:00:00`)).filter(entry => dashboardCalendarScope === 'mine' ? entry.isMine : entry.isOffice) : entries).filter(entry => {
+                    if (isWeek || dashboardCalendarScope === 'mine') return true;
+                    const record = entry.record || {};
+                    const assigned = record.calendarLayoutId === layout?.id && layout?.columns.some(candidate => candidate.active && candidate.id === record.calendarColumnId);
+                    return column.id ? assigned && record.calendarColumnId === column.id : !assigned;
+                }).sort((left, right) => left.start - right.start);
+                const positioned = [];
+                let group = [];
+                let groupEnd = 0;
+                const finishGroup = () => {
+                    const total = Math.max(1, ...group.map(item => item.track + 1));
+                    group.forEach(item => { item.total = total; });
+                    group = [];
+                };
+                const midnight = new Date(`${column.date}T00:00:00`);
+                dayEntries.forEach(entry => {
+                    const startMinutes = entry.start < midnight ? 0 : entry.start.getHours() * 60 + entry.start.getMinutes();
+                    const nextMidnight = new Date(midnight); nextMidnight.setDate(nextMidnight.getDate() + 1);
+                    const endMinutes = entry.end >= nextMidnight ? 1440 : entry.end.getHours() * 60 + entry.end.getMinutes();
+                    const top = startMinutes / 60 * hourHeight;
+                    const height = Math.max(38, (endMinutes - startMinutes) / 60 * hourHeight);
+                    if (top >= groupEnd) finishGroup();
+                    const occupied = new Set(group.filter(item => item.top + item.height > top).map(item => item.track));
+                    let track = 0;
+                    while (occupied.has(track)) track++;
+                    const item = { entry, top, height, track, total: 1 };
+                    group.push(item); positioned.push(item); groupEnd = Math.max(top + height, group.length === 1 ? 0 : groupEnd);
+                });
+                finishGroup();
+                const cards = positioned.map(({ entry, top, height, track, total }) => {
+                    return `<div style="position:absolute;top:${top}px;left:calc(${track * 100 / total}% + 3px);width:calc(${100 / total}% - 6px);height:${height}px;box-sizing:border-box;z-index:2;background:var(--card-bg,#fff);border:1px solid #D9D6CF;border-radius:6px;overflow:hidden;">${dashboardScheduleEntryHtml(entry)}</div>`;
+                }).join('');
+                const slots = Array.from({ length: 48 }, (_, index) => `<button type="button" data-calendar-time="${String(Math.floor(index / 2)).padStart(2, '0')}:${index % 2 ? '30' : '00'}" aria-label="${escapeDashboardHtml(`${column.name}, ${column.date}, ${String(Math.floor(index / 2)).padStart(2, '0')}:${index % 2 ? '30' : '00'}`)}" onclick="window.openDashboardCalendarCell(this.parentElement,event)" style="position:absolute;top:${index * 32}px;left:0;right:0;width:100%;height:32px;background:transparent;border:0;cursor:pointer;"></button>`).join('');
+                return `<div data-dashboard-calendar-dropzone="true" data-calendar-date="${column.date}" data-calendar-column="${column.id && layout ? `${layout.id}:${column.id}` : ''}" data-calendar-start-hour="${firstHour}" data-calendar-end-hour="${lastHour}" style="position:relative;min-width:180px;height:${24 * hourHeight}px;border-left:1px solid #D9D6CF;background:repeating-linear-gradient(to bottom,transparent 0,transparent 31px,#ECEAE6 31px,#ECEAE6 32px,transparent 32px,transparent 63px,#D9D6CF 63px,#D9D6CF 64px);">${slots}${cards}</div>`;
+            }).join('');
+            return `<style>.rd-calendar-time-grid .rd-ops-scheduled-item{height:100%;box-sizing:border-box;padding:4px;gap:4px;display:flex;align-items:flex-start;min-width:0}.rd-calendar-time-grid .rd-ops-scheduled-kind{display:none}.rd-calendar-time-grid .rd-ops-scheduled-time{font-size:10px;min-width:36px;width:36px;flex-shrink:0}.rd-calendar-time-grid .rd-ops-scheduled-body{min-width:0;flex:1}.rd-calendar-time-grid .rd-ops-scheduled-body strong{font-size:12px;overflow-wrap:anywhere}.rd-calendar-time-grid .rd-ops-scheduled-body>span{font-size:10px;overflow-wrap:anywhere}.rd-calendar-time-grid button:focus-visible{outline:2px solid #0F5E75;outline-offset:-2px}.rd-ops-event-form>label{min-width:0}.rd-ops-event-form select{max-width:100%;min-width:0;padding:8px;box-sizing:border-box;}</style><div class="rd-calendar-time-grid" data-dashboard-time-grid="true" style="overflow:auto;max-height:650px;border:1px solid #D9D6CF;border-radius:6px;"><div style="min-width:${64 + columns.length * 180}px;display:grid;grid-template-columns:64px repeat(${columns.length},minmax(180px,1fr));"><div style="position:sticky;top:0;z-index:5;background:var(--card-bg,#fff);padding:12px 4px;font-size:12px;">Time</div>${headers}<div>${times}</div>${lanes}</div></div>`;
         }
 
         function renderDashboardScheduleCard(target, model = dashboardBuildModel()) {
             if (!target) return;
+            const previousScroll = target.querySelector('[data-dashboard-time-grid]')?.scrollTop;
+            loadDashboardCalendarLayouts();
             const entries = getDashboardVisibleCalendarEntries();
             const activeDate = dashboardLocalDateIso(dashboardCalendarDate);
             const dateLabel = dashboardCalendarDate.toLocaleDateString([], { weekday:'long', month:'short', day:'numeric', year:'numeric' });
@@ -59797,6 +60125,22 @@
             const isScope = scope => dashboardCalendarScope === scope;
             const scopeSegmentHtml = `<span class="rd-ops-segment" role="group" aria-label="Calendar scope"><button type="button" class="${isScope('mine') ? 'active' : ''}" onclick="window.setDashboardCalendarScope('mine')">My calendar</button><button type="button" class="${isScope('office') ? 'active' : ''}" onclick="window.setDashboardCalendarScope('office')">Office calendar</button></span>`;
             target.innerHTML = `<section class="rd-ops-card" id="opsScheduleSection"><div class="rd-ops-schedule-head"><div class="rd-ops-schedule-title"><h3>Today's schedule</h3><span>${escapeDashboardHtml(dateLabel)}</span></div><div class="rd-ops-date-nav"><button type="button" class="rd-ops-btn" aria-label="Previous day" onclick="window.shiftDashboardCalendar(-1)"><i class="fas fa-chevron-left"></i></button><button type="button" class="rd-ops-btn" onclick="window.resetDashboardCalendar()">Today</button><button type="button" class="rd-ops-btn" aria-label="Next day" onclick="window.shiftDashboardCalendar(1)"><i class="fas fa-chevron-right"></i></button></div></div><div class="rd-ops-toolbar"><span class="rd-ops-segment" role="group" aria-label="Schedule view"><button type="button" class="${isMode('calendar') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('calendar')">Day</button><button type="button" class="${isMode('week') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('week')">Week</button><button type="button" class="${isMode('month') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('month')">Month</button><button type="button" class="${isMode('list') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('list')">List</button></span>${scopeSegmentHtml}<button type="button" class="rd-ops-btn rd-ops-btn-primary rd-ops-toolbar-push" onclick="window.toggleDashboardEventForm(true)"><i class="fas fa-plus"></i>Add event</button></div>${renderDashboardEventForm()}${renderDashboardScheduleBody(entries, activeDate)}</section>`;
+            const grid = target.querySelector('[data-dashboard-time-grid]');
+            if (grid) grid.scrollTop = previousScroll ?? 7 * 64;
+            const period = dashboardCalendarViewMode === 'week' ? 'week' : dashboardCalendarViewMode === 'month' ? 'month' : 'day';
+            const navButtons = target.querySelectorAll('.rd-ops-date-nav button');
+            if (navButtons[0]) navButtons[0].setAttribute('aria-label', `Previous ${period}`);
+            if (navButtons[2]) navButtons[2].setAttribute('aria-label', `Next ${period}`);
+            const layout = dashboardSelectedCalendarLayout();
+            const toolbar = target.querySelector('.rd-ops-toolbar');
+            if (toolbar && dashboardCalendarScope === 'office' && dashboardCalendarViewMode === 'calendar') {
+                const select = document.createElement('select');
+                select.setAttribute('aria-label', 'Office calendar layout');
+                select.style.cssText = 'width:auto;flex:0 1 220px;max-width:100%;min-width:0;height:40px;padding:0 10px;border:1px solid #D9D6CF;border-radius:6px;background:var(--card-bg,#fff);color:var(--text-primary,#111827);';
+                select.innerHTML = dashboardCalendarLayouts().length ? dashboardCalendarLayouts().map(item => `<option value="${escapeDashboardHtml(item.id)}"${item.id === layout?.id ? ' selected' : ''}>${escapeDashboardHtml(item.name)}</option>`).join('') : '<option value="">Default layout</option>';
+                select.addEventListener('change', () => window.setDashboardCalendarLayout(select.value));
+                toolbar.insertBefore(select, toolbar.lastElementChild);
+            }
         }
 
         function renderDashboardAttendanceCard(target, model = dashboardBuildModel()) {
@@ -62192,6 +62536,8 @@
                 roomId: item.roomId || item.RoomId || null,
                 allDay,
                 dashboardScope: item.dashboardScope || item.DashboardScope || null,
+                calendarLayoutId: item.calendarLayoutId || item.CalendarLayoutId || null,
+                calendarColumnId: item.calendarColumnId || item.CalendarColumnId || null,
                 color: item.color || item.Color || typeConfig.color || null,
                 backgroundColor: item.color || item.Color || typeConfig.color || null,
                 organizerUserId: organizerUserId ? String(organizerUserId) : null,
@@ -62219,12 +62565,14 @@
                 eventDate: range.startKey || null,
                 startTime,
                 endTime,
-                allDay: event.allDay === true || isCalendarEventAllDayOrRange(event),
+                allDay: event.allDay === true || (!event.dashboardScope && isCalendarEventAllDayOrRange(event)),
                 description: event.description || '',
                 location: event.location || '',
                 priority: event.priority || 'medium',
                 status: event.status || 'scheduled',
                 dashboardScope: event.dashboardScope || event.DashboardScope || null,
+                calendarLayoutId: event.calendarLayoutId || null,
+                calendarColumnId: event.calendarColumnId || null,
                 clinicId: event.clinicId ? Number(event.clinicId) : null,
                 clinicName: event.clinicName || event.clinic || event.office || '',
                 roomId: event.roomId ? Number(event.roomId) : null,
@@ -104368,6 +104716,7 @@ console.log('? Global functions exported to window object');
 // so they match page behavior and work with top tabs.
 (function installSettingsManagementViewAdapter() {
     const mappings = [
+        { open: 'openDashboardCalendarSettings', close: 'closeDashboardCalendarSettings', modalId: 'dashboardCalendarSettingsModal', viewName: 'manage-calendar-settings', title: 'Calendar Settings' },
         { open: 'openMasterSettings', close: 'closeMasterSettings', modalId: 'masterSettingsModal', viewName: 'manage-master-settings', title: 'Master Settings' },
         { open: 'openUserManagement', close: 'closeUserManagement', modalId: 'userManagementModal', viewName: 'manage-users', title: 'Manage Users' },
         { open: 'openLoginManager', close: 'closeLoginManager', modalId: 'loginAuditModal', viewName: 'manage-logins', title: 'Manage Logins' },
@@ -104911,6 +105260,7 @@ console.log('? Global functions exported to window object');
         if (!host) return;
 
         const itemIds = [
+            'calendarSettingsMenuItem',
             'manageOfficesMenuItem',
             'manageRoomsMenuItem',
             'manageUsersMenuItem',
