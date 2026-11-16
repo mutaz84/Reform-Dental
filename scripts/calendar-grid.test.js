@@ -185,6 +185,7 @@ test('calendar Undo restores only the saved event record and syncs its prior sta
         updateEventViaApi: async (id, record) => apiUpdates.push([id, record]),
         localStorage: { setItem: (key, value) => writes.push([key, JSON.parse(value)]) },
         refreshDashboardScheduleSurfaces: () => { refreshed++; },
+        syncDashboardScheduleUndoButton() {},
         showNotification() {}
     });
     context.window.undoDashboardScheduleChange = context.undoDashboardScheduleChange;
@@ -200,6 +201,28 @@ test('calendar Undo restores only the saved event record and syncs its prior sta
     assert.equal(refreshed, 1);
 });
 
+test('calendar Undo state enables every visible calendar toolbar button', () => {
+    const buttons = [{ disabled: true, setAttribute(name, value) { this[name] = value; } }, { disabled: true, setAttribute(name, value) { this[name] = value; } }];
+    const context = contextFor(['syncDashboardScheduleUndoButton'], {
+        dashboardScheduleUndoState: { type: 'calendar-event' },
+        document: { querySelectorAll: () => buttons }
+    });
+    context.syncDashboardScheduleUndoButton();
+    assert.deepEqual(buttons.map(button => button.disabled), [false, false]);
+    assert(buttons.every(button => button['aria-label'] === 'Calendar changed. Undo the last change.'));
+    assert(buttons.every(button => button.title === 'Calendar changed. Undo the last change.'));
+});
+
+test('recording a calendar change enables Undo in every calendar instance', () => {
+    const buttons = [{ disabled: true, setAttribute(name, value) { this[name] = value; } }, { disabled: true, setAttribute(name, value) { this[name] = value; } }];
+    const context = contextFor(['showDashboardScheduleUndo', 'syncDashboardScheduleUndoButton'], {
+        document: { getElementById: () => null, querySelectorAll: () => buttons }
+    });
+    context.showDashboardScheduleUndo({ type: 'calendar-event', id: 'event-4' }, 'Calendar event moved');
+    assert.deepEqual(buttons.map(button => button.disabled), [false, false]);
+    assert(buttons.every(button => button.title.includes('Calendar event moved')));
+});
+
 test('operation Undo restores the prior service ticket without reverting other records', async () => {
     const records = [{ id: 'ticket-7', scheduleDate: '2026-11-18', scheduledTime: '14:30' }, { id: 'ticket-8', scheduleDate: '2026-11-20' }];
     const original = { id: 'ticket-7', scheduleDate: '', scheduledTime: '', status: 'Open' };
@@ -210,6 +233,7 @@ test('operation Undo restores the prior service ticket without reverting other r
         dashboardCalendarReadArray: () => records,
         localStorage: { setItem: (key, value) => writes.push([key, JSON.parse(value)]) },
         syncDashboardServiceScheduleToApi: async payload => { synced.push(payload.id); return true; },
+        syncDashboardScheduleUndoButton() {},
         refreshDashboardScheduleSurfaces() {}, showNotification() {}
     });
     context.window.undoDashboardScheduleChange = context.undoDashboardScheduleChange;

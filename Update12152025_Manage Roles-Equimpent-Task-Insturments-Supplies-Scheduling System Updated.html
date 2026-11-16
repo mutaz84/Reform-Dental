@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261115-calendar-undo-rail-typography-v191';
+                const buildVersion = '20261115-calendar-undo-toolbar-v192';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -58511,25 +58511,18 @@
         }
 
         function showDashboardScheduleUndo(snapshot, message) {
-            dashboardScheduleUndoState = { ...snapshot, token: Date.now() };
-            const token = dashboardScheduleUndoState.token;
+            dashboardScheduleUndoState = { ...snapshot, message, token: Date.now() };
             document.getElementById('dashboardScheduleUndoToast')?.remove();
-            const toast = document.createElement('div');
-            toast.id = 'dashboardScheduleUndoToast';
-            toast.setAttribute('role', 'status');
-            toast.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:10080;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 24px);padding:10px 12px;border:1px solid #D9D6CF;border-radius:8px;background:#1C1D1F;color:#fff;box-shadow:0 10px 28px rgba(0,0,0,.2);font:600 13px Manrope,Segoe UI,system-ui,sans-serif;';
-            toast.innerHTML = `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(message)}</span><button type="button" aria-label="Undo the last calendar move" style="flex:0 0 auto;border:1px solid rgba(255,255,255,.55);border-radius:6px;padding:5px 9px;background:transparent;color:#fff;font:inherit;cursor:pointer;">Undo</button><button type="button" aria-label="Dismiss undo" style="flex:0 0 auto;border:0;background:transparent;color:#fff;font:inherit;font-size:18px;cursor:pointer;">&times;</button>`;
-            toast.querySelector('button[aria-label="Undo the last calendar move"]')?.addEventListener('click', () => { void window.undoDashboardScheduleChange(); });
-            toast.querySelector('button[aria-label="Dismiss undo"]')?.addEventListener('click', () => {
-                if (dashboardScheduleUndoState?.token === token) dashboardScheduleUndoState = null;
-                toast.remove();
+            syncDashboardScheduleUndoButton();
+        }
+
+        function syncDashboardScheduleUndoButton(button) {
+            const buttons = button ? [button] : Array.from(document.querySelectorAll('#dashboardCalendarUndoButton'));
+            buttons.forEach(item => {
+                item.disabled = !dashboardScheduleUndoState;
+                item.title = dashboardScheduleUndoState ? `${dashboardScheduleUndoState.message || 'Calendar changed'}. Undo the last change.` : 'No calendar change to undo';
+                item.setAttribute('aria-label', item.title);
             });
-            document.body.appendChild(toast);
-            window.setTimeout(() => {
-                if (dashboardScheduleUndoState?.token !== token) return;
-                dashboardScheduleUndoState = null;
-                toast.remove();
-            }, 12000);
         }
 
         async function undoDashboardScheduleChange() {
@@ -58537,6 +58530,7 @@
             if (!snapshot) return false;
             dashboardScheduleUndoState = null;
             document.getElementById('dashboardScheduleUndoToast')?.remove();
+            syncDashboardScheduleUndoButton();
             let restored = false;
             let shared = false;
             if (snapshot.type === 'calendar-event') {
@@ -58929,13 +58923,14 @@
                 equipmentId: String(row?.dataset.equipmentId || '').trim()
             };
             if (!payload.kind || (!payload.id && !payload.title && !payload.equipmentId)) return;
+            const undoSnapshot = dashboardScheduleOperationSnapshot(payload);
             const cleared = clearDashboardOperationSchedule(payload);
             if (!cleared) {
                 if (typeof showNotification === 'function') showNotification('This scheduled item could not be moved back to Unscheduled.', 'warning');
                 return;
             }
+            if (undoSnapshot) showDashboardScheduleUndo(undoSnapshot, 'Item moved to Unscheduled');
             refreshDashboardScheduleSurfaces();
-            if (typeof showNotification === 'function') showNotification(`${payload.title || 'Operation'} moved back to Unscheduled.`, 'success');
         };
 
         function refreshDashboardScheduleSurfaces() {
@@ -59901,15 +59896,16 @@
                 if (typeof showNotification === 'function') showNotification('Choose a date and time before scheduling.', 'warning');
                 return;
             }
+            const undoSnapshot = dashboardScheduleOperationSnapshot(payload);
             const saved = scheduleDashboardOperationFromDrop(payload, date, time);
             if (!saved) {
                 if (typeof showNotification === 'function') showNotification('This dashboard item could not be scheduled.', 'warning');
                 return;
             }
+            if (undoSnapshot) showDashboardScheduleUndo(undoSnapshot, 'Calendar item scheduled');
             dashboardCalendarDate = new Date(`${date}T00:00:00`);
             window.closeDashboardSchedulePicker();
             refreshDashboardScheduleSurfaces();
-            if (typeof showNotification === 'function') showNotification(`${payload.title || 'Operation'} scheduled for ${dashboardScheduleDateLabel(date)} at ${dashboardScheduleTimeLabel(time)}.`, 'success');
         };
 
         window.scheduleDashboardOperationFromButton = function (button) {
@@ -60451,6 +60447,16 @@
             if (navButtons[2]) navButtons[2].setAttribute('aria-label', `Next ${period}`);
             const layout = dashboardSelectedCalendarLayout();
             const toolbar = target.querySelector('.rd-ops-toolbar');
+            if (toolbar) {
+                const undoButton = document.createElement('button');
+                undoButton.id = 'dashboardCalendarUndoButton';
+                undoButton.type = 'button';
+                undoButton.className = 'rd-ops-btn';
+                undoButton.innerHTML = '<i class="fas fa-rotate-left" aria-hidden="true"></i>Undo';
+                undoButton.addEventListener('click', () => { void window.undoDashboardScheduleChange(); });
+                toolbar.insertBefore(undoButton, toolbar.lastElementChild);
+                syncDashboardScheduleUndoButton(undoButton);
+            }
             if (toolbar && dashboardCalendarScope === 'office' && dashboardCalendarViewMode === 'calendar') {
                 const select = document.createElement('select');
                 select.setAttribute('aria-label', 'Office calendar layout');
