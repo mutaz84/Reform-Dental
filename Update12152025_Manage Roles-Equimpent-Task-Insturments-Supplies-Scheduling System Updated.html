@@ -57254,8 +57254,9 @@
                     const overdue = dashboardOperationIsOverdue(entry, activeDate);
                     if (options.overdueOnly) return overdue;
                     if (overdue) return false;
-                    if (options.unscheduledOnly) return entry.scheduleState !== 'scheduled';
-                    if (entry.scheduleState !== 'scheduled') return false;
+                    // Items with any date show on the calendar; "unscheduled" means no date at all.
+                    if (options.unscheduledOnly) return !entry.scheduleDate;
+                    if (!entry.scheduleDate) return false;
                     return entry.scheduleDate === activeDate;
                 })
                 .slice(0, options.limit || 8);
@@ -59981,8 +59982,8 @@
             const activeDate = dashboardGlanceActiveDateIso();
             const operations = buildDashboardOperationsEntries();
             const overdue = operations.filter(entry => dashboardOperationIsOverdue(entry, activeDate)).sort((left, right) => dashboardOverdueDays(right, activeDate) - dashboardOverdueDays(left, activeDate));
-            const unscheduled = operations.filter(entry => !dashboardOperationIsOverdue(entry, activeDate) && entry.scheduleState !== 'scheduled');
-            const scheduled = operations.filter(entry => entry.scheduleState === 'scheduled' && entry.scheduleDate === activeDate);
+            const unscheduled = operations.filter(entry => !dashboardOperationIsOverdue(entry, activeDate) && !entry.scheduleDate);
+            const scheduled = operations.filter(entry => entry.scheduleDate === activeDate);
             const scheduledCounts = scheduled.reduce((result, entry) => { result[entry.kind] = (result[entry.kind] || 0) + 1; return result; }, {});
             const attendance = getDashboardAttendanceEntries();
             const unassigned = unscheduled.filter(entry => /^unassigned$/i.test(dashboardNormalizeText(entry.assignedName))).length;
