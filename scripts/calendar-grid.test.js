@@ -72,6 +72,73 @@ test('all inline scripts parse, without duplicate calendar helpers', () => {
     assert.equal((html.match(/id="calendarSettingsMenuItem"/g) || []).length, 1);
 });
 
+test('compact operation cards open the original record by click and keyboard without hijacking controls', () => {
+    const entry = { id: 'ticket-7', kind: 'Service', equipmentId: 42 };
+    const opened = [];
+    const context = contextFor(['openDashboardOperationCard'], {
+        getDashboardOperationEntryFromRow: () => entry,
+        openDashboardOperationSource: source => opened.push(source)
+    });
+    const row = { closest: () => null };
+    const event = { type: 'click', target: row, preventDefault() {}, stopPropagation() {} };
+    context.openDashboardOperationCard(row, event);
+    context.openDashboardOperationCard(row, { ...event, type: 'keydown', key: 'Enter' });
+    context.openDashboardOperationCard(row, { ...event, type: 'keydown', key: ' ' });
+    assert.equal(opened.length, 3);
+    assert(opened.every(source => source === entry));
+    context.openDashboardOperationCard(row, { ...event, target: { closest: () => ({}) } });
+    context.openDashboardOperationCard(row, { ...event, type: 'keydown', key: 'Tab' });
+    assert.equal(opened.length, 3);
+});
+
+test('original operation source resolves the service ticket rather than a dashboard preview', () => {
+    const opened = [];
+    const context = contextFor(['openDashboardOperationSource'], {
+        loadEquipmentServiceTickets: () => [{ id: 'ticket-7', equipmentID: 42 }],
+        openEquipmentServiceDetails: (...args) => opened.push(args)
+    });
+    context.openDashboardOperationSource({ kind: 'Service', id: 'ticket-7', equipmentId: 42 });
+    context.openDashboardOperationSource({ kind: 'Equipment', id: 42, serviceTicketId: 'ticket-7', equipmentId: 42 });
+    assert.deepEqual(opened, [['ticket-7', 42], ['ticket-7', 42]]);
+});
+
+test('operation cards retain metadata and an accessible icon schedule action in their own scroll container', () => {
+    const context = contextFor(['dashboardOperationRowHtml', 'renderDashboardAttentionPanel'], {
+        dashboardTypeClass: () => ({ cls: 'office', icon: 'fas fa-mug-hot' }),
+        dashboardPriority: () => 'Medium', dashboardStatus: () => 'Pending',
+        dashboardSentenceCase: String, dashboardOperationIsOverdue: () => false,
+        dashboardOverdueDays: () => 2, dashboardScheduleDateOnly: () => '',
+        dashboardScheduleText: () => '', dashboardScheduleTimeLabel: () => '',
+        dashboardEntryAttrs: entry => `data-entry-id="${entry.id}"`,
+        dashboardMetaHtml: () => 'Office improvements / Unassigned', escapeDashboardHtml: String
+    });
+    const entries = Array.from({ length: 30 }, (_, index) => ({ id: index + 1, title: `Refill stock ${index + 1}`, scheduleState: 'unscheduled' }));
+    const output = context.renderDashboardAttentionPanel({ overdue: [], unscheduled: entries });
+    assert.equal((output.match(/rd-dashboard-row rd-ops-row rd-ops-compact-row/g) || []).length, 30);
+    assert(output.includes('onclick="window.openDashboardOperationCard(this,event)"'));
+    assert(output.includes('aria-label="Schedule Refill stock 1"'));
+    assert(output.includes('fa-calendar-plus'));
+    assert(output.includes('overscroll-behavior-y:contain'));
+    assert(output.includes('overflow-y:auto'));
+    assert(output.includes('Office improvements / Unassigned'));
+    assert(!output.includes('>Schedule</button>'));
+});
+
+test('dashboard refresh preserves the independent operation list scroll position', () => {
+    const previous = { scrollTop: 237 };
+    const updated = { scrollTop: 0 };
+    let replaced = false;
+    Object.defineProperty(previous, 'outerHTML', { set() { replaced = true; } });
+    const root = { querySelector: selector => selector === '#dashboardAttentionPanel' ? (replaced ? updated : previous) : null };
+    const context = contextFor(['refreshOperationsDashboardRedesign'], {
+        getActiveOperationsDashboardRoot: () => root, dashboardBuildModel: () => ({}),
+        renderDashboardAttentionPanel: () => '<div></div>', renderDashboardScheduleCard() {},
+        renderDashboardAttendanceCard() {}, renderDashboardHeaderSearchResults() {}
+    });
+    context.refreshOperationsDashboardRedesign(root);
+    assert.equal(updated.scrollTop, 237);
+});
+
 test('starter navigation opens Calendar Settings while retaining restrictions on other views', () => {
     const navigated = [];
     const context = contextFor(['allowedViewNames', 'installSwitchGuard'], {

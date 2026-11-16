@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261115-calendar-settings-navigation-v186';
+                const buildVersion = '20261115-compact-operation-cards-v187';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -59693,6 +59693,18 @@
             window.openDashboardSchedulePicker(entry, date, time);
         };
 
+        function openDashboardOperationCard(element, event) {
+            if (event?.target?.closest?.('button,a,input,select,textarea')) return;
+            if (event?.type === 'keydown' && (event.target !== element || !['Enter', ' '].includes(event.key))) return;
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            const entry = getDashboardOperationEntryFromRow(element);
+            if (entry) openDashboardOperationSource(entry);
+        }
+        window.openDashboardOperationCard = openDashboardOperationCard;
+
         function dashboardOperationRowHtml(entry, mode = 'unscheduled') {
             const type = dashboardTypeClass(entry);
             const priority = dashboardPriority(entry);
@@ -59704,12 +59716,11 @@
             const dueDate = dashboardScheduleDateOnly(entry.scheduleDate || dashboardScheduleText(entry.record, ['scheduledDate','ScheduledDate','scheduleStartDate','ScheduleStartDate','dueDate','DueDate','scheduleDate','ScheduleDate','date','Date']));
             const dueTime = dashboardScheduleTimeLabel(entry.scheduleTime || dashboardScheduleText(entry.record, ['scheduledTime','ScheduledTime','scheduleTime','ScheduleTime','startTime','StartTime','eventTime','EventTime','time','Time']));
             const dueLabel = dueDate ? `Due ${dashboardScheduleDateLabel(dueDate)}${dueTime ? `, ${dueTime}` : ''}` : 'Due date not set';
-            const action = 'Schedule';
-            const overdueAction = mode === 'overdue' ? `<div class="rd-ops-due"><strong>${days} day${days === 1 ? '' : 's'} overdue</strong><span>${escapeDashboardHtml(dueLabel)}</span></div>` : '';
-            return `<div class="rd-dashboard-row rd-ops-row" ${dashboardEntryAttrs(entry)} draggable="${canDrag ? 'true' : 'false'}">
+            const overdueAction = mode === 'overdue' ? `<span class="rd-ops-compact-due" title="${escapeDashboardHtml(dueLabel)}">${days}d overdue</span>` : '';
+            return `<div class="rd-dashboard-row rd-ops-row rd-ops-compact-row" ${dashboardEntryAttrs(entry)} role="link" tabindex="0" aria-label="${escapeDashboardHtml(`Open ${title}`)}" onclick="window.openDashboardOperationCard(this,event)" onkeydown="window.openDashboardOperationCard(this,event)" draggable="${canDrag ? 'true' : 'false'}">
                 <span class="rd-ops-icon ${type.cls}" aria-hidden="true"><i class="${type.icon}"></i></span>
-                <div><p class="rd-ops-row-title">${escapeDashboardHtml(title)}</p><div class="rd-ops-meta">${dashboardMetaHtml(entry)}</div></div>
-                <div class="rd-ops-row-actions">${overdueAction}<span class="rd-ops-chip ${priorityClass}">${escapeDashboardHtml(priority)}</span><span class="rd-ops-chip rd-ops-chip-status">${escapeDashboardHtml(status)}</span><button type="button" class="rd-ops-btn" draggable="false" onclick="event.preventDefault();event.stopPropagation();window.scheduleDashboardOperationFromButton(this);">${escapeDashboardHtml(action)}</button></div>
+                <div class="rd-ops-compact-copy"><p class="rd-ops-row-title" title="${escapeDashboardHtml(title)}">${escapeDashboardHtml(title)}</p><div class="rd-ops-meta">${dashboardMetaHtml(entry)}</div><div class="rd-ops-row-actions">${overdueAction}<span class="rd-ops-chip ${priorityClass}">${escapeDashboardHtml(priority)}</span><span class="rd-ops-chip rd-ops-chip-status">${escapeDashboardHtml(status)}</span></div></div>
+                <button type="button" class="rd-ops-btn rd-ops-compact-schedule" title="Schedule item" aria-label="${escapeDashboardHtml(`Schedule ${title}`)}" draggable="false" onclick="event.preventDefault();event.stopPropagation();window.scheduleDashboardOperationFromButton(this);"><i class="far fa-calendar-plus" aria-hidden="true"></i></button>
             </div>`;
         }
 
@@ -59748,8 +59759,28 @@
             const overdueRows = model.overdue.length ? model.overdue.map(entry => dashboardOperationRowHtml(entry, 'overdue')).join('') : '<div class="rd-ops-attendance-empty"><i class="far fa-check-circle"></i><span>No overdue operations.</span></div>';
             const unscheduledRows = model.unscheduled.length ? model.unscheduled.map(entry => dashboardOperationRowHtml(entry, 'unscheduled')).join('') : '<div class="rd-ops-attendance-empty"><i class="far fa-check-circle"></i><span>Nothing unscheduled for today.</span></div>';
             return `<div class="rd-ops-column" id="dashboardAttentionPanel">
+                <style>
+                    #dashboardAttentionPanel{max-height:clamp(300px,calc(100dvh - 260px),760px);min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-gutter:stable;scrollbar-width:thin;gap:8px;align-self:start}
+                    #dashboardAttentionPanel>.rd-ops-card{flex:0 0 auto;padding:10px 12px;border-radius:8px;min-width:0}
+                    #dashboardAttentionPanel .rd-ops-section-head{gap:6px;margin-bottom:4px;flex-wrap:wrap}
+                    #dashboardAttentionPanel .rd-ops-section-head h3{font-size:13px}
+                    #dashboardAttentionPanel .rd-ops-count-pill{font-size:10px;padding:2px 6px}
+                    #dashboardAttentionPanel .rd-ops-compact-row{display:grid;grid-template-columns:24px minmax(0,1fr) 28px;gap:6px 8px;align-items:start;padding:7px 0;min-height:0;cursor:pointer}
+                    #dashboardAttentionPanel .rd-ops-compact-row:focus-visible{outline:2px solid #0F5E75;outline-offset:-2px;border-radius:4px}
+                    #dashboardAttentionPanel .rd-ops-compact-row:hover{background:#F5F9FA}
+                    #dashboardAttentionPanel .rd-ops-icon{width:24px;height:24px;border-radius:6px;font-size:11px}
+                    #dashboardAttentionPanel .rd-ops-compact-copy{min-width:0;display:grid;gap:3px}
+                    #dashboardAttentionPanel .rd-ops-row-title{font-size:12px;line-height:1.25;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+                    #dashboardAttentionPanel .rd-ops-meta{font-size:11px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                    #dashboardAttentionPanel .rd-ops-row-actions{grid-column:auto;gap:4px;min-height:18px;line-height:1;align-items:center}
+                    #dashboardAttentionPanel .rd-ops-chip{font-size:10px;line-height:12px;min-height:18px;padding:2px 5px;border-radius:4px}
+                    #dashboardAttentionPanel .rd-ops-compact-due{font-size:10px;line-height:12px;font-weight:700;color:#A3261A}
+                    #dashboardAttentionPanel .rd-ops-compact-schedule{width:28px;min-width:28px;height:28px;padding:0;border-radius:6px;font-size:12px}
+                    #dashboardAttentionPanel .rd-ops-attendance-empty{padding:8px;font-size:11px;gap:6px}
+                    @media(max-width:1023px){#dashboardAttentionPanel{max-height:360px}}
+                </style>
                 <section class="rd-ops-card" id="opsOverdueSection"><div class="rd-ops-section-head"><i class="fas fa-triangle-exclamation" style="color:#A3261A;"></i><h3>Overdue</h3><span class="rd-ops-count-pill">${model.overdue.length}</span></div><div class="rd-ops-list">${overdueRows}</div></section>
-                <section class="rd-ops-card" id="opsUnscheduledSection"><div class="rd-ops-section-head"><i class="fas fa-list-check" style="color:#4A4E55;"></i><h3>Unscheduled today</h3><span class="rd-ops-count-pill">${model.unscheduled.length}</span><span class="rd-ops-hint">Drag onto the schedule to plan</span></div><div class="rd-ops-list">${unscheduledRows}</div></section>
+                <section class="rd-ops-card" id="opsUnscheduledSection"><div class="rd-ops-section-head"><i class="fas fa-list-check" style="color:#4A4E55;"></i><h3>Unscheduled today</h3><span class="rd-ops-count-pill">${model.unscheduled.length}</span></div><div class="rd-ops-list">${unscheduledRows}</div></section>
             </div>`;
         }
 
@@ -60190,7 +60221,12 @@
             const kpis = root.querySelector('#dashboardKpiStrip');
             if (kpis) kpis.outerHTML = renderDashboardKpis(model);
             const attention = root.querySelector('#dashboardAttentionPanel');
-            if (attention) attention.outerHTML = renderDashboardAttentionPanel(model);
+            if (attention) {
+                const scrollTop = attention.scrollTop;
+                attention.outerHTML = renderDashboardAttentionPanel(model);
+                const updatedAttention = root.querySelector('#dashboardAttentionPanel');
+                if (updatedAttention) updatedAttention.scrollTop = scrollTop;
+            }
             renderDashboardScheduleCard(root.querySelector('#dashboardCalendarPanel'), model);
             renderDashboardAttendanceCard(root.querySelector('#dashboardAttendancePanel'), model);
             const searchInput = root.querySelector('#dashboardGlobalSearch');
