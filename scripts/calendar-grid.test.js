@@ -15,6 +15,9 @@ for (const match of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
     scriptCount++;
     while (nodes.length) {
         const node = nodes.pop();
+        if (node.type === 'VariableDeclarator' && node.id?.name === 'allowedViewNames') {
+            sources.set('allowedViewNames', [`const ${source.slice(node.start, node.end)};`]);
+        }
         if (node.type === 'FunctionDeclaration' && node.id) {
             const declarations = sources.get(node.id.name) || [];
             declarations.push(source.slice(node.start, node.end));
@@ -67,6 +70,19 @@ test('all inline scripts parse, without duplicate calendar helpers', () => {
     }
     assert.equal((html.match(/const buildVersion =/g) || []).length, 1);
     assert.equal((html.match(/id="calendarSettingsMenuItem"/g) || []).length, 1);
+});
+
+test('starter navigation opens Calendar Settings while retaining restrictions on other views', () => {
+    const navigated = [];
+    const context = contextFor(['allowedViewNames', 'installSwitchGuard'], {
+        switchContentView: (...args) => { navigated.push(args); return true; }
+    });
+    context.installSwitchGuard();
+    assert.equal(context.switchContentView('manage-calendar-settings', null, { force: true }), true);
+    assert.equal(navigated[0][0], 'manage-calendar-settings');
+    assert.equal(navigated[0][2].force, true);
+    assert.equal(context.switchContentView('stationary'), false);
+    assert.equal(navigated.length, 1);
 });
 
 test('empty day and week views retain headers and half-hour cells', () => {
