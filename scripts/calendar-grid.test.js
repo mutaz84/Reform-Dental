@@ -102,6 +102,111 @@ test('original operation source resolves the service ticket rather than a dashbo
     assert.deepEqual(opened, [['ticket-7', 42], ['ticket-7', 42]]);
 });
 
+test('calendar item click focuses its dashboard card instead of opening the right-rail story', () => {
+    const calls = [];
+    const row = {
+        dataset: { entryKind: 'Service', entryId: 'ticket-7', serviceTicketId: 'ticket-7' },
+        getBoundingClientRect: () => ({ top: 420 }), offsetHeight: 60,
+        focus: options => calls.push(['focus', options]),
+        classList: { remove: value => calls.push(['remove', value]), add: value => calls.push(['add', value]) }
+    };
+    const panel = { scrollTop: 0, clientHeight: 300, getBoundingClientRect: () => ({ top: 100 }) };
+    const root = { querySelectorAll: () => [row], querySelector: () => panel };
+    const story = { remove: () => calls.push(['remove-story']) };
+    const context = contextFor(['focusDashboardOperationCard'], {
+        document: { getElementById: () => story },
+        getActiveOperationsDashboardRoot: () => root,
+        openDashboardOperationSource: () => calls.push(['open-source']),
+        setTimeout: callback => callback()
+    });
+    assert.equal(context.focusDashboardOperationCard({ kind: 'Service', id: 'ticket-7', serviceTicketId: 'ticket-7' }), true);
+    assert(calls.some(([name]) => name === 'remove-story'));
+    assert(calls.some(([name, value]) => name === 'focus' && value.preventScroll));
+    assert(!calls.some(([name]) => name === 'open-source'));
+    assert.equal(panel.scrollTop, 200);
+});
+
+test('calendar event move preserves duration and persists through the event API', async () => {
+    const events = [{ id: 'event-4', kind: 'meeting', dashboardScope: 'office', start: '2026-11-15T09:00:00.000Z', end: '2026-11-15T10:30:00.000Z' }];
+    const updates = [];
+    const stored = [];
+    let refreshed = 0;
+    const context = contextFor(['moveDashboardCalendarEvent'], {
+        dashboardCalendarReadArray: () => events,
+        updateEventViaApi: async (id, record) => updates.push([id, record]),
+        localStorage: { setItem: (key, value) => stored.push([key, JSON.parse(value)]) },
+        dashboardCalendarDate: new Date('2026-11-15T00:00:00'),
+        refreshDashboardScheduleSurfaces: () => { refreshed++; },
+        showNotification() {}
+    });
+    context.window.updateEventList = () => {};
+    context.window.calendarInstance = { refetchEvents() {} };
+    assert.equal(await context.moveDashboardCalendarEvent({ id: 'event-4' }, '2026-11-18', '13:15'), true);
+    assert.equal(updates[0][0], 'event-4');
+    assert.equal(new Date(updates[0][1].start).getHours(), 13);
+    assert.equal(new Date(updates[0][1].start).getMinutes(), 15);
+    assert.equal(Date.parse(updates[0][1].end) - Date.parse(updates[0][1].start), 90 * 60 * 1000);
+    assert.equal(stored[0][1][0].start, updates[0][1].start);
+    assert.equal(refreshed, 1);
+});
+
+test('calendar drop updates existing items and leaves unscheduled items on the date-time picker path', async () => {
+    const calls = [];
+    const context = contextFor(['applyDashboardCalendarDrop'], {
+        moveDashboardCalendarEvent: async (...args) => { calls.push(['event', ...args]); return true; },
+        scheduleDashboardOperationFromDrop: (...args) => { calls.push(['operation', ...args]); return true; },
+        refreshDashboardScheduleSurfaces() {}, showNotification() {},
+        dashboardCalendarDate: new Date('2026-11-15T00:00:00')
+    });
+    context.window.openDashboardSchedulePicker = (...args) => calls.push(['picker', ...args]);
+    await context.applyDashboardCalendarDrop({ source: 'calendar-event', id: 'event-4' }, { date: '2026-11-18', time: '13:15' });
+    assert.equal(calls[0][0], 'event');
+    assert.equal(calls[0][2], '2026-11-18');
+    assert.equal(calls[0][3], '13:15');
+    await context.applyDashboardCalendarDrop({ source: 'calendar-operation', kind: 'Service', id: 'ticket-7' }, { date: '2026-11-18', time: '14:00' });
+    assert.equal(calls[1][0], 'operation');
+    await context.applyDashboardCalendarDrop({ kind: 'Service', id: 'ticket-8' }, { date: '2026-11-18', time: '15:00' });
+    assert.equal(calls[2][0], 'picker');
+});
+
+test('calendar drag payload preserves source identifiers and blocks unauthorized event moves', () => {
+    const payloads = [];
+    let prevented = false;
+    const transfer = { setData: (type, value) => { if (type === 'application/x-rd-dashboard-operation') payloads.push(JSON.parse(value)); }, effectAllowed: '' };
+    const context = contextFor(['startDashboardScheduledDrag'], {
+        getDashboardCalendarEntryFromCard: card => card.entry,
+        dashboardOperationSchedulePayload: entry => ({ id: entry.id, kind: entry.kind, serviceTicketId: entry.serviceTicketId, title: entry.title }),
+        dashboardCalendarEntryCanModify: () => false
+    });
+    const operationCard = { entry: { kind: 'Service', id: 'ticket-7', title: 'Repair', start: new Date('2026-11-15T09:00:00'), serviceTicketId: 'ticket-7' } };
+    context.startDashboardScheduledDrag({ currentTarget: {}, target: { closest: () => operationCard }, dataTransfer: transfer });
+    assert.equal(payloads[0].source, 'calendar-operation');
+    assert.equal(payloads[0].serviceTicketId, 'ticket-7');
+    const blockedContext = contextFor(['startDashboardScheduledDrag'], {
+        getDashboardCalendarEntryFromCard: () => ({ kind: 'Calendar', id: 'event-4', title: 'Meeting', start: new Date('2026-11-15T09:00:00'), end: new Date('2026-11-15T10:00:00') }),
+        dashboardCalendarEntryCanModify: () => false
+    });
+    const eventCard = { entry: { kind: 'Calendar', id: 'event-4', title: 'Meeting', start: new Date('2026-11-15T09:00:00'), end: new Date('2026-11-15T10:00:00') } };
+    blockedContext.startDashboardScheduledDrag({ currentTarget: {}, target: { closest: () => eventCard }, dataTransfer: transfer, preventDefault: () => { prevented = true; } });
+    assert(prevented);
+    assert.equal(payloads.length, 1);
+});
+
+test('scheduled cards enable dragging only for operations or calendar events the user can edit', () => {
+    const cards = [
+        { dataset: { dashboardScheduledOperation: 'true' }, entry: { kind: 'Service' }, draggable: false },
+        { dataset: { dashboardScheduledOperation: 'false' }, entry: { kind: 'Calendar', owner: true }, draggable: false },
+        { dataset: { dashboardScheduledOperation: 'false' }, entry: { kind: 'Calendar', owner: false }, draggable: true },
+        { dataset: { dashboardScheduledOperation: 'false' }, entry: { kind: 'Assignment' }, draggable: true }
+    ];
+    const context = contextFor(['enableDashboardScheduledCardDragging'], {
+        getDashboardCalendarEntryFromCard: card => card.entry,
+        dashboardCalendarEntryCanModify: entry => entry.owner === true
+    });
+    context.enableDashboardScheduledCardDragging({ querySelectorAll: () => cards });
+    assert.deepEqual(cards.map(card => card.draggable), [true, true, false, false]);
+});
+
 test('operation cards retain metadata and an accessible icon schedule action in their own scroll container', () => {
     const context = contextFor(['dashboardOperationRowHtml', 'renderDashboardAttentionPanel'], {
         dashboardTypeClass: () => ({ cls: 'office', icon: 'fas fa-mug-hot' }),
@@ -222,6 +327,7 @@ test('grid click and drop slots preserve the lane date and midnight', () => {
     const slot = context.getDashboardCalendarDropSlot({ type: 'click', clientY: 0, target: { closest: () => ({ dataset: { calendarTime: '10:30' } }) } }, lane);
     assert.equal(slot.date, '2026-11-18');
     assert.equal(slot.time, '10:30');
+    assert.equal(context.getDashboardCalendarDropSlot({ type: 'drop', clientY: 310, target: { closest: () => ({ dataset: { calendarTime: '14:30' } }) } }, lane).time, '14:30');
 });
 
 test('personal scope hides people and columns, and clears selected people', () => {
