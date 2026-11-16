@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261115-dashboard-calendar-columns-v184';
+                const buildVersion = '20261115-calendar-settings-repair-v185';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -59905,8 +59905,12 @@
             state.attemptedAt = Date.now();
             state.pending = (async () => {
                 try {
+                    state.error = '';
                     const response = await fetch(`${getEventsApiBaseUrl()}/settings?calendarClinicId=${clinicId}`, await getEventsTenantFetchInit({ cache: 'no-store' }));
-                    if (!response.ok) throw new Error(`Calendar settings could not load (${response.status}).`);
+                    if (!response.ok) {
+                        const failure = await response.json().catch(() => null);
+                        throw new Error(failure?.error || `Calendar settings could not load (${response.status}).`);
+                    }
                     const payload = await response.json();
                     const layouts = Array.isArray(payload.calendarLayouts) ? payload.calendarLayouts : [];
                     const changed = JSON.stringify(layouts) !== JSON.stringify(state.layouts);
@@ -59916,6 +59920,7 @@
                     if (changed && key === dashboardCalendarLayoutsKey() && (!form || form.hidden)) refreshDashboardScheduleSurfaces();
                     return true;
                 } catch (error) {
+                    state.error = error.message;
                     if (force && typeof showNotification === 'function') showNotification(error.message, 'warning');
                     return false;
                 } finally { state.pending = null; }
@@ -59989,6 +59994,26 @@
             renderDashboardCalendarSettingsEditor();
         };
 
+        async function loadDashboardCalendarSettingsEditor() {
+            if (!canManageDashboardCalendarLayouts()) return;
+            const host = document.getElementById('dashboardCalendarSettingsEditor');
+            if (!host) return;
+            const clinicId = dashboardCalendarDraftClinic;
+            host.textContent = 'Loading...';
+            const loaded = await loadDashboardCalendarLayouts(true);
+            if (!loaded || clinicId !== dashboardCalendarClinicId()) {
+                host.innerHTML = '<button type="button" class="rd-ops-btn" onclick="window.retryDashboardCalendarSettings()">Retry</button><button type="button" class="rd-ops-btn" onclick="window.closeDashboardCalendarSettings()">Close</button>';
+                const message = document.createElement('p');
+                message.textContent = clinicId !== dashboardCalendarClinicId() ? 'The selected clinic changed. Reopen Calendar Settings.' : dashboardCalendarLayoutsCache.get(dashboardCalendarLayoutsKey())?.error || 'Calendar settings are unavailable.';
+                host.prepend(message);
+                return;
+            }
+            dashboardCalendarLayoutDraft = JSON.parse(JSON.stringify(dashboardCalendarLayouts()));
+            dashboardCalendarDraftId = dashboardCalendarLayoutDraft[0]?.id || '';
+            renderDashboardCalendarSettingsEditor();
+        }
+        window.retryDashboardCalendarSettings = loadDashboardCalendarSettingsEditor;
+
         window.openDashboardCalendarSettings = async function () {
             if (!canManageDashboardCalendarLayouts()) return;
             dashboardCalendarDraftClinic = dashboardCalendarClinicId();
@@ -60002,15 +60027,7 @@
                 document.body.appendChild(modal);
             }
             modal.style.display = 'flex';
-            document.getElementById('dashboardCalendarSettingsEditor').textContent = 'Loading...';
-            const loaded = await loadDashboardCalendarLayouts(true);
-            if (!loaded || dashboardCalendarDraftClinic !== dashboardCalendarClinicId()) {
-                document.getElementById('dashboardCalendarSettingsEditor').innerHTML = '<p>Calendar settings are unavailable.</p><button type="button" class="rd-ops-btn" onclick="window.openDashboardCalendarSettings()">Retry</button><button type="button" class="rd-ops-btn" onclick="window.closeDashboardCalendarSettings()">Close</button>';
-                return;
-            }
-            dashboardCalendarLayoutDraft = JSON.parse(JSON.stringify(dashboardCalendarLayouts()));
-            dashboardCalendarDraftId = dashboardCalendarLayoutDraft[0]?.id || '';
-            renderDashboardCalendarSettingsEditor();
+            await loadDashboardCalendarSettingsEditor();
         };
 
         window.closeDashboardCalendarSettings = function () {
@@ -60032,7 +60049,10 @@
             if (button) button.disabled = true;
             try {
                 const response = await fetch(`${getEventsApiBaseUrl()}/settings`, await getEventsTenantFetchInit({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ calendarClinicId: clinicId, calendarLayouts: layouts }) }));
-                if (!response.ok) throw new Error(`Calendar settings were not saved (${response.status}).`);
+                if (!response.ok) {
+                    const failure = await response.json().catch(() => null);
+                    throw new Error(failure?.error || `Calendar settings were not saved (${response.status}).`);
+                }
                 dashboardCalendarLayoutsCache.get(settingsKey).layouts = layouts;
                 localStorage.setItem(settingsKey, JSON.stringify(layouts));
                 refreshDashboardScheduleSurfaces();

@@ -1,4 +1,4 @@
-const sql = require('mssql');
+const { sql, getPool } = require('../shared/database');
 const { getRequestUserId, isPlatformAdmin, resolveVisibleClinicId } = require('../shared/tenant');
 
 const PLATFORM_BRANDING_KEYS = new Set(['companyName', 'tagline', 'logoData']);
@@ -34,25 +34,6 @@ async function upsertSetting(pool, key, value, useMax = false) {
             ELSE
                 INSERT INTO Settings (SettingKey, SettingValue) VALUES (@key, @value)
         `);
-}
-
-function getConfig() {
-    const connStr = process.env.SQL_CONNECTION_STRING;
-    if (connStr) {
-        const serverMatch = connStr.match(/Server=(?:tcp:)?([^,;]+)/i);
-        const dbMatch = connStr.match(/Initial Catalog=([^;]+)/i) || connStr.match(/Database=([^;]+)/i);
-        const userMatch = connStr.match(/User ID=([^;]+)/i);
-        const passMatch = connStr.match(/Password=([^;]+)/i);
-        
-        return {
-            server: serverMatch ? serverMatch[1] : '',
-            database: dbMatch ? dbMatch[1] : '',
-            user: userMatch ? userMatch[1] : '',
-            password: passMatch ? passMatch[1] : '',
-            options: { encrypt: true, trustServerCertificate: false }
-        };
-    }
-    return {};
 }
 
 function parseRequestBody(body) {
@@ -109,13 +90,13 @@ module.exports = async function (context, req) {
 
     let pool;
     try {
-        pool = await sql.connect(getConfig());
+        pool = await getPool();
 
         const requestUserId = getRequestUserId(req);
         const isPlatformOwner = await isPlatformAdmin(pool, requestUserId);
-        const subscriptionId = isPlatformOwner ? null : await getSubscriptionIdForUser(pool, requestUserId);
         const calendarBody = parseRequestBody(req.body);
         const wantsCalendar = req.query?.calendarClinicId !== undefined || calendarBody.calendarLayouts !== undefined;
+        const subscriptionId = isPlatformOwner || wantsCalendar ? null : await getSubscriptionIdForUser(pool, requestUserId);
         let calendarKey = null;
         if (wantsCalendar) {
             const requestedClinicId = Number(req.query?.calendarClinicId || calendarBody.calendarClinicId || 0);
@@ -255,11 +236,5 @@ module.exports = async function (context, req) {
     } catch (err) {
         context.log.error('Database error:', err);
         context.res = { status: 500, headers, body: { error: err.message } };
-    } finally {
-        if (pool) {
-            try {
-                await pool.close();
-            } catch (_) {}
-        }
     }
 };

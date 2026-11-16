@@ -146,6 +146,30 @@ test('single-date and date-range modes show and preserve the correct dates', () 
     assert.equal(elements.dashboardEventEndDate.value, '2026-11-15');
 });
 
+test('calendar settings retry reloads a docked editor and displays server errors safely', async () => {
+    let attempts = 0;
+    let renders = 0;
+    const host = { textContent: '', innerHTML: '', prepend(node) { this.message = node.textContent; } };
+    const context = contextFor(['loadDashboardCalendarSettingsEditor'], {
+        document: { getElementById: () => host, createElement: () => ({ textContent: '' }) },
+        canManageDashboardCalendarLayouts: () => true,
+        dashboardCalendarDraftClinic: 7,
+        dashboardCalendarClinicId: () => 7,
+        dashboardCalendarLayoutsKey: () => 'clinic-7',
+        dashboardCalendarLayoutsCache: new Map([['clinic-7', { error: 'Database <unavailable>' }]]),
+        loadDashboardCalendarLayouts: async () => ++attempts > 1,
+        dashboardCalendarLayouts: () => [layout],
+        renderDashboardCalendarSettingsEditor: () => { renders++; }
+    });
+    await context.loadDashboardCalendarSettingsEditor();
+    assert.equal(host.message, 'Database <unavailable>');
+    assert(host.innerHTML.includes('window.retryDashboardCalendarSettings()'));
+    assert(!host.innerHTML.includes('window.openDashboardCalendarSettings()'));
+    await context.loadDashboardCalendarSettingsEditor();
+    assert.equal(attempts, 2);
+    assert.equal(renders, 1);
+});
+
 test('event API payload and response retain column IDs and timed ranges', () => {
     const context = contextFor(['mapCalendarEventToApiPayload', 'mapApiEventToCalendarEvent'], {
         normalizeEventAttendees: value => value,
@@ -181,8 +205,9 @@ test('timed multi-day events are clipped rather than converted to all-day', () =
     assert.equal(context.getDashboardCalendarEntries(new Date('2026-11-18T00:00:00')).length, 0);
 });
 
-function settingsHandler(role = 'admin', visibleClinic = 7) {
+function settingsHandler(role = 'admin', visibleClinic = 7, options = {}) {
     const writes = [];
+    let closeCount = 0;
     const rows = [{ SettingKey: 'calendarLayouts:clinic:7', SettingValue: JSON.stringify([layout]) }, { SettingKey: 'calendarLayouts:clinic:8', SettingValue: '[{"name":"Private clinic"}]' }];
     const pool = {
         request() {
@@ -190,6 +215,7 @@ function settingsHandler(role = 'admin', visibleClinic = 7) {
             return {
                 input(name, type, value) { inputs[name] = value; return this; },
                 async query(query) {
+                    if (options.noSubscriptionColumn && query.includes('SELECT TOP 1 SubscriptionId')) throw new Error("Invalid column name 'SubscriptionId'.");
                     if (query.includes('SELECT TOP 1 Role')) return { recordset: [{ Role: role }] };
                     if (query.includes('SELECT SettingKey')) return { recordset: rows };
                     if (query.includes('IF EXISTS')) writes.push({ ...inputs });
@@ -197,12 +223,29 @@ function settingsHandler(role = 'admin', visibleClinic = 7) {
                 }
             };
         },
-        async close() {}
+        async close() { closeCount++; }
     };
-    const context = vm.createContext({ module: { exports: {} }, require: name => name === 'mssql' ? { connect: async () => pool, NVarChar: () => 'nvarchar', Int: 'int' } : { getRequestUserId: () => 12, isPlatformAdmin: async () => false, resolveVisibleClinicId: async () => visibleClinic }, process: { env: {} }, console });
+    const sql = { connect: async () => pool, NVarChar: () => 'nvarchar', Int: 'int' };
+    const context = vm.createContext({ module: { exports: {} }, require: name => name === 'mssql' ? sql : name === '../shared/database' ? { sql, getPool: async () => pool } : { getRequestUserId: () => 12, isPlatformAdmin: async () => false, resolveVisibleClinicId: async () => visibleClinic }, process: { env: {} }, console });
     vm.runInContext(fs.readFileSync(path.join(root, 'api/settings/index.js'), 'utf8'), context);
-    return { handler: context.module.exports, writes };
+    return { handler: context.module.exports, writes, closeCount: () => closeCount };
 }
+
+test('calendar settings do not depend on subscription schema', async () => {
+    const { handler } = settingsHandler('admin', 7, { noSubscriptionColumn: true });
+    const context = { log: { error() {} } };
+    await handler(context, { method: 'GET', query: { calendarClinicId: '7' } });
+    assert.equal(context.res.status, 200);
+    assert.equal(context.res.body.calendarLayouts[0].id, 'rooms');
+});
+
+test('overlapping settings requests leave the managed database pool open', async () => {
+    const { handler, closeCount } = settingsHandler();
+    const contexts = [{ log: { error() {} } }, { log: { error() {} } }];
+    await Promise.all(contexts.map(context => handler(context, { method: 'GET', query: { calendarClinicId: '7' } })));
+    assert(contexts.every(context => context.res.status === 200));
+    assert.equal(closeCount(), 0);
+});
 
 test('layout settings reads are clinic-scoped and never expose other clinics', async () => {
     const { handler } = settingsHandler();
