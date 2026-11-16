@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261115-compact-operation-cards-v187';
+                const buildVersion = '20261115-dashboard-panel-height-v188';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -59760,7 +59760,7 @@
             const unscheduledRows = model.unscheduled.length ? model.unscheduled.map(entry => dashboardOperationRowHtml(entry, 'unscheduled')).join('') : '<div class="rd-ops-attendance-empty"><i class="far fa-check-circle"></i><span>Nothing unscheduled for today.</span></div>';
             return `<div class="rd-ops-column" id="dashboardAttentionPanel">
                 <style>
-                    #dashboardAttentionPanel{max-height:clamp(300px,calc(100dvh - 260px),760px);min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-gutter:stable;scrollbar-width:thin;gap:8px;align-self:start}
+                    #dashboardAttentionPanel{height:var(--dashboard-calendar-panel-height,auto);max-height:var(--dashboard-calendar-panel-height,clamp(300px,calc(100dvh - 260px),760px));min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-gutter:stable;scrollbar-width:thin;gap:8px;align-self:start}
                     #dashboardAttentionPanel>.rd-ops-card{flex:0 0 auto;padding:10px 12px;border-radius:8px;min-width:0}
                     #dashboardAttentionPanel .rd-ops-section-head{gap:6px;margin-bottom:4px;flex-wrap:wrap}
                     #dashboardAttentionPanel .rd-ops-section-head h3{font-size:13px}
@@ -59777,7 +59777,7 @@
                     #dashboardAttentionPanel .rd-ops-compact-due{font-size:10px;line-height:12px;font-weight:700;color:#A3261A}
                     #dashboardAttentionPanel .rd-ops-compact-schedule{width:28px;min-width:28px;height:28px;padding:0;border-radius:6px;font-size:12px}
                     #dashboardAttentionPanel .rd-ops-attendance-empty{padding:8px;font-size:11px;gap:6px}
-                    @media(max-width:1023px){#dashboardAttentionPanel{max-height:360px}}
+                    @media(max-width:1023px){#dashboardAttentionPanel{height:auto;max-height:360px}}
                 </style>
                 <section class="rd-ops-card" id="opsOverdueSection"><div class="rd-ops-section-head"><i class="fas fa-triangle-exclamation" style="color:#A3261A;"></i><h3>Overdue</h3><span class="rd-ops-count-pill">${model.overdue.length}</span></div><div class="rd-ops-list">${overdueRows}</div></section>
                 <section class="rd-ops-card" id="opsUnscheduledSection"><div class="rd-ops-section-head"><i class="fas fa-list-check" style="color:#4A4E55;"></i><h3>Unscheduled today</h3><span class="rd-ops-count-pill">${model.unscheduled.length}</span></div><div class="rd-ops-list">${unscheduledRows}</div></section>
@@ -60166,6 +60166,24 @@
             return `<style>.rd-calendar-time-grid .rd-ops-scheduled-item{height:100%;box-sizing:border-box;padding:4px;gap:4px;display:flex;align-items:flex-start;min-width:0}.rd-calendar-time-grid .rd-ops-scheduled-kind{display:none}.rd-calendar-time-grid .rd-ops-scheduled-time{font-size:10px;min-width:36px;width:36px;flex-shrink:0}.rd-calendar-time-grid .rd-ops-scheduled-body{min-width:0;flex:1}.rd-calendar-time-grid .rd-ops-scheduled-body strong{font-size:12px;overflow-wrap:anywhere}.rd-calendar-time-grid .rd-ops-scheduled-body>span{font-size:10px;overflow-wrap:anywhere}.rd-calendar-time-grid button:focus-visible{outline:2px solid #0F5E75;outline-offset:-2px}.rd-ops-event-form>label{min-width:0}.rd-ops-event-form select{max-width:100%;min-width:0;padding:8px;box-sizing:border-box;}</style><div class="rd-calendar-time-grid" data-dashboard-time-grid="true" style="overflow:auto;max-height:650px;border:1px solid #D9D6CF;border-radius:6px;"><div style="min-width:${64 + columns.length * 180}px;display:grid;grid-template-columns:64px repeat(${columns.length},minmax(180px,1fr));"><div style="position:sticky;top:0;z-index:5;background:var(--card-bg,#fff);padding:12px 4px;font-size:12px;">Time</div>${headers}<div>${times}</div>${lanes}</div></div>`;
         }
 
+        function syncDashboardOperationPanelHeight(root) {
+            const calendarPanel = root?.querySelector('#dashboardCalendarPanel');
+            if (!calendarPanel) return;
+            const syncHeight = () => {
+                if (!root.isConnected) {
+                    root.__dashboardCalendarPanelObserver?.disconnect();
+                    return;
+                }
+                const height = calendarPanel.getBoundingClientRect().height;
+                if (height > 0) root.style.setProperty('--dashboard-calendar-panel-height', `${height}px`);
+            };
+            syncHeight();
+            if (!root.__dashboardCalendarPanelObserver && typeof ResizeObserver === 'function') {
+                root.__dashboardCalendarPanelObserver = new ResizeObserver(syncHeight);
+                root.__dashboardCalendarPanelObserver.observe(calendarPanel);
+            }
+        }
+
         function renderDashboardScheduleCard(target, model = dashboardBuildModel()) {
             if (!target) return;
             const previousScroll = target.querySelector('[data-dashboard-time-grid]')?.scrollTop;
@@ -60193,6 +60211,7 @@
                 select.addEventListener('change', () => window.setDashboardCalendarLayout(select.value));
                 toolbar.insertBefore(select, toolbar.lastElementChild);
             }
+            syncDashboardOperationPanelHeight(target.closest('[data-rd-ops-dashboard="1"]'));
         }
 
         function renderDashboardAttendanceCard(target, model = dashboardBuildModel()) {

@@ -139,6 +139,36 @@ test('dashboard refresh preserves the independent operation list scroll position
     assert.equal(updated.scrollTop, 237);
 });
 
+test('operation panel tracks the calendar height without duplicate observers', () => {
+    let height = 812;
+    let callback;
+    let observers = 0;
+    let disconnected = false;
+    const properties = new Map();
+    const calendar = { getBoundingClientRect: () => ({ height }) };
+    const root = { isConnected: true, querySelector: () => calendar, style: { setProperty: (name, value) => properties.set(name, value) } };
+    const context = contextFor(['syncDashboardOperationPanelHeight'], {
+        ResizeObserver: class {
+            constructor(handler) { callback = handler; observers++; }
+            observe(target) { assert.equal(target, calendar); }
+            disconnect() { disconnected = true; }
+        }
+    });
+    context.syncDashboardOperationPanelHeight(root);
+    assert.equal(properties.get('--dashboard-calendar-panel-height'), '812px');
+    height = 1036;
+    callback();
+    assert.equal(properties.get('--dashboard-calendar-panel-height'), '1036px');
+    context.syncDashboardOperationPanelHeight(root);
+    assert.equal(observers, 1);
+    height = 0;
+    callback();
+    assert.equal(properties.get('--dashboard-calendar-panel-height'), '1036px');
+    root.isConnected = false;
+    callback();
+    assert(disconnected);
+});
+
 test('starter navigation opens Calendar Settings while retaining restrictions on other views', () => {
     const navigated = [];
     const context = contextFor(['allowedViewNames', 'installSwitchGuard'], {
