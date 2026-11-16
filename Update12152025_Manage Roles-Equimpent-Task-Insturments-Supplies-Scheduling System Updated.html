@@ -60042,8 +60042,8 @@
                     #dashboardAttentionPanel .rd-ops-attendance-empty{padding:8px;font-size:11px;gap:6px}
                     @media(max-width:1023px){#dashboardAttentionPanel{height:auto;max-height:360px}}
                 </style>
-                <section class="rd-ops-card" id="opsOverdueSection"><div class="rd-ops-section-head"><i class="fas fa-triangle-exclamation" style="color:#A3261A;"></i><h3>Overdue</h3><span class="rd-ops-count-pill">${model.overdue.length}</span></div><div class="rd-ops-list">${overdueRows}</div></section>
-                <section class="rd-ops-card" id="opsUnscheduledSection"><div class="rd-ops-section-head"><i class="fas fa-list-check" style="color:#4A4E55;"></i><h3>Unscheduled today</h3><span class="rd-ops-count-pill">${model.unscheduled.length}</span></div><div class="rd-ops-list">${unscheduledRows}</div></section>
+                <section class="rd-ops-card" id="opsOverdueSection"><div class="rd-ops-section-head"><i class="fas fa-triangle-exclamation" style="color:#A3261A;"></i><h3>Overdue</h3><span class="rd-ops-count-pill">${model.overdue.length}</span>${dashboardSectionToggleHtml('overdue')}</div><div class="rd-ops-list" data-section-body="overdue"${isDashboardSectionCollapsed('overdue') ? ' hidden' : ''}>${overdueRows}</div></section>
+                <section class="rd-ops-card" id="opsUnscheduledSection"><div class="rd-ops-section-head"><i class="fas fa-list-check" style="color:#4A4E55;"></i><h3>Unscheduled today</h3><span class="rd-ops-count-pill">${model.unscheduled.length}</span>${dashboardSectionToggleHtml('unscheduled')}</div><div class="rd-ops-list" data-section-body="unscheduled"${isDashboardSectionCollapsed('unscheduled') ? ' hidden' : ''}>${unscheduledRows}</div></section>
                 <div id="dashboardAttendancePanel"></div>
             </div>`;
         }
@@ -60780,7 +60780,7 @@
         function renderDashboardAttendanceCard(target, model = dashboardBuildModel()) {
             if (!target) return;
             const rows = model.attendance.length ? `<div class="rd-ops-list">${model.attendance.map(entry => `<div class="rd-ops-att-row"><div><strong>${escapeDashboardHtml(entry.name)}</strong><span>${escapeDashboardHtml(entry.jobTitle || 'Team member')}</span></div><span class="rd-ops-chip rd-ops-chip-status">${escapeDashboardHtml(entry.status)}</span></div>`).join('')}</div>` : '<div class="rd-ops-attendance-empty"><i class="far fa-clock"></i><span>No one has clocked in yet today.</span></div>';
-            target.innerHTML = `<section class="rd-ops-card" id="opsAttendanceSection"><div class="rd-ops-section-head"><i class="fas fa-user-group" style="color:#1C1D1F;"></i><h3>Today's attendance</h3><a href="#" class="head-spacer" onclick="event.preventDefault(); if (typeof switchContentView === 'function') switchContentView('attendance', event);" style="font-size:12px;font-weight:800;color:#0F5E75;text-decoration:none;">View roster</a></div>${rows}</section>`;
+            target.innerHTML = `<section class="rd-ops-card" id="opsAttendanceSection"><div class="rd-ops-section-head"><i class="fas fa-user-group" style="color:#1C1D1F;"></i><h3>Today's attendance</h3><span class="rd-ops-count-pill">${model.attendance.length}</span><a href="#" class="head-spacer" onclick="event.preventDefault(); if (typeof switchContentView === 'function') switchContentView('attendance', event);" style="font-size:12px;font-weight:800;color:#0F5E75;text-decoration:none;">View roster</a>${dashboardSectionToggleHtml('attendance', false)}</div><div data-section-body="attendance"${isDashboardSectionCollapsed('attendance') ? ' hidden' : ''}>${rows}</div></section>`;
         }
 
         function getActiveOperationsDashboardRoot(root) {
@@ -60838,6 +60838,40 @@
             try { localStorage.setItem('rd:dashboardAttentionCollapsed', next ? '1' : ''); } catch (_) {}
             document.querySelectorAll('.rd-ops-dashboard .rd-ops-main').forEach(main => main.classList.toggle('attention-collapsed', next));
             syncDashboardAttentionToggle();
+        };
+
+        function dashboardSectionCollapsedMap() {
+            try {
+                const parsed = JSON.parse(localStorage.getItem('rd:dashboardSectionCollapsed') || '{}');
+                return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+            } catch (_) { return {}; }
+        }
+
+        function isDashboardSectionCollapsed(key) {
+            return !!dashboardSectionCollapsedMap()[key];
+        }
+
+        function dashboardSectionToggleHtml(key, push = true) {
+            const collapsed = isDashboardSectionCollapsed(key);
+            const label = collapsed ? 'Expand section' : 'Collapse section';
+            return `<button type="button" class="rd-ops-btn" data-section="${key}" onclick="window.toggleDashboardSection(this)" title="${label}" aria-label="${label}" aria-expanded="${collapsed ? 'false' : 'true'}" style="height:24px;min-width:24px;width:24px;padding:0;${push ? 'margin-left:auto;' : ''}border-radius:6px;font-size:10px;flex:0 0 auto;"><i class="fas fa-chevron-${collapsed ? 'down' : 'up'}" aria-hidden="true"></i></button>`;
+        }
+
+        window.toggleDashboardSection = function (button) {
+            const key = String(button?.dataset?.section || '').trim();
+            if (!key) return;
+            const map = dashboardSectionCollapsedMap();
+            const collapsed = !map[key];
+            if (collapsed) map[key] = 1; else delete map[key];
+            try { localStorage.setItem('rd:dashboardSectionCollapsed', JSON.stringify(map)); } catch (_) {}
+            document.querySelectorAll(`[data-section-body="${key}"]`).forEach(body => { body.hidden = collapsed; });
+            document.querySelectorAll(`button[data-section="${key}"]`).forEach(toggle => {
+                const label = collapsed ? 'Expand section' : 'Collapse section';
+                toggle.innerHTML = `<i class="fas fa-chevron-${collapsed ? 'down' : 'up'}" aria-hidden="true"></i>`;
+                toggle.title = label;
+                toggle.setAttribute('aria-label', label);
+                toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            });
         };
 
         function renderOperationsDashboardRedesign(target, clinic) {
