@@ -58458,7 +58458,7 @@
             window.__dashboardOperationDragPayload = null;
         }, true);
 
-        async function moveDashboardCalendarEvent(payload, date, time) {
+        async function moveDashboardCalendarEvent(payload, date, time, columnValue) {
             const events = dashboardCalendarReadArray('calendarEvents');
             const index = events.findIndex(item => String(item?.id || item?.Id || '') === String(payload?.id || ''));
             if (index < 0) return false;
@@ -58470,6 +58470,11 @@
             const duration = Math.max(15 * 60000, end.getTime() - start.getTime());
             if (Number.isNaN(nextStart.getTime()) || Number.isNaN(duration)) return false;
             const updated = { ...current, start: nextStart.toISOString(), end: new Date(nextStart.getTime() + duration).toISOString() };
+            if (columnValue !== undefined && dashboardCalendarViewMode === 'calendar' && dashboardCalendarScope === 'office') {
+                const [layoutId = '', columnId = ''] = String(columnValue || '').split(':');
+                updated.calendarLayoutId = layoutId || null;
+                updated.calendarColumnId = columnId || null;
+            }
             let apiSaved = false;
             try {
                 if (typeof updateEventViaApi === 'function') {
@@ -58578,16 +58583,19 @@
         window.undoDashboardScheduleChange = undoDashboardScheduleChange;
 
         async function applyDashboardCalendarDrop(payload, slot) {
-            if (payload?.source === 'calendar-event') return await moveDashboardCalendarEvent(payload, slot.date, slot.time);
+            if (payload?.source === 'calendar-event') return await moveDashboardCalendarEvent(payload, slot.date, slot.time, slot.column);
             if (payload?.source === 'calendar-operation') {
                 const undoSnapshot = dashboardScheduleOperationSnapshot(payload);
+                const columnApplied = applyDashboardOperationColumnFromDrop(payload, slot.column);
                 const saved = scheduleDashboardOperationFromDrop(payload, slot.date, slot.time);
                 if (saved) {
                     if (undoSnapshot) showDashboardScheduleUndo(undoSnapshot, 'Calendar item moved');
                     dashboardCalendarDate = new Date(`${slot.date}T00:00:00`);
                     refreshDashboardScheduleSurfaces();
+                } else if (columnApplied) {
+                    refreshDashboardScheduleSurfaces();
                 }
-                return saved;
+                return saved || columnApplied;
             }
             if (typeof window.openDashboardSchedulePicker === 'function') window.openDashboardSchedulePicker(payload, slot.date, slot.time);
             return !!payload;
@@ -58601,8 +58609,9 @@
 
         function getDashboardCalendarDropSlot(event, dropzone) {
             const rect = dropzone.getBoundingClientRect();
+            const laneColumn = dropzone.dataset.calendarColumn ?? '';
             const slotTime = event.target?.closest?.('[data-calendar-time]')?.dataset.calendarTime || '';
-            if (slotTime) return { date: dropzone.dataset.calendarDate || dashboardLocalDateIso(dashboardCalendarDate), time: slotTime };
+            if (slotTime) return { date: dropzone.dataset.calendarDate || dashboardLocalDateIso(dashboardCalendarDate), time: slotTime, column: laneColumn };
             const startHour = Number(dropzone.dataset.calendarStartHour ?? 7);
             const endHour = Number(dropzone.dataset.calendarEndHour || 19) || 19;
             const totalMinutes = Math.max(15, (endHour - startHour) * 60);
@@ -58613,7 +58622,8 @@
             const minute = roundedMinutes % 60;
             return {
                 date: dropzone.dataset.calendarDate || dashboardLocalDateIso(dashboardCalendarDate),
-                time: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+                time: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+                column: laneColumn
             };
         }
 
@@ -60271,9 +60281,113 @@
 
         function dashboardCalendarColumnMatchesEntry(column, entry) {
             if (!column?.entityType || (!column.entityId && !column.entityName)) return false;
-            const keys = new Set([column.entityId, column.entityName].map(value => String(value ?? '').trim().toLowerCase()).filter(Boolean));
+            const keys = column.entityType === 'staff'
+                ? dashboardCalendarStaffMatchKeys(column)
+                : new Set([column.entityId, column.entityName].map(value => String(value ?? '').trim().toLowerCase()).filter(Boolean));
             if (!keys.size) return false;
             return dashboardCalendarEntryEntityValues(entry, column.entityType).some(value => keys.has(value));
+        }
+
+        function dashboardCalendarStaffMatchKeys(column) {
+            const keys = new Set([column.entityId, column.entityName].map(value => String(value ?? '').trim().toLowerCase()).filter(Boolean));
+            if (!keys.size) return keys;
+            const resources = Array.isArray(window.employeeResources) ? window.employeeResources : [];
+            resources.forEach(resource => {
+                const name = String(resource?.title || resource?.name || '').trim().toLowerCase();
+                const username = String(resource?.extendedProps?.username || '').trim().toLowerCase();
+                const email = String(resource?.extendedProps?.email || '').trim().toLowerCase();
+                if ((name && keys.has(name)) || (username && keys.has(username)) || (email && keys.has(email))) {
+                    [name, username, email].forEach(value => { if (value) keys.add(value); });
+                }
+            });
+            return keys;
+        }
+
+        function dashboardCalendarColumnPinsKey() {
+            return `rd:calendarColumnPins:${getDashboardCurrentCreator().id || 'guest'}:${dashboardCalendarClinicId()}`;
+        }
+
+        function dashboardCalendarColumnPinMap() {
+            try {
+                const parsed = JSON.parse(localStorage.getItem(dashboardCalendarColumnPinsKey()) || '{}');
+                return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+            } catch (_) { return {}; }
+        }
+
+        function dashboardCalendarEntryPinKey(entry) {
+            const kind = String(entry?.kind || '').trim().toLowerCase();
+            const id = String(entry?.id || '').trim();
+            const title = String(entry?.title || '').trim().toLowerCase();
+            if (!kind || (!id && !title)) return '';
+            return `${kind}:${id || title}`;
+        }
+
+        function dashboardCalendarColumnPin(entry) {
+            const key = dashboardCalendarEntryPinKey(entry);
+            return key ? String(dashboardCalendarColumnPinMap()[key] || '') : '';
+        }
+
+        function setDashboardCalendarColumnPin(entryKey, value) {
+            if (!entryKey) return;
+            const map = dashboardCalendarColumnPinMap();
+            if (value) map[entryKey] = value;
+            else delete map[entryKey];
+            localStorage.setItem(dashboardCalendarColumnPinsKey(), JSON.stringify(map));
+        }
+
+        function dashboardAssignOperationToStaff(payload, name) {
+            const assigneeName = String(name || '').trim();
+            if (!assigneeName) return false;
+            const kind = String(payload?.kind || '').trim().toLowerCase();
+            const sources = /service/.test(kind) || payload?.serviceTicketId ? ['equipmentServiceTickets']
+                : /assignment/.test(kind) ? ['teams']
+                : /equipment/.test(kind) ? ['equipment', 'officeEquipment']
+                : /task/.test(kind) ? ['tasksData']
+                : /request/.test(kind) ? ['requestsDatabase'] : [];
+            const ids = [payload?.serviceTicketId, payload?.id, payload?.serviceEquipmentId, payload?.equipmentId].map(value => String(value || '').trim()).filter(Boolean);
+            const title = String(payload?.title || '').trim();
+            const matches = item => {
+                const recordIds = [item?.id, item?.Id, item?.ticketId, item?.TicketId, item?.assignmentId, item?.AssignmentId, item?.equipmentID, item?.EquipmentID, item?.equipmentId, item?.EquipmentId, item?.apiId].map(value => String(value || '').trim()).filter(Boolean);
+                if (ids.length) return recordIds.some(id => ids.includes(id));
+                return title && String(item?.teamName || item?.name || item?.Name || item?.title || item?.Title || '').trim() === title;
+            };
+            const now = new Date().toISOString();
+            for (const storageKey of sources) {
+                const records = dashboardCalendarReadArray(storageKey);
+                const index = records.findIndex(matches);
+                if (index < 0) continue;
+                records[index] = { ...records[index], assignee: assigneeName, assignedTo: assigneeName, needsSync: true, updatedDate: now, modifiedDate: now };
+                localStorage.setItem(storageKey, JSON.stringify(records));
+                if (storageKey === 'tasksData' && Array.isArray(window.tasksData)) {
+                    const memoryIndex = window.tasksData.findIndex(matches);
+                    if (memoryIndex >= 0) window.tasksData[memoryIndex] = { ...window.tasksData[memoryIndex], assignee: assigneeName, assignedTo: assigneeName, updatedDate: now, modifiedDate: now };
+                }
+                return true;
+            }
+            return false;
+        }
+
+        function applyDashboardOperationColumnFromDrop(payload, columnValue) {
+            if (columnValue === undefined || dashboardCalendarViewMode !== 'calendar' || dashboardCalendarScope !== 'office') return false;
+            const pinKey = dashboardCalendarEntryPinKey(payload);
+            if (!pinKey) return false;
+            const value = String(columnValue || '');
+            if (!value) {
+                if (!dashboardCalendarColumnPin(payload)) return false;
+                setDashboardCalendarColumnPin(pinKey, '');
+                return true;
+            }
+            const [layoutId = '', columnId = ''] = value.split(':');
+            const layout = dashboardCalendarLayouts().find(item => item.id === layoutId);
+            const column = layout?.columns.find(item => item.id === columnId);
+            if (!column) return false;
+            if (column.entityType === 'staff' && column.entityName && dashboardAssignOperationToStaff(payload, column.entityName)) {
+                setDashboardCalendarColumnPin(pinKey, '');
+                if (typeof showNotification === 'function') showNotification(`Assigned to ${column.entityName}.`, 'success');
+                return true;
+            }
+            setDashboardCalendarColumnPin(pinKey, value);
+            return true;
         }
 
         function dashboardCalendarColumnEntityCellHtml(column) {
@@ -60507,8 +60621,14 @@
                     if (isWeek || dashboardCalendarScope === 'mine') return true;
                     const record = entry.record || {};
                     const explicit = record.calendarLayoutId === layout?.id && layout?.columns.some(candidate => candidate.active && candidate.id === record.calendarColumnId);
-                    if (column.id) return explicit ? record.calendarColumnId === column.id : dashboardCalendarColumnMatchesEntry(column, entry);
-                    return !explicit && !(layout?.columns || []).some(candidate => candidate.active && dashboardCalendarColumnMatchesEntry(candidate, entry));
+                    const pin = entry.kind === 'Calendar' ? '' : dashboardCalendarColumnPin(entry);
+                    const pinned = !!(pin && layout && pin.startsWith(`${layout.id}:`) && layout.columns.some(candidate => candidate.active && `${layout.id}:${candidate.id}` === pin));
+                    if (column.id) {
+                        if (explicit) return record.calendarColumnId === column.id;
+                        if (pinned) return pin === `${layout.id}:${column.id}`;
+                        return dashboardCalendarColumnMatchesEntry(column, entry);
+                    }
+                    return !explicit && !pinned && !(layout?.columns || []).some(candidate => candidate.active && dashboardCalendarColumnMatchesEntry(candidate, entry));
                 }).sort((left, right) => left.start - right.start);
                 const positioned = [];
                 let group = [];
