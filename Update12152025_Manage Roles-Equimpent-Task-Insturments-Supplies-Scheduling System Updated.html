@@ -59437,12 +59437,21 @@
             if (typeof showNotification === 'function') showNotification(apiDeleted ? 'Event deleted.' : 'Event removed locally; server delete may need retry.', apiDeleted ? 'success' : 'warning');
         };
 
+        function syncQuickCalendarFromDashboard() {
+            try {
+                if (typeof quickCalendarDate === 'undefined' || !(dashboardCalendarDate instanceof Date)) return;
+                quickCalendarDate = new Date(dashboardCalendarDate.getFullYear(), dashboardCalendarDate.getMonth(), dashboardCalendarDate.getDate());
+                if (typeof renderQuickCalendar === 'function') renderQuickCalendar();
+            } catch (_) {}
+        }
+
         window.shiftDashboardCalendar = function (offset) {
             if (dashboardCalendarViewMode === 'month') dashboardCalendarDate.setMonth(dashboardCalendarDate.getMonth() + Number(offset || 0));
             else dashboardCalendarDate.setDate(dashboardCalendarDate.getDate() + Number(offset || 0) * (dashboardCalendarViewMode === 'week' ? 7 : 1));
+            syncQuickCalendarFromDashboard();
             refreshDashboardScheduleSurfaces();
         };
-        window.resetDashboardCalendar = function () { dashboardCalendarDate = new Date(); refreshDashboardScheduleSurfaces(); };
+        window.resetDashboardCalendar = function () { dashboardCalendarDate = new Date(); syncQuickCalendarFromDashboard(); refreshDashboardScheduleSurfaces(); };
         window.setDashboardCalendarViewMode = function (mode) { dashboardCalendarViewMode = (mode === 'list' || mode === 'month' || mode === 'week') ? mode : 'calendar'; refreshDashboardScheduleSurfaces(); };
         window.setDashboardCalendarScope = function (scope) { dashboardCalendarScope = scope === 'office' ? 'office' : 'mine'; refreshDashboardScheduleSurfaces(); };
 
@@ -68833,7 +68842,10 @@ window.initializeCalendar = initializeCalendar;
         // Previous Month
         function quickCalendarPrevMonth() {
             quickCalendarDate.setMonth(quickCalendarDate.getMonth() - 1);
-            
+
+            // Sync the dashboard schedule calendar
+            syncDashboardCalendarFromQuickCalendar(quickCalendarDate);
+
             // Sync main calendar
             if (window.calendarInstance) {
                 window.calendarInstance.currentDate = new Date(quickCalendarDate);
@@ -68856,6 +68868,9 @@ window.initializeCalendar = initializeCalendar;
         // Next Month
         function quickCalendarNextMonth() {
             quickCalendarDate.setMonth(quickCalendarDate.getMonth() + 1);
+
+            // Sync the dashboard schedule calendar
+            syncDashboardCalendarFromQuickCalendar(quickCalendarDate);
 
             // Sync main calendar
             if (window.calendarInstance) {
@@ -68880,6 +68895,9 @@ window.initializeCalendar = initializeCalendar;
                 function quickCalendarToday() {
                     const today = new Date();
                     quickCalendarDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+                    // Sync the dashboard schedule calendar
+                    syncDashboardCalendarFromQuickCalendar(today);
 
                     // Sync the main custom calendar (if present)
                     if (window.calendarInstance) {
@@ -68995,6 +69013,17 @@ window.initializeCalendar = initializeCalendar;
             renderQuickCalendar();
         }
 
+        // Keep the dashboard schedule calendar in sync with the quick calendar.
+        function syncDashboardCalendarFromQuickCalendar(date) {
+            try {
+                if (typeof dashboardCalendarDate === 'undefined' || typeof refreshDashboardScheduleSurfaces !== 'function') return;
+                const next = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                if (Number.isNaN(next.getTime())) return;
+                dashboardCalendarDate = next;
+                refreshDashboardScheduleSurfaces();
+            } catch (_) {}
+        }
+
         // Navigate to date from small calendar widget (original function)
         function goToCalendarDate(day) {
             console.log('=== goToCalendarDate called with day:', day);
@@ -69019,6 +69048,9 @@ window.initializeCalendar = initializeCalendar;
                 console.log('? Attempting to navigate to:', date.toDateString());
 
                 quickCalendarDate = new Date(date);
+
+                // Sync the dashboard schedule calendar
+                syncDashboardCalendarFromQuickCalendar(date);
 
                 // Sync the custom main calendar instance
                 if (window.calendarInstance) {
