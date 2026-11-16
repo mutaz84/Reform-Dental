@@ -160,11 +160,15 @@ module.exports = async function (context, req) {
                 const layouts = body.calendarLayouts;
                 const validId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
                 const validName = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 80;
+                const validEntity = column =>
+                    (column.entityType === undefined || (typeof column.entityType === 'string' && column.entityType.length <= 40)) &&
+                    (column.entityId === undefined || (typeof column.entityId === 'string' && column.entityId.length <= 160)) &&
+                    (column.entityName === undefined || (typeof column.entityName === 'string' && column.entityName.length <= 160));
                 const valid = Array.isArray(layouts) && layouts.length <= 20 &&
                     new Set(layouts.map(layout => layout?.id)).size === layouts.length && layouts.every(layout =>
                         layout && validId(layout.id) && validName(layout.name) && Array.isArray(layout.columns) && layout.columns.length <= 30 &&
                         new Set(layout.columns.map(column => column?.id)).size === layout.columns.length && layout.columns.every(column =>
-                            column && validId(column.id) && validName(column.name) && /^#[0-9a-f]{6}$/i.test(column.color || '') && typeof column.active === 'boolean'));
+                            column && validId(column.id) && validName(column.name) && /^#[0-9a-f]{6}$/i.test(column.color || '') && typeof column.active === 'boolean' && validEntity(column)));
                 if (!valid) {
                     context.res = { status: 400, headers, body: { error: 'Invalid calendar layouts or columns.' } };
                     return;

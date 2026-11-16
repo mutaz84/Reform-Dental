@@ -60197,8 +60197,97 @@
         };
 
         function dashboardCalendarColumnOptions(selected = '') {
-            const options = dashboardCalendarLayouts().map(layout => `<optgroup label="${escapeDashboardHtml(layout.name)}">${layout.columns.filter(column => column.active || `${layout.id}:${column.id}` === selected).map(column => `<option value="${escapeDashboardHtml(`${layout.id}:${column.id}`)}"${`${layout.id}:${column.id}` === selected ? ' selected' : ''}>${escapeDashboardHtml(column.name)}${column.active ? '' : ' (inactive)'}</option>`).join('')}</optgroup>`).join('');
+            const options = dashboardCalendarLayouts().map(layout => `<optgroup label="${escapeDashboardHtml(layout.name)}">${layout.columns.filter(column => column.active || `${layout.id}:${column.id}` === selected).map(column => `<option value="${escapeDashboardHtml(`${layout.id}:${column.id}`)}"${`${layout.id}:${column.id}` === selected ? ' selected' : ''}>${escapeDashboardHtml(column.name)}${column.entityType && column.entityName ? escapeDashboardHtml(` — ${dashboardCalendarEntityTypeLabel(column.entityType)}: ${column.entityName}`) : ''}${column.active ? '' : ' (inactive)'}</option>`).join('')}</optgroup>`).join('');
             return `<option value="">Unassigned</option>${options}`;
+        }
+
+        const DASHBOARD_CALENDAR_ENTITY_TYPES = [
+            { value: 'staff', label: 'Staff / Doctor' },
+            { value: 'room', label: 'Room' },
+            { value: 'equipment', label: 'Equipment' },
+            { value: 'instrument', label: 'Instrument' },
+            { value: 'supply', label: 'Supply' },
+            { value: 'vendor', label: 'Vendor' },
+            { value: 'clinic', label: 'Clinic / Office' }
+        ];
+
+        function dashboardCalendarEntityTypeLabel(value) {
+            return DASHBOARD_CALENDAR_ENTITY_TYPES.find(type => type.value === value)?.label || '';
+        }
+
+        function dashboardCalendarEntityOptions(entityType) {
+            const readArray = dashboardCalendarReadArray;
+            const mapRecords = (records, idKeys, nameKeys) => {
+                const seen = new Set();
+                return records.map(record => {
+                    if (!record || record.isActive === false || record.IsActive === false) return null;
+                    const id = String(idKeys.map(key => record[key]).find(value => value !== undefined && value !== null && String(value).trim()) ?? '').trim();
+                    const name = String(nameKeys.map(key => record[key]).find(value => String(value ?? '').trim()) ?? '').trim();
+                    if (!name) return null;
+                    const dedupeKey = `${id}|${name}`.toLowerCase();
+                    if (seen.has(dedupeKey)) return null;
+                    seen.add(dedupeKey);
+                    return { id: id || name, name };
+                }).filter(Boolean).sort((left, right) => left.name.localeCompare(right.name));
+            };
+            if (entityType === 'staff') return dashboardEventPeopleOptions().map(person => ({ id: person.value, name: person.value }));
+            if (entityType === 'room') return mapRecords(readArray('rooms'), ['roomId', 'RoomId', 'roomID', 'id', 'Id'], ['roomName', 'RoomName', 'name', 'Name']);
+            if (entityType === 'equipment') return mapRecords([...readArray('equipment'), ...readArray('officeEquipment')], ['equipmentID', 'EquipmentID', 'equipmentId', 'EquipmentId', 'id', 'Id'], ['equipmentName', 'EquipmentName', 'name', 'Name']);
+            if (entityType === 'instrument') return mapRecords(readArray('instruments'), ['instrumentId', 'InstrumentId', 'instrumentID', 'id', 'Id'], ['instrumentName', 'InstrumentName', 'name', 'Name']);
+            if (entityType === 'supply') return mapRecords([...readArray('dentalSupplies'), ...readArray('officeSupplies')], ['supplyId', 'SupplyId', 'supplyID', 'id', 'Id'], ['supplyName', 'SupplyName', 'name', 'Name', 'itemName', 'ItemName']);
+            if (entityType === 'vendor') return mapRecords(readArray('vendors'), ['vendorID', 'VendorID', 'vendorId', 'id', 'Id'], ['vendorName', 'VendorName', 'name', 'Name']);
+            if (entityType === 'clinic') return mapRecords(readArray('clinics'), ['clinicId', 'ClinicId', 'clinicID', 'id', 'Id'], ['clinicName', 'ClinicName', 'name', 'Name']);
+            return [];
+        }
+
+        function dashboardCalendarEntryEntityValues(entry, entityType) {
+            const record = entry?.record || {};
+            const values = [];
+            const push = value => {
+                const text = String(value ?? '').trim().toLowerCase();
+                if (text && !['0', 'null', 'undefined', 'nan'].includes(text)) values.push(text);
+            };
+            if (entityType === 'staff') {
+                [record.assignee, record.Assignee, record.assignedTo, record.AssignedTo, record.assignedEmployee, record.AssignedEmployee, record.claimedBy, record.ClaimedBy, record.organizerName, record.OrganizerName, entry?.assigneeRaw].forEach(push);
+                String(entry?.attendeesText || '').split(',').forEach(push);
+            } else if (entityType === 'equipment') {
+                [record.equipmentID, record.EquipmentID, record.equipmentId, record.EquipmentId, record.equipmentName, record.EquipmentName].forEach(push);
+                if (entry?.kind === 'Equipment' || entry?.kind === 'Service') {
+                    [record.id, record.Id, record.name, record.Name, entry?.title].forEach(push);
+                }
+            } else if (entityType === 'room') {
+                [record.roomId, record.RoomId, record.roomID, record.roomName, record.RoomName, record.room, record.Room, record.location, record.Location, entry?.location].forEach(push);
+            } else if (entityType === 'clinic') {
+                [record.clinicId, record.ClinicId, record.clinicName, record.ClinicName, record.office, record.Office, entry?.location].forEach(push);
+            } else if (entityType === 'vendor') {
+                [record.vendorID, record.VendorID, record.vendorId, record.VendorId, record.vendorName, record.VendorName, record.vendor, record.Vendor].forEach(push);
+            } else if (entityType === 'instrument') {
+                [record.instrumentId, record.InstrumentId, record.instrumentID, record.instrumentName, record.InstrumentName, record.name, record.Name, entry?.title].forEach(push);
+            } else if (entityType === 'supply') {
+                [record.supplyId, record.SupplyId, record.supplyID, record.supplyName, record.SupplyName, record.itemId, record.ItemId, record.itemName, record.ItemName, record.name, record.Name, entry?.title].forEach(push);
+            }
+            return values;
+        }
+
+        function dashboardCalendarColumnMatchesEntry(column, entry) {
+            if (!column?.entityType || (!column.entityId && !column.entityName)) return false;
+            const keys = new Set([column.entityId, column.entityName].map(value => String(value ?? '').trim().toLowerCase()).filter(Boolean));
+            if (!keys.size) return false;
+            return dashboardCalendarEntryEntityValues(entry, column.entityType).some(value => keys.has(value));
+        }
+
+        function dashboardCalendarColumnEntityCellHtml(column) {
+            const typeOptions = [`<option value="">Not linked</option>`, ...DASHBOARD_CALENDAR_ENTITY_TYPES.map(type => `<option value="${type.value}"${column.entityType === type.value ? ' selected' : ''}>${type.label}</option>`)].join('');
+            const typeSelect = `<select aria-label="Linked entity type" data-field="entityType" onchange="window.updateDashboardCalendarColumn(this)" style="width:100%;box-sizing:border-box;padding:8px;">${typeOptions}</select>`;
+            if (!column.entityType) return typeSelect;
+            const records = dashboardCalendarEntityOptions(column.entityType);
+            const selectedId = String(column.entityId || '');
+            const known = records.some(record => String(record.id) === selectedId);
+            const recordOptions = [`<option value="">Choose ${escapeDashboardHtml(dashboardCalendarEntityTypeLabel(column.entityType).toLowerCase())}…</option>`]
+                .concat(selectedId && !known ? [`<option value="${escapeDashboardHtml(selectedId)}" selected>${escapeDashboardHtml(column.entityName || selectedId)} (missing)</option>`] : [])
+                .concat(records.map(record => `<option value="${escapeDashboardHtml(String(record.id))}"${String(record.id) === selectedId ? ' selected' : ''}>${escapeDashboardHtml(record.name)}</option>`))
+                .join('');
+            return `${typeSelect}<select aria-label="Linked entity" data-field="entityId" onchange="window.updateDashboardCalendarColumn(this)" style="width:100%;box-sizing:border-box;padding:8px;margin-top:6px;">${recordOptions}</select>`;
         }
 
         function canManageDashboardCalendarLayouts() {
@@ -60211,7 +60300,7 @@
             if (!host) return;
             const layout = dashboardCalendarLayoutDraft.find(item => item.id === dashboardCalendarDraftId);
             const iconButton = (action, columnId, icon, label) => `<button type="button" class="rd-ops-btn" data-column-id="${escapeDashboardHtml(columnId)}" onclick="window.changeDashboardCalendarColumn('${action}',this.dataset.columnId)" title="${label}" aria-label="${label}"><i class="fas fa-${icon}" aria-hidden="true"></i></button>`;
-            host.innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;"><select aria-label="Calendar layout" onchange="window.selectDashboardCalendarDraft(this.value)" style="min-width:180px;max-width:100%;padding:8px;">${dashboardCalendarLayoutDraft.map(item => `<option value="${escapeDashboardHtml(item.id)}"${item.id === dashboardCalendarDraftId ? ' selected' : ''}>${escapeDashboardHtml(item.name)}</option>`).join('')}</select><button type="button" class="rd-ops-btn" onclick="window.changeDashboardCalendarColumn('new-layout')"><i class="fas fa-plus"></i>Add layout</button></div>${layout ? `<label style="display:grid;gap:6px;max-width:400px;margin-bottom:20px;">Layout name<input aria-label="Layout name" maxlength="80" value="${escapeDashboardHtml(layout.name)}" oninput="window.updateDashboardCalendarLayoutName(this.value)" style="padding:8px;min-width:0;"></label><div style="overflow-x:auto;"><table style="width:100%;min-width:540px;border-collapse:collapse;text-align:left;"><thead><tr><th>Column</th><th>Color</th><th>Active</th><th>Order / remove</th></tr></thead><tbody>${layout.columns.map(column => `<tr data-calendar-column-editor="${escapeDashboardHtml(column.id)}"><td style="padding:8px 8px 8px 0;"><input aria-label="Column name" data-field="name" maxlength="80" value="${escapeDashboardHtml(column.name)}" oninput="window.updateDashboardCalendarColumn(this)" style="width:100%;box-sizing:border-box;padding:8px;"></td><td><input type="color" aria-label="Column color" data-field="color" value="${escapeDashboardHtml(column.color)}" oninput="window.updateDashboardCalendarColumn(this)"></td><td><input type="checkbox" aria-label="Active column" data-field="active" ${column.active ? 'checked' : ''} onchange="window.updateDashboardCalendarColumn(this)"></td><td style="white-space:nowrap;">${iconButton('up', column.id, 'arrow-up', 'Move column up')}${iconButton('down', column.id, 'arrow-down', 'Move column down')}${iconButton('remove', column.id, 'trash', 'Remove column')}</td></tr>`).join('')}</tbody></table></div><div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;"><button type="button" class="rd-ops-btn" onclick="window.changeDashboardCalendarColumn('add')"><i class="fas fa-plus"></i>Add column</button><button type="button" class="rd-ops-btn" onclick="window.changeDashboardCalendarColumn('delete-layout')"><i class="fas fa-trash"></i>Delete layout</button></div>` : ''}<div style="margin-top:24px;display:flex;gap:12px;"><button id="dashboardCalendarSettingsSave" type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardCalendarLayouts()"><i class="fas fa-save"></i>Save</button><button type="button" class="rd-ops-btn" onclick="window.closeDashboardCalendarSettings()">Cancel</button></div>`;
+            host.innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;"><select aria-label="Calendar layout" onchange="window.selectDashboardCalendarDraft(this.value)" style="min-width:180px;max-width:100%;padding:8px;">${dashboardCalendarLayoutDraft.map(item => `<option value="${escapeDashboardHtml(item.id)}"${item.id === dashboardCalendarDraftId ? ' selected' : ''}>${escapeDashboardHtml(item.name)}</option>`).join('')}</select><button type="button" class="rd-ops-btn" onclick="window.changeDashboardCalendarColumn('new-layout')"><i class="fas fa-plus"></i>Add layout</button></div>${layout ? `<label style="display:grid;gap:6px;max-width:400px;margin-bottom:20px;">Layout name<input aria-label="Layout name" maxlength="80" value="${escapeDashboardHtml(layout.name)}" oninput="window.updateDashboardCalendarLayoutName(this.value)" style="padding:8px;min-width:0;"></label><div style="overflow-x:auto;"><table style="width:100%;min-width:720px;border-collapse:collapse;text-align:left;"><thead><tr><th>Column</th><th>Linked to</th><th>Color</th><th>Active</th><th>Order / remove</th></tr></thead><tbody>${layout.columns.map(column => `<tr data-calendar-column-editor="${escapeDashboardHtml(column.id)}"><td style="padding:8px 8px 8px 0;"><input aria-label="Column name" data-field="name" maxlength="80" value="${escapeDashboardHtml(column.name)}" oninput="window.updateDashboardCalendarColumn(this)" style="width:100%;box-sizing:border-box;padding:8px;"></td><td style="padding:8px 8px 8px 0;min-width:180px;">${dashboardCalendarColumnEntityCellHtml(column)}</td><td><input type="color" aria-label="Column color" data-field="color" value="${escapeDashboardHtml(column.color)}" oninput="window.updateDashboardCalendarColumn(this)"></td><td><input type="checkbox" aria-label="Active column" data-field="active" ${column.active ? 'checked' : ''} onchange="window.updateDashboardCalendarColumn(this)"></td><td style="white-space:nowrap;">${iconButton('up', column.id, 'arrow-up', 'Move column up')}${iconButton('down', column.id, 'arrow-down', 'Move column down')}${iconButton('remove', column.id, 'trash', 'Remove column')}</td></tr>`).join('')}</tbody></table></div><div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;"><button type="button" class="rd-ops-btn" onclick="window.changeDashboardCalendarColumn('add')"><i class="fas fa-plus"></i>Add column</button><button type="button" class="rd-ops-btn" onclick="window.changeDashboardCalendarColumn('delete-layout')"><i class="fas fa-trash"></i>Delete layout</button></div>` : ''}<div style="margin-top:24px;display:flex;gap:12px;"><button id="dashboardCalendarSettingsSave" type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardCalendarLayouts()"><i class="fas fa-save"></i>Save</button><button type="button" class="rd-ops-btn" onclick="window.closeDashboardCalendarSettings()">Cancel</button></div>`;
         }
 
         window.selectDashboardCalendarDraft = function (id) {
@@ -60227,7 +60316,19 @@
         window.updateDashboardCalendarColumn = function (input) {
             const layout = dashboardCalendarLayoutDraft.find(item => item.id === dashboardCalendarDraftId);
             const column = layout?.columns.find(item => item.id === input.closest('[data-calendar-column-editor]').dataset.calendarColumnEditor);
-            if (column) column[input.dataset.field] = input.dataset.field === 'active' ? input.checked : input.value;
+            if (!column) return;
+            const field = input.dataset.field;
+            if (field === 'entityType') {
+                column.entityType = input.value;
+                column.entityId = '';
+                column.entityName = '';
+                renderDashboardCalendarSettingsEditor();
+            } else if (field === 'entityId') {
+                column.entityId = input.value;
+                column.entityName = input.value ? String(input.options[input.selectedIndex]?.text || '').replace(/ \(missing\)$/, '').trim() : '';
+            } else {
+                column[field] = field === 'active' ? input.checked : input.value;
+            }
         };
 
         window.changeDashboardCalendarColumn = function (action, columnId) {
@@ -60243,7 +60344,7 @@
                 dashboardCalendarDraftId = dashboardCalendarLayoutDraft[0]?.id || '';
             } else if (layout) {
                 const index = layout.columns.findIndex(column => column.id === columnId);
-                if (action === 'add' && layout.columns.length < 30) layout.columns.push({ id: newId(), name: `Column ${layout.columns.length + 1}`, color: '#0F5E75', active: true });
+                if (action === 'add' && layout.columns.length < 30) layout.columns.push({ id: newId(), name: `Column ${layout.columns.length + 1}`, color: '#0F5E75', active: true, entityType: '', entityId: '', entityName: '' });
                 if (action === 'remove' && index >= 0) layout.columns.splice(index, 1);
                 const next = index + (action === 'up' ? -1 : 1);
                 if ((action === 'up' || action === 'down') && index >= 0 && next >= 0 && next < layout.columns.length) [layout.columns[index], layout.columns[next]] = [layout.columns[next], layout.columns[index]];
@@ -60367,14 +60468,18 @@
             const firstHour = 0;
             const lastHour = 24;
             const hourHeight = 64;
-            const headers = columns.map(column => `<div style="position:sticky;top:0;z-index:5;background:var(--card-bg,#fff);padding:12px;border-left:1px solid #D9D6CF;border-top:3px solid ${column.color || '#0F5E75'};font-weight:700;text-align:center;overflow-wrap:anywhere;">${escapeDashboardHtml(column.name)}</div>`).join('');
+            const headers = columns.map(column => {
+                const entityLabel = column.entityType && column.entityName ? `${dashboardCalendarEntityTypeLabel(column.entityType)}: ${column.entityName}` : '';
+                return `<div style="position:sticky;top:0;z-index:5;background:var(--card-bg,#fff);padding:12px;border-left:1px solid #D9D6CF;border-top:3px solid ${column.color || '#0F5E75'};font-weight:700;text-align:center;overflow-wrap:anywhere;">${escapeDashboardHtml(column.name)}${entityLabel ? `<div style="font-size:11px;font-weight:500;color:#64748b;">${escapeDashboardHtml(entityLabel)}</div>` : ''}</div>`;
+            }).join('');
             const times = Array.from({ length: 24 }, (_, hour) => `<div style="height:${hourHeight}px;box-sizing:border-box;padding:4px;font-size:12px;border-top:1px solid #D9D6CF;">${hour % 12 || 12} ${hour < 12 ? 'AM' : 'PM'}</div>`).join('');
             const lanes = columns.map(column => {
                 const dayEntries = (isWeek ? getDashboardCalendarEntries(new Date(`${column.date}T00:00:00`)).filter(entry => dashboardCalendarScope === 'mine' ? entry.isMine : entry.isOffice) : entries).filter(entry => {
                     if (isWeek || dashboardCalendarScope === 'mine') return true;
                     const record = entry.record || {};
-                    const assigned = record.calendarLayoutId === layout?.id && layout?.columns.some(candidate => candidate.active && candidate.id === record.calendarColumnId);
-                    return column.id ? assigned && record.calendarColumnId === column.id : !assigned;
+                    const explicit = record.calendarLayoutId === layout?.id && layout?.columns.some(candidate => candidate.active && candidate.id === record.calendarColumnId);
+                    if (column.id) return explicit ? record.calendarColumnId === column.id : dashboardCalendarColumnMatchesEntry(column, entry);
+                    return !explicit && !(layout?.columns || []).some(candidate => candidate.active && dashboardCalendarColumnMatchesEntry(candidate, entry));
                 }).sort((left, right) => left.start - right.start);
                 const positioned = [];
                 let group = [];
