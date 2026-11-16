@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261115-calendar-items-navigate-and-drag-v190';
+                const buildVersion = '20261115-calendar-undo-rail-typography-v191';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -58463,6 +58463,7 @@
             const index = events.findIndex(item => String(item?.id || item?.Id || '') === String(payload?.id || ''));
             if (index < 0) return false;
             const current = events[index];
+            const previousRecord = JSON.parse(JSON.stringify(current));
             const start = new Date(current.start || current.StartDateTime || payload.start);
             const end = new Date(current.end || current.EndDateTime || payload.end || start);
             const nextStart = new Date(`${date}T${time}:00`);
@@ -58483,19 +58484,114 @@
             if (typeof window.updateEventList === 'function') window.updateEventList();
             if (window.calendarInstance && typeof window.calendarInstance.refetchEvents === 'function') window.calendarInstance.refetchEvents();
             dashboardCalendarDate = new Date(nextStart.getFullYear(), nextStart.getMonth(), nextStart.getDate());
+            showDashboardScheduleUndo({ type: 'calendar-event', id: String(updated.id || updated.Id), record: previousRecord }, 'Calendar event moved');
             refreshDashboardScheduleSurfaces();
-            if (typeof showNotification === 'function') showNotification(apiSaved ? 'Calendar event moved.' : 'Calendar event moved on this device only; shared save failed.', apiSaved ? 'success' : 'warning');
+            if (!apiSaved && typeof showNotification === 'function') showNotification('Calendar event moved on this device only; shared save failed.', 'warning');
             return true;
         }
+
+        let dashboardScheduleUndoState = null;
+
+        function dashboardScheduleOperationSnapshot(payload) {
+            const kind = String(payload?.kind || '').toLowerCase();
+            const keys = /service/.test(kind) || payload?.serviceTicketId ? ['equipmentServiceTickets'] : (/assignment/.test(kind) ? ['teams'] : (/equipment/.test(kind) ? ['equipment', 'officeEquipment'] : []));
+            const ids = [payload?.serviceTicketId, payload?.id, payload?.serviceEquipmentId, payload?.equipmentId].map(value => String(value || '').trim()).filter(Boolean);
+            for (const storageKey of keys) {
+                const records = dashboardCalendarReadArray(storageKey);
+                const record = records.find(item => {
+                    const recordIds = [item?.id, item?.Id, item?.ticketId, item?.TicketId, item?.assignmentId, item?.AssignmentId, item?.equipmentID, item?.EquipmentID, item?.equipmentId, item?.EquipmentId, item?.apiId].map(value => String(value || '').trim()).filter(Boolean);
+                    if (ids.length && recordIds.some(id => ids.includes(id))) return true;
+                    return !ids.length && String(item?.teamName || item?.name || item?.Name || item?.title || item?.Title || '').trim() === String(payload?.title || '').trim();
+                });
+                if (!record) continue;
+                const identity = [record.id, record.Id, record.ticketId, record.TicketId, record.assignmentId, record.AssignmentId, record.equipmentID, record.EquipmentID, record.equipmentId, record.EquipmentId, record.apiId].map(value => String(value || '').trim()).find(Boolean) || '';
+                return { type: 'operation', storageKey, identity, title: String(payload?.title || ''), record: JSON.parse(JSON.stringify(record)), payload: { ...payload } };
+            }
+            return null;
+        }
+
+        function showDashboardScheduleUndo(snapshot, message) {
+            dashboardScheduleUndoState = { ...snapshot, token: Date.now() };
+            const token = dashboardScheduleUndoState.token;
+            document.getElementById('dashboardScheduleUndoToast')?.remove();
+            const toast = document.createElement('div');
+            toast.id = 'dashboardScheduleUndoToast';
+            toast.setAttribute('role', 'status');
+            toast.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:10080;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 24px);padding:10px 12px;border:1px solid #D9D6CF;border-radius:8px;background:#1C1D1F;color:#fff;box-shadow:0 10px 28px rgba(0,0,0,.2);font:600 13px Manrope,Segoe UI,system-ui,sans-serif;';
+            toast.innerHTML = `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(message)}</span><button type="button" aria-label="Undo the last calendar move" style="flex:0 0 auto;border:1px solid rgba(255,255,255,.55);border-radius:6px;padding:5px 9px;background:transparent;color:#fff;font:inherit;cursor:pointer;">Undo</button><button type="button" aria-label="Dismiss undo" style="flex:0 0 auto;border:0;background:transparent;color:#fff;font:inherit;font-size:18px;cursor:pointer;">&times;</button>`;
+            toast.querySelector('button[aria-label="Undo the last calendar move"]')?.addEventListener('click', () => { void window.undoDashboardScheduleChange(); });
+            toast.querySelector('button[aria-label="Dismiss undo"]')?.addEventListener('click', () => {
+                if (dashboardScheduleUndoState?.token === token) dashboardScheduleUndoState = null;
+                toast.remove();
+            });
+            document.body.appendChild(toast);
+            window.setTimeout(() => {
+                if (dashboardScheduleUndoState?.token !== token) return;
+                dashboardScheduleUndoState = null;
+                toast.remove();
+            }, 12000);
+        }
+
+        async function undoDashboardScheduleChange() {
+            const snapshot = dashboardScheduleUndoState;
+            if (!snapshot) return false;
+            dashboardScheduleUndoState = null;
+            document.getElementById('dashboardScheduleUndoToast')?.remove();
+            let restored = false;
+            let shared = false;
+            if (snapshot.type === 'calendar-event') {
+                const events = dashboardCalendarReadArray('calendarEvents');
+                const index = events.findIndex(item => String(item?.id || item?.Id || '') === snapshot.id);
+                if (index >= 0) {
+                    try {
+                        if (typeof updateEventViaApi === 'function') {
+                            await updateEventViaApi(snapshot.id, snapshot.record);
+                            shared = true;
+                        }
+                    } catch (error) { console.warn('Calendar event undo API save failed; restoring locally.', error); }
+                    events[index] = { ...snapshot.record, dashboardBackup: !shared, apiSyncPending: !shared };
+                    localStorage.setItem('calendarEvents', JSON.stringify(events));
+                    if (typeof window.updateEventList === 'function') window.updateEventList();
+                    if (window.calendarInstance && typeof window.calendarInstance.refetchEvents === 'function') window.calendarInstance.refetchEvents();
+                    dashboardCalendarDate = new Date(snapshot.record.start || snapshot.record.StartDateTime);
+                    restored = true;
+                }
+            } else if (snapshot.type === 'operation') {
+                const records = dashboardCalendarReadArray(snapshot.storageKey);
+                const index = records.findIndex(item => snapshot.identity
+                    ? [item?.id, item?.Id, item?.ticketId, item?.TicketId, item?.assignmentId, item?.AssignmentId, item?.equipmentID, item?.EquipmentID, item?.equipmentId, item?.EquipmentId, item?.apiId].some(value => String(value || '').trim() === snapshot.identity)
+                    : String(item?.teamName || item?.name || item?.Name || item?.title || item?.Title || '').trim() === snapshot.title);
+                if (index >= 0) {
+                    records[index] = snapshot.record;
+                    localStorage.setItem(snapshot.storageKey, JSON.stringify(records));
+                    try {
+                        const kind = String(snapshot.payload?.kind || '').toLowerCase();
+                        if (/service/.test(kind) || snapshot.payload?.serviceTicketId) shared = await syncDashboardServiceScheduleToApi(snapshot.payload);
+                        else if (/assignment/.test(kind)) shared = await syncDashboardAssignmentScheduleToApi(snapshot.payload);
+                        else if (/equipment/.test(kind)) shared = await syncDashboardEquipmentScheduleToApi(snapshot.payload);
+                    } catch (error) { console.warn('Dashboard schedule undo API sync failed; restored locally.', error); }
+                    restored = true;
+                }
+            }
+            if (!restored) {
+                if (typeof showNotification === 'function') showNotification('The item could not be restored; it may have changed since the move.', 'warning');
+                return false;
+            }
+            refreshDashboardScheduleSurfaces();
+            if (typeof showNotification === 'function') showNotification(shared ? 'The item was restored to its previous schedule.' : 'The item was restored locally; shared sync may still be pending.', shared ? 'success' : 'warning');
+            return true;
+        }
+        window.undoDashboardScheduleChange = undoDashboardScheduleChange;
 
         async function applyDashboardCalendarDrop(payload, slot) {
             if (payload?.source === 'calendar-event') return await moveDashboardCalendarEvent(payload, slot.date, slot.time);
             if (payload?.source === 'calendar-operation') {
+                const undoSnapshot = dashboardScheduleOperationSnapshot(payload);
                 const saved = scheduleDashboardOperationFromDrop(payload, slot.date, slot.time);
                 if (saved) {
+                    if (undoSnapshot) showDashboardScheduleUndo(undoSnapshot, 'Calendar item moved');
                     dashboardCalendarDate = new Date(`${slot.date}T00:00:00`);
                     refreshDashboardScheduleSurfaces();
-                    if (typeof showNotification === 'function') showNotification(`${payload.title || 'Calendar item'} rescheduled.`, 'success');
                 }
                 return saved;
             }
@@ -60241,6 +60337,23 @@
             document.getElementById('dashboardEventForm')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         };
 
+        function ensureDashboardCalendarTypography() {
+            if (document.getElementById('dashboardCalendarTypographyStyles')) return;
+            const style = document.createElement('style');
+            style.id = 'dashboardCalendarTypographyStyles';
+            style.textContent = `
+                .rd-calendar-time-grid{font-family:Manrope,'Segoe UI',system-ui,sans-serif;color:#111827}
+                .rd-calendar-time-grid>div>div[style*="position:sticky"]{font-size:.75rem!important;font-weight:800!important;line-height:1.2;color:#111827!important}
+                .rd-calendar-time-grid>div>div[style*="position:sticky"]:first-child{font-size:.625rem!important;color:#64748b!important;text-transform:uppercase}
+                .rd-calendar-time-grid>div>div[style*="height:64px"]{font-size:.6875rem!important;line-height:1.2;color:#64748b!important}
+                .rd-calendar-time-grid .rd-ops-scheduled-time{font-size:.75rem!important;line-height:1.2;color:#111827!important}
+                .rd-calendar-time-grid .rd-ops-scheduled-time span{margin-top:1px;font-size:.625rem!important;line-height:1.2;color:#64748b!important}
+                .rd-calendar-time-grid .rd-ops-scheduled-body strong{font-size:.8rem!important;line-height:1.2;color:#111827!important}
+                .rd-calendar-time-grid .rd-ops-scheduled-body>span{font-size:.625rem!important;line-height:1.2;color:#64748b!important}
+            `;
+            document.head.appendChild(style);
+        }
+
         function renderDashboardScheduleBody(entries, activeDate) {
             if (dashboardCalendarViewMode === 'month') return `<div>${renderDashboardMonthGridHtml(dashboardCalendarDate)}</div>`;
             if (dashboardCalendarViewMode === 'list') {
@@ -60319,6 +60432,7 @@
 
         function renderDashboardScheduleCard(target, model = dashboardBuildModel()) {
             if (!target) return;
+            ensureDashboardCalendarTypography();
             const previousScroll = target.querySelector('[data-dashboard-time-grid]')?.scrollTop;
             loadDashboardCalendarLayouts();
             const entries = getDashboardVisibleCalendarEntries();
@@ -62041,6 +62155,7 @@
                             if (clinics.includes(clinicFilter)) {
                                 return true;
                             }
+
                         }
                     }
                     

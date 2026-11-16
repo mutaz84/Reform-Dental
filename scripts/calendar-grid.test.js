@@ -136,6 +136,7 @@ test('calendar event move preserves duration and persists through the event API'
         updateEventViaApi: async (id, record) => updates.push([id, record]),
         localStorage: { setItem: (key, value) => stored.push([key, JSON.parse(value)]) },
         dashboardCalendarDate: new Date('2026-11-15T00:00:00'),
+        showDashboardScheduleUndo() {},
         refreshDashboardScheduleSurfaces: () => { refreshed++; },
         showNotification() {}
     });
@@ -154,6 +155,8 @@ test('calendar drop updates existing items and leaves unscheduled items on the d
     const calls = [];
     const context = contextFor(['applyDashboardCalendarDrop'], {
         moveDashboardCalendarEvent: async (...args) => { calls.push(['event', ...args]); return true; },
+        dashboardScheduleOperationSnapshot: () => ({ record: { scheduleDate: '2026-11-15' } }),
+        showDashboardScheduleUndo: (...args) => calls.push(['undo', ...args]),
         scheduleDashboardOperationFromDrop: (...args) => { calls.push(['operation', ...args]); return true; },
         refreshDashboardScheduleSurfaces() {}, showNotification() {},
         dashboardCalendarDate: new Date('2026-11-15T00:00:00')
@@ -166,7 +169,73 @@ test('calendar drop updates existing items and leaves unscheduled items on the d
     await context.applyDashboardCalendarDrop({ source: 'calendar-operation', kind: 'Service', id: 'ticket-7' }, { date: '2026-11-18', time: '14:00' });
     assert.equal(calls[1][0], 'operation');
     await context.applyDashboardCalendarDrop({ kind: 'Service', id: 'ticket-8' }, { date: '2026-11-18', time: '15:00' });
-    assert.equal(calls[2][0], 'picker');
+    assert.equal(calls[2][0], 'undo');
+    assert.equal(calls[3][0], 'picker');
+});
+
+test('calendar Undo restores only the saved event record and syncs its prior state', async () => {
+    const events = [{ id: 'event-4', title: 'Moved event', start: '2026-11-18T13:15:00.000Z', end: '2026-11-18T14:45:00.000Z' }, { id: 'other', title: 'Leave alone' }];
+    const original = { id: 'event-4', title: 'Moved event', start: '2026-11-15T09:00:00.000Z', end: '2026-11-15T10:30:00.000Z', description: 'Original details' };
+    const writes = [];
+    const apiUpdates = [];
+    let refreshed = 0;
+    const context = contextFor(['undoDashboardScheduleChange'], {
+        dashboardScheduleUndoState: { type: 'calendar-event', id: 'event-4', record: original },
+        dashboardCalendarReadArray: () => events,
+        updateEventViaApi: async (id, record) => apiUpdates.push([id, record]),
+        localStorage: { setItem: (key, value) => writes.push([key, JSON.parse(value)]) },
+        refreshDashboardScheduleSurfaces: () => { refreshed++; },
+        showNotification() {}
+    });
+    context.window.undoDashboardScheduleChange = context.undoDashboardScheduleChange;
+    context.window.updateEventList = () => {};
+    context.window.calendarInstance = { refetchEvents() {} };
+    const toast = { remove() {} };
+    context.document = { getElementById: () => toast };
+    assert.equal(await context.undoDashboardScheduleChange(), true);
+    assert.equal(apiUpdates[0][0], 'event-4');
+    assert.equal(apiUpdates[0][1].start, original.start);
+    assert.equal(writes[0][1][0].description, 'Original details');
+    assert.equal(writes[0][1][1].title, 'Leave alone');
+    assert.equal(refreshed, 1);
+});
+
+test('operation Undo restores the prior service ticket without reverting other records', async () => {
+    const records = [{ id: 'ticket-7', scheduleDate: '2026-11-18', scheduledTime: '14:30' }, { id: 'ticket-8', scheduleDate: '2026-11-20' }];
+    const original = { id: 'ticket-7', scheduleDate: '', scheduledTime: '', status: 'Open' };
+    const writes = [];
+    const synced = [];
+    const context = contextFor(['undoDashboardScheduleChange'], {
+        dashboardScheduleUndoState: { type: 'operation', storageKey: 'equipmentServiceTickets', identity: 'ticket-7', record: original, payload: { kind: 'Service', id: 'ticket-7' } },
+        dashboardCalendarReadArray: () => records,
+        localStorage: { setItem: (key, value) => writes.push([key, JSON.parse(value)]) },
+        syncDashboardServiceScheduleToApi: async payload => { synced.push(payload.id); return true; },
+        refreshDashboardScheduleSurfaces() {}, showNotification() {}
+    });
+    context.window.undoDashboardScheduleChange = context.undoDashboardScheduleChange;
+    context.document = { getElementById: () => ({ remove() {} }) };
+    assert.equal(await context.undoDashboardScheduleChange(), true);
+    assert.deepEqual(writes[0][1], [original, records[1]]);
+    assert.deepEqual(synced, ['ticket-7']);
+});
+
+test('calendar typography matches rail label/value colors and sizes within the calendar only', () => {
+    const attached = [];
+    const context = contextFor(['ensureDashboardCalendarTypography'], {
+        document: {
+            getElementById: id => attached.find(style => style.id === id) || null,
+            createElement: () => ({ id: '', textContent: '' }),
+            head: { appendChild: style => attached.push(style) }
+        }
+    });
+    context.ensureDashboardCalendarTypography();
+    context.ensureDashboardCalendarTypography();
+    assert.equal(attached.length, 1);
+    assert(attached[0].textContent.includes('color:#64748b'));
+    assert(attached[0].textContent.includes('color:#111827'));
+    assert(attached[0].textContent.includes('font-size:.625rem'));
+    assert(attached[0].textContent.includes('.rd-calendar-time-grid'));
+    assert(!attached[0].textContent.includes('.unified-right-rail'));
 });
 
 test('calendar drag payload preserves source identifiers and blocks unauthorized event moves', () => {
