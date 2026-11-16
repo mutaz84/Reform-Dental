@@ -58079,7 +58079,7 @@
             readArray('calendarEvents').forEach(item => add(item, item.title || item.name || item.eventName || 'Calendar event', item.start || item.startDate || item.date || item.eventDate, 'calendar', 'Calendar', '#0e9384'));
             return entries.sort((left, right) => left.start - right.start);
         }
-        function getDashboardCalendarSearchEntries(query) {
+        function getDashboardCalendarSearchEntries(query, searchOptions = {}) {
             const needle = String(query || '').trim().toLowerCase();
             if (!needle) return [];
             const readArray = dashboardCalendarReadArray;
@@ -58106,8 +58106,8 @@
                     : (itemScope ? itemScope === 'mine' : dashboardEntryIsMine(item || {}, ownershipKeys));
                 const matchesOfficeLocation = kind === 'Calendar' && typeof itemMatchesSelectedClinic === 'function' ? itemMatchesSelectedClinic(item) : true;
                 const isOffice = (kind === 'Calendar' ? calendarScopeState.isOffice : !isMine) && matchesOfficeLocation;
-                if (dashboardCalendarScope === 'mine' ? !isMine : !isOffice) return;
-                results.push({ id, title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || item?.notes || item?.Notes || '').trim(), date: parsed, view, kind });
+                if (!searchOptions.allScopes && (dashboardCalendarScope === 'mine' ? !isMine : !isOffice)) return;
+                results.push({ id, title: String(title || 'Untitled operation').trim(), description: String(item?.description || item?.Description || item?.notes || item?.Notes || '').trim(), date: parsed, view, kind, scope: isOffice ? 'office' : 'mine' });
             };
             const tasks = (Array.isArray(window.tasksData) && window.tasksData.length ? window.tasksData : readArray('tasksData')).filter((item) => !isSyntheticDashboardTestEntry(String(item?.title || item?.Title || item?.name || item?.Name || '')));
             tasks.forEach(item => add(item, item.title || item.Title || item.name || item.Name, item.dueDate || item.DueDate || item.deadline || item.date, 'task-hub', 'Task'));
@@ -60789,11 +60789,115 @@
             return roots.find(item => !item.closest('[hidden]')) || roots[0] || null;
         }
 
+        function getDashboardEntitySearchResults(query) {
+            const needle = String(query || '').trim().toLowerCase();
+            if (!needle) return [];
+            const read = dashboardCalendarReadArray;
+            const results = [];
+            const counts = {};
+            const matches = values => values.some(value => String(value ?? '').toLowerCase().includes(needle));
+            const push = (group, view, icon, title, subtitle) => {
+                if (!title) return;
+                counts[group] = (counts[group] || 0) + 1;
+                if (counts[group] > 5) return;
+                results.push({ group, view, icon, title: String(title).trim(), subtitle: String(subtitle || '').trim() });
+            };
+            const isClosed = value => /^(completed|complete|closed|cancelled|canceled|denied|dismissed)$/i.test(String(value || '').trim());
+            const seenStaff = new Set();
+            const pushStaff = (name, username, email, role) => {
+                const displayName = String(name || username || '').trim();
+                if (!displayName || !matches([displayName, username, email, role])) return;
+                const key = displayName.toLowerCase();
+                if (seenStaff.has(key)) return;
+                seenStaff.add(key);
+                push('Staff', 'manage-users', 'fa-user', displayName, [role, email].filter(Boolean).join(' · '));
+            };
+            try {
+                const users = JSON.parse(localStorage.getItem('appUsers') || '{}');
+                Object.values(users && typeof users === 'object' ? users : {}).forEach(user => pushStaff([user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.name, user?.username, user?.email || user?.workEmail, user?.jobTitle || user?.role));
+            } catch (_) {}
+            (Array.isArray(window.employeeResources) ? window.employeeResources : []).forEach(resource => pushStaff(resource?.title || resource?.name, resource?.extendedProps?.username, resource?.extendedProps?.email, resource?.extendedProps?.jobTitle || resource?.extendedProps?.role));
+            [...read('equipment'), ...read('officeEquipment')].forEach(item => {
+                if (!item || item.isActive === false || item.IsActive === false) return;
+                const name = item.equipmentName || item.EquipmentName || item.name || item.Name;
+                const details = [item.brand || item.Brand, item.model || item.Model, item.serialNumber || item.SerialNumber, item.category || item.Category, item.roomName || item.RoomName, item.status || item.Status];
+                if (matches([name, ...details])) push('Equipment', 'equipment', 'fa-screwdriver-wrench', name, details.filter(Boolean).slice(0, 3).join(' · '));
+            });
+            read('instruments').forEach(item => {
+                const name = item?.instrumentName || item?.InstrumentName || item?.name || item?.Name;
+                const details = [item?.category, item?.instrumentType, item?.manufacturer, item?.model];
+                if (matches([name, ...details])) push('Instruments', 'instruments', 'fa-syringe', name, details.filter(Boolean).slice(0, 3).join(' · '));
+            });
+            [...read('dentalSupplies'), ...read('officeSupplies')].forEach(item => {
+                const name = item?.supplyName || item?.SupplyName || item?.name || item?.Name || item?.itemName || item?.ItemName;
+                const details = [item?.category || item?.Category, item?.manufacturer || item?.Manufacturer, item?.vendorName || item?.VendorName];
+                if (matches([name, ...details])) push('Supplies', 'supplies', 'fa-boxes-stacked', name, details.filter(Boolean).slice(0, 3).join(' · '));
+            });
+            read('vendors').forEach(item => {
+                const name = item?.vendorName || item?.VendorName || item?.name || item?.Name;
+                const details = [item?.vendorType || item?.VendorType, item?.contactName || item?.ContactName, item?.phone || item?.Phone, item?.email || item?.Email];
+                if (matches([name, ...details])) push('Vendors', 'vendors', 'fa-truck', name, details.filter(Boolean).slice(0, 3).join(' · '));
+            });
+            read('teams').forEach(item => {
+                if (!item || item.isActive === false || item.IsActive === false) return;
+                const name = item.teamName || item.name || item.Name;
+                const details = [item.category || item.Category, item.teamLeadName || item.TeamLeadName];
+                if (matches([name, ...details])) push('Assignments', 'teams', 'fa-users', name, details.filter(Boolean).join(' · '));
+            });
+            const tasks = Array.isArray(window.tasksData) && window.tasksData.length ? window.tasksData : read('tasksData');
+            tasks.forEach(item => {
+                if (isClosed(item?.status || item?.Status)) return;
+                const title = item?.title || item?.Title || item?.name || item?.Name;
+                const details = [item?.category || item?.Category, item?.assignee || item?.Assignee || item?.assignedTo || item?.AssignedTo || 'Unassigned', item?.dueDate || item?.DueDate ? '' : 'No date'];
+                if (matches([title, item?.description, details[0], details[1]])) push('Tasks', 'task-hub', 'fa-list-check', title, details.filter(Boolean).join(' · '));
+            });
+            read('requestsDatabase').forEach(item => {
+                if (isClosed(item?.status || item?.Status)) return;
+                const title = item?.title || item?.Title || item?.name || item?.Name;
+                if (matches([title, item?.description, item?.type, item?.assignedTo, item?.requestedBy])) push('Requests', 'requests', 'fa-inbox', title, [item?.type || item?.Type, item?.status || item?.Status].filter(Boolean).join(' · '));
+            });
+            read('equipmentServiceTickets').forEach(item => {
+                if (isClosed(item?.status || item?.Status) || item?.isDashboardTest || item?.IsDashboardTest) return;
+                const title = item?.title || item?.Title || item?.type || item?.Type;
+                if (matches([title, item?.description, item?.vendor, item?.assignedEmployee])) push('Service tickets', 'equipment', 'fa-wrench', title, [item?.type || item?.Type, item?.status || item?.Status, item?.scheduledDate ? '' : 'No date'].filter(Boolean).join(' · '));
+            });
+            return results;
+        }
+
+        window.openDashboardSearchView = function (view) {
+            dashboardCalendarSearchQuery = '';
+            document.querySelectorAll('#dashboardCalendarSearchResults').forEach(panel => { panel.hidden = true; panel.innerHTML = ''; });
+            document.querySelectorAll('#dashboardGlobalSearch').forEach(input => { input.value = ''; });
+            if (view && typeof window.switchContentView === 'function') window.switchContentView(view, null);
+        };
+
         function renderDashboardHeaderSearchResults(root) {
             const activeRoot = getActiveOperationsDashboardRoot(root);
             const panel = activeRoot?.querySelector('#dashboardCalendarSearchResults') || document.getElementById('dashboardCalendarSearchResults');
             if (!panel) return;
-            renderDashboardCalendarSearchResults(getDashboardCalendarSearchEntries(dashboardCalendarSearchQuery));
+            const query = String(dashboardCalendarSearchQuery || '').trim();
+            if (!query) { panel.hidden = true; panel.innerHTML = ''; return; }
+            const scheduleResults = getDashboardCalendarSearchEntries(query, { allScopes: true }).slice(0, 8);
+            const entityResults = getDashboardEntitySearchResults(query);
+            const sectionTitle = label => `<div style="padding:.45rem .55rem .25rem;font-size:.62rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--text-secondary,#64748b);background:var(--bg-secondary,#F4F3EF);">${escapeDashboardHtml(label)}</div>`;
+            const scheduleHtml = scheduleResults.length ? sectionTitle('Schedule') + scheduleResults.map(item => `<button type="button" onclick="window.openDashboardCalendarSearchResult('${escapeDashboardHtml(item.date.toISOString())}','${escapeDashboardHtml(item.view)}')" style="display:grid;grid-template-columns:62px minmax(0,1fr) auto;gap:.45rem;align-items:center;width:100%;padding:.35rem .55rem;border:0;border-bottom:1px solid var(--border-color,#e5e7eb);background:var(--card-bg,#fff);text-align:left;cursor:pointer;"><span style="font-size:.66rem;color:var(--text-secondary,#64748b);">${escapeDashboardHtml(item.date.toLocaleDateString([], { month: 'short', day: 'numeric' }))}<br>${escapeDashboardHtml(item.date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}</span><span style="min-width:0;"><strong style="display:block;font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(item.title)}</strong><span style="display:block;font-size:.64rem;color:var(--text-secondary,#64748b);">${escapeDashboardHtml(item.kind)} · ${item.scope === 'office' ? 'Office' : 'My'} schedule</span></span><i class="fas fa-arrow-right" style="font-size:.65rem;color:#0F5E75;"></i></button>`).join('') : '';
+            const groups = [];
+            entityResults.forEach(item => {
+                let group = groups.find(candidate => candidate.label === item.group);
+                if (!group) { group = { label: item.group, items: [] }; groups.push(group); }
+                group.items.push(item);
+            });
+            const entityHtml = groups.map(group => sectionTitle(group.label) + group.items.map(item => `<button type="button" data-search-view="${escapeDashboardHtml(item.view)}" onclick="window.openDashboardSearchView(this.dataset.searchView)" style="display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:.45rem;align-items:center;width:100%;padding:.35rem .55rem;border:0;border-bottom:1px solid var(--border-color,#e5e7eb);background:var(--card-bg,#fff);text-align:left;cursor:pointer;"><i class="fas ${escapeDashboardHtml(item.icon)}" aria-hidden="true" style="font-size:.7rem;color:#0F5E75;"></i><span style="min-width:0;"><strong style="display:block;font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(item.title)}</strong>${item.subtitle ? `<span style="display:block;font-size:.64rem;color:var(--text-secondary,#64748b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeDashboardHtml(item.subtitle)}</span>` : ''}</span><i class="fas fa-arrow-right" style="font-size:.65rem;color:#0F5E75;"></i></button>`).join('')).join('');
+            panel.hidden = false;
+            panel.innerHTML = (scheduleHtml + entityHtml) || '<div style="padding:.55rem;color:var(--text-secondary,#64748b);font-size:.75rem;">No matching items found. Try a task, person, equipment, supply, instrument, or vendor name.</div>';
+        }
+
+        if (!window.__dashboardHeaderSearchCloseInstalled) {
+            window.__dashboardHeaderSearchCloseInstalled = true;
+            document.addEventListener('click', event => {
+                if (event.target.closest('.rd-ops-search')) return;
+                document.querySelectorAll('.rd-ops-search #dashboardCalendarSearchResults').forEach(panel => { panel.hidden = true; });
+            }, true);
         }
 
         function refreshOperationsDashboardRedesign(root) {
