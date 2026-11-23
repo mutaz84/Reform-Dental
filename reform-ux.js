@@ -6,6 +6,8 @@
    - Inline text smaller than 12px is raised to 12px
    - Reset Data moves from the gear menu into Settings, with a typed
      "RESET" confirmation before anything is deleted
+   - Buttons are tagged text / icon so they share one size and colour set
+   - Inventory add/edit panels share one header, close button and layout
    No data is read or written here; it only changes presentation.
    ===================================================================== */
 (function () {
@@ -207,6 +209,144 @@
     });
   }
 
+  /* ---------- Buttons: tag every real button as a text button or an icon button ----------
+     so one rule set gives them the same size, corners and colours everywhere.
+     Cards, list headers, tabs, menus and the calendar are left alone. */
+  var BTN_SKIP_CONTEXT = '.fc, .rd-calendar-time-grid, [class*="calendar-grid"], [role="menu"], .dropdown-menu, [class*="tools-menu"], .rd-view-tab, [class*="rd-view-tab"], #settingsMenu, [class*="context-menu"]';
+  var BTN_SKIP_CLASS = /(card|kpi|drilldown|chip|pill|badge|tile|menu-item|rd-view-tab|fc-|toggle-switch|status-toggle|warning-icon|floating|swatch|nav-item|rail-tab|tab-btn|svc-tab|svc-date-tab|calendar-corner)/i;
+  var BTN_DELETE = /(delete|remove|trash)/i;
+  var ALLOWED_BTN_BG = /^(rgb\(15, 94, 117\)|rgb\(11, 71, 89\)|rgb\(255, 255, 255\)|rgb\(241, 245, 249\)|rgb\(248, 250, 252\)|rgba\(0, 0, 0, 0\)|rgb\(231, 241, 244\)|rgb\(217, 45, 32\)|rgb\(180, 35, 24\)|rgb\(254, 243, 242\)|rgb\(254, 228, 226\))$/;
+  function classifyButtons(root) {
+    var list = (root && root.querySelectorAll) ? root.querySelectorAll('button, a.btn, input[type="button"], input[type="submit"]') : [];
+    Array.prototype.forEach.call(list, function (b) {
+      if (b.dataset.rdBtn) return;
+      if (!visible(b)) return;                       // classify once it's on screen
+      var cls = (b.className || '').toString();
+      if (BTN_SKIP_CLASS.test(cls) || b.closest(BTN_SKIP_CONTEXT)) { b.dataset.rdBtn = 'skip'; return; }
+      var r = b.getBoundingClientRect();
+      if (r.height > 56 && r.width > 160) { b.dataset.rdBtn = 'skip'; return; }   // card-like rows
+      if (r.width > 480) { b.dataset.rdBtn = 'skip'; return; }                    // full-width list rows
+      if (b.parentElement && b.parentElement.matches('section[class*="drilldown"], :is(#equipmentSection, #instrumentsSection, #suppliesSection, #vendorsSection, #utilitiesSection, #teamsSection) > div')) { b.dataset.rdBtn = 'skip'; return; }  // category rows, summary tiles
+      var label = (b.innerText || b.value || '').replace(/\s+/g, ' ').trim();
+      var iconOnly = !label || /^[×✕✖+\-–…⋯]$/.test(label);
+      b.classList.add(iconOnly ? 'rd-icon-btn' : 'rd-btn');
+      if (/^[×✕✖]$/.test(label)) b.classList.add('rd-close-btn');
+      if (b.closest('td, tr, li, .table-row, [class*="-row"]') || /btn-mini|btn-sm|cc-btn-sm/.test(cls)) b.classList.add('rd-compact');
+      // a button stretched to fill a tall flex/grid row stays its own height
+      var pd = b.parentElement ? getComputedStyle(b.parentElement).display : '';
+      if (/flex|grid/.test(pd) && r.height > 46) b.classList.add('rd-nostretch');
+      // colours outside the system: teal for do-it actions, red for delete, otherwise neutral
+      var cs = getComputedStyle(b);
+      var bg = cs.backgroundColor, grad = /gradient/.test(cs.backgroundImage);
+      if (grad || !ALLOWED_BTN_BG.test(bg)) {
+        var isDelete = BTN_DELETE.test(label) || BTN_DELETE.test(b.getAttribute('onclick') || '') || BTN_DELETE.test(b.getAttribute('title') || '') || !!b.querySelector('.fa-trash, .fa-trash-alt, .fa-trash-can');
+        b.style.setProperty('background-image', 'none', 'important');
+        if (iconOnly) {
+          b.style.setProperty('background-color', '#FFFFFF', 'important');
+          b.style.setProperty('border', '1px solid #E2E8F0', 'important');
+          b.style.setProperty('color', isDelete ? '#B42318' : '#475569', 'important');
+        } else if (isDelete) {
+          b.style.setProperty('background-color', '#D92D20', 'important'); b.style.setProperty('color', '#FFFFFF', 'important'); b.style.setProperty('border', '1px solid #D92D20', 'important');
+        } else if (PRIMARY_ACTION.test(label)) {
+          b.style.setProperty('background-color', '#0F5E75', 'important'); b.style.setProperty('color', '#FFFFFF', 'important'); b.style.setProperty('border', '1px solid #0F5E75', 'important');
+        } else {
+          b.style.setProperty('background-color', '#FFFFFF', 'important'); b.style.setProperty('color', '#0F172A', 'important'); b.style.setProperty('border', '1px solid #CBD5E1', 'important');
+        }
+      }
+      b.dataset.rdBtn = iconOnly ? 'icon' : 'text';
+    });
+  }
+
+  /* ---------- Inventory forms: same header, close button and layout ----------
+     Instruments and Supplies are the reference; Equipment, Vendors, Services and
+     Assignments get the pieces they were missing. Text is only changed for the
+     known panel titles below. */
+  var TITLE_MAP = {
+    'Instrument': 'Instruments', 'Instruments Management': 'Instruments',
+    'Supply': 'Supplies', 'Supplies Management': 'Supplies',
+    'Equipment Management': 'Equipment',
+    'Vendor': 'Vendors', 'Vendors Management': 'Vendors',
+    'Service': 'Services', 'Services Management': 'Services', 'Utilities Management': 'Services',
+    'Add Assignment': 'Assignments', 'Edit Assignment': 'Assignments', 'Assignments Management': 'Assignments', 'Teams Management': 'Assignments'
+  };
+  function titleTextNode(h3) {
+    var span = Array.prototype.find.call(h3.children, function (c) { return c.tagName === 'SPAN' && text(c); });
+    if (span) return span;
+    return Array.prototype.find.call(h3.childNodes, function (n) { return n.nodeType === 3 && n.nodeValue.trim(); }) || null;
+  }
+  function unifyModals() {
+    Array.prototype.forEach.call(document.querySelectorAll('[id$="ManagementModal"]'), function (m) {
+      if (!visible(m)) return;
+      var hdr = m.querySelector('.login-header');
+      if (!hdr) return;
+      // One close button, top right, on every panel
+      var close = Array.prototype.find.call(hdr.children, function (c) { return c.tagName === 'BUTTON'; });
+      if (!close) {
+        close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'rd-modal-close';
+        close.setAttribute('aria-label', 'Close');
+        close.title = 'Close';
+        close.textContent = '×';
+        close.addEventListener('click', function (e) {
+          e.preventDefault();
+          if (!confirmDiscard(m)) return;
+          m.dataset.rdDirty = '';
+          var cancel = Array.prototype.find.call(m.querySelectorAll('button'), function (b) {
+            return b !== close && visible(b) && CANCEL_TEXT.test(text(b));
+          });
+          if (cancel) cancel.click();
+        });
+        hdr.appendChild(close);
+      }
+      // Panel titles name the page ("Equipment"), the form heading says Add / Edit
+      var h3 = hdr.querySelector('h3');
+      var node = h3 && titleTextNode(h3);
+      if (node) {
+        var current = (node.nodeType === 3 ? node.nodeValue : node.textContent).trim();
+        if (TITLE_MAP[current]) {
+          h3.dataset.rdTitle = current;
+          if (node.nodeType === 3) node.nodeValue = node.nodeValue.replace(current, TITLE_MAP[current]);
+          else node.textContent = TITLE_MAP[current];
+        }
+      }
+      if (m.id === 'teamsManagementModal') unifyTeamsForm(m, h3);
+    });
+  }
+  function unifyTeamsForm(m, h3) {
+    var section = m.querySelector('#teamsFormSection');
+    if (!section) return;
+    var heading = section.querySelector(':scope > .rd-form-title');
+    if (!heading) {
+      heading = document.createElement('h4');
+      heading.className = 'rd-form-title';
+      section.insertBefore(heading, section.firstChild);
+    }
+    var mode = /^edit/i.test((h3 && h3.dataset.rdTitle) || '') ? 'Edit Assignment' : 'Add New Assignment';
+    if (heading.textContent !== mode) heading.textContent = mode;
+    var save = m.querySelector('button[onclick^="saveTeam"]');
+    var row = save && save.parentElement;
+    if (row && row !== section && !row.classList.contains('rd-sticky-actions') && !row.querySelector('input, select, textarea')) {
+      row.classList.add('rd-sticky-actions');
+    }
+  }
+  // Vendors had no item count under the toolbar; show it like the other pages
+  function vendorCount() {
+    var meta = document.getElementById('vendorsResultsMeta');
+    var list = document.getElementById('vendorsPageList');
+    if (!meta || !list || !visible(list)) return;
+    if (meta.dataset.rdCount === undefined && text(meta)) return;   // the app filled it itself
+    var total = 0;
+    Array.prototype.forEach.call(list.querySelectorAll('section[class*="drilldown"] > button > span:last-child > span:first-child'), function (s) {
+      var n = parseInt(text(s), 10);
+      if (!isNaN(n)) total += n;
+    });
+    var allTile = document.querySelector('#vendorsSummaryCards > button > div:nth-child(2)');
+    var all = allTile ? parseInt(text(allTile), 10) : NaN;
+    var label = (!isNaN(all) && all !== total ? total + ' of ' + all : String(total)) + (all === 1 || (isNaN(all) && total === 1) ? ' vendor' : ' vendors');
+    if (meta.textContent !== label) { meta.textContent = label; meta.dataset.rdCount = '1'; }
+  }
+
   /* ---------- Inputs with an icon drawn inside them: keep text clear of the icon ---------- */
   function padIconInputs(root) {
     Array.prototype.forEach.call((root || document).querySelectorAll('input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"])'), function (inp) {
@@ -285,8 +425,11 @@
     roots.forEach(function (r) {
       try { floorInline(r); } catch (_) {}
       try { normalizePalette(r); } catch (_) {}
+      try { classifyButtons(r); } catch (_) {}
     });
     try { tidyBadges(); } catch (_) {}
+    try { unifyModals(); } catch (_) {}
+    try { vendorCount(); } catch (_) {}
     try { pinActions(); } catch (_) {}
     try { padIconInputs(); } catch (_) {}
     try { addDangerZone(); } catch (_) {}
