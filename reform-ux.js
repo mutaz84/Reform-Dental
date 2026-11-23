@@ -64,6 +64,11 @@
       var form = target && target.closest ? target.closest('form') : null;
       if (form) scope = form;
     }
+    if (!scope) {
+      // Management screens opened as their own page (e.g. Reset Data, Master Settings)
+      var page = document.querySelector('.content-view.active.rd-management-view, .content-view.active[id^="view-manage-"]');
+      if (page) scope = page;
+    }
     if (!scope) return;
     var closer = findCloser(scope);
     if (!closer) return;
@@ -176,6 +181,16 @@
       if (bg && BG_MAP[bg]) st.backgroundColor = BG_MAP[bg];
       if (c && (tile ? TILE_ICON_TEXT[c] : TEXT_MAP[c])) st.color = tile ? TILE_ICON_TEXT[c] : TEXT_MAP[c];
       if (bc && TEXT_MAP[bc]) st.borderColor = TEXT_MAP[bc];
+      // Faint decorative gradients (tints under 20% opacity) become the flat neutral surface
+      var bi = st.backgroundImage || '';
+      if (/linear-gradient/i.test(bi) && el.tagName !== 'BUTTON' || /linear-gradient/i.test(bi) && !PRIMARY_ACTION.test(text(el))) {
+        var alphas = (bi.match(/rgba\([^)]*,\s*([\d.]+)\)/g) || []).map(function (s) { return parseFloat(s.replace(/.*,\s*([\d.]+)\)$/, '$1')); });
+        var solid = /#[0-9a-f]{3,6}|rgb\(/i.test(bi.replace(/rgba\([^)]*\)/g, ''));
+        if (alphas.length && !solid && alphas.every(function (a) { return a <= 0.2; })) {
+          st.backgroundImage = 'none';
+          st.backgroundColor = '#F8FAFC';
+        }
+      }
       // Coloured "do it" buttons (Save, Add, Create, Upload…) become the one teal primary
       if ((el.tagName === 'BUTTON' || el.classList.contains('btn')) && PRIMARY_ACTION.test(text(el)) && !/delete|remove/i.test(text(el))) {
         var hasGradient = /gradient/i.test(st.backgroundImage || '') || /gradient/i.test(el.getAttribute('style') || '');
@@ -225,26 +240,40 @@
     zone.appendChild(btn);
     host.appendChild(zone);
   }
+  // The reset screen can open as a dialog or docked as its own page, so find its
+  // "Reset Selected Data" button wherever it is.
+  var resetWasVisible = false;
   function guardResetModal() {
-    var modal = document.getElementById('resetDataModal');
-    if (!modal || !visible(modal)) return;
-    var confirmBtn = Array.prototype.find.call(modal.querySelectorAll('button'), function (b) { return /reset selected|reset all|^reset$/i.test(text(b)); });
-    if (!confirmBtn) return;
-    var box = modal.querySelector('.rd-reset-confirm');
+    var confirmBtn = Array.prototype.find.call(document.querySelectorAll('button[onclick*="executeResetData"]'), visible);
+    if (!confirmBtn) { resetWasVisible = false; return; }
+    var row = confirmBtn.parentElement;
+    var box = row.parentElement.querySelector('.rd-reset-confirm');
     if (!box) {
       box = document.createElement('div');
       box.className = 'rd-reset-confirm';
       box.innerHTML = '<label for="rdResetConfirmInput">Type <strong>RESET</strong> to confirm</label><input id="rdResetConfirmInput" type="text" autocomplete="off" spellcheck="false" placeholder="RESET">';
-      confirmBtn.parentElement.parentElement.insertBefore(box, confirmBtn.parentElement);
-      var input = box.querySelector('input');
-      var sync = function () { confirmBtn.disabled = input.value.trim() !== 'RESET'; };
-      input.addEventListener('input', sync);
-      sync();
-    } else {
-      var inp = box.querySelector('input');
-      if (inp && !modal.dataset.rdSeen) { inp.value = ''; confirmBtn.disabled = true; }
+      row.parentElement.insertBefore(box, row);
+      box.querySelector('input').addEventListener('input', function () { confirmBtn.disabled = this.value.trim() !== 'RESET'; });
     }
-    modal.dataset.rdSeen = '1';
+    var input = box.querySelector('input');
+    if (!resetWasVisible) input.value = '';   // fresh every time the screen opens
+    confirmBtn.disabled = input.value.trim() !== 'RESET';
+    resetWasVisible = true;
+  }
+  // Belt and braces: the reset itself refuses to run without the typed confirmation
+  function wrapReset() {
+    if (typeof window.executeResetData !== 'function' || window.executeResetData.__rdGuarded) return;
+    var original = window.executeResetData;
+    var guarded = function () {
+      var input = document.getElementById('rdResetConfirmInput');
+      if (!input || input.value.trim() !== 'RESET') {
+        if (input) { input.focus(); input.style.setProperty('border-color', '#D92D20', 'important'); }
+        return;
+      }
+      return original.apply(this, arguments);
+    };
+    guarded.__rdGuarded = true;
+    window.executeResetData = guarded;
   }
 
   /* ---------- Run on load and on DOM changes (batched) ---------- */
@@ -262,6 +291,7 @@
     try { padIconInputs(); } catch (_) {}
     try { addDangerZone(); } catch (_) {}
     try { guardResetModal(); } catch (_) {}
+    try { wrapReset(); } catch (_) {}
   }
   function queue() {
     if (queued) return;
@@ -283,8 +313,6 @@
   function start() {
     sweep();
     new MutationObserver(onMutations).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'style'] });
-    var resetModal = document.getElementById('resetDataModal');
-    if (resetModal) new MutationObserver(function () { if (!visible(resetModal)) resetModal.dataset.rdSeen = ''; }).observe(resetModal, { attributes: true, attributeFilter: ['style', 'class'] });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();

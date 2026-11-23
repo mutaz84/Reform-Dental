@@ -23,7 +23,8 @@ def process(css, strong):
             if not is_vars:
                 sels = [pref(x, strong) for x in sels]
             else:
-                sels = [('html:root' + x[4:]) if re.match(r'^html\b', x) else x for x in sels]
+                # variable blocks also need to out-rank the app's own later blocks (except plain :root)
+                sels = [x if x.startswith(':root') else pref(x, strong) for x in sels]
             out.append(',\n'.join(sels) + ' {' + body + '}')
         elif r.type == 'at-rule' and r.lower_at_keyword == 'media' and r.content is not None:
             out.append('@media ' + tinycss2.serialize(r.prelude).strip() + ' {\n' + process(tinycss2.serialize(r.content), strong) + '\n}')
