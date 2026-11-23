@@ -22816,7 +22816,9 @@
                 roomCategory,
                 RoomCategory: roomCategory,
                 category: roomCategory,
-                Category: roomCategory
+                Category: roomCategory,
+                // Create sends this payload directly, so Dimensions has to be in it too.
+                dimensions
             };
 
             async function saveRoomToDatabase(localRoom) {
@@ -63546,7 +63548,10 @@
                 const remoteScope = normalizeCalendarDashboardScope(remote?.dashboardScope || remote?.DashboardScope);
                 const desiredOrganizer = scope === 'mine' ? (local.organizerUserId || local.createdBy || creator.id || remote?.organizerUserId || null) : null;
                 const remoteOrganizer = remote?.organizerUserId || null;
-                if (remoteScope === scope && String(remoteOrganizer || '') === String(desiredOrganizer || '')) continue;
+                // Only re-save when the scope itself differs. Comparing the organizer too caused a
+                // loop: the server keeps OrganizerUserId empty for some events, so every sync
+                // re-saved them (seen on event 32 in the live retest).
+                if (remoteScope === scope) continue;
 
                 // QA bug #15: this loop re-sent other people's events on every sync (403s) and
                 // overwrote server data with this browser's stale copy. Now: skip events we've already
@@ -63570,6 +63575,7 @@
                         createdBy: remote?.createdBy || local.createdBy || desiredOrganizer || creator.id || null
                     });
                     changed = true;
+                    window.__dashboardScopeSyncSkip.add(apiId); // at most one fix-up per event per session
                 } catch (_) {
                     window.__dashboardScopeSyncSkip.add(apiId);
                 }
