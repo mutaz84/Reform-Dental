@@ -119,20 +119,7 @@ module.exports = async function (context, req) {
                           Data AS data
                         FROM RequestAttachments
                         WHERE Id = @id
-                          AND EXISTS (
-                            SELECT 1 FROM Requests r_v
-                            WHERE r_v.Id = RequestAttachments.RequestId
-                              AND (
-                                EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
-                                OR r_v.RequestedBy IN (SELECT u.Username FROM Users u WHERE u.Id IN (
-                                    SELECT u_all.Id FROM Users u_all WHERE EXISTS (SELECT 1 FROM Users u_admin WHERE u_admin.Id = @${TENANT_PARAM} AND LOWER(u_admin.Username) = 'admin')
-                                    UNION
-                                    SELECT @${TENANT_PARAM} AS UserId
-                                    UNION
-                                    SELECT u2.Id FROM Users u2 WHERE u2.SubscriptionId IS NOT NULL AND u2.SubscriptionId = (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})
-                                ))
-                              )
-                          )
+                                                    AND ${tenantRequestVisible('RequestAttachments.RequestId')}
                     `);
 
                 const row = (result.recordset || [])[0];

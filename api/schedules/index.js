@@ -1,5 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
-const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
+const { getRequestUserId, tenantClinicScopeSql, resolveWritableClinicId, TENANT_PARAM } = require('../shared/tenant');
 
 async function readBody(req) {
     if (!req) return {};
@@ -206,7 +206,7 @@ module.exports = async function (context, req) {
                 legacyUserId = await resolveActiveUserIdByName(body.userName || body.employeeName || body.name || body.employee || body.provider);
             }
 
-            let clinicId = parseIntOrNull(body.clinicId);
+            let clinicId = await resolveWritableClinicId(pool, body, getRequestUserId(req));
             if (!clinicId) clinicId = await resolveClinicIdByName(body.clinicName || body.clinic);
 
             let roomId = parseIntOrNull(body.roomId);
@@ -420,7 +420,7 @@ module.exports = async function (context, req) {
             if (!assistantId) assistantId = await resolveActiveUserIdByName(body.assistantName || body.assistant);
             if (!legacyUserId) legacyUserId = await resolveActiveUserIdByName(body.userName || body.employeeName || body.name || body.employee || body.provider);
 
-            let clinicId = parseIntOrNull(body.clinicId);
+            let clinicId = await resolveWritableClinicId(pool, body, getRequestUserId(req));
             if (!clinicId && (body.clinicName || body.clinic)) clinicId = await resolveClinicIdByName(body.clinicName || body.clinic);
 
             let roomId = parseIntOrNull(body.roomId);

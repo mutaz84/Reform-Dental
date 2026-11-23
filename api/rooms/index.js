@@ -1,5 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
-const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
+const { getRequestUserId, getUserClinicIds, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -10,6 +10,101 @@ async function getTableColumns(pool, tableName) {
 
 function hasColumn(columns, name) {
     return columns.has(String(name).toLowerCase());
+}
+
+function toIntOrNull(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function bodyValue(obj, names, fallback = '') {
+    for (const name of names) {
+        if (Object.prototype.hasOwnProperty.call(obj || {}, name)) return obj[name];
+    }
+    return fallback;
+}
+
+async function linkUserToClinicIfPossible(pool, userId, clinicId) {
+    const safeUserId = toIntOrNull(userId);
+    const safeClinicId = toIntOrNull(clinicId);
+    if (!safeUserId || !safeClinicId) return;
+
+    const userClinicColumns = await getTableColumns(pool, 'UserClinics');
+    if (!hasColumn(userClinicColumns, 'UserId') || !hasColumn(userClinicColumns, 'ClinicId')) return;
+
+    try {
+        await pool.request()
+            .input('userId', sql.Int, safeUserId)
+            .input('clinicId', sql.Int, safeClinicId)
+            .query(`
+                IF NOT EXISTS (SELECT 1 FROM UserClinics WHERE UserId = @userId AND ClinicId = @clinicId)
+                BEGIN
+                    INSERT INTO UserClinics (UserId, ClinicId) VALUES (@userId, @clinicId)
+                END
+            `);
+    } catch (_) {
+        // Room saving can still proceed for platform admin or unscoped fallback rows.
+    }
+}
+
+async function createLocalClinicFromRoomPayload(pool, clinicName, tenantUserId) {
+    const name = String(clinicName || '').trim();
+    if (!name) return null;
+
+    const clinicColumns = await getTableColumns(pool, 'Clinics');
+    if (!hasColumn(clinicColumns, 'Name')) return null;
+
+    const request = pool.request().input('name', sql.NVarChar, name);
+    const columns = ['Name'];
+    const values = ['@name'];
+    if (hasColumn(clinicColumns, 'IsActive')) {
+        columns.push('IsActive');
+        values.push('1');
+    }
+    if (hasColumn(clinicColumns, 'CreatedDate')) {
+        columns.push('CreatedDate');
+        values.push('GETUTCDATE()');
+    }
+
+    const result = await request.query(`INSERT INTO Clinics (${columns.join(', ')}) OUTPUT INSERTED.Id VALUES (${values.join(', ')})`);
+    const clinicId = result.recordset[0]?.Id || null;
+    await linkUserToClinicIfPossible(pool, tenantUserId, clinicId);
+    return clinicId;
+}
+
+async function resolveRoomClinicId(pool, body, tenantUserId) {
+    const requestedClinicId = toIntOrNull(body?.clinicId ?? body?.ClinicId ?? body?.officeID ?? body?.officeId);
+    if (requestedClinicId) {
+        const exact = await pool.request()
+            .input('clinicId', sql.Int, requestedClinicId)
+            .query('SELECT TOP 1 Id FROM Clinics WHERE Id = @clinicId');
+        if (exact.recordset[0]?.Id) return exact.recordset[0].Id;
+    }
+
+    const clinicName = String(body?.clinicName || body?.ClinicName || body?.officeName || body?.OfficeName || '').trim();
+    if (clinicName) {
+        const request = pool.request().input('clinicName', sql.NVarChar, clinicName);
+        const where = ['LOWER(Name) = LOWER(@clinicName)'];
+        if (tenantUserId) {
+            request.input(TENANT_PARAM, sql.Int, tenantUserId);
+            where.push(tenantClinicScopeSql('Id'));
+        }
+        const byName = await request.query(`SELECT TOP 1 Id FROM Clinics WHERE ${where.join(' AND ')} ORDER BY Id`);
+        if (byName.recordset[0]?.Id) return byName.recordset[0].Id;
+
+        const anyByName = await pool.request()
+            .input('clinicName', sql.NVarChar, clinicName)
+            .query('SELECT TOP 1 Id FROM Clinics WHERE LOWER(Name) = LOWER(@clinicName) ORDER BY Id');
+        if (anyByName.recordset[0]?.Id) {
+            await linkUserToClinicIfPossible(pool, tenantUserId, anyByName.recordset[0].Id);
+            return anyByName.recordset[0].Id;
+        }
+    }
+
+    const visibleClinicIds = await getUserClinicIds(pool, tenantUserId);
+    if (visibleClinicIds.length === 1) return visibleClinicIds[0];
+    return createLocalClinicFromRoomPayload(pool, clinicName, tenantUserId);
 }
 
 module.exports = async function (context, req) {
@@ -32,13 +127,22 @@ module.exports = async function (context, req) {
             context.res = { status: 500, headers, body: { error: 'Rooms table not found.' } };
             return;
         }
+        if (!hasColumn(roomColumns, 'SortOrder')) {
+            try {
+                await pool.request().query('ALTER TABLE Rooms ADD SortOrder INT NULL');
+                roomColumns.add('sortorder');
+            } catch (_) {}
+        }
+        const hasSortOrder = hasColumn(roomColumns, 'SortOrder');
 
         const clinicColumns = await getTableColumns(pool, 'Clinics');
         const hasClinicCol = hasColumn(roomColumns, 'ClinicId');
         const hasClinicJoin = hasClinicCol && hasColumn(clinicColumns, 'Id') && hasColumn(clinicColumns, 'Name');
         const hasRoomIsActive = hasColumn(roomColumns, 'IsActive');
         const hasClinicIsActive = hasColumn(clinicColumns, 'IsActive');
-        const roomOrder = hasColumn(roomColumns, 'Name') ? 'r.Name' : 'r.Id';
+        const roomOrder = hasSortOrder
+            ? `CASE WHEN r.SortOrder IS NULL THEN 1 ELSE 0 END, r.SortOrder, ${hasColumn(roomColumns, 'Name') ? 'r.Name' : 'r.Id'}`
+            : (hasColumn(roomColumns, 'Name') ? 'r.Name' : 'r.Id');
         const id = req.params.id;
         const tenantUserId = getRequestUserId(req);
 
@@ -79,10 +183,10 @@ module.exports = async function (context, req) {
                     if (hasRoomIsActive) where.push('IsActive = 1');
                     where.push(tenantClinicScopeSql('ClinicId'));
                     reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                    query = `SELECT * FROM Rooms WHERE ${where.join(' AND ')} ORDER BY ${hasColumn(roomColumns, 'Name') ? 'Name' : 'Id'}`;
+                    query = `SELECT * FROM Rooms WHERE ${where.join(' AND ')} ORDER BY ${hasSortOrder ? 'CASE WHEN SortOrder IS NULL THEN 1 ELSE 0 END, SortOrder, ' : ''}${hasColumn(roomColumns, 'Name') ? 'Name' : 'Id'}`;
                 } else {
                     const whereClause = hasRoomIsActive ? 'WHERE IsActive = 1' : '';
-                    query = `SELECT * FROM Rooms ${whereClause} ORDER BY ${hasColumn(roomColumns, 'Name') ? 'Name' : 'Id'}`;
+                    query = `SELECT * FROM Rooms ${whereClause} ORDER BY ${hasSortOrder ? 'CASE WHEN SortOrder IS NULL THEN 1 ELSE 0 END, SortOrder, ' : ''}${hasColumn(roomColumns, 'Name') ? 'Name' : 'Id'}`;
                 }
 
                 const result = await reqBuilder.query(query);
@@ -90,29 +194,103 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'POST') {
             const body = req.body;
+            const clinicId = hasClinicCol ? await resolveRoomClinicId(pool, body, tenantUserId) : null;
+            if (hasClinicCol && !clinicId) {
+                context.res = { status: 400, headers, body: { error: 'Selected clinic could not be matched to a local clinic record. Please refresh clinics and try again.' } };
+                return;
+            }
+            const insertColumns = ['Name', 'ClinicId', 'RoomType', 'Description', 'Color'];
+            const insertValues = ['@name', '@clinicId', '@roomType', '@description', '@color'];
+            if (hasColumn(roomColumns, 'RoomCategory')) {
+                insertColumns.push('RoomCategory');
+                insertValues.push('@roomCategory');
+            }
+            if (hasColumn(roomColumns, 'Category')) {
+                insertColumns.push('Category');
+                insertValues.push('@roomCategory');
+            }
+            if (hasColumn(roomColumns, 'Dimensions')) {
+                insertColumns.push('Dimensions');
+                insertValues.push('@dimensions');
+            }
+            if (hasSortOrder) {
+                insertColumns.push('SortOrder');
+                insertValues.push('COALESCE(@sortOrder, (SELECT ISNULL(MAX(SortOrder), 0) + 1 FROM Rooms WHERE ClinicId = @clinicId))');
+            }
             const result = await pool.request()
                 .input('name', sql.NVarChar, body.name)
-                .input('clinicId', sql.Int, body.clinicId)
+                .input('clinicId', sql.Int, clinicId)
                 .input('roomType', sql.NVarChar, body.roomType)
+                .input('roomCategory', sql.NVarChar, bodyValue(body, ['roomCategory', 'RoomCategory', 'category', 'Category'], ''))
                 .input('description', sql.NVarChar, body.description)
                 .input('color', sql.NVarChar, body.color)
-                .query(`INSERT INTO Rooms (Name, ClinicId, RoomType, Description, Color) 
-                        OUTPUT INSERTED.Id VALUES (@name, @clinicId, @roomType, @description, @color)`);
+                .input('dimensions', sql.NVarChar(100), bodyValue(body, ['dimensions', 'Dimensions'], null) || null)
+                .input('sortOrder', sql.Int, toIntOrNull(body.sortOrder ?? body.SortOrder))
+                .query(`INSERT INTO Rooms (${insertColumns.join(', ')}) OUTPUT INSERTED.Id VALUES (${insertValues.join(', ')})`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
-            const body = req.body;
-            await pool.request()
-                .input('id', sql.Int, id)
-                .input('name', sql.NVarChar, body.name)
-                .input('roomType', sql.NVarChar, body.roomType)
-                .input('description', sql.NVarChar, body.description)
-                .input('color', sql.NVarChar, body.color)
-                .query(`UPDATE Rooms SET Name=@name, RoomType=@roomType, Description=@description, Color=@color, ModifiedDate=GETUTCDATE() WHERE Id=@id`);
+            // Partial update: only columns present in the body are written. The old version
+            // always wrote every column, so the sort-order call (which sends no category)
+            // blanked RoomCategory on every room (QA bug #16).
+            const body = req.body || {};
+            const has = (...names) => names.some((n) => Object.prototype.hasOwnProperty.call(body, n) && body[n] !== undefined);
+            const request = pool.request().input('id', sql.Int, id);
+            const setClauses = [];
+            if (has('name', 'Name')) {
+                const name = String(bodyValue(body, ['name', 'Name'], '') || '').trim();
+                if (!name) {
+                    context.res = { status: 400, headers, body: { error: 'Room name cannot be empty.' } };
+                    return;
+                }
+                setClauses.push('Name=@name');
+                request.input('name', sql.NVarChar, name);
+            }
+            if (has('roomType', 'RoomType')) {
+                setClauses.push('RoomType=@roomType');
+                request.input('roomType', sql.NVarChar, bodyValue(body, ['roomType', 'RoomType'], null));
+            }
+            if (has('description', 'Description')) {
+                setClauses.push('Description=@description');
+                request.input('description', sql.NVarChar, bodyValue(body, ['description', 'Description'], null));
+            }
+            if (has('color', 'Color')) {
+                setClauses.push('Color=@color');
+                request.input('color', sql.NVarChar, bodyValue(body, ['color', 'Color'], null));
+            }
+            if (has('roomCategory', 'RoomCategory', 'category', 'Category')) {
+                request.input('roomCategory', sql.NVarChar, bodyValue(body, ['roomCategory', 'RoomCategory', 'category', 'Category'], ''));
+                if (hasColumn(roomColumns, 'RoomCategory')) setClauses.push('RoomCategory=@roomCategory');
+                if (hasColumn(roomColumns, 'Category')) setClauses.push('Category=@roomCategory');
+            }
+            if (has('dimensions', 'Dimensions') && hasColumn(roomColumns, 'Dimensions')) {
+                setClauses.push('Dimensions=@dimensions');
+                request.input('dimensions', sql.NVarChar(100), bodyValue(body, ['dimensions', 'Dimensions'], null) || null);
+            }
+            if (hasSortOrder && has('sortOrder', 'SortOrder')) {
+                setClauses.push('SortOrder=@sortOrder');
+                request.input('sortOrder', sql.Int, toIntOrNull(body.sortOrder ?? body.SortOrder));
+            }
+            if (!setClauses.length) {
+                context.res = { status: 200, headers, body: { message: 'No changes' } };
+                return;
+            }
+            if (hasColumn(roomColumns, 'ModifiedDate')) setClauses.push('ModifiedDate=GETUTCDATE()');
+            let roomWhere = 'Id=@id';
+            if (hasClinicCol && tenantUserId) {
+                // Only rooms in the caller's clinics can be changed.
+                roomWhere += ` AND ${tenantClinicScopeSql('ClinicId')}`;
+                request.input(TENANT_PARAM, sql.Int, tenantUserId);
+            }
+            const updateResult = await request.query(`UPDATE Rooms SET ${setClauses.join(', ')} WHERE ${roomWhere}`);
+            if (!updateResult.rowsAffected || !updateResult.rowsAffected[0]) {
+                context.res = { status: 404, headers, body: { error: 'Room not found' } };
+                return;
+            }
             context.res = { status: 200, headers, body: { message: 'Room updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()
                 .input('id', sql.Int, id)
-                .query('UPDATE Rooms SET IsActive = 0 WHERE Id = @id');
+                .query(hasRoomIsActive ? 'UPDATE Rooms SET IsActive = 0 WHERE Id = @id' : 'DELETE FROM Rooms WHERE Id = @id');
             context.res = { status: 200, headers, body: { message: 'Room deleted' } };
         }
     } catch (err) {

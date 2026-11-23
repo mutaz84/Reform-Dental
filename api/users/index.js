@@ -12,6 +12,137 @@ function hasColumn(columns, name) {
     return columns.has(String(name).toLowerCase());
 }
 
+async function ensureUserPermissionsColumn(pool, userColumns) {
+    if (hasColumn(userColumns, 'Permissions')) return userColumns;
+
+    await pool.request().query(`
+        IF COL_LENGTH('dbo.Users', 'Permissions') IS NULL
+        BEGIN
+            ALTER TABLE dbo.Users ADD Permissions NVARCHAR(MAX) NULL
+        END
+    `);
+
+    return await getTableColumns(pool, 'Users');
+}
+
+async function ensureUserPermissionsTable(pool) {
+    await pool.request().query(`
+        IF OBJECT_ID('dbo.UserPermissions', 'U') IS NULL
+        BEGIN
+            CREATE TABLE dbo.UserPermissions (
+                Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_UserPermissions PRIMARY KEY,
+                UserId INT NOT NULL,
+                CategoryKey NVARCHAR(100) NOT NULL,
+                PermissionKey NVARCHAR(100) NOT NULL,
+                AccessLevel NVARCHAR(20) NOT NULL,
+                CreatedDate DATETIME2 NOT NULL CONSTRAINT DF_UserPermissions_CreatedDate DEFAULT SYSUTCDATETIME(),
+                ModifiedDate DATETIME2 NOT NULL CONSTRAINT DF_UserPermissions_ModifiedDate DEFAULT SYSUTCDATETIME(),
+                CONSTRAINT FK_UserPermissions_Users_UserId FOREIGN KEY (UserId) REFERENCES dbo.Users(Id) ON DELETE CASCADE,
+                CONSTRAINT CK_UserPermissions_AccessLevel CHECK (AccessLevel IN ('full', 'readonly', 'hidden')),
+                CONSTRAINT UX_UserPermissions_User_Category_Permission UNIQUE (UserId, CategoryKey, PermissionKey)
+            );
+        END;
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_UserPermissions_UserId' AND object_id = OBJECT_ID('dbo.UserPermissions'))
+        BEGIN
+            CREATE INDEX IX_UserPermissions_UserId ON dbo.UserPermissions(UserId);
+        END;
+    `);
+}
+
+async function ensureUserPermissionsStorage(pool, userColumns) {
+    const refreshedUserColumns = await ensureUserPermissionsColumn(pool, userColumns);
+    await ensureUserPermissionsTable(pool);
+    return refreshedUserColumns;
+}
+
+function normalizePermissionAccessLevel(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'full' || normalized === 'readonly' || normalized === 'hidden' ? normalized : null;
+}
+
+function buildPermissionRowsFromValue(value) {
+    const permissions = parseJsonSafe(value, null);
+    if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions)) return [];
+
+    const rows = [];
+    Object.entries(permissions).forEach(([categoryKey, categoryValue]) => {
+        if (!categoryKey || !categoryValue || typeof categoryValue !== 'object' || Array.isArray(categoryValue)) return;
+        Object.entries(categoryValue).forEach(([permissionKey, accessValue]) => {
+            const accessLevel = normalizePermissionAccessLevel(accessValue);
+            if (!permissionKey || !accessLevel) return;
+            rows.push({
+                categoryKey: String(categoryKey).slice(0, 100),
+                permissionKey: String(permissionKey).slice(0, 100),
+                accessLevel
+            });
+        });
+    });
+    return rows;
+}
+
+async function replaceUserPermissionRows(connectionOrTransaction, userId, permissionsValue) {
+    const targetUserId = Number(userId || 0);
+    if (!(targetUserId > 0)) return;
+
+    const rows = buildPermissionRowsFromValue(permissionsValue);
+    await new sql.Request(connectionOrTransaction)
+        .input('userId', sql.Int, targetUserId)
+        .query('DELETE FROM dbo.UserPermissions WHERE UserId = @userId');
+
+    for (const row of rows) {
+        await new sql.Request(connectionOrTransaction)
+            .input('userId', sql.Int, targetUserId)
+            .input('categoryKey', sql.NVarChar(100), row.categoryKey)
+            .input('permissionKey', sql.NVarChar(100), row.permissionKey)
+            .input('accessLevel', sql.NVarChar(20), row.accessLevel)
+            .query(`
+                INSERT INTO dbo.UserPermissions (UserId, CategoryKey, PermissionKey, AccessLevel)
+                VALUES (@userId, @categoryKey, @permissionKey, @accessLevel)
+            `);
+    }
+
+    return rows.length;
+}
+
+async function hydrateUserPermissionsFromRows(pool, rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+
+    const userIds = Array.from(new Set(rows.map((row) => Number(row?.Id || 0)).filter((id) => Number.isInteger(id) && id > 0)));
+    if (!userIds.length) return rows;
+
+    const result = await pool.request().query(`
+        SELECT UserId, CategoryKey, PermissionKey, AccessLevel
+        FROM dbo.UserPermissions
+        WHERE UserId IN (${userIds.join(',')})
+        ORDER BY UserId, CategoryKey, PermissionKey
+    `);
+
+    const permissionsByUserId = new Map();
+    (result.recordset || []).forEach((permissionRow) => {
+        const userId = Number(permissionRow.UserId || 0);
+        const categoryKey = String(permissionRow.CategoryKey || '').trim();
+        const permissionKey = String(permissionRow.PermissionKey || '').trim();
+        const accessLevel = normalizePermissionAccessLevel(permissionRow.AccessLevel);
+        if (!(userId > 0) || !categoryKey || !permissionKey || !accessLevel) return;
+        if (!permissionsByUserId.has(userId)) permissionsByUserId.set(userId, {});
+        const permissions = permissionsByUserId.get(userId);
+        if (!permissions[categoryKey]) permissions[categoryKey] = {};
+        permissions[categoryKey][permissionKey] = accessLevel;
+    });
+
+    rows.forEach((row) => {
+        const userId = Number(row?.Id || 0);
+        const permissions = permissionsByUserId.get(userId);
+        if (permissions && Object.keys(permissions).length > 0) {
+            row.Permissions = JSON.stringify(permissions);
+            row.permissions = row.Permissions;
+        }
+    });
+
+    return rows;
+}
+
 function toNullableString(value) {
     if (value === undefined || value === null) return null;
     const normalized = String(value).trim();
@@ -393,11 +524,12 @@ module.exports = async function (context, req) {
         };
 
         if (req.method === 'GET') {
-            const userColumns = await getTableColumns(pool, 'Users');
+            let userColumns = await getTableColumns(pool, 'Users');
             if (userColumns.size === 0) {
                 context.res = { status: 500, headers, body: { error: 'Users table not found.' } };
                 return;
             }
+            userColumns = await ensureUserPermissionsStorage(pool, userColumns);
 
             const userClinicColumns = await getTableColumns(pool, 'UserClinics');
             const clinicColumns = await getTableColumns(pool, 'Clinics');
@@ -458,6 +590,7 @@ module.exports = async function (context, req) {
                 if (result.recordset.length === 0) {
                     context.res = { status: 404, headers, body: { error: 'User not found' } };
                 } else {
+                    await hydrateUserPermissionsFromRows(pool, result.recordset);
                     const row = result.recordset[0];
                     const clinicIdObjs = parseJsonSafe(row.ClinicIdsJson, []);
                     const clinics = parseJsonSafe(row.ClinicsJson, []);
@@ -494,7 +627,8 @@ module.exports = async function (context, req) {
                     .input(TENANT_PARAM, sql.Int, getRequestUserId(req) || -1)
                     .query(`SELECT ${baseSelect}${clinicIdsJson}${clinicsJson}${hrDataSelect} FROM Users u ${hrJoin} ${whereClause} ${orderBy}`);
 
-                const users = (result.recordset || []).map((row) => {
+                const permissionHydratedRows = await hydrateUserPermissionsFromRows(pool, result.recordset || []);
+                const users = permissionHydratedRows.map((row) => {
                     const clinicIdObjs = parseJsonSafe(row.ClinicIdsJson, []);
                     const clinics = parseJsonSafe(row.ClinicsJson, []);
                     const clinicIds = Array.isArray(clinicIdObjs)
@@ -516,7 +650,8 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'POST') {
             const body = parseRequestBody(req.body);
-            const userColumns = await getTableColumns(pool, 'Users');
+            let userColumns = await getTableColumns(pool, 'Users');
+            userColumns = await ensureUserPermissionsStorage(pool, userColumns);
             const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
             const hasUsersSubscriptionId = hasColumn(userColumns, 'SubscriptionId');
             const callerUserId = getRequestUserId(req);
@@ -600,6 +735,7 @@ module.exports = async function (context, req) {
                 const userId = result.recordset[0].Id;
 
                 await upsertNormalizedHrInfoAndBenefits(transaction, userId, hrInfoValue);
+                await replaceUserPermissionRows(transaction, userId, permissionsValue);
 
                 if (clinicIds.length) {
                     for (const clinicId of clinicIds) {
@@ -618,7 +754,8 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'PUT' && id) {
             const body = parseRequestBody(req.body);
-            const userColumns = await getTableColumns(pool, 'Users');
+            let userColumns = await getTableColumns(pool, 'Users');
+            userColumns = await ensureUserPermissionsStorage(pool, userColumns);
             const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
 
             if (body && (
@@ -656,6 +793,57 @@ module.exports = async function (context, req) {
                     await transaction.rollback();
                     throw e;
                 }
+            }
+
+            if (body && (
+                body.permissionsOnly === true || body.PermissionsOnly === true ||
+                String(body.permissionsOnly || '').toLowerCase() === 'true' ||
+                String(body.PermissionsOnly || '').toLowerCase() === 'true'
+            )) {
+                if (!hasColumn(userColumns, 'Permissions')) {
+                    context.res = { status: 400, headers, body: { error: 'Users.Permissions column not found.' } };
+                    return;
+                }
+
+                const permissionsSource = hasOwn(body, 'permissions') ? body.permissions : body.Permissions;
+                const permissionsValue = toJsonString(permissionsSource);
+                if (permissionsValue == null) {
+                    context.res = { status: 400, headers, body: { error: 'permissions payload is required.' } };
+                    return;
+                }
+
+                const setParts = ['Permissions = @permissions'];
+                if (hasColumn(userColumns, 'ModifiedDate')) {
+                    setParts.push('ModifiedDate = GETUTCDATE()');
+                }
+
+                const permissionsResult = await pool.request()
+                    .input('id', sql.Int, id)
+                    .input('permissions', sql.NVarChar(sql.MAX), permissionsValue)
+                    .query(`UPDATE Users SET ${setParts.join(', ')} WHERE Id = @id`);
+
+                const affectedRows = Array.isArray(permissionsResult.rowsAffected)
+                    ? permissionsResult.rowsAffected.reduce((sum, n) => sum + Number(n || 0), 0)
+                    : 0;
+
+                if (affectedRows === 0) {
+                    context.res = { status: 404, headers, body: { error: 'User not found or permissions not updated' } };
+                } else {
+                    const permissionRowCount = await replaceUserPermissionRows(pool, id, permissionsValue);
+                    context.res = {
+                        status: 200,
+                        headers,
+                        body: {
+                            message: 'Permissions updated',
+                            user: {
+                                Id: Number(id),
+                                Permissions: permissionsValue
+                            },
+                            permissionRowCount
+                        }
+                    };
+                }
+                return;
             }
 
             if (body && (
@@ -720,7 +908,9 @@ module.exports = async function (context, req) {
             }
 
             const clinicIds = parseClinicIds(body.clinicIds || body.ClinicIds || body.clinicId || body.ClinicId);
-            const permissionsValue = toJsonString(body.permissions || body.Permissions);
+            const permissionsValue = hasOwn(body, 'permissions')
+                ? toJsonString(body.permissions)
+                : (hasOwn(body, 'Permissions') ? toJsonString(body.Permissions) : null);
             const documentsValue = toJsonString(body.documents || body.Documents);
             const hrInfoValue = toJsonString(body.hrInfo || body.HRInfo);
             const hasClinicFields = hasOwn(body, 'clinicIds') || hasOwn(body, 'ClinicIds') || hasOwn(body, 'clinicId') || hasOwn(body, 'ClinicId');
@@ -812,7 +1002,7 @@ module.exports = async function (context, req) {
                                 END
                             ),
                             HireDate=@hireDate, HourlyRate=@hourlyRate, Salary=@salary,
-                            Color=@color, ProfileImage=@profileImage, Permissions=@permissions,
+                            Color=@color, ProfileImage=@profileImage, Permissions=COALESCE(@permissions, Permissions),
                             SSN=@ssn, Title=@title, EmergencyContactName=@emergencyContactName,
                             EmergencyContactRelationship=@emergencyContactRelationship,
                             EmergencyContactPhone=@emergencyContactPhone, EmergencyContactEmail=@emergencyContactEmail,
@@ -849,6 +1039,10 @@ module.exports = async function (context, req) {
 
                 if (lifecycleState) {
                     await syncUserSchedulesLifecycle(transaction, id, lifecycleState);
+                }
+
+                if (permissionsValue != null) {
+                    await replaceUserPermissionRows(transaction, id, permissionsValue);
                 }
 
                 await transaction.commit();

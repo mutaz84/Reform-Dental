@@ -1,5 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
-const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
+const { getRequestUserId, tenantClinicScopeSql, resolveWritableClinicId, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -28,10 +28,31 @@ function toBitOrNull(value) {
     return null;
 }
 
+function toDateOnlyOrNull(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString().slice(0, 10);
+}
+
+function toSafeStringOrNull(value, maxLen = 200) {
+    if (value === null || value === undefined) return null;
+    const text = String(value).trim();
+    return text ? text.slice(0, maxLen) : null;
+}
+
 function addColumnValue(request, columns, definitions, columnName, paramName, type, value) {
     if (!hasColumn(columns, columnName)) return;
     request.input(paramName, type, value);
     definitions.push({ columnName, paramName });
+}
+
+function addOptionalColumnValue(request, columns, definitions, columnName, paramName, type, value) {
+    if (value === undefined) return;
+    addColumnValue(request, columns, definitions, columnName, paramName, type, value);
 }
 
 async function resolveVisibleClinicId(pool, requestedClinicId, tenantUserId) {
@@ -82,12 +103,32 @@ function buildEquipmentColumnDefinitions(request, columns, body) {
     addColumnValue(request, columns, definitions, 'ImageUrl', 'imageUrl', sql.NVarChar(sql.MAX), getBodyValue(body, 'ImageUrl', 'imageUrl') || null);
     addColumnValue(request, columns, definitions, 'DocumentUrl', 'documentUrl', sql.NVarChar(sql.MAX), getBodyValue(body, 'documentUrl', 'DocumentUrl') || null);
     addColumnValue(request, columns, definitions, 'IsActive', 'isActive', sql.Bit, toBitOrNull(getBodyValue(body, 'isActive', 'IsActive')));
+    const scheduledDate = getBodyValue(body, 'scheduledDate', 'ScheduledDate', 'scheduleDate', 'ScheduleDate');
+    const scheduledTime = getBodyValue(body, 'scheduledTime', 'ScheduledTime', 'scheduleTime', 'ScheduleTime');
+    const dashboardScope = getBodyValue(body, 'dashboardScope', 'DashboardScope');
+    const dashboardScheduledBy = getBodyValue(body, 'dashboardScheduledBy', 'DashboardScheduledBy');
+    const dashboardScheduledByName = getBodyValue(body, 'dashboardScheduledByName', 'DashboardScheduledByName');
+    addOptionalColumnValue(request, columns, definitions, 'ScheduledDate', 'scheduledDate', sql.Date, scheduledDate === undefined ? undefined : toDateOnlyOrNull(scheduledDate));
+    addOptionalColumnValue(request, columns, definitions, 'ScheduledTime', 'scheduledTime', sql.NVarChar(20), scheduledTime === undefined ? undefined : toSafeStringOrNull(scheduledTime, 20));
+    addOptionalColumnValue(request, columns, definitions, 'DashboardScope', 'dashboardScope', sql.NVarChar(20), dashboardScope === undefined ? undefined : toSafeStringOrNull(dashboardScope, 20));
+    addOptionalColumnValue(request, columns, definitions, 'DashboardScheduledBy', 'dashboardScheduledBy', sql.NVarChar(100), dashboardScheduledBy === undefined ? undefined : toSafeStringOrNull(dashboardScheduledBy, 100));
+    addOptionalColumnValue(request, columns, definitions, 'DashboardScheduledByName', 'dashboardScheduledByName', sql.NVarChar(200), dashboardScheduledByName === undefined ? undefined : toSafeStringOrNull(dashboardScheduledByName, 200));
     return definitions;
+}
+
+async function ensureDashboardScheduleColumns(pool) {
+    await pool.request().query(`
+        IF COL_LENGTH('dbo.Equipment', 'ScheduledDate') IS NULL ALTER TABLE dbo.Equipment ADD ScheduledDate DATE NULL;
+        IF COL_LENGTH('dbo.Equipment', 'ScheduledTime') IS NULL ALTER TABLE dbo.Equipment ADD ScheduledTime NVARCHAR(20) NULL;
+        IF COL_LENGTH('dbo.Equipment', 'DashboardScope') IS NULL ALTER TABLE dbo.Equipment ADD DashboardScope NVARCHAR(20) NULL;
+        IF COL_LENGTH('dbo.Equipment', 'DashboardScheduledBy') IS NULL ALTER TABLE dbo.Equipment ADD DashboardScheduledBy NVARCHAR(100) NULL;
+        IF COL_LENGTH('dbo.Equipment', 'DashboardScheduledByName') IS NULL ALTER TABLE dbo.Equipment ADD DashboardScheduledByName NVARCHAR(200) NULL;
+    `);
 }
 
 module.exports = async function (context, req) {
     const headers = {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
         'Pragma': 'no-cache',
         'Expires': '0',
@@ -104,6 +145,7 @@ module.exports = async function (context, req) {
 
     try {
         const pool = await getPool();
+        await ensureDashboardScheduleColumns(pool);
         const equipmentColumns = await getTableColumns(pool, 'Equipment');
         if (equipmentColumns.size === 0) {
             context.res = { status: 500, headers, body: { error: 'Equipment table not found.' } };
@@ -120,16 +162,16 @@ module.exports = async function (context, req) {
             if (id) {
                 // Single-row fetch is tenant-scoped: not found if outside the caller's clinics.
                 const reqBuilder = pool.request().input('id', sql.Int, id);
-                let whereSql = 'Id = @id';
+                let whereSql = 'e.Id = @id';
                 if (hasClinicCol) {
                     if (!tenantUserId) {
                         context.res = { status: 200, headers, body: null };
                         return;
                     }
                     reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                    whereSql += ` AND ${tenantClinicScopeSql('ClinicId')}`;
+                    whereSql += ` AND ${tenantClinicScopeSql('e.ClinicId')}`;
                 }
-                const result = await reqBuilder.query(`SELECT * FROM Equipment WHERE ${whereSql}`);
+                const result = await reqBuilder.query(`SELECT e.*, c.Name AS ClinicName FROM Equipment e LEFT JOIN Clinics c ON c.Id = e.ClinicId WHERE ${whereSql}`);
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 if (hasClinicCol && !tenantUserId) {
@@ -140,9 +182,9 @@ module.exports = async function (context, req) {
                 let whereSql = '';
                 if (hasClinicCol) {
                     reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
-                    whereSql = `WHERE ${tenantClinicScopeSql('ClinicId')}`;
+                    whereSql = `WHERE ${tenantClinicScopeSql('e.ClinicId')}`;
                 }
-                const result = await reqBuilder.query(`SELECT * FROM Equipment ${whereSql} ${orderBy}`);
+                const result = await reqBuilder.query(`SELECT e.*, c.Name AS ClinicName FROM Equipment e LEFT JOIN Clinics c ON c.Id = e.ClinicId ${whereSql} ORDER BY e.${hasColumn(equipmentColumns, 'Name') ? 'Name' : 'Id'}`);
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {
@@ -152,7 +194,7 @@ module.exports = async function (context, req) {
                     context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
                     return;
                 }
-                const visibleClinicId = await resolveVisibleClinicId(pool, toIntOrNull(getBodyValue(body, 'clinicId', 'ClinicId')), tenantUserId);
+                const visibleClinicId = await resolveWritableClinicId(pool, body, tenantUserId);
                 if (!visibleClinicId) {
                     context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
                     return;
@@ -175,17 +217,30 @@ module.exports = async function (context, req) {
                     context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
                     return;
                 }
-                const visibleClinicId = await resolveVisibleClinicId(pool, toIntOrNull(getBodyValue(body, 'clinicId', 'ClinicId')), tenantUserId);
-                if (!visibleClinicId) {
-                    context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
-                    return;
+                // Only move the record to another clinic when the body explicitly names one.
+                // Resolving a clinic from a body without one could create a new clinic (or 403).
+                const clinicNamed = ['clinicId', 'ClinicId', 'officeId', 'OfficeId', 'clinicName', 'ClinicName', 'officeName']
+                    .some((k) => body[k] !== undefined && body[k] !== null && body[k] !== '');
+                if (clinicNamed) {
+                    const visibleClinicId = await resolveWritableClinicId(pool, body, tenantUserId);
+                    if (!visibleClinicId) {
+                        context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
+                        return;
+                    }
+                    body.clinicId = visibleClinicId;
+                    body.ClinicId = visibleClinicId;
+                } else {
+                    delete body.clinicId;
+                    delete body.ClinicId;
                 }
-                body.clinicId = visibleClinicId;
-                body.ClinicId = visibleClinicId;
                 request.input(TENANT_PARAM, sql.Int, tenantUserId);
                 updateWhere += ` AND ${tenantClinicScopeSql('ClinicId')}`;
             }
-            const definitions = buildEquipmentColumnDefinitions(request, equipmentColumns, body);
+            // Partial update: skip columns the body did not send. Previously every column was
+            // written, so short updates blanked out fields (e.g. Status reset, dates cleared).
+            const alwaysOptional = new Set(['ScheduledDate', 'ScheduledTime', 'DashboardScope', 'DashboardScheduledBy', 'DashboardScheduledByName']);
+            const definitions = buildEquipmentColumnDefinitions(request, equipmentColumns, body)
+                .filter((d) => alwaysOptional.has(d.columnName) || getBodyValue(body, d.paramName, d.columnName) !== undefined);
             if (definitions.length === 0 && !hasColumn(equipmentColumns, 'ModifiedDate')) {
                 context.res = { status: 400, headers, body: { error: 'No valid equipment fields were provided for update.' } };
                 return;

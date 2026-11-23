@@ -1,5 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
-const { getRequestUserId, tenantClinicScopeSql, resolveVisibleClinicId, TENANT_PARAM } = require('../shared/tenant');
+const { getRequestUserId, tenantClinicScopeSql, resolveWritableClinicId, TENANT_PARAM } = require('../shared/tenant');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -52,6 +52,7 @@ function buildUtilityColumnDefinitions(request, columns, body) {
     addColumnValue(request, columns, definitions, 'AccountNumber',  'accountNumber',  sql.NVarChar(100),     getBodyValue(body, 'accountNumber', 'AccountNumber') || null);
     addColumnValue(request, columns, definitions, 'ServiceStartDate','serviceStartDate', sql.Date,           getBodyValue(body, 'serviceStartDate', 'ServiceStartDate') || null);
     addColumnValue(request, columns, definitions, 'ContractTerm',   'contractTerm',   sql.NVarChar(50),      getBodyValue(body, 'contractTerm', 'ContractTerm') || null);
+    addColumnValue(request, columns, definitions, 'ContractEndDate','contractEndDate', sql.Date,            getBodyValue(body, 'contractEndDate', 'ContractEndDate') || null);
     addColumnValue(request, columns, definitions, 'ClinicId',       'clinicId',       sql.Int,               toIntOrNull(getBodyValue(body, 'clinicId', 'ClinicId')));
     addColumnValue(request, columns, definitions, 'MonthlyCost',    'monthlyCost',    sql.Decimal(10, 2),    toDecimalOrNull(getBodyValue(body, 'monthlyCost', 'MonthlyCost', 'cost', 'Cost')));
     addColumnValue(request, columns, definitions, 'Notes',          'notes',          sql.NVarChar(sql.MAX), getBodyValue(body, 'notes', 'Notes') || null);
@@ -130,7 +131,7 @@ module.exports = async function (context, req) {
                     context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
                     return;
                 }
-                const visibleClinicId = await resolveVisibleClinicId(pool, getBodyValue(body, 'clinicId', 'ClinicId'), tenantUserId);
+                const visibleClinicId = await resolveWritableClinicId(pool, body, tenantUserId);
                 if (!visibleClinicId) {
                     context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
                     return;
@@ -160,7 +161,7 @@ module.exports = async function (context, req) {
                     context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
                     return;
                 }
-                const visibleClinicId = await resolveVisibleClinicId(pool, getBodyValue(body, 'clinicId', 'ClinicId'), tenantUserId);
+                const visibleClinicId = await resolveWritableClinicId(pool, body, tenantUserId);
                 if (!visibleClinicId) {
                     context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
                     return;

@@ -1,5 +1,35 @@
 const { sql, getPool, resetPool } = require('../shared/database');
 const { getRequestUserId, tenantClinicScopeSql, TENANT_PARAM } = require('../shared/tenant');
+const https = require('https');
+
+const GRAY_FOREST_CLINIC_API_BASE = 'https://gray-forest-05ad14f10.3.azurestaticapps.net/api/clinics';
+const BLACK_SKY_GRAY_FOREST_CLINIC_USER_ID = '46';
+const CLINIC_SUPPLEMENT_FIELDS = [
+    'name',
+    'address',
+    'city',
+    'state',
+    'zipCode',
+    'phone',
+    'mainPhone',
+    'afterHoursPhone',
+    'fax',
+    'email',
+    'color',
+    'description',
+    'icon',
+    'website',
+    'defaultDentist',
+    'taxonomyNumber',
+    'clinicNPI',
+    'clinicTIN',
+    'legalName',
+    'legalAddress',
+    'status',
+    'isActive',
+    'operatingHours',
+    'logo'
+];
 
 function isConnectionError(error) {
     const message = String(error?.message || '').toLowerCase();
@@ -25,6 +55,270 @@ async function getTableColumns(pool, tableName) {
 
 function hasColumn(columns, name) {
     return columns.has(String(name).toLowerCase());
+}
+
+function requestJson(url, options, body) {
+    return new Promise((resolve, reject) => {
+        const data = body === undefined ? undefined : JSON.stringify(body || {});
+        const req = https.request(url, {
+            method: options.method,
+            headers: {
+                ...options.headers,
+                ...(data !== undefined ? { 'Content-Length': Buffer.byteLength(data) } : {})
+            }
+        }, (res) => {
+            const chunks = [];
+            res.on('data', (chunk) => chunks.push(chunk));
+            res.on('end', () => {
+                const raw = Buffer.concat(chunks).toString('utf8');
+                let parsed = raw;
+                try { parsed = raw ? JSON.parse(raw) : null; } catch (_) {}
+                resolve({ status: res.statusCode || 500, body: parsed });
+            });
+        });
+        req.on('error', reject);
+        req.setTimeout(10000, () => {
+            req.destroy(new Error('Clinic proxy request timed out'));
+        });
+        if (data !== undefined) req.write(data);
+        req.end();
+    });
+}
+
+function shouldProxyClinicRequest(req) {
+    const headers = req.headers || {};
+    const host = [
+        headers['x-forwarded-host'],
+        headers['X-Forwarded-Host'],
+        headers['x-original-host'],
+        headers['X-Original-Host'],
+        headers['x-ms-original-host'],
+        headers['X-MS-ORIGINAL-HOST'],
+        headers.host,
+        headers.Host
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    if (host.includes('gray-forest-05ad14f10')) return false;
+    if (host.includes('black-sky-06e87aa10')) return true;
+
+    return String(process.env.PROXY_CLINICS_TO_GRAY_FOREST || '').trim() === '1';
+}
+
+function getClinicId(row) {
+    return row?.Id ?? row?.id ?? row?.ClinicId ?? row?.clinicId ?? row?.clinicID ?? row?.ClinicID ?? null;
+}
+
+function getSupplementClinicId(req, proxyResult) {
+    const routeId = req.params && req.params.id ? String(req.params.id).trim() : '';
+    if (routeId) return routeId;
+    const resultId = getClinicId(proxyResult?.body || {});
+    return resultId === null || resultId === undefined ? '' : String(resultId).trim();
+}
+
+function pickClinicSupplement(body) {
+    const source = body || {};
+    const supplement = {};
+    const requestedFields = Array.isArray(source._clinicSupplementFields)
+        ? source._clinicSupplementFields.filter((field) => CLINIC_SUPPLEMENT_FIELDS.includes(field))
+        : CLINIC_SUPPLEMENT_FIELDS;
+    requestedFields.forEach((field) => {
+        const pascal = field.charAt(0).toUpperCase() + field.slice(1);
+        const value = source[field] ?? source[pascal];
+        if (value !== undefined) supplement[field] = value;
+    });
+    return supplement;
+}
+
+async function ensureClinicSupplementTable(pool) {
+    await pool.request().query(`
+        IF OBJECT_ID('dbo.ClinicSupplementFields', 'U') IS NULL
+        BEGIN
+            CREATE TABLE dbo.ClinicSupplementFields (
+                ClinicId NVARCHAR(64) NOT NULL PRIMARY KEY,
+                Payload NVARCHAR(MAX) NOT NULL,
+                ModifiedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+            )
+        END
+    `);
+}
+
+async function saveClinicSupplement(context, clinicId, body) {
+    if (!clinicId) return;
+    const supplement = pickClinicSupplement(body);
+    if (Object.keys(supplement).length === 0) return;
+
+    try {
+        const pool = await getPool();
+        await ensureClinicSupplementTable(pool);
+        const existingResult = await pool.request()
+            .input('clinicId', sql.NVarChar(64), String(clinicId))
+            .query('SELECT Payload FROM dbo.ClinicSupplementFields WHERE ClinicId = @clinicId');
+        let existingSupplement = {};
+        try {
+            existingSupplement = JSON.parse(existingResult?.recordset?.[0]?.Payload || '{}') || {};
+        } catch (_) {
+            existingSupplement = {};
+        }
+        const mergedSupplement = { ...existingSupplement, ...supplement };
+        await pool.request()
+            .input('clinicId', sql.NVarChar(64), String(clinicId))
+            .input('payload', sql.NVarChar(sql.MAX), JSON.stringify(mergedSupplement))
+            .query(`
+                MERGE dbo.ClinicSupplementFields AS target
+                USING (SELECT @clinicId AS ClinicId, @payload AS Payload) AS source
+                ON target.ClinicId = source.ClinicId
+                WHEN MATCHED THEN UPDATE SET Payload = source.Payload, ModifiedDate = SYSUTCDATETIME()
+                WHEN NOT MATCHED THEN INSERT (ClinicId, Payload) VALUES (source.ClinicId, source.Payload);
+            `);
+    } catch (error) {
+        context.log.warn('Could not save clinic supplemental fields:', error?.message || error);
+    }
+}
+
+async function deleteClinicSupplement(context, clinicId) {
+    if (!clinicId) return;
+    try {
+        const pool = await getPool();
+        await ensureClinicSupplementTable(pool);
+        await pool.request()
+            .input('clinicId', sql.NVarChar(64), String(clinicId))
+            .query('DELETE FROM dbo.ClinicSupplementFields WHERE ClinicId = @clinicId');
+    } catch (error) {
+        context.log.warn('Could not delete clinic supplemental fields:', error?.message || error);
+    }
+}
+
+async function loadClinicSupplements(context, clinicIds) {
+    const ids = [...new Set((clinicIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+    if (ids.length === 0) return new Map();
+
+    try {
+        const pool = await getPool();
+        await ensureClinicSupplementTable(pool);
+        const values = ids.map((_, index) => `(@id${index})`).join(', ');
+        const request = pool.request();
+        ids.forEach((id, index) => request.input(`id${index}`, sql.NVarChar(64), id));
+        const result = await request.query(`
+            SELECT ClinicId, Payload
+            FROM dbo.ClinicSupplementFields
+            WHERE ClinicId IN (SELECT ClinicId FROM (VALUES ${values}) AS ids(ClinicId))
+        `);
+
+        const map = new Map();
+        (result.recordset || []).forEach((row) => {
+            try {
+                map.set(String(row.ClinicId), JSON.parse(row.Payload || '{}'));
+            } catch (_) {}
+        });
+        return map;
+    } catch (error) {
+        context.log.warn('Could not load clinic supplemental fields:', error?.message || error);
+        return new Map();
+    }
+}
+
+function applyClinicSupplement(row, supplements) {
+    if (!row || typeof row !== 'object') return row;
+    const clinicId = getClinicId(row);
+    const supplement = supplements.get(String(clinicId || ''));
+    if (!supplement) return row;
+
+    return {
+        ...row,
+        Name: supplement.name ?? row.Name,
+        name: supplement.name ?? row.name,
+        Address: supplement.address ?? row.Address,
+        address: supplement.address ?? row.address,
+        City: supplement.city ?? row.City,
+        city: supplement.city ?? row.city,
+        State: supplement.state ?? row.State,
+        state: supplement.state ?? row.state,
+        ZipCode: supplement.zipCode ?? row.ZipCode,
+        zipCode: supplement.zipCode ?? row.zipCode,
+        Phone: supplement.phone ?? row.Phone,
+        phone: supplement.phone ?? row.phone,
+        MainPhone: supplement.mainPhone ?? row.MainPhone,
+        mainPhone: supplement.mainPhone ?? row.mainPhone,
+        AfterHoursPhone: supplement.afterHoursPhone ?? row.AfterHoursPhone,
+        afterHoursPhone: supplement.afterHoursPhone ?? row.afterHoursPhone,
+        Fax: supplement.fax ?? row.Fax,
+        fax: supplement.fax ?? row.fax,
+        Email: supplement.email ?? row.Email,
+        email: supplement.email ?? row.email,
+        Color: supplement.color ?? row.Color,
+        color: supplement.color ?? row.color,
+        Description: supplement.description ?? row.Description,
+        description: supplement.description ?? row.description,
+        Icon: supplement.icon ?? row.Icon,
+        icon: supplement.icon ?? row.icon,
+        Website: supplement.website ?? row.Website,
+        website: supplement.website ?? row.website,
+        DefaultDentist: supplement.defaultDentist ?? row.DefaultDentist,
+        defaultDentist: supplement.defaultDentist ?? row.defaultDentist,
+        TaxonomyNumber: supplement.taxonomyNumber ?? row.TaxonomyNumber,
+        taxonomyNumber: supplement.taxonomyNumber ?? row.taxonomyNumber,
+        ClinicNPI: supplement.clinicNPI ?? row.ClinicNPI,
+        clinicNPI: supplement.clinicNPI ?? row.clinicNPI,
+        ClinicTIN: supplement.clinicTIN ?? row.ClinicTIN,
+        clinicTIN: supplement.clinicTIN ?? row.clinicTIN,
+        LegalName: supplement.legalName ?? row.LegalName,
+        legalName: supplement.legalName ?? row.legalName,
+        LegalAddress: supplement.legalAddress ?? row.LegalAddress,
+        legalAddress: supplement.legalAddress ?? row.legalAddress,
+        Status: supplement.status ?? row.Status,
+        status: supplement.status ?? row.status,
+        IsActive: supplement.isActive ?? row.IsActive,
+        isActive: supplement.isActive ?? row.isActive,
+        OperatingHours: supplement.operatingHours ?? row.OperatingHours,
+        operatingHours: supplement.operatingHours ?? row.operatingHours,
+        Logo: supplement.logo ?? row.Logo,
+        logo: supplement.logo ?? row.logo
+    };
+}
+
+async function mergeClinicSupplements(context, body) {
+    if (Array.isArray(body)) {
+        const ids = body.map(getClinicId).filter((id) => id !== null && id !== undefined);
+        const supplements = await loadClinicSupplements(context, ids);
+        return body.map((row) => applyClinicSupplement(row, supplements));
+    }
+
+    const clinicId = getClinicId(body || {});
+    const supplements = await loadClinicSupplements(context, [clinicId]);
+    return applyClinicSupplement(body, supplements);
+}
+
+async function proxyClinicToGrayForest(context, req, responseHeaders) {
+    const id = req.params && req.params.id ? String(req.params.id).trim() : '';
+    const url = new URL(id ? `${GRAY_FOREST_CLINIC_API_BASE}/${encodeURIComponent(id)}` : GRAY_FOREST_CLINIC_API_BASE);
+    Object.entries(req.query || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+    });
+
+    const proxyHeaders = { 'Content-Type': 'application/json' };
+    const userId = req.headers && (req.headers['x-user-id'] || req.headers['X-User-Id']);
+    proxyHeaders['X-User-Id'] = String(userId || '1') === '1'
+        ? BLACK_SKY_GRAY_FOREST_CLINIC_USER_ID
+        : String(userId);
+    const authorization = req.headers && (req.headers.authorization || req.headers.Authorization);
+    if (authorization) proxyHeaders.Authorization = String(authorization);
+
+    const method = String(req.method || '').toUpperCase();
+    const hasBody = !['GET', 'DELETE'].includes(method);
+    const result = await requestJson(url, { method: req.method, headers: proxyHeaders }, hasBody ? req.body : undefined);
+
+    if (result.status >= 200 && result.status < 300) {
+        if (method === 'GET') {
+            result.body = await mergeClinicSupplements(context, result.body);
+        } else if (method === 'POST' || method === 'PUT') {
+            await saveClinicSupplement(context, getSupplementClinicId(req, result), req.body);
+            result.body = await mergeClinicSupplements(context, result.body);
+        } else if (method === 'DELETE') {
+            await deleteClinicSupplement(context, id);
+        }
+    }
+
+    context.res = { status: result.status, headers: responseHeaders, body: result.body };
 }
 
 const WORKING_HOURS_DAYS = [
@@ -168,6 +462,11 @@ module.exports = async function (context, req) {
     }
 
     try {
+        if (shouldProxyClinicRequest(req)) {
+            await proxyClinicToGrayForest(context, req, headers);
+            return;
+        }
+
         const pool = await getPool();
         const clinicColumns = await getTableColumns(pool, 'Clinics');
         if (clinicColumns.size === 0) {
@@ -180,6 +479,9 @@ module.exports = async function (context, req) {
         const hasColor = hasColumn(clinicColumns, 'Color');
         const hasIcon = hasColumn(clinicColumns, 'Icon');
         const hasDescription = hasColumn(clinicColumns, 'Description');
+        const hasMainPhone = hasColumn(clinicColumns, 'MainPhone');
+        const hasAfterHoursPhone = hasColumn(clinicColumns, 'AfterHoursPhone');
+        const hasFax = hasColumn(clinicColumns, 'Fax');
         const hasWebsite = hasColumn(clinicColumns, 'Website');
         const hasDefaultDentist = hasColumn(clinicColumns, 'DefaultDentist');
         const hasTaxonomyNumber = hasColumn(clinicColumns, 'TaxonomyNumber');
@@ -280,18 +582,24 @@ module.exports = async function (context, req) {
             }
 
             const normalizedOperatingHours = normalizeOperatingHoursPayload(body.operatingHours ?? body.OperatingHours);
+            const mainPhone = body.mainPhone || body.MainPhone || body.phone || body.Phone || null;
+            const afterHoursPhone = body.afterHoursPhone || body.AfterHoursPhone || null;
+            const fax = body.fax || body.Fax || null;
 
             const request = pool.request();
             request.input('name', sql.NVarChar, body.name);
             request.input('address', sql.NVarChar, body.address || null);
             request.input('city', sql.NVarChar, body.city || null);
             request.input('state', sql.NVarChar, body.state || null);
-            request.input('phone', sql.NVarChar, body.phone || null);
+            request.input('phone', sql.NVarChar, body.phone || body.Phone || mainPhone || null);
             request.input('email', sql.NVarChar, body.email || null);
             if (hasZipCode) request.input('zipCode', sql.NVarChar, body.zipCode || null);
             if (hasColor) request.input('color', sql.NVarChar, body.color || null);
             if (hasIcon) request.input('icon', sql.NVarChar, body.icon || null);
             if (hasDescription) request.input('description', sql.NVarChar, body.description || null);
+            if (hasMainPhone) request.input('mainPhone', sql.NVarChar, mainPhone);
+            if (hasAfterHoursPhone) request.input('afterHoursPhone', sql.NVarChar, afterHoursPhone);
+            if (hasFax) request.input('fax', sql.NVarChar, fax);
             if (hasWebsite) request.input('website', sql.NVarChar, body.website || null);
             if (hasDefaultDentist) request.input('defaultDentist', sql.NVarChar, body.defaultDentist || null);
             if (hasTaxonomyNumber) request.input('taxonomyNumber', sql.NVarChar, body.taxonomyNumber || null);
@@ -310,6 +618,9 @@ module.exports = async function (context, req) {
             if (hasColor) { columns.push('Color'); values.push('@color'); }
             if (hasIcon) { columns.push('Icon'); values.push('@icon'); }
             if (hasDescription) { columns.push('Description'); values.push('@description'); }
+            if (hasMainPhone) { columns.push('MainPhone'); values.push('@mainPhone'); }
+            if (hasAfterHoursPhone) { columns.push('AfterHoursPhone'); values.push('@afterHoursPhone'); }
+            if (hasFax) { columns.push('Fax'); values.push('@fax'); }
             if (hasWebsite) { columns.push('Website'); values.push('@website'); }
             if (hasDefaultDentist) { columns.push('DefaultDentist'); values.push('@defaultDentist'); }
             if (hasTaxonomyNumber) { columns.push('TaxonomyNumber'); values.push('@taxonomyNumber'); }
@@ -346,6 +657,9 @@ module.exports = async function (context, req) {
             }
 
             const normalizedOperatingHours = normalizeOperatingHoursPayload(body.operatingHours ?? body.OperatingHours);
+            const mainPhone = body.mainPhone || body.MainPhone || body.phone || body.Phone || null;
+            const afterHoursPhone = body.afterHoursPhone || body.AfterHoursPhone || null;
+            const fax = body.fax || body.Fax || null;
 
             const request = pool.request();
             request.input('id', sql.Int, clinicId);
@@ -353,12 +667,15 @@ module.exports = async function (context, req) {
             request.input('address', sql.NVarChar, body.address || null);
             request.input('city', sql.NVarChar, body.city || null);
             request.input('state', sql.NVarChar, body.state || null);
-            request.input('phone', sql.NVarChar, body.phone || null);
+            request.input('phone', sql.NVarChar, body.phone || body.Phone || mainPhone || null);
             request.input('email', sql.NVarChar, body.email || null);
             if (hasZipCode) request.input('zipCode', sql.NVarChar, body.zipCode || null);
             if (hasColor) request.input('color', sql.NVarChar, body.color || null);
             if (hasIcon) request.input('icon', sql.NVarChar, body.icon || null);
             if (hasDescription) request.input('description', sql.NVarChar, body.description || null);
+            if (hasMainPhone) request.input('mainPhone', sql.NVarChar, mainPhone);
+            if (hasAfterHoursPhone) request.input('afterHoursPhone', sql.NVarChar, afterHoursPhone);
+            if (hasFax) request.input('fax', sql.NVarChar, fax);
             if (hasWebsite) request.input('website', sql.NVarChar, body.website || null);
             if (hasDefaultDentist) request.input('defaultDentist', sql.NVarChar, body.defaultDentist || null);
             if (hasTaxonomyNumber) request.input('taxonomyNumber', sql.NVarChar, body.taxonomyNumber || null);
@@ -383,6 +700,9 @@ module.exports = async function (context, req) {
             if (hasColor) setClauses.push('Color=@color');
             if (hasIcon) setClauses.push('Icon=@icon');
             if (hasDescription) setClauses.push('Description=@description');
+            if (hasMainPhone) setClauses.push('MainPhone=@mainPhone');
+            if (hasAfterHoursPhone) setClauses.push('AfterHoursPhone=@afterHoursPhone');
+            if (hasFax) setClauses.push('Fax=@fax');
             if (hasWebsite) setClauses.push('Website=@website');
             if (hasDefaultDentist) setClauses.push('DefaultDentist=@defaultDentist');
             if (hasTaxonomyNumber) setClauses.push('TaxonomyNumber=@taxonomyNumber');

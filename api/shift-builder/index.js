@@ -188,14 +188,8 @@ async function getShifts({ id = null, shiftDate = null, startDate = null, endDat
           AND (@includeInactive = 1 OR sh.IsActive = 1)
           AND (@shiftDate IS NULL OR sh.ShiftDate = @shiftDate)
           AND (@startDate IS NULL OR sh.ShiftDate IS NULL OR sh.ShiftDate >= @startDate)
-          AND (@endDate IS NULL OR sh.ShiftDate IS NULL OR sh.ShiftDate <= @endDate)
-          AND (ser.ClinicId IS NULL OR ser.ClinicId IN (
-                SELECT ClinicId FROM UserClinics WHERE UserId = @_tenantUserId
-                UNION
-                SELECT sc.ClinicId FROM SubscriptionClinics sc
-                INNER JOIN Subscriptions s ON s.Id = sc.SubscriptionId
-                WHERE s.OwnerUserId = @_tenantUserId AND s.IsActive = 1
-          ))
+                    AND (@endDate IS NULL OR sh.ShiftDate IS NULL OR sh.ShiftDate <= @endDate)
+                    AND (ser.ClinicId IS NULL OR ${tenantClinicScopeSql('ser.ClinicId')})
         ORDER BY sh.ShiftDate, sh.Id, ser.SortOrder, ser.Id, ri.SortOrder, ri.Id
     `, {
         id: parseIntOrNull(id),

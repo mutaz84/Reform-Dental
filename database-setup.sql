@@ -26,6 +26,7 @@ BEGIN
         Website NVARCHAR(255),
         Notes NVARCHAR(MAX),
         IsActive BIT DEFAULT 1,
+        IsFavorite BIT DEFAULT 0,
         CreatedDate DATETIME DEFAULT GETUTCDATE(),
         ModifiedDate DATETIME
     );

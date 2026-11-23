@@ -1,5 +1,8 @@
 const { sql, getPool, resetPool } = require('../shared/database');
 const { TENANT_PARAM, getRequestUserId, tenantSubscriptionScope } = require('../shared/tenant');
+const https = require('https');
+
+const GRAY_FOREST_VENDOR_API_BASE = 'https://gray-forest-05ad14f10.3.azurestaticapps.net/api/vendors';
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -10,6 +13,158 @@ async function getTableColumns(pool, tableName) {
 
 function hasColumn(columns, name) {
     return columns.has(String(name).toLowerCase());
+}
+
+function addColumnValue(columns, cols, vals, columnName, paramName, valueExpression) {
+    if (hasColumn(columns, columnName)) {
+        cols.push(columnName);
+        vals.push(valueExpression || `@${paramName}`);
+    }
+}
+
+function addSetClause(columns, setClauses, columnName, paramName, valueExpression) {
+    if (hasColumn(columns, columnName)) {
+        setClauses.push(`${columnName}=${valueExpression || `@${paramName}`}`);
+    }
+}
+
+function hasOwnAny(obj, names) {
+    return names.some((name) => Object.prototype.hasOwnProperty.call(obj || {}, name));
+}
+
+function bodyValue(obj, names, fallback = '') {
+    for (const name of names) {
+        if (Object.prototype.hasOwnProperty.call(obj || {}, name)) return obj[name];
+    }
+    return fallback;
+}
+
+function bodyBit(obj, names, fallback = false) {
+    const value = bodyValue(obj, names, fallback);
+    return value === true || value === 1 || String(value).toLowerCase() === 'true' ? 1 : 0;
+}
+
+function normalizeAccessLevel(value) {
+    const level = String(value || '').trim().toLowerCase();
+    return ['full', 'readonly', 'hidden'].includes(level) ? level : '';
+}
+
+function defaultVendorPermissionLevel(role, permissionKey) {
+    const normalizedRole = String(role || 'user').trim().toLowerCase();
+    if (normalizedRole === 'admin' || normalizedRole === 'owner') return 'full';
+    if (normalizedRole === 'manager') return permissionKey === 'view' ? 'full' : (permissionKey === 'delete' ? 'hidden' : 'readonly');
+    return 'hidden';
+}
+
+function parsePermissionsValue(value) {
+    if (!value) return null;
+    if (typeof value === 'object' && !Array.isArray(value)) return value;
+    if (typeof value !== 'string') return null;
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+async function getVendorPermissionLevel(pool, userId, permissionKey) {
+    const numericUserId = Number(userId || 0);
+    if (!(numericUserId > 0)) return 'hidden';
+
+    const userColumns = await getTableColumns(pool, 'Users');
+    const selectParts = ['Id'];
+    if (hasColumn(userColumns, 'Username')) selectParts.push('Username');
+    if (hasColumn(userColumns, 'Role')) selectParts.push('Role');
+    if (hasColumn(userColumns, 'Permissions')) selectParts.push('Permissions');
+
+    const userResult = await pool.request()
+        .input('userId', sql.Int, numericUserId)
+        .query(`SELECT TOP 1 ${selectParts.join(', ')} FROM Users WHERE Id = @userId`);
+    const user = userResult.recordset && userResult.recordset[0];
+    if (!user) return 'hidden';
+
+    const username = String(user.Username || user.username || '').trim().toLowerCase();
+    if (username === 'admin') return 'full';
+
+    const hasPermissionRows = await pool.request()
+        .query("SELECT CASE WHEN OBJECT_ID(N'dbo.UserPermissions', N'U') IS NULL THEN 0 ELSE 1 END AS HasTable");
+    if (Number(hasPermissionRows.recordset?.[0]?.HasTable || 0) === 1) {
+        const rowResult = await pool.request()
+            .input('userId', sql.Int, numericUserId)
+            .input('permissionKey', sql.NVarChar(100), permissionKey)
+            .query(`
+                SELECT TOP 1 AccessLevel
+                FROM dbo.UserPermissions
+                WHERE UserId = @userId AND CategoryKey = 'vendors' AND PermissionKey = @permissionKey
+            `);
+        const rowLevel = normalizeAccessLevel(rowResult.recordset?.[0]?.AccessLevel);
+        if (rowLevel) return rowLevel;
+    }
+
+    const parsedPermissions = parsePermissionsValue(user.Permissions || user.permissions);
+    const jsonLevel = normalizeAccessLevel(parsedPermissions?.vendors?.[permissionKey]);
+    if (jsonLevel) return jsonLevel;
+
+    return defaultVendorPermissionLevel(user.Role || user.role, permissionKey);
+}
+
+async function requireVendorApiPermission(context, headers, pool, userId, permissionKey, requiredLevel = 'full') {
+    const level = await getVendorPermissionLevel(pool, userId, permissionKey);
+    const allowed = requiredLevel === 'readonly'
+        ? (level === 'full' || level === 'readonly')
+        : level === 'full';
+    if (allowed) return true;
+
+    context.res = {
+        status: 403,
+        headers,
+        body: { error: `Missing vendors.${permissionKey} permission`, permissionLevel: level || 'hidden' }
+    };
+    return false;
+}
+
+function requestJson(url, options, body) {
+    return new Promise((resolve, reject) => {
+        const data = body === undefined ? undefined : JSON.stringify(body || {});
+        const req = https.request(url, {
+            method: options.method,
+            headers: {
+                ...options.headers,
+                ...(data !== undefined ? { 'Content-Length': Buffer.byteLength(data) } : {})
+            }
+        }, (res) => {
+            const chunks = [];
+            res.on('data', (chunk) => chunks.push(chunk));
+            res.on('end', () => {
+                const raw = Buffer.concat(chunks).toString('utf8');
+                let parsed = raw;
+                try { parsed = raw ? JSON.parse(raw) : null; } catch (_) {}
+                resolve({ status: res.statusCode || 500, body: parsed });
+            });
+        });
+        req.on('error', reject);
+        if (data !== undefined) req.write(data);
+        req.end();
+    });
+}
+
+async function proxyVendorToGrayForest(context, req, responseHeaders) {
+    const id = req.params && req.params.id ? String(req.params.id).trim() : '';
+    const url = new URL(id ? `${GRAY_FOREST_VENDOR_API_BASE}/${encodeURIComponent(id)}` : GRAY_FOREST_VENDOR_API_BASE);
+    Object.entries(req.query || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+    });
+
+    const proxyHeaders = { 'Content-Type': 'application/json' };
+    const userId = req.headers && (req.headers['x-user-id'] || req.headers['X-User-Id']);
+    if (userId) proxyHeaders['X-User-Id'] = String(userId);
+    const authorization = req.headers && (req.headers.authorization || req.headers.Authorization);
+    if (authorization) proxyHeaders.Authorization = String(authorization);
+
+    const hasBody = !['GET', 'DELETE'].includes(String(req.method || '').toUpperCase());
+    const result = await requestJson(url, { method: req.method, headers: proxyHeaders }, hasBody ? req.body : undefined);
+    context.res = { status: result.status, headers: responseHeaders, body: result.body };
 }
 
 module.exports = async function (context, req) {
@@ -40,9 +195,11 @@ module.exports = async function (context, req) {
         const callerUserId = getRequestUserId(req);
 
         if (req.method === 'GET') {
+            if (!(await requireVendorApiPermission(context, headers, pool, callerUserId, 'view', 'readonly'))) return;
+            const includeInactive = /^(1|true|yes|all)$/i.test(String((req.query && (req.query.includeInactive || req.query.includeArchived || req.query.all)) || '').trim());
             if (id) {
                 const where = ['Id = @id'];
-                if (hasIsActive) where.push('IsActive = 1');
+                if (hasIsActive && !includeInactive) where.push('IsActive = 1');
                 if (hasSubscriptionId) where.push(tenantSubscriptionScope('SubscriptionId'));
                 const r = pool.request().input('id', sql.Int, id);
                 if (hasSubscriptionId) r.input(TENANT_PARAM, sql.Int, callerUserId || -1);
@@ -50,7 +207,7 @@ module.exports = async function (context, req) {
                 context.res = { status: 200, headers, body: result.recordset[0] || null };
             } else {
                 const where = [];
-                if (hasIsActive) where.push('IsActive = 1');
+                if (hasIsActive && !includeInactive) where.push('IsActive = 1');
                 if (hasSubscriptionId) where.push(tenantSubscriptionScope('SubscriptionId'));
                 const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
                 const r = pool.request();
@@ -59,10 +216,28 @@ module.exports = async function (context, req) {
                 context.res = { status: 200, headers, body: result.recordset };
             }
         } else if (req.method === 'POST') {
+            if (!(await requireVendorApiPermission(context, headers, pool, callerUserId, 'create'))) return;
             const body = req.body;
             const hasImageUrl = hasColumn(vendorColumns, 'ImageUrl');
-            const cols = ['Name', 'VendorType', 'ContactName', 'Phone', 'AlternatePhone', 'Email', 'Address', 'City', 'State', 'ZipCode', 'Website', 'PortalUsername', 'PortalPassword', 'Notes', 'IsActive', 'CreatedDate'];
-            const vals = ['@name', '@vendorType', '@contactName', '@phone', '@alternatePhone', '@email', '@address', '@city', '@state', '@zipCode', '@website', '@portalUsername', '@portalPassword', '@notes', '@isActive', 'GETDATE()'];
+            const cols = ['Name'];
+            const vals = ['@name'];
+            addColumnValue(vendorColumns, cols, vals, 'VendorType', 'vendorType');
+            addColumnValue(vendorColumns, cols, vals, 'Category', 'vendorType');
+            addColumnValue(vendorColumns, cols, vals, 'ContactName', 'contactName');
+            addColumnValue(vendorColumns, cols, vals, 'Phone', 'phone');
+            addColumnValue(vendorColumns, cols, vals, 'AlternatePhone', 'alternatePhone');
+            addColumnValue(vendorColumns, cols, vals, 'Email', 'email');
+            addColumnValue(vendorColumns, cols, vals, 'Address', 'address');
+            addColumnValue(vendorColumns, cols, vals, 'City', 'city');
+            addColumnValue(vendorColumns, cols, vals, 'State', 'state');
+            addColumnValue(vendorColumns, cols, vals, 'ZipCode', 'zipCode');
+            addColumnValue(vendorColumns, cols, vals, 'Website', 'website');
+            addColumnValue(vendorColumns, cols, vals, 'PortalUsername', 'portalUsername');
+            addColumnValue(vendorColumns, cols, vals, 'PortalPassword', 'portalPassword');
+            addColumnValue(vendorColumns, cols, vals, 'Notes', 'notes');
+            addColumnValue(vendorColumns, cols, vals, 'IsActive', 'isActive');
+            addColumnValue(vendorColumns, cols, vals, 'IsFavorite', 'isFavorite');
+            addColumnValue(vendorColumns, cols, vals, 'CreatedDate', null, 'GETDATE()');
             if (hasImageUrl) { cols.push('ImageUrl'); vals.push('@imageUrl'); }
             if (hasSubscriptionId) {
                 cols.push('SubscriptionId');
@@ -70,10 +245,10 @@ module.exports = async function (context, req) {
             }
             const request = pool.request()
                 .input('name', sql.NVarChar, body.name || '')
-                .input('vendorType', sql.NVarChar, body.vendorType || '')
+                .input('vendorType', sql.NVarChar, bodyValue(body, ['vendorType', 'VendorType', 'type', 'category', 'Category'], ''))
                 .input('contactName', sql.NVarChar, body.contactPerson || '')
                 .input('phone', sql.NVarChar, body.phone || '')
-                .input('alternatePhone', sql.NVarChar, body.alternatePhone || '')
+                .input('alternatePhone', sql.NVarChar, bodyValue(body, ['alternatePhone', 'AlternatePhone', 'altPhone', 'AltPhone'], ''))
                 .input('email', sql.NVarChar, body.email || '')
                 .input('address', sql.NVarChar, body.address || '')
                 .input('city', sql.NVarChar, body.city || '')
@@ -83,7 +258,8 @@ module.exports = async function (context, req) {
                 .input('portalUsername', sql.NVarChar, body.portalUsername || '')
                 .input('portalPassword', sql.NVarChar, body.portalPassword || '')
                 .input('notes', sql.NVarChar, body.notes || '')
-                .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0);
+                .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0)
+                .input('isFavorite', sql.Bit, bodyBit(body, ['isFavorite', 'IsFavorite', 'favorite'], false));
             if (hasImageUrl) {
                 request.input('imageUrl', sql.NVarChar(sql.MAX), body.imageUrl || body.ImageUrl || null);
             }
@@ -93,28 +269,49 @@ module.exports = async function (context, req) {
             const result = await request.query(`INSERT INTO Vendors (${cols.join(', ')}) OUTPUT INSERTED.Id VALUES (${vals.join(', ')})`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id, message: 'Vendor created successfully' } };
         } else if (req.method === 'PUT' && id) {
+            if (!(await requireVendorApiPermission(context, headers, pool, callerUserId, 'edit'))) return;
             const body = req.body;
             const hasImageUrl = hasColumn(vendorColumns, 'ImageUrl');
-            const setClauses = ['Name=@name', 'VendorType=@vendorType', 'ContactName=@contactName', 'Phone=@phone', 'AlternatePhone=@alternatePhone', 'Email=@email', 'Address=@address', 'City=@city', 'State=@state', 'ZipCode=@zipCode', 'Website=@website', 'PortalUsername=@portalUsername', 'PortalPassword=@portalPassword', 'Notes=@notes', 'IsActive=@isActive', 'ModifiedDate=GETDATE()'];
+            const setClauses = ['Name=@name'];
+            addSetClause(vendorColumns, setClauses, 'VendorType', 'vendorType');
+            addSetClause(vendorColumns, setClauses, 'Category', 'vendorType');
+            addSetClause(vendorColumns, setClauses, 'ContactName', 'contactName');
+            addSetClause(vendorColumns, setClauses, 'Phone', 'phone');
+            addSetClause(vendorColumns, setClauses, 'AlternatePhone', 'alternatePhone');
+            addSetClause(vendorColumns, setClauses, 'Email', 'email');
+            addSetClause(vendorColumns, setClauses, 'Address', 'address');
+            addSetClause(vendorColumns, setClauses, 'City', 'city');
+            addSetClause(vendorColumns, setClauses, 'State', 'state');
+            addSetClause(vendorColumns, setClauses, 'ZipCode', 'zipCode');
+            addSetClause(vendorColumns, setClauses, 'Website', 'website');
+            addSetClause(vendorColumns, setClauses, 'PortalUsername', 'portalUsername');
+            addSetClause(vendorColumns, setClauses, 'PortalPassword', 'portalPassword');
+            addSetClause(vendorColumns, setClauses, 'Notes', 'notes');
+            addSetClause(vendorColumns, setClauses, 'IsActive', 'isActive');
+            if (hasOwnAny(body, ['isFavorite', 'IsFavorite', 'favorite'])) {
+                addSetClause(vendorColumns, setClauses, 'IsFavorite', 'isFavorite');
+            }
+            addSetClause(vendorColumns, setClauses, 'ModifiedDate', null, 'GETDATE()');
             const hasImageInBody = Object.prototype.hasOwnProperty.call(body, 'imageUrl') || Object.prototype.hasOwnProperty.call(body, 'ImageUrl');
             if (hasImageUrl && hasImageInBody) setClauses.push('ImageUrl=@imageUrl');
             const request = pool.request()
                 .input('id', sql.Int, id)
-                .input('name', sql.NVarChar, body.name || '')
-                .input('vendorType', sql.NVarChar, body.vendorType || '')
-                .input('contactName', sql.NVarChar, body.contactPerson || '')
-                .input('phone', sql.NVarChar, body.phone || '')
-                .input('alternatePhone', sql.NVarChar, body.alternatePhone || '')
-                .input('email', sql.NVarChar, body.email || '')
-                .input('address', sql.NVarChar, body.address || '')
-                .input('city', sql.NVarChar, body.city || '')
-                .input('state', sql.NVarChar, body.state || '')
-                .input('zipCode', sql.NVarChar, body.zipCode || '')
-                .input('website', sql.NVarChar, body.website || '')
-                .input('portalUsername', sql.NVarChar, body.portalUsername || '')
-                .input('portalPassword', sql.NVarChar, body.portalPassword || '')
-                .input('notes', sql.NVarChar, body.notes || '')
-                .input('isActive', sql.Bit, body.isActive !== false ? 1 : 0);
+                .input('name', sql.NVarChar, bodyValue(body, ['name', 'vendorName', 'Name'], ''))
+                .input('vendorType', sql.NVarChar, bodyValue(body, ['vendorType', 'VendorType', 'type', 'category', 'Category'], ''))
+                .input('contactName', sql.NVarChar, bodyValue(body, ['contactPerson', 'contactName', 'ContactName', 'contact'], ''))
+                .input('phone', sql.NVarChar, bodyValue(body, ['phone', 'Phone'], ''))
+                .input('alternatePhone', sql.NVarChar, bodyValue(body, ['alternatePhone', 'AlternatePhone', 'altPhone', 'AltPhone'], ''))
+                .input('email', sql.NVarChar, bodyValue(body, ['email', 'Email'], ''))
+                .input('address', sql.NVarChar, bodyValue(body, ['address', 'Address'], ''))
+                .input('city', sql.NVarChar, bodyValue(body, ['city', 'City'], ''))
+                .input('state', sql.NVarChar, bodyValue(body, ['state', 'State'], ''))
+                .input('zipCode', sql.NVarChar, bodyValue(body, ['zipCode', 'ZipCode'], ''))
+                .input('website', sql.NVarChar, bodyValue(body, ['website', 'Website'], ''))
+                .input('portalUsername', sql.NVarChar, bodyValue(body, ['portalUsername', 'PortalUsername'], ''))
+                .input('portalPassword', sql.NVarChar, bodyValue(body, ['portalPassword', 'PortalPassword'], ''))
+                .input('notes', sql.NVarChar, bodyValue(body, ['notes', 'Notes'], ''))
+                .input('isActive', sql.Bit, bodyValue(body, ['isActive', 'IsActive'], true) !== false ? 1 : 0)
+                .input('isFavorite', sql.Bit, bodyBit(body, ['isFavorite', 'IsFavorite', 'favorite'], false));
             if (hasImageUrl && hasImageInBody) {
                 const incoming = (body.imageUrl !== undefined) ? body.imageUrl : body.ImageUrl;
                 request.input('imageUrl', sql.NVarChar(sql.MAX), incoming || null);
@@ -128,6 +325,7 @@ module.exports = async function (context, req) {
             await request.query(`UPDATE Vendors SET ${setClauses.join(', ')} ${updateWhere}`);
             context.res = { status: 200, headers, body: { message: 'Vendor updated successfully' } };
         } else if (req.method === 'DELETE' && id) {
+            if (!(await requireVendorApiPermission(context, headers, pool, callerUserId, 'delete'))) return;
             const r = pool.request().input('id', sql.Int, id);
             const deleteWhere = hasSubscriptionId
                 ? `WHERE Id = @id AND ${tenantSubscriptionScope('SubscriptionId')}`

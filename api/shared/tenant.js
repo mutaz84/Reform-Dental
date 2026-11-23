@@ -80,19 +80,11 @@ async function getUserClinicIds(pool, userId) {
         const result = await pool.request()
             .input('userId', sql.Int, id)
             .query(`
-                SELECT DISTINCT clinics_for_user.ClinicId
-                FROM (
-                    SELECT uc.ClinicId
-                        FROM UserClinics uc
-                        WHERE uc.UserId = @userId
-                    UNION
-                    SELECT sc.ClinicId
-                        FROM SubscriptionClinics sc
-                        INNER JOIN Subscriptions s ON s.Id = sc.SubscriptionId
-                        WHERE s.OwnerUserId = @userId AND s.IsActive = 1
-                ) AS clinics_for_user
-                INNER JOIN Clinics c ON c.Id = clinics_for_user.ClinicId
-                WHERE c.IsActive = 1`);
+                SELECT DISTINCT uc.ClinicId
+                FROM UserClinics uc
+                INNER JOIN Clinics c ON c.Id = uc.ClinicId
+                WHERE uc.UserId = @userId
+                  AND ISNULL(c.IsActive, 1) = 1`);
         return (result.recordset || [])
             .map((r) => _toIntOrNull(r.ClinicId))
             .filter((n) => n !== null);
@@ -130,17 +122,13 @@ async function getTenantContext(req, pool) {
  * upstream if you prefer to short-circuit.
  */
 function tenantClinicScopeSql(columnExpr = 'ClinicId') {
-    // Phase 7: filter via Clinics.SubscriptionId chain.
-    //   - Platform admin (Username='admin') sees everything.
-    //   - Everyone else sees clinics whose SubscriptionId equals the caller's
-    //     Users.SubscriptionId. The caller's SubscriptionId is set during signup
-    //     (owner) or backfilled from UserClinics->SubscriptionClinics (sub-users).
+    // Black Sky starter mode is subscription-free, so clinic visibility is based
+    // on direct UserClinics membership. Platform admin still sees everything.
     return `(
         EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
         OR ${columnExpr} IN (
-            SELECT c.Id FROM Clinics c
-            WHERE c.SubscriptionId IS NOT NULL
-              AND c.SubscriptionId = (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})
+            SELECT uc.ClinicId FROM UserClinics uc
+            WHERE uc.UserId = @${TENANT_PARAM}
         )
     )`;
 }
@@ -159,12 +147,109 @@ async function resolveVisibleClinicId(pool, requestedClinicId, tenantUserId) {
     return result.recordset[0]?.Id || null;
 }
 
+async function _getTableColumns(pool, tableName) {
+    const result = await pool.request()
+        .input('tableName', sql.NVarChar(128), tableName)
+        .query('SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @tableName');
+    return new Set((result.recordset || []).map((r) => String(r.COLUMN_NAME || '').toLowerCase()));
+}
+
+function _hasColumn(columns, name) {
+    return columns.has(String(name).toLowerCase());
+}
+
+function _pickClinicName(source) {
+    const body = source || {};
+    return String(
+        body.clinicName || body.ClinicName ||
+        body.officeName || body.OfficeName ||
+        body.clinic || body.Clinic ||
+        body.office || body.Office ||
+        ''
+    ).trim();
+}
+
+async function linkUserToClinicIfPossible(pool, userId, clinicId) {
+    const safeUserId = _toIntOrNull(userId);
+    const safeClinicId = _toIntOrNull(clinicId);
+    if (!safeUserId || !safeClinicId) return;
+    const columns = await _getTableColumns(pool, 'UserClinics');
+    if (!_hasColumn(columns, 'UserId') || !_hasColumn(columns, 'ClinicId')) return;
+    try {
+        await pool.request()
+            .input('userId', sql.Int, safeUserId)
+            .input('clinicId', sql.Int, safeClinicId)
+            .query(`
+                IF NOT EXISTS (SELECT 1 FROM UserClinics WHERE UserId = @userId AND ClinicId = @clinicId)
+                BEGIN
+                    INSERT INTO UserClinics (UserId, ClinicId) VALUES (@userId, @clinicId)
+                END
+            `);
+    } catch (_) {}
+}
+
+async function createLocalClinicFromPayload(pool, source, tenantUserId) {
+    const name = _pickClinicName(source);
+    if (!name) return null;
+    const columns = await _getTableColumns(pool, 'Clinics');
+    if (!_hasColumn(columns, 'Name')) return null;
+    const request = pool.request().input('name', sql.NVarChar, name);
+    const colNames = ['Name'];
+    const values = ['@name'];
+    if (_hasColumn(columns, 'IsActive')) {
+        colNames.push('IsActive');
+        values.push('1');
+    }
+    if (_hasColumn(columns, 'CreatedDate')) {
+        colNames.push('CreatedDate');
+        values.push('GETUTCDATE()');
+    }
+    const result = await request.query(`INSERT INTO Clinics (${colNames.join(', ')}) OUTPUT INSERTED.Id VALUES (${values.join(', ')})`);
+    const clinicId = result.recordset[0]?.Id || null;
+    await linkUserToClinicIfPossible(pool, tenantUserId, clinicId);
+    return clinicId;
+}
+
+async function resolveWritableClinicId(pool, source, tenantUserId) {
+    const body = (source && typeof source === 'object') ? source : { clinicId: source };
+    const requestedClinicId = _toIntOrNull(body.clinicId ?? body.ClinicId ?? body.officeId ?? body.officeID ?? body.OfficeId ?? body.OfficeID);
+    const visibleClinicId = await resolveVisibleClinicId(pool, requestedClinicId, tenantUserId);
+    if (visibleClinicId) return visibleClinicId;
+
+    const clinicName = _pickClinicName(body);
+    if (clinicName) {
+        const visibleByNameRequest = pool.request()
+            .input('clinicName', sql.NVarChar, clinicName)
+            .input(TENANT_PARAM, sql.Int, _toIntOrNull(tenantUserId));
+        const visibleByName = await visibleByNameRequest.query(`
+            SELECT TOP 1 Id FROM Clinics
+            WHERE LOWER(Name) = LOWER(@clinicName)
+              AND ${tenantClinicScopeSql('Id')}
+            ORDER BY Id
+        `);
+        if (visibleByName.recordset[0]?.Id) return visibleByName.recordset[0].Id;
+
+        const anyByName = await pool.request()
+            .input('clinicName', sql.NVarChar, clinicName)
+            .query('SELECT TOP 1 Id FROM Clinics WHERE LOWER(Name) = LOWER(@clinicName) ORDER BY Id');
+        if (anyByName.recordset[0]?.Id) {
+            await linkUserToClinicIfPossible(pool, tenantUserId, anyByName.recordset[0].Id);
+            return anyByName.recordset[0].Id;
+        }
+    }
+
+    const visibleClinicIds = await getUserClinicIds(pool, tenantUserId);
+    if (visibleClinicIds.length === 1) return visibleClinicIds[0];
+    return createLocalClinicFromPayload(pool, body, tenantUserId);
+}
+
 // Phase 7: direct SubscriptionId column filter for tables that don't have a
 // ClinicId (e.g. Vendors). Same admin bypass.
 function tenantSubscriptionScope(columnExpr = 'SubscriptionId') {
     return `(
         EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
         OR ${columnExpr} = (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})
+        OR (${columnExpr} IS NULL AND (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM}) IS NULL)
     )`;
 }
 
@@ -179,7 +264,7 @@ function tenantSubscriptionScope(columnExpr = 'SubscriptionId') {
  */
 function tenantVisibleUserIdsSql() {
     // Platform admin (Username='admin') sees ALL users across all subscriptions.
-    // Everyone else sees: themselves + every user with the same Users.SubscriptionId.
+    // Everyone else sees: themselves + users sharing at least one clinic membership.
     return `
         SELECT u_all.Id AS UserId
             FROM Users u_all
@@ -189,8 +274,10 @@ function tenantVisibleUserIdsSql() {
         UNION
         SELECT u2.Id
             FROM Users u2
-            WHERE u2.SubscriptionId IS NOT NULL
-              AND u2.SubscriptionId = (SELECT TOP 1 SubscriptionId FROM Users WHERE Id = @${TENANT_PARAM})
+            INNER JOIN UserClinics uc2 ON uc2.UserId = u2.Id
+            WHERE uc2.ClinicId IN (
+                SELECT uc.ClinicId FROM UserClinics uc WHERE uc.UserId = @${TENANT_PARAM}
+            )
     `;
 }
 
@@ -216,6 +303,27 @@ function tenantVisibleUsernamesClause(columnExpr = 'CreatedBy') {
 }
 
 /**
+ * Usernames AND display names ("First Last") of users the caller can see.
+ * Requests.RequestedBy / AssignedTo are written by the UI as display names
+ * (e.g. "System Administrator"), so matching usernames only hid every new request.
+ */
+function tenantVisibleUserNamesOrDisplayNamesSql() {
+    return `
+        SELECT u.Username
+            FROM Users u
+            WHERE u.Id IN (${tenantVisibleUserIdsSql()})
+        UNION
+        SELECT LTRIM(RTRIM(CONCAT(u.FirstName, ' ', u.LastName)))
+            FROM Users u
+            WHERE u.Id IN (${tenantVisibleUserIdsSql()})
+    `;
+}
+
+function tenantVisiblePersonClause(columnExpr = 'RequestedBy') {
+    return `${columnExpr} IN (${tenantVisibleUserNamesOrDisplayNamesSql()})`;
+}
+
+/**
  * Returns a SQL fragment that checks whether the parent Request identified by
  * @paramName is visible to the caller (i.e. either created by or assigned to a
  * user the caller can see). Used by request-* child endpoints to gate access
@@ -230,8 +338,8 @@ function tenantRequestVisible(requestIdParam = '@requestId') {
             WHERE r_v.Id = ${requestIdParam}
               AND (
                 EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
-                OR r_v.RequestedBy IN (${tenantVisibleUsernamesSql()})
-                OR r_v.AssignedTo IN (${tenantVisibleUsernamesSql()})
+                OR r_v.RequestedBy IN (${tenantVisibleUserNamesOrDisplayNamesSql()})
+                OR r_v.AssignedTo IN (${tenantVisibleUserNamesOrDisplayNamesSql()})
               )
         )
     `;
@@ -289,11 +397,16 @@ module.exports = {
     getTenantContext,
     tenantClinicScopeSql,
     resolveVisibleClinicId,
+    resolveWritableClinicId,
+    linkUserToClinicIfPossible,
+    createLocalClinicFromPayload,
     tenantSubscriptionScope,
     tenantVisibleUserIdsSql,
     tenantVisibleUserIdsClause,
     tenantVisibleUsernamesSql,
     tenantVisibleUsernamesClause,
+    tenantVisibleUserNamesOrDisplayNamesSql,
+    tenantVisiblePersonClause,
     tenantRequestVisible,
     buildClinicInClause,
     isPlatformAdmin,

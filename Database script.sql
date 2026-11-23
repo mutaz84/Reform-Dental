@@ -1432,6 +1432,7 @@ CREATE TABLE [dbo].[Vendors](
 	[Category] [nvarchar](100) NULL,
 	[Notes] [nvarchar](max) NULL,
 	[IsActive] [bit] NULL,
+	[IsFavorite] [bit] NOT NULL CONSTRAINT [DF_Vendors_IsFavorite] DEFAULT ((0)),
 	[CreatedDate] [datetime2](7) NULL,
 	[ModifiedDate] [datetime2](7) NULL,
 	[VendorType] [nvarchar](100) NULL,
