@@ -22840,7 +22840,15 @@
             
             if (isEdit) {
                 // Update existing room
-                const index = rooms.findIndex(r => r.roomID === parseInt(editId));
+                const index = rooms.findIndex(r => String(r.roomID) === String(editId) || String(r.dbId) === String(editId) || String(r.apiId) === String(editId));
+                if (index === -1) {
+                    errorDiv.style.display = 'block';
+                    errorDiv.style.background = '#fee';
+                    errorDiv.style.borderColor = '#fcc';
+                    errorDiv.style.color = '#c33';
+                    errorDiv.textContent = 'This room was not found. Refresh the page and try again.';
+                    return;
+                }
                 if (index > -1) {
                     const updatedRoom = {
                         ...rooms[index],
@@ -23112,7 +23120,7 @@
         // Edit Room
         function editRoom(roomID) {
             const rooms = loadRooms();
-            const room = rooms.find(r => r.roomID === roomID);
+            const room = rooms.find(r => String(r.roomID) === String(roomID) || String(r.dbId) === String(roomID) || String(r.apiId) === String(roomID));
             
             if (!room) return;
 
@@ -23130,7 +23138,15 @@
             document.getElementById('newOfficeID').value = room.officeID || '';
             document.getElementById('newRoomName').value = room.roomName || '';
             document.getElementById('newRoomType').value = room.roomType || '';
-            document.getElementById('newRoomCategory').value = room.roomCategory || '';
+            (function () {
+                // Stored values can be "Clinical" / "Non-Clinical" while the options are lower-case;
+                // an unmatched value left the required select empty, which blocked Save (QA bug #16).
+                const sel = document.getElementById('newRoomCategory');
+                const norm = (v) => String(v || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+                const want = norm(room.roomCategory);
+                const opt = sel ? [...sel.options].find(o => o.value && norm(o.value) === want) : null;
+                if (sel) sel.value = opt ? opt.value : '';
+            })();
             document.getElementById('newDimensions').value = room.dimensions || '';
             document.getElementById('newRoomColor').value = room.color || '#06b6d4';
             document.getElementById('newRoomStatus').value = room.status || 'Active';
@@ -47784,8 +47800,8 @@
             document.getElementById('newEquipmentManufacturer').value = item.manufacturer || '';
             document.getElementById('newEquipmentModel').value = item.model || '';
             document.getElementById('newEquipmentSerial').value = item.serialNumber || '';
-            document.getElementById('newEquipmentPurchaseDate').value = item.purchaseDate || '';
-            document.getElementById('newEquipmentWarranty').value = item.warrantyExpiry || '';
+            document.getElementById('newEquipmentPurchaseDate').value = normalizeDateInput(item.purchaseDate || item.PurchaseDate);
+            document.getElementById('newEquipmentWarranty').value = normalizeDateInput(item.warrantyExpiry || item.WarrantyExpiry);
             document.getElementById('newEquipmentOffice').value = item.officeId || '';
             populateEquipmentRoomDropdown();
             document.getElementById('newEquipmentRoom').value = item.roomId || '';
@@ -47852,8 +47868,8 @@
             document.getElementById('newEquipmentManufacturer').value = item.manufacturer || '';
             document.getElementById('newEquipmentModel').value = item.model || '';
             document.getElementById('newEquipmentSerial').value = '';
-            document.getElementById('newEquipmentPurchaseDate').value = item.purchaseDate || '';
-            document.getElementById('newEquipmentWarranty').value = item.warrantyExpiry || '';
+            document.getElementById('newEquipmentPurchaseDate').value = normalizeDateInput(item.purchaseDate || item.PurchaseDate);
+            document.getElementById('newEquipmentWarranty').value = normalizeDateInput(item.warrantyExpiry || item.WarrantyExpiry);
             document.getElementById('newEquipmentOffice').value = item.officeId || '';
             populateEquipmentRoomDropdown();
             document.getElementById('newEquipmentRoom').value = item.roomId || '';
@@ -54264,7 +54280,9 @@
                     imageUrl: imageData || null,
                     imageData: imageData || null,
                     documentUrl: legacyDocData || null,
-                    documentData: legacyDocData || null
+                    documentData: legacyDocData || null,
+                    // QA bug #11: links were only kept in this browser on create.
+                    links: Array.isArray(links) ? links : []
                 });
                 // Log initial stock on the Quantity Adjustment history as a Purchase Order entry.
                 try {
@@ -55338,50 +55356,78 @@
                 throw e2;
             }
         }
+        function buildSupplySyncPayload(item) {
+            return {
+                name: item.supplyName || '',
+                category: item.category || '',
+                sku: item.sku || null,
+                description: item.manufacturer || item.description || '',
+                unit: item.unit || '',
+                clinicId: item.officeId ? parseInt(item.officeId) : null,
+                roomId: item.roomId ? parseInt(item.roomId) : null,
+                quantityInStock: Number(item.quantityInStock || 0) || 0,
+                minimumStock: Number(item.reorderLevel || 0) || 0,
+                unitCost: (item.unitCost != null && item.unitCost !== '') ? parseFloat(item.unitCost) : null,
+                storageLocation: item.location || item.storageLocation || null,
+                vendorId: item.vendorId ? parseInt(item.vendorId) : null,
+                expirationDate: item.expirationDate || null,
+                notes: item.notes || '',
+                warnings: item.warnings || '',
+                imageUrl: item.imageData || item.imageUrl || null,
+                documentUrl: item.documentData || item.documentUrl || null,
+                isSubscription: !!item.isSubscription,
+                subscriptionPaused: !!item.subscriptionPaused,
+                frequency: item.frequency || null,
+                frequencyDays: item.frequencyDays || null,
+                quantityPerOrder: item.quantityPerOrder || null,
+                nextOrderDate: item.nextOrderDate || null,
+                autoVendorId: item.autoVendorId ? parseInt(item.autoVendorId) : null,
+                isActive: item.isActive !== false
+            };
+        }
+
         function saveSupplies(supplies, newItem = null, ns = null) {
             const n = ns || getSupplyNs();
+            // Read what was stored before this save, so we can send only what actually changed.
+            let previous = [];
+            try { previous = loadSupplies(n) || []; } catch (_) { previous = []; }
             _safeSetSuppliesStorage(getSupplyStorageKey(n), supplies);
             if (newItem && typeof saveSupplyToAPI === 'function') {
                 saveSupplyToAPI(newItem, n);
                 return;
             }
             if (typeof updateSupplyViaAPI !== 'function') return;
+            // QA bug #5 (sync storm): the old code PUT every supply whose payload wasn't in an
+            // in-memory cache. That cache is empty after each page load, so the first save re-sent
+            // all 150+ supplies and overwrote the server with this browser's copies. Now we diff
+            // against the previously stored copy and PUT only the changed fields of changed items.
+            // The API's PUT is partial, so fields we leave out are kept as they are on the server.
+            const prevByApiId = new Map();
+            (previous || []).forEach(p => { if (p && p.apiId) prevByApiId.set(String(p.apiId), p); });
             window.__supplySyncHashes = window.__supplySyncHashes || {};
             const cache = window.__supplySyncHashes;
             (supplies || []).forEach(item => {
                 if (!item || !item.apiId) return;
-                const payload = {
-                    name: item.supplyName || '',
-                    category: item.category || '',
-                    sku: item.sku || null,
-                    description: item.manufacturer || item.description || '',
-                    unit: item.unit || '',
-                    clinicId: item.officeId ? parseInt(item.officeId) : null,
-                    roomId: item.roomId ? parseInt(item.roomId) : null,
-                    quantityInStock: Number(item.quantityInStock || 0) || 0,
-                    minimumStock: Number(item.reorderLevel || 0) || 0,
-                    unitCost: (item.unitCost != null && item.unitCost !== '') ? parseFloat(item.unitCost) : null,
-                    storageLocation: item.location || item.storageLocation || null,
-                    vendorId: item.vendorId ? parseInt(item.vendorId) : null,
-                    expirationDate: item.expirationDate || null,
-                    notes: item.notes || '',
-                    warnings: item.warnings || '',
-                    imageUrl: item.imageData || item.imageUrl || null,
-                    documentUrl: item.documentData || item.documentUrl || null,
-                    isSubscription: !!item.isSubscription,
-                    subscriptionPaused: !!item.subscriptionPaused,
-                    frequency: item.frequency || null,
-                    frequencyDays: item.frequencyDays || null,
-                    quantityPerOrder: item.quantityPerOrder || null,
-                    nextOrderDate: item.nextOrderDate || null,
-                    autoVendorId: item.autoVendorId ? parseInt(item.autoVendorId) : null,
-                    isActive: item.isActive !== false
-                };
+                const prev = prevByApiId.get(String(item.apiId));
+                if (!prev) return; // just loaded from the server or just created: nothing to push
+                const before = buildSupplySyncPayload(prev);
+                const after = buildSupplySyncPayload(item);
+                const changes = {};
+                Object.keys(after).forEach(k => {
+                    if (k === 'imageUrl' || k === 'documentUrl') {
+                        // Never send an empty image/document here: a slimmed local copy (storage
+                        // quota) has no blob, and sending null would erase the server's file.
+                        if (after[k] && after[k] !== before[k]) changes[k] = after[k];
+                        return;
+                    }
+                    if (JSON.stringify(after[k]) !== JSON.stringify(before[k])) changes[k] = after[k];
+                });
+                if (!Object.keys(changes).length) return;
                 const key = `${n}:${item.apiId}`;
-                const sig = JSON.stringify(payload);
+                const sig = JSON.stringify(changes);
                 if (cache[key] === sig) return;
                 cache[key] = sig;
-                try { updateSupplyViaAPI(item.supplyID, payload, n); } catch (_) {}
+                try { updateSupplyViaAPI(item.supplyID, changes, n); } catch (_) {}
             });
         }
 
@@ -63432,7 +63478,9 @@
                 body: JSON.stringify(mapCalendarEventToApiPayload(eventData))
             }));
             if (!response.ok) {
-                throw new Error(`Failed to create event (${response.status})`);
+                const err = new Error(`Failed to create event (${response.status})`);
+                err.status = response.status;
+                throw err;
             }
             const payload = await response.json();
             return payload?.id ?? payload?.Id ?? payload?.eventId ?? payload?.EventId ?? payload?.data?.id ?? payload?.data?.Id;
@@ -63446,7 +63494,9 @@
                 body: JSON.stringify(mapCalendarEventToApiPayload(eventData))
             }));
             if (!response.ok) {
-                throw new Error(`Failed to update event (${response.status})`);
+                const err = new Error(`Failed to update event (${response.status})`);
+                err.status = response.status;
+                throw err;
             }
             return true;
         }
@@ -63498,17 +63548,31 @@
                 const remoteOrganizer = remote?.organizerUserId || null;
                 if (remoteScope === scope && String(remoteOrganizer || '') === String(desiredOrganizer || '')) continue;
 
+                // QA bug #15: this loop re-sent other people's events on every sync (403s) and
+                // overwrote server data with this browser's stale copy. Now: skip events we've already
+                // failed on this session, skip events owned by someone else, and only change the
+                // scope fields on top of the server's own copy.
+                window.__dashboardScopeSyncSkip = window.__dashboardScopeSyncSkip || new Set();
+                if (window.__dashboardScopeSyncSkip.has(apiId)) continue;
+                if (!remote) continue; // only fix up events the server actually returned
+                const remoteOwner = String(remote.createdBy || remote.CreatedBy || remoteOrganizer || '').trim();
+                if (remoteOwner && creator.id != null && String(creator.id) !== remoteOwner) {
+                    window.__dashboardScopeSyncSkip.add(apiId);
+                    continue;
+                }
+
                 try {
                     await updateEventViaApi(apiId, {
                         ...remote,
-                        ...local,
                         id: apiId,
                         dashboardScope: scope,
                         organizerUserId: desiredOrganizer,
-                        createdBy: local.createdBy || remote?.createdBy || desiredOrganizer || creator.id || null
+                        createdBy: remote?.createdBy || local.createdBy || desiredOrganizer || creator.id || null
                     });
                     changed = true;
-                } catch (_) {}
+                } catch (_) {
+                    window.__dashboardScopeSyncSkip.add(apiId);
+                }
             }
 
             return changed;
@@ -63582,6 +63646,16 @@
                     }
                     flushed = true;
                 } catch (error) {
+                    // QA bug #15: a rejected change (403 "only the creator can modify", 404 deleted,
+                    // 400/409/422 invalid) will never succeed, but it used to stay pending and was
+                    // re-sent on every later save. Drop it and let the server copy win.
+                    const status = Number(error && error.status);
+                    if ([400, 403, 404, 409, 422].includes(status)) {
+                        console.warn(`Pending calendar event ${event.id || ''} was rejected (${status}); discarding the local change.`);
+                        event.apiSyncPending = false;
+                        event.dashboardBackup = false;
+                        continue;
+                    }
                     console.warn('Pending calendar event API retry failed; keeping local copy.', error);
                     retained.push({ ...event, dashboardBackup: true, apiSyncPending: true });
                 }
@@ -101336,7 +101410,11 @@ async function resolveEquipmentApiId(localItem, equipmentData) {
         const existingRecord = await readEquipmentApiRecord(existingApiId);
         if (existingRecord) {
             const resolvedId = Number(existingRecord?.Id || existingRecord?.id || existingApiId);
-            if (resolvedId > 0 && equipmentMatchesApiRecord(localItem, existingRecord, equipmentData)) {
+            // The cached apiId only ever comes from a server response, so if that record still
+            // exists it IS this item. Don't require the name/serial/clinic to match: the local copy
+            // already holds the user's edits, so an edited name would fail the match and the old
+            // code fell through to a POST, creating a duplicate (QA bug #9).
+            if (resolvedId > 0) {
                 appendEquipmentSyncDebuggerDetail(debugEquipmentId, `Cached apiId ${existingApiId} is valid and matches the current equipment.`);
                 return resolvedId;
             }
@@ -101405,6 +101483,14 @@ async function updateEquipmentViaAPI(id, equipmentData) {
         });
         let apiId = await resolveEquipmentApiId(item, equipmentData);
         appendEquipmentSyncDebuggerDetail(debugEquipmentId, `resolveEquipmentApiId returned ${apiId || 'null'}.`);
+
+        if (!apiId && Number(item?.apiId || 0) > 0) {
+            // The item was synced before but its server record is gone (deleted elsewhere) or
+            // unreachable. Re-creating it here would resurrect deleted data or make a duplicate.
+            reportEquipmentSyncDebuggerFailure(debugEquipmentId, 'The server record for this equipment was not found.', `Cached apiId ${item.apiId} did not resolve.`, 'Skipped the fallback create to avoid a duplicate.');
+            if (typeof showNotification === 'function') showNotification('This equipment no longer exists on the server. Refresh the page to see the current list.', 'warning');
+            return false;
+        }
 
         if (!apiId) {
             appendEquipmentSyncDebuggerDetail(debugEquipmentId, 'No API id found. Falling back to POST create flow.');
@@ -101567,7 +101653,7 @@ async function syncEquipmentFromAPI() {
                     const roomRecord = rooms.find(room => String(room?.roomID ?? room?.dbId ?? room?.id ?? '') === String(roomId));
                     return roomRecord?.roomName || roomRecord?.name || roomRecord?.roomType || '';
                 })(),
-                purchaseDate: e.PurchaseDate || e.purchaseDate || '',
+                purchaseDate: String(e.PurchaseDate || e.purchaseDate || '').trim().slice(0, 10) || '',
                 price: e.PurchasePrice || e.purchasePrice || '',
                 warrantyExpiry: String(e.WarrantyExpiry || e.warrantyExpiry || '').trim().slice(0, 10) || '',
                 status: (() => {
@@ -102166,6 +102252,9 @@ async function updateSupplyViaAPI(id, supplyData, ns) {
         } else {
             const errText = await response.text();
             console.error('? Supply API PUT failed:', response.status, errText);
+            // QA bug #21: a failed save used to look like a success.
+            if (typeof showSyncStatus === 'function') showSyncStatus(`Supply update failed (${response.status}). Your change was not saved to the server.`, false);
+            if (typeof showNotification === 'function') showNotification(`Supply update failed (${response.status}). Refresh and try again.`, 'error');
         }
     } catch (error) {
         console.error('? Error updating supply:', error);
@@ -102232,6 +102321,10 @@ async function _syncSuppliesForNs(ns) {
                 lastAutoOrderDate: s.LastAutoOrderDate || s.lastAutoOrderDate || null,
                 autoVendorId: s.AutoVendorId || s.autoVendorId || null,
                 isActive: (s.IsActive !== false) && (s.isActive !== false),
+                // Stock flags come from the server once the LowStock/OutOfStock columns exist;
+                // until then the browser's own values (kept by the spread above) are used.
+                ...((s.LowStock !== undefined && s.LowStock !== null) ? { lowStock: !!s.LowStock } : {}),
+                ...((s.OutOfStock !== undefined && s.OutOfStock !== null) ? { outOfStock: !!s.OutOfStock } : {}),
                 imageData: (s.ImageUrl || s.imageUrl || null) || (((existingSupplies || []).find(x => String(x.apiId || x.supplyID) === String(s.Id || s.id)) || {}).imageData) || null,
                 documentData: (s.DocumentUrl || s.documentUrl || null) || (((existingSupplies || []).find(x => String(x.apiId || x.supplyID) === String(s.Id || s.id)) || {}).documentData) || null,
                 documentName: (((existingSupplies || []).find(x => String(x.apiId || x.supplyID) === String(s.Id || s.id)) || {}).documentName) || null,
@@ -102457,6 +102550,9 @@ async function saveRoomToAPI(roomData) {
                 roomType: roomData.type || roomData.roomType || 'operatory',
                 description: roomData.description || roomData.notes || '',
                 color: roomData.color || '#3b82f6',
+                // QA bug #16: category and dimensions were never sent, so the database kept "".
+                roomCategory: roomData.roomCategory || roomData.RoomCategory || roomData.category || roomData.Category || '',
+                dimensions: roomData.dimensions || roomData.Dimensions || '',
                 sortOrder: roomData.sortOrder || roomData.SortOrder || null
             })
         });
@@ -102481,22 +102577,31 @@ async function updateRoomToAPI(roomData) {
     if (typeof API_BASE_URL === 'undefined') {
         throw new Error('API_BASE_URL not defined, cannot update room in database.');
     }
-    const apiRoomId = Number(roomData.apiId || roomData.dbId || roomData.roomID);
-    if (!Number.isFinite(apiRoomId) || apiRoomId <= 0 || !roomData.apiId) {
+    // Only fall back to create when the room has never been saved to the database.
+    // (The old check also required apiId, so a room known only by dbId was re-created as a duplicate.)
+    const apiRoomId = Number(roomData.apiId || roomData.dbId || 0);
+    if (!Number.isFinite(apiRoomId) || apiRoomId <= 0 || apiRoomId > 2147483647) {
         return saveRoomToAPI(roomData);
     }
+    // Send only what the caller knows. The API's PUT is partial, so a sort-order update
+    // no longer blanks the category (QA bug #16).
+    const roomUpdateBody = {
+        name: roomData.name || roomData.roomName,
+        roomType: roomData.type || roomData.roomType || 'operatory',
+        description: roomData.description || roomData.notes || '',
+        color: roomData.color || '#3b82f6'
+    };
+    const roomCategoryValue = roomData.roomCategory ?? roomData.RoomCategory ?? roomData.category ?? roomData.Category;
+    if (roomCategoryValue !== undefined) roomUpdateBody.roomCategory = roomCategoryValue || '';
+    const roomDimensionsValue = roomData.dimensions ?? roomData.Dimensions;
+    if (roomDimensionsValue !== undefined) roomUpdateBody.dimensions = roomDimensionsValue || '';
+    if (roomData.sortOrder != null || roomData.SortOrder != null) roomUpdateBody.sortOrder = roomData.sortOrder ?? roomData.SortOrder;
     try {
         console.log('?? Updating room in API:', roomData);
         const response = await fetch(`${API_BASE_URL}/rooms/${apiRoomId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: roomData.name || roomData.roomName,
-                roomType: roomData.type || roomData.roomType || 'operatory',
-                description: roomData.description || roomData.notes || '',
-                color: roomData.color || '#3b82f6',
-                sortOrder: roomData.sortOrder || roomData.SortOrder || null
-            })
+            body: JSON.stringify(roomUpdateBody)
         });
         if (!response.ok) {
             const error = await response.text();
@@ -102558,6 +102663,7 @@ async function syncRoomsFromAPI() {
             color: r.Color || r.color || '#3b82f6',
             roomCategory: r.RoomCategory || r.roomCategory || r.Category || r.category || '',
             category: r.RoomCategory || r.roomCategory || r.Category || r.category || '',
+            dimensions: r.Dimensions || r.dimensions || '',
             description: r.Description || r.description || '',
             status: 'Active',
             sortOrder: Number(r.SortOrder || r.sortOrder || index + 1) || index + 1,
@@ -122239,6 +122345,7 @@ console.log('? Global functions exported to window object');
                 AccountNumber:    data.accountNumber  || '',
                 ServiceStartDate: data.serviceStartDate || null,
                 ContractTerm:     data.contractTerm   || '',
+                ContractEndDate:  data.contractEndDate || null,
                 ClinicId:         data.officeId ? parseInt(data.officeId, 10) : null,
                 ClinicName:       getClinicNameForApiPayload(data.officeId, data.clinicName || data.officeName),
                 MonthlyCost:      data.monthlyCost ? parseFloat(data.monthlyCost) : null,
@@ -122284,6 +122391,10 @@ console.log('? Global functions exported to window object');
                         accountNumber:    r.AccountNumber    || r.accountNumber    || '',
                         serviceStartDate: (r.ServiceStartDate || r.serviceStartDate || '').slice(0, 10),
                         contractTerm:     r.ContractTerm     || r.contractTerm     || '',
+                        // Use the server value once the ContractEndDate column exists; until then keep this browser's copy.
+                        contractEndDate:  (r.ContractEndDate !== undefined || r.contractEndDate !== undefined)
+                                            ? String(r.ContractEndDate || r.contractEndDate || '').slice(0, 10)
+                                            : (local.contractEndDate || ''),
                         officeId:         String(r.ClinicId  || r.clinicId  || ''),
                         monthlyCost:      r.MonthlyCost      || r.monthlyCost      || '',
                         notes:            rawNotes,

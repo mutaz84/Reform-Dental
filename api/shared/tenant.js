@@ -303,6 +303,27 @@ function tenantVisibleUsernamesClause(columnExpr = 'CreatedBy') {
 }
 
 /**
+ * Usernames AND display names ("First Last") of users the caller can see.
+ * Requests.RequestedBy / AssignedTo are written by the UI as display names
+ * (e.g. "System Administrator"), so matching usernames only hid every new request.
+ */
+function tenantVisibleUserNamesOrDisplayNamesSql() {
+    return `
+        SELECT u.Username
+            FROM Users u
+            WHERE u.Id IN (${tenantVisibleUserIdsSql()})
+        UNION
+        SELECT LTRIM(RTRIM(CONCAT(u.FirstName, ' ', u.LastName)))
+            FROM Users u
+            WHERE u.Id IN (${tenantVisibleUserIdsSql()})
+    `;
+}
+
+function tenantVisiblePersonClause(columnExpr = 'RequestedBy') {
+    return `${columnExpr} IN (${tenantVisibleUserNamesOrDisplayNamesSql()})`;
+}
+
+/**
  * Returns a SQL fragment that checks whether the parent Request identified by
  * @paramName is visible to the caller (i.e. either created by or assigned to a
  * user the caller can see). Used by request-* child endpoints to gate access
@@ -317,8 +338,8 @@ function tenantRequestVisible(requestIdParam = '@requestId') {
             WHERE r_v.Id = ${requestIdParam}
               AND (
                 EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
-                OR r_v.RequestedBy IN (${tenantVisibleUsernamesSql()})
-                OR r_v.AssignedTo IN (${tenantVisibleUsernamesSql()})
+                OR r_v.RequestedBy IN (${tenantVisibleUserNamesOrDisplayNamesSql()})
+                OR r_v.AssignedTo IN (${tenantVisibleUserNamesOrDisplayNamesSql()})
               )
         )
     `;
@@ -384,6 +405,8 @@ module.exports = {
     tenantVisibleUserIdsClause,
     tenantVisibleUsernamesSql,
     tenantVisibleUsernamesClause,
+    tenantVisibleUserNamesOrDisplayNamesSql,
+    tenantVisiblePersonClause,
     tenantRequestVisible,
     buildClinicInClause,
     isPlatformAdmin,

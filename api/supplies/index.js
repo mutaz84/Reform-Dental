@@ -57,6 +57,11 @@ module.exports = async function (context, req) {
         supplyColumns = await ensureSupplyTypeColumn(pool, supplyColumns);
 
         const hasSupplyType = hasColumn(supplyColumns, 'SupplyType');
+        // Declared here (not inside POST) so PUT can use it too. Previously PUT threw
+        // "hasIsActive is not defined" and every supply update returned HTTP 500.
+        const hasIsActive = hasColumn(supplyColumns, 'IsActive');
+        const hasLowStockCol = hasColumn(supplyColumns, 'LowStock');
+        const hasOutOfStockCol = hasColumn(supplyColumns, 'OutOfStock');
         const orderBy = hasColumn(supplyColumns, 'Name') ? 'ORDER BY Name' : 'ORDER BY Id';
         const id = req.params.id;
         const requestedType = normalizeSupplyType(req.query && req.query.type);
@@ -121,7 +126,6 @@ module.exports = async function (context, req) {
             }
             const cols = ['Name', 'Category', 'SKU', 'Description', 'Unit', 'QuantityInStock', 'MinimumStock', 'ReorderPoint', 'UnitCost', 'ClinicId', 'Notes', 'Warnings', 'ImageUrl', 'DocumentUrl'];
             const params = ['@name', '@category', '@sku', '@description', '@unit', '@quantityInStock', '@minimumStock', '@reorderPoint', '@unitCost', '@clinicId', '@notes', '@warnings', '@imageUrl', '@documentUrl'];
-            const hasIsActive = hasColumn(supplyColumns, 'IsActive');
             if (hasSupplyType) { cols.push('SupplyType'); params.push('@supplyType'); }
             if (hasIsActive) { cols.push('IsActive'); params.push('@isActive'); }
             const reqBuilder = pool.request()
@@ -144,55 +148,87 @@ module.exports = async function (context, req) {
             const result = await reqBuilder.query(`INSERT INTO Supplies (${cols.join(', ')}) OUTPUT INSERTED.Id VALUES (${params.join(', ')})`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
+            // Partial update: only columns present in the request body are written.
+            // The UI sends small bodies for stock toggles ({ outOfStock, lowStock, supplyType });
+            // writing every column would blank out Name, Notes, quantities, etc.
             const body = req.body || {};
+            const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
+            const setParts = [];
+            const reqBuilder = pool.request().input('id', sql.Int, id);
+            const toNullableString = (v) => (v === undefined || v === null || String(v).trim() === '') ? null : String(v);
+            const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; };
+            const toMoney = (v) => { if (v === undefined || v === null || v === '') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
+
+            if (has('name')) {
+                const name = String(body.name || '').trim();
+                if (!name) {
+                    context.res = { status: 400, headers, body: { error: 'Supply name is required.' } };
+                    return;
+                }
+                setParts.push('Name=@name'); reqBuilder.input('name', sql.NVarChar, name);
+            }
+            const stringFields = [
+                ['category', 'Category'], ['sku', 'SKU'], ['description', 'Description'], ['unit', 'Unit'],
+                ['notes', 'Notes'], ['warnings', 'Warnings'], ['imageUrl', 'ImageUrl'], ['documentUrl', 'DocumentUrl']
+            ];
+            for (const [key, col] of stringFields) {
+                if (!has(key) || !hasColumn(supplyColumns, col)) continue;
+                setParts.push(`${col}=@${key}`); reqBuilder.input(key, sql.NVarChar, toNullableString(body[key]));
+            }
+            const intFields = [['quantityInStock', 'QuantityInStock'], ['minimumStock', 'MinimumStock'], ['reorderPoint', 'ReorderPoint']];
+            for (const [key, col] of intFields) {
+                if (!has(key) || !hasColumn(supplyColumns, col)) continue;
+                setParts.push(`${col}=@${key}`); reqBuilder.input(key, sql.Int, toInt(body[key]));
+            }
+            if (has('unitCost') && hasColumn(supplyColumns, 'UnitCost')) {
+                setParts.push('UnitCost=@unitCost'); reqBuilder.input('unitCost', sql.Decimal(18, 2), toMoney(body.unitCost));
+            }
             const supplyType = normalizeSupplyType(body.supplyType);
-            let visibleClinicId = body.clinicId || body.ClinicId || null;
+            if (hasSupplyType && supplyType) { setParts.push('SupplyType=@supplyType'); reqBuilder.input('supplyType', sql.NVarChar(20), supplyType); }
+            if (hasIsActive && has('isActive')) { setParts.push('IsActive=@isActive'); reqBuilder.input('isActive', sql.Bit, body.isActive === false ? 0 : 1); }
+            // Stock flags are stored only if the columns exist (see database/migrations/2026-11-23-supplies-stock-flags.sql).
+            const ignored = [];
+            if (has('lowStock')) {
+                if (hasLowStockCol) { setParts.push('LowStock=@lowStock'); reqBuilder.input('lowStock', sql.Bit, body.lowStock ? 1 : 0); }
+                else ignored.push('lowStock');
+            }
+            if (has('outOfStock')) {
+                if (hasOutOfStockCol) { setParts.push('OutOfStock=@outOfStock'); reqBuilder.input('outOfStock', sql.Bit, body.outOfStock ? 1 : 0); }
+                else ignored.push('outOfStock');
+            }
+
             let updateWhere = 'Id=@id';
             if (hasClinicCol) {
                 if (!tenantUserId) {
                     context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
                     return;
                 }
-                visibleClinicId = await resolveWritableClinicId(pool, body, tenantUserId);
-                if (!visibleClinicId) {
-                    context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
-                    return;
-                }
+                reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
                 updateWhere += ` AND ${tenantClinicScopeSql('ClinicId')}`;
+                // Only move the supply to another clinic when the body explicitly names one.
+                // (Resolving a clinic from an empty body can create a new clinic.)
+                const clinicKeys = ['clinicId', 'ClinicId', 'officeId', 'officeID', 'OfficeId', 'OfficeID', 'clinicName', 'ClinicName', 'officeName'];
+                if (clinicKeys.some((k) => has(k) && body[k] !== null && body[k] !== '')) {
+                    const visibleClinicId = await resolveWritableClinicId(pool, body, tenantUserId);
+                    if (!visibleClinicId) {
+                        context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
+                        return;
+                    }
+                    setParts.push('ClinicId=@clinicId'); reqBuilder.input('clinicId', sql.Int, visibleClinicId);
+                }
             }
-            const setParts = [
-                'Name=@name', 'Category=@category', 'SKU=@sku', 'Description=@description', 'Unit=@unit',
-                'QuantityInStock=@quantityInStock', 'MinimumStock=@minimumStock', 'ReorderPoint=@reorderPoint',
-                'UnitCost=@unitCost', 'ClinicId=@clinicId', 'Notes=@notes', 'Warnings=@warnings',
-                'ImageUrl=@imageUrl', 'DocumentUrl=@documentUrl', 'ModifiedDate=GETUTCDATE()'
-            ];
-            if (hasSupplyType && supplyType) setParts.push('SupplyType=@supplyType');
-            if (hasIsActive && typeof body.isActive !== 'undefined') setParts.push('IsActive=@isActive');
-            const reqBuilder = pool.request()
-                .input('id', sql.Int, id)
-                .input('name', sql.NVarChar, body.name)
-                .input('category', sql.NVarChar, body.category)
-                .input('sku', sql.NVarChar, body.sku || null)
-                .input('description', sql.NVarChar, body.description || null)
-                .input('unit', sql.NVarChar, body.unit || null)
-                .input('quantityInStock', sql.Int, body.quantityInStock)
-                .input('minimumStock', sql.Int, body.minimumStock)
-                .input('reorderPoint', sql.Int, body.reorderPoint)
-                .input('unitCost', sql.Decimal, body.unitCost || null)
-                .input('clinicId', sql.Int, visibleClinicId)
-                .input('notes', sql.NVarChar, body.notes)
-                .input('warnings', sql.NVarChar, body.warnings)
-                .input('imageUrl', sql.NVarChar, body.imageUrl)
-                .input('documentUrl', sql.NVarChar, body.documentUrl);
-            if (hasSupplyType && supplyType) reqBuilder.input('supplyType', sql.NVarChar(20), supplyType);
-            if (hasIsActive && typeof body.isActive !== 'undefined') reqBuilder.input('isActive', sql.Bit, body.isActive === false ? 0 : 1);
-            if (hasClinicCol) reqBuilder.input(TENANT_PARAM, sql.Int, tenantUserId);
+
+            if (setParts.length === 0) {
+                context.res = { status: 200, headers, body: { message: 'No changes', ignored } };
+                return;
+            }
+            if (hasColumn(supplyColumns, 'ModifiedDate')) setParts.push('ModifiedDate=GETUTCDATE()');
             const result = await reqBuilder.query(`UPDATE Supplies SET ${setParts.join(', ')} WHERE ${updateWhere}`);
-            if (hasClinicCol && (!result.rowsAffected || result.rowsAffected[0] === 0)) {
+            if (!result.rowsAffected || result.rowsAffected[0] === 0) {
                 context.res = { status: 404, headers, body: { error: 'Supply not found in current subscription.' } };
                 return;
             }
-            context.res = { status: 200, headers, body: { message: 'Supply updated' } };
+            context.res = { status: 200, headers, body: { message: 'Supply updated', ignored } };
         } else if (req.method === 'DELETE' && id) {
             const request = pool.request().input('id', sql.Int, id);
             let deleteWhere = 'Id = @id';
