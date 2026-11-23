@@ -369,6 +369,16 @@ async function execute(query, params = {}) {
 async function resetPool() {
     if (!poolPromise) return;
     const existing = poolPromise;
+    // Most handlers call resetPool() in every catch block, including for validation
+    // and SQL errors. Closing a healthy shared pool there made concurrent requests
+    // fail with "Connection is closed." Only tear the pool down when it is broken.
+    try {
+        const pool = await existing;
+        if (pool && pool.connected) return;
+    } catch (_) {
+        // The connect promise rejected: fall through and clear it.
+    }
+    if (poolPromise !== existing) return;
     poolPromise = null;
     try {
         const pool = await existing;

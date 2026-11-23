@@ -64,13 +64,14 @@ module.exports = async function (context, req) {
         const body = req.body || {};
 
         if (method === 'GET') {
-            const { getRequestUserId, tenantVisibleUsernamesClause, TENANT_PARAM } = require('../shared/tenant');
+            const { getRequestUserId, tenantVisiblePersonClause, TENANT_PARAM } = require('../shared/tenant');
             const tenantUserId = getRequestUserId(req);
             if (!tenantUserId) {
                 context.res = { status: 200, headers, body: id !== null ? null : [] };
                 return;
             }
-            const tenantClause = `(${tenantVisibleUsernamesClause('RequestedBy')} OR ${tenantVisibleUsernamesClause('AssignedTo')})`;
+            // RequestedBy/AssignedTo hold display names ("System Administrator") as well as usernames.
+            const tenantClause = `(EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin') OR ${tenantVisiblePersonClause('RequestedBy')} OR ${tenantVisiblePersonClause('AssignedTo')})`;
             if (id !== null) {
                 const result = await pool.request()
                     .input('id', sql.Int, id)

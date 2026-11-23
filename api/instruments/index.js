@@ -76,7 +76,7 @@ module.exports = async function (context, req) {
                 .input('warnings', sql.NVarChar(sql.MAX), body.warnings || null)
                 .input('imageUrl', sql.NVarChar(sql.MAX), body.imageUrl || null)
                 .input('documentUrl', sql.NVarChar(sql.MAX), body.documentUrl || null)
-                .input('links', sql.NVarChar(sql.MAX), body.links || null)
+                .input('links', sql.NVarChar(sql.MAX), body.links == null || body.links === '' ? null : (typeof body.links === 'string' ? body.links : JSON.stringify(body.links)))
                 .query(`INSERT INTO Instruments (Name, SkuNumber, Category, Description, Quantity, Status, ClinicId, SterilizationRequired, Icon, Notes, Warnings, ImageUrl, DocumentUrl, Links) 
                         OUTPUT INSERTED.Id VALUES (@name, @skuNumber, @category, @description, @quantity, @status, @clinicId, @sterilizationRequired, @icon, @notes, @warnings, @imageUrl, @documentUrl, @links)`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
@@ -86,29 +86,59 @@ module.exports = async function (context, req) {
                 context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
                 return;
             }
-            const visibleClinicId = await resolveWritableClinicId(pool, body, tenantUserId);
-            if (!visibleClinicId) {
-                context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
+            // Partial update: only columns present in the body are written. Previously a
+            // missing "status" was written as NULL, which wiped the instrument's status on edit.
+            const has = (key) => Object.prototype.hasOwnProperty.call(body || {}, key);
+            const reqBuilder = pool.request().input('id', sql.Int, id).input(TENANT_PARAM, sql.Int, tenantUserId);
+            const setParts = [];
+            if (has('name')) {
+                const name = String(body.name || '').trim();
+                if (!name) {
+                    context.res = { status: 400, headers, body: { error: 'Instrument name is required.' } };
+                    return;
+                }
+                setParts.push('Name=@name'); reqBuilder.input('name', sql.NVarChar, name);
+            }
+            const nullable = (v) => (v === undefined || v === null || String(v).trim() === '') ? null : v;
+            const fields = [
+                ['skuNumber', 'SkuNumber', sql.NVarChar, nullable],
+                ['category', 'Category', sql.NVarChar, nullable],
+                ['description', 'Description', sql.NVarChar(sql.MAX), nullable],
+                ['status', 'Status', sql.NVarChar, (v) => nullable(v) || 'available'],
+                ['icon', 'Icon', sql.NVarChar, nullable],
+                ['notes', 'Notes', sql.NVarChar(sql.MAX), nullable],
+                ['warnings', 'Warnings', sql.NVarChar(sql.MAX), nullable],
+                ['imageUrl', 'ImageUrl', sql.NVarChar(sql.MAX), nullable],
+                ['documentUrl', 'DocumentUrl', sql.NVarChar(sql.MAX), nullable],
+                ['links', 'Links', sql.NVarChar(sql.MAX), (v) => (v == null ? null : (typeof v === 'string' ? v : JSON.stringify(v)))]
+            ];
+            for (const [key, col, type, conv] of fields) {
+                if (!has(key)) continue;
+                setParts.push(`${col}=@${key}`); reqBuilder.input(key, type, conv(body[key]));
+            }
+            if (has('quantity')) {
+                const q = parseInt(body.quantity, 10);
+                setParts.push('Quantity=@quantity'); reqBuilder.input('quantity', sql.Int, Number.isFinite(q) ? q : 0);
+            }
+            if (has('sterilizationRequired')) {
+                setParts.push('SterilizationRequired=@sterilizationRequired'); reqBuilder.input('sterilizationRequired', sql.Bit, body.sterilizationRequired !== false);
+            }
+            // Only move the instrument to another clinic when the body explicitly names one.
+            const clinicKeys = ['clinicId', 'ClinicId', 'officeId', 'officeID', 'OfficeId', 'OfficeID', 'clinicName', 'ClinicName', 'officeName'];
+            if (clinicKeys.some((k) => has(k) && body[k] !== null && body[k] !== '')) {
+                const visibleClinicId = await resolveWritableClinicId(pool, body, tenantUserId);
+                if (!visibleClinicId) {
+                    context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
+                    return;
+                }
+                setParts.push('ClinicId=@clinicId'); reqBuilder.input('clinicId', sql.Int, visibleClinicId);
+            }
+            if (setParts.length === 0) {
+                context.res = { status: 200, headers, body: { message: 'No changes' } };
                 return;
             }
-            const result = await pool.request()
-                .input('id', sql.Int, id)
-                .input(TENANT_PARAM, sql.Int, tenantUserId)
-                .input('name', sql.NVarChar, body.name)
-                .input('skuNumber', sql.NVarChar, body.skuNumber || null)
-                .input('category', sql.NVarChar, body.category)
-                .input('description', sql.NVarChar(sql.MAX), body.description || null)
-                .input('quantity', sql.Int, body.quantity)
-                .input('status', sql.NVarChar, body.status)
-                .input('clinicId', sql.Int, visibleClinicId)
-                .input('sterilizationRequired', sql.Bit, body.sterilizationRequired !== false)
-                .input('icon', sql.NVarChar, body.icon || null)
-                .input('notes', sql.NVarChar(sql.MAX), body.notes)
-                .input('warnings', sql.NVarChar(sql.MAX), body.warnings)
-                .input('imageUrl', sql.NVarChar(sql.MAX), body.imageUrl)
-                .input('documentUrl', sql.NVarChar(sql.MAX), body.documentUrl)
-                .input('links', sql.NVarChar(sql.MAX), body.links == null ? null : body.links)
-                .query(`UPDATE Instruments SET Name=@name, SkuNumber=@skuNumber, Category=@category, Description=@description, Quantity=@quantity, Status=@status, ClinicId=@clinicId, SterilizationRequired=@sterilizationRequired, Icon=@icon, Notes=@notes, Warnings=@warnings, ImageUrl=@imageUrl, DocumentUrl=@documentUrl, Links=@links, ModifiedDate=GETUTCDATE() WHERE Id=@id AND ${tenantClinicScopeSql('ClinicId')}`);
+            setParts.push('ModifiedDate=GETUTCDATE()');
+            const result = await reqBuilder.query(`UPDATE Instruments SET ${setParts.join(', ')} WHERE Id=@id AND ${tenantClinicScopeSql('ClinicId')}`);
             if (!result.rowsAffected || result.rowsAffected[0] === 0) {
                 context.res = { status: 404, headers, body: { error: 'Instrument not found in current subscription.' } };
                 return;

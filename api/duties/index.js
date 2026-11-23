@@ -64,6 +64,8 @@ async function ensureDutiesTables(pool) {
         IF COL_LENGTH('dbo.Duties', 'CreatedDate') IS NULL ALTER TABLE dbo.Duties ADD CreatedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
         IF COL_LENGTH('dbo.Duties', 'ModifiedDate') IS NULL ALTER TABLE dbo.Duties ADD ModifiedDate DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
         IF COL_LENGTH('dbo.Duties', 'IsActive') IS NULL ALTER TABLE dbo.Duties ADD IsActive BIT NOT NULL DEFAULT 1;
+        IF COL_LENGTH('dbo.Duties', 'DutyType') IS NULL ALTER TABLE dbo.Duties ADD DutyType NVARCHAR(50) NULL;
+        IF COL_LENGTH('dbo.Duties', 'CreatedByUserId') IS NULL ALTER TABLE dbo.Duties ADD CreatedByUserId INT NULL;
 
         IF OBJECT_ID('dbo.UserDutyAssignments', 'U') IS NULL
         BEGIN
@@ -188,7 +190,7 @@ module.exports = async function (context, req) {
                 const result = await pool.request()
                     .input('id', sql.Int, id)
                     .query(`SELECT Id, Name, Description, Schedule, ScheduleTime, ScheduleDay, Location, 
-                            Priority, CreatedDate, ModifiedDate, IsActive
+                            Priority, DutyType, CreatedByUserId, CreatedDate, ModifiedDate, IsActive
                             FROM Duties WHERE Id = @id AND IsActive = 1`);
                 
                 if (result.recordset.length === 0) {
@@ -231,14 +233,19 @@ module.exports = async function (context, req) {
                 }));
                 context.res = { status: 200, headers, body: mapped };
             } else {
-                // Get all duties — only those with at least one visible-user assignment
+                // Get all duties visible to the caller. Previously only duties that already had
+                // an assignment were returned, so new/unassigned duties could never be listed
+                // (and therefore never assigned). Now also include: everything for the platform
+                // admin, and unassigned duties created by a user in the caller's clinics.
                 const dutiesResult = await pool.request()
                     .input(TENANT_PARAM, sql.Int, tenantUserId)
                     .query(`SELECT Id, Name, Description, Schedule, ScheduleTime, ScheduleDay,
-                            Location, Priority, CreatedDate, ModifiedDate, IsActive
+                            Location, Priority, DutyType, CreatedByUserId, CreatedDate, ModifiedDate, IsActive
                             FROM Duties
-                            WHERE IsActive = 1 AND Id IN (
-                                SELECT DutyId FROM UserDutyAssignments WHERE ${tenantClause}
+                            WHERE IsActive = 1 AND (
+                                EXISTS (SELECT 1 FROM Users WHERE Id = @${TENANT_PARAM} AND LOWER(Username) = 'admin')
+                                OR Id IN (SELECT DutyId FROM UserDutyAssignments WHERE ${tenantClause})
+                                OR CreatedByUserId IN (${require('../shared/tenant').tenantVisibleUserIdsSql()})
                             )
                             ORDER BY Priority, Name`);
 
@@ -262,9 +269,11 @@ module.exports = async function (context, req) {
                     .input('scheduleDay', sql.NVarChar, body.scheduleDay || '')
                     .input('location', sql.NVarChar, body.location || '')
                     .input('priority', sql.NVarChar, body.priority || 'Medium')
-                    .query(`INSERT INTO Duties (Name, Description, Schedule, ScheduleTime, ScheduleDay, Location, Priority)
+                    .input('dutyType', sql.NVarChar(50), body.dutyType || body.DutyType || null)
+                    .input('createdByUserId', sql.Int, getRequestUserId(req) || null)
+                    .query(`INSERT INTO Duties (Name, Description, Schedule, ScheduleTime, ScheduleDay, Location, Priority, DutyType, CreatedByUserId)
                             OUTPUT INSERTED.Id
-                            VALUES (@name, @description, @schedule, @scheduleTime, @scheduleDay, @location, @priority)`);
+                            VALUES (@name, @description, @schedule, @scheduleTime, @scheduleDay, @location, @priority, @dutyType, @createdByUserId)`);
 
                 const dutyId = result.recordset[0].Id;
                 const assignedToUserId = Number(body.assignedToUserId || 0);
@@ -292,7 +301,10 @@ module.exports = async function (context, req) {
                 .input('scheduleDay', sql.NVarChar, body.scheduleDay || '')
                 .input('location', sql.NVarChar, body.location || '')
                 .input('priority', sql.NVarChar, body.priority || 'Medium')
+                .input('hasDutyType', sql.Bit, Object.prototype.hasOwnProperty.call(body || {}, 'dutyType') ? 1 : 0)
+                .input('dutyType', sql.NVarChar(50), body.dutyType || null)
                 .query(`UPDATE Duties SET 
+                        DutyType = CASE WHEN @hasDutyType = 1 THEN @dutyType ELSE DutyType END,
                         Name = @name, 
                         Description = @description, 
                         Schedule = @schedule, 

@@ -197,17 +197,30 @@ module.exports = async function (context, req) {
                     context.res = { status: 403, headers, body: { error: 'Tenant user is required.' } };
                     return;
                 }
-                const visibleClinicId = await resolveVisibleClinicId(pool, getBodyValue(body, 'clinicId', 'ClinicId'), tenantUserId);
-                if (!visibleClinicId) {
-                    context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
-                    return;
+                // Only move the record to another clinic when the body explicitly names one.
+                // Resolving a clinic from a body without one could create a new clinic (or 403).
+                const clinicNamed = ['clinicId', 'ClinicId', 'officeId', 'OfficeId', 'clinicName', 'ClinicName', 'officeName']
+                    .some((k) => body[k] !== undefined && body[k] !== null && body[k] !== '');
+                if (clinicNamed) {
+                    const visibleClinicId = await resolveVisibleClinicId(pool, getBodyValue(body, 'clinicId', 'ClinicId'), tenantUserId);
+                    if (!visibleClinicId) {
+                        context.res = { status: 403, headers, body: { error: 'Clinic is outside the current subscription.' } };
+                        return;
+                    }
+                    body.clinicId = visibleClinicId;
+                    body.ClinicId = visibleClinicId;
+                } else {
+                    delete body.clinicId;
+                    delete body.ClinicId;
                 }
-                body.clinicId = visibleClinicId;
-                body.ClinicId = visibleClinicId;
                 request.input(TENANT_PARAM, sql.Int, tenantUserId);
                 updateWhere += ` AND ${tenantClinicScopeSql('ClinicId')}`;
             }
-            const definitions = buildEquipmentColumnDefinitions(request, equipmentColumns, body);
+            // Partial update: skip columns the body did not send. Previously every column was
+            // written, so short updates blanked out fields (e.g. Status reset, dates cleared).
+            const alwaysOptional = new Set(['ScheduledDate', 'ScheduledTime', 'DashboardScope', 'DashboardScheduledBy', 'DashboardScheduledByName']);
+            const definitions = buildEquipmentColumnDefinitions(request, equipmentColumns, body)
+                .filter((d) => alwaysOptional.has(d.columnName) || getBodyValue(body, d.paramName, d.columnName) !== undefined);
             if (definitions.length === 0 && !hasColumn(equipmentColumns, 'ModifiedDate')) {
                 context.res = { status: 400, headers, body: { error: 'No valid equipment fields were provided for update.' } };
                 return;

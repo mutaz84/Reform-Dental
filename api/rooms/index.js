@@ -209,6 +209,10 @@ module.exports = async function (context, req) {
                 insertColumns.push('Category');
                 insertValues.push('@roomCategory');
             }
+            if (hasColumn(roomColumns, 'Dimensions')) {
+                insertColumns.push('Dimensions');
+                insertValues.push('@dimensions');
+            }
             if (hasSortOrder) {
                 insertColumns.push('SortOrder');
                 insertValues.push('COALESCE(@sortOrder, (SELECT ISNULL(MAX(SortOrder), 0) + 1 FROM Rooms WHERE ClinicId = @clinicId))');
@@ -220,30 +224,68 @@ module.exports = async function (context, req) {
                 .input('roomCategory', sql.NVarChar, bodyValue(body, ['roomCategory', 'RoomCategory', 'category', 'Category'], ''))
                 .input('description', sql.NVarChar, body.description)
                 .input('color', sql.NVarChar, body.color)
+                .input('dimensions', sql.NVarChar(100), bodyValue(body, ['dimensions', 'Dimensions'], null) || null)
                 .input('sortOrder', sql.Int, toIntOrNull(body.sortOrder ?? body.SortOrder))
                 .query(`INSERT INTO Rooms (${insertColumns.join(', ')}) OUTPUT INSERTED.Id VALUES (${insertValues.join(', ')})`);
             context.res = { status: 201, headers, body: { id: result.recordset[0].Id } };
         } else if (req.method === 'PUT' && id) {
-            const body = req.body;
-            const setClauses = ['Name=@name', 'RoomType=@roomType', 'Description=@description', 'Color=@color', 'ModifiedDate=GETUTCDATE()'];
-            if (hasColumn(roomColumns, 'RoomCategory')) {
-                setClauses.push('RoomCategory=@roomCategory');
+            // Partial update: only columns present in the body are written. The old version
+            // always wrote every column, so the sort-order call (which sends no category)
+            // blanked RoomCategory on every room (QA bug #16).
+            const body = req.body || {};
+            const has = (...names) => names.some((n) => Object.prototype.hasOwnProperty.call(body, n) && body[n] !== undefined);
+            const request = pool.request().input('id', sql.Int, id);
+            const setClauses = [];
+            if (has('name', 'Name')) {
+                const name = String(bodyValue(body, ['name', 'Name'], '') || '').trim();
+                if (!name) {
+                    context.res = { status: 400, headers, body: { error: 'Room name cannot be empty.' } };
+                    return;
+                }
+                setClauses.push('Name=@name');
+                request.input('name', sql.NVarChar, name);
             }
-            if (hasColumn(roomColumns, 'Category')) {
-                setClauses.push('Category=@roomCategory');
+            if (has('roomType', 'RoomType')) {
+                setClauses.push('RoomType=@roomType');
+                request.input('roomType', sql.NVarChar, bodyValue(body, ['roomType', 'RoomType'], null));
             }
-            if (hasSortOrder && (body.sortOrder !== undefined || body.SortOrder !== undefined)) {
+            if (has('description', 'Description')) {
+                setClauses.push('Description=@description');
+                request.input('description', sql.NVarChar, bodyValue(body, ['description', 'Description'], null));
+            }
+            if (has('color', 'Color')) {
+                setClauses.push('Color=@color');
+                request.input('color', sql.NVarChar, bodyValue(body, ['color', 'Color'], null));
+            }
+            if (has('roomCategory', 'RoomCategory', 'category', 'Category')) {
+                request.input('roomCategory', sql.NVarChar, bodyValue(body, ['roomCategory', 'RoomCategory', 'category', 'Category'], ''));
+                if (hasColumn(roomColumns, 'RoomCategory')) setClauses.push('RoomCategory=@roomCategory');
+                if (hasColumn(roomColumns, 'Category')) setClauses.push('Category=@roomCategory');
+            }
+            if (has('dimensions', 'Dimensions') && hasColumn(roomColumns, 'Dimensions')) {
+                setClauses.push('Dimensions=@dimensions');
+                request.input('dimensions', sql.NVarChar(100), bodyValue(body, ['dimensions', 'Dimensions'], null) || null);
+            }
+            if (hasSortOrder && has('sortOrder', 'SortOrder')) {
                 setClauses.push('SortOrder=@sortOrder');
+                request.input('sortOrder', sql.Int, toIntOrNull(body.sortOrder ?? body.SortOrder));
             }
-            await pool.request()
-                .input('id', sql.Int, id)
-                .input('name', sql.NVarChar, body.name)
-                .input('roomType', sql.NVarChar, body.roomType)
-                .input('roomCategory', sql.NVarChar, bodyValue(body, ['roomCategory', 'RoomCategory', 'category', 'Category'], ''))
-                .input('description', sql.NVarChar, body.description)
-                .input('color', sql.NVarChar, body.color)
-                .input('sortOrder', sql.Int, toIntOrNull(body.sortOrder ?? body.SortOrder))
-                .query(`UPDATE Rooms SET ${setClauses.join(', ')} WHERE Id=@id`);
+            if (!setClauses.length) {
+                context.res = { status: 200, headers, body: { message: 'No changes' } };
+                return;
+            }
+            if (hasColumn(roomColumns, 'ModifiedDate')) setClauses.push('ModifiedDate=GETUTCDATE()');
+            let roomWhere = 'Id=@id';
+            if (hasClinicCol && tenantUserId) {
+                // Only rooms in the caller's clinics can be changed.
+                roomWhere += ` AND ${tenantClinicScopeSql('ClinicId')}`;
+                request.input(TENANT_PARAM, sql.Int, tenantUserId);
+            }
+            const updateResult = await request.query(`UPDATE Rooms SET ${setClauses.join(', ')} WHERE ${roomWhere}`);
+            if (!updateResult.rowsAffected || !updateResult.rowsAffected[0]) {
+                context.res = { status: 404, headers, body: { error: 'Room not found' } };
+                return;
+            }
             context.res = { status: 200, headers, body: { message: 'Room updated' } };
         } else if (req.method === 'DELETE' && id) {
             await pool.request()
