@@ -351,24 +351,28 @@
   /* ---------- Quick Calendar (right panel): open as a full-size pop-over ----------
      The panel is 210px wide and clips anything wider, which cut off the month name,
      TODAY and Saturday. Open, it is placed on screen above its button, right-aligned. */
+  // Writes only when something actually changes: the page watches class and style
+  // changes, so re-writing the same values here would wake that watcher again forever.
   function placeQuickCalendar() {
     Array.prototype.forEach.call(document.querySelectorAll('.urr-quick-calendar-host .quick-calendar-dropdown'), function (dd) {
       if (!dd.classList.contains('active')) {
         if (dd.dataset.rdQc) {
-          dd.classList.remove('rd-qc-pop');
-          dd.style.removeProperty('right');
-          dd.style.removeProperty('bottom');
           delete dd.dataset.rdQc;
+          if (dd.classList.contains('rd-qc-pop')) dd.classList.remove('rd-qc-pop');
+          if (dd.style.getPropertyValue('right')) dd.style.removeProperty('right');
+          if (dd.style.getPropertyValue('bottom')) dd.style.removeProperty('bottom');
         }
         return;
       }
       var btn = dd.parentElement && dd.parentElement.querySelector('[data-quick-calendar-toggle]');
       var r = btn && btn.getBoundingClientRect();
       if (!r || !r.width) return;
-      dd.classList.add('rd-qc-pop');
-      dd.style.setProperty('right', Math.max(8, Math.round(window.innerWidth - r.right)) + 'px', 'important');
-      dd.style.setProperty('bottom', Math.max(8, Math.round(window.innerHeight - r.top + 8)) + 'px', 'important');
+      var right = Math.max(8, Math.round(window.innerWidth - r.right)) + 'px';
+      var bottom = Math.max(8, Math.round(window.innerHeight - r.top + 8)) + 'px';
       dd.dataset.rdQc = '1';
+      if (!dd.classList.contains('rd-qc-pop')) dd.classList.add('rd-qc-pop');
+      if (dd.style.getPropertyValue('right') !== right || dd.style.getPropertyPriority('right') !== 'important') dd.style.setProperty('right', right, 'important');
+      if (dd.style.getPropertyValue('bottom') !== bottom || dd.style.getPropertyPriority('bottom') !== 'important') dd.style.setProperty('bottom', bottom, 'important');
     });
   }
   window.addEventListener('resize', function () { try { placeQuickCalendar(); } catch (_) {} });
@@ -476,7 +480,8 @@
       } else if (r.type === 'attributes' && r.target.nodeType === 1) {
         pending.add(r.target);
         // Place the Quick Calendar right away (before the browser paints), not on the next idle sweep
-        if (r.target.classList && r.target.classList.contains('quick-calendar-dropdown')) { try { placeQuickCalendar(); } catch (_) {} }
+        // (only on class changes: reacting to style changes would re-trigger on our own placement)
+        if (r.attributeName === 'class' && r.target.classList && r.target.classList.contains('quick-calendar-dropdown')) { try { placeQuickCalendar(); } catch (_) {} }
       }
       if (pending.size > 400) { full = true; pending.clear(); break; }
     }
