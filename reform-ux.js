@@ -8,6 +8,7 @@
      "RESET" confirmation before anything is deleted
    - Buttons are tagged text / icon so they share one size and colour set
    - Inventory add/edit panels share one header, close button and layout
+   - The right panel's Quick Calendar opens as a full-size pop-over
    No data is read or written here; it only changes presentation.
    ===================================================================== */
 (function () {
@@ -212,7 +213,7 @@
   /* ---------- Buttons: tag every real button as a text button or an icon button ----------
      so one rule set gives them the same size, corners and colours everywhere.
      Cards, list headers, tabs, menus and the calendar are left alone. */
-  var BTN_SKIP_CONTEXT = '.fc, .rd-calendar-time-grid, [class*="calendar-grid"], [role="menu"], .dropdown-menu, [class*="tools-menu"], .rd-view-tab, [class*="rd-view-tab"], #settingsMenu, [class*="context-menu"]';
+  var BTN_SKIP_CONTEXT = '.fc, .rd-calendar-time-grid, [class*="calendar-grid"], [role="menu"], .dropdown-menu, [class*="tools-menu"], .rd-view-tab, [class*="rd-view-tab"], #settingsMenu, [class*="context-menu"], .quick-calendar-dropdown';
   var BTN_SKIP_CLASS = /(card|kpi|drilldown|chip|pill|badge|tile|menu-item|rd-view-tab|fc-|toggle-switch|status-toggle|warning-icon|floating|swatch|nav-item|rail-tab|tab-btn|svc-tab|svc-date-tab|calendar-corner)/i;
   var BTN_DELETE = /(delete|remove|trash)/i;
   var ALLOWED_BTN_BG = /^(rgb\(15, 94, 117\)|rgb\(11, 71, 89\)|rgb\(255, 255, 255\)|rgb\(241, 245, 249\)|rgb\(248, 250, 252\)|rgba\(0, 0, 0, 0\)|rgb\(231, 241, 244\)|rgb\(217, 45, 32\)|rgb\(180, 35, 24\)|rgb\(254, 243, 242\)|rgb\(254, 228, 226\))$/;
@@ -347,6 +348,31 @@
     if (meta.textContent !== label) { meta.textContent = label; meta.dataset.rdCount = '1'; }
   }
 
+  /* ---------- Quick Calendar (right panel): open as a full-size pop-over ----------
+     The panel is 210px wide and clips anything wider, which cut off the month name,
+     TODAY and Saturday. Open, it is placed on screen above its button, right-aligned. */
+  function placeQuickCalendar() {
+    Array.prototype.forEach.call(document.querySelectorAll('.urr-quick-calendar-host .quick-calendar-dropdown'), function (dd) {
+      if (!dd.classList.contains('active')) {
+        if (dd.dataset.rdQc) {
+          dd.classList.remove('rd-qc-pop');
+          dd.style.removeProperty('right');
+          dd.style.removeProperty('bottom');
+          delete dd.dataset.rdQc;
+        }
+        return;
+      }
+      var btn = dd.parentElement && dd.parentElement.querySelector('[data-quick-calendar-toggle]');
+      var r = btn && btn.getBoundingClientRect();
+      if (!r || !r.width) return;
+      dd.classList.add('rd-qc-pop');
+      dd.style.setProperty('right', Math.max(8, Math.round(window.innerWidth - r.right)) + 'px', 'important');
+      dd.style.setProperty('bottom', Math.max(8, Math.round(window.innerHeight - r.top + 8)) + 'px', 'important');
+      dd.dataset.rdQc = '1';
+    });
+  }
+  window.addEventListener('resize', function () { try { placeQuickCalendar(); } catch (_) {} });
+
   /* ---------- Inputs with an icon drawn inside them: keep text clear of the icon ---------- */
   function padIconInputs(root) {
     Array.prototype.forEach.call((root || document).querySelectorAll('input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"])'), function (inp) {
@@ -429,6 +455,7 @@
     });
     try { tidyBadges(); } catch (_) {}
     try { unifyModals(); } catch (_) {}
+    try { placeQuickCalendar(); } catch (_) {}
     try { vendorCount(); } catch (_) {}
     try { pinActions(); } catch (_) {}
     try { padIconInputs(); } catch (_) {}
@@ -448,6 +475,8 @@
         for (var j = 0; j < r.addedNodes.length; j++) { var n = r.addedNodes[j]; if (n.nodeType === 1) pending.add(n); }
       } else if (r.type === 'attributes' && r.target.nodeType === 1) {
         pending.add(r.target);
+        // Place the Quick Calendar right away (before the browser paints), not on the next idle sweep
+        if (r.target.classList && r.target.classList.contains('quick-calendar-dropdown')) { try { placeQuickCalendar(); } catch (_) {} }
       }
       if (pending.size > 400) { full = true; pending.clear(); break; }
     }
