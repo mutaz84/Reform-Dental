@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261123-auth-tokens-v193';
+                const buildVersion = '20261124-dashboard-sync-v194';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -59009,8 +59009,7 @@
             const team = findDashboardAssignmentForApiSync(payload);
             const push = (typeof pushTeamToAPI === 'function') ? pushTeamToAPI : window.pushTeamToAPI;
             if (!team || typeof push !== 'function') return false;
-            await push(team);
-            return true;
+            return (await push(team)) !== false;
         }
 
         async function syncDashboardEquipmentScheduleToApi(payload) {
@@ -61152,6 +61151,8 @@
             if (typeof syncTasksFromAPI === 'function') jobs.push(Promise.resolve(syncTasksFromAPI()).catch(() => false));
             if (typeof syncSuppliesFromAPI === 'function') jobs.push(Promise.resolve(syncSuppliesFromAPI()).catch(() => false));
             if (typeof syncEquipmentFromAPI === 'function') jobs.push(Promise.resolve(syncEquipmentFromAPI()).catch(() => false));
+            if (typeof window.syncTeamsFromAPI === 'function') jobs.push(Promise.resolve(window.syncTeamsFromAPI()).catch(() => false));
+            if (typeof syncEquipmentServicesFromAPI === 'function') jobs.push(Promise.resolve(syncEquipmentServicesFromAPI({ force: true })).catch(() => false));
             if (typeof window.loadAttendanceDataFromApi === 'function') jobs.push(Promise.resolve(window.loadAttendanceDataFromApi()).catch(() => false));
             if (typeof API_BASE_URL !== 'undefined' && API_BASE_URL) {
                 jobs.push(fetch(`${API_BASE_URL}/requests`, { cache: 'no-store' }).then(res => res.ok ? res.json() : []).then(data => { window.__dashboardRequestsCache = Array.isArray(data) ? data : []; try { localStorage.setItem('requestsDatabase', JSON.stringify(window.__dashboardRequestsCache)); } catch (_) {} }).catch(() => false));
@@ -61184,9 +61185,35 @@
             document.querySelectorAll('[data-dashboard-user-name]').forEach(el => { el.textContent = getDashboardLandingUserName(); });
             managerLanding.hidden = !isManagerDashboard;
             userLanding.hidden = isManagerDashboard;
+            try { window.__rdDashboardDataSig = rdDashboardDataSignature(); } catch (_) {}
             if (!options.skipSync) refreshDashboardLandingDataInBackground();
         }
         window.renderDashboardLanding = renderDashboardLanding;
+        // Fingerprint of the saved data the Overdue / Unscheduled lists are built from
+        function rdDashboardDataSignature() {
+            let h = 5381;
+            ['teams', 'equipmentServiceTickets', 'equipment', 'officeEquipment'].forEach((key) => {
+                const v = localStorage.getItem(key) || '';
+                for (let i = 0; i < v.length; i++) h = ((h << 5) + h + v.charCodeAt(i)) | 0;
+                h = ((h << 5) + h + v.length) | 0;
+            });
+            return String(h);
+        }
+        let __rdDashboardRedrawTimer = null;
+        window.rdDashboardDataChanged = function () {
+            clearTimeout(__rdDashboardRedrawTimer);
+            __rdDashboardRedrawTimer = setTimeout(() => {
+                const view = document.getElementById('view-dashboard');
+                if (!view || !view.classList.contains('active')) return;
+                if (window.__dashboardOperationDragPayload || document.querySelector('.is-dragging')) return;   // don't redraw mid-drag
+                const focused = document.activeElement;
+                if (focused && view.contains(focused) && /^(INPUT|TEXTAREA|SELECT)$/.test(focused.tagName)) return;   // or while typing
+                let sig = '';
+                try { sig = rdDashboardDataSignature(); } catch (_) { return; }
+                if (sig === window.__rdDashboardDataSig) return;
+                try { renderDashboardLanding({ skipSync: true }); } catch (_) {}
+            }, 300);
+        };
         document.addEventListener('DOMContentLoaded', () => setTimeout(renderDashboardLanding, 0));
         // Theme Management
         const root = document.documentElement;
@@ -104440,6 +104467,7 @@ function refreshResourcesAfterSync() {
 
 function refreshVisibleViewsAfterApiSync() {
     try {
+        try { if (typeof window.rdDashboardDataChanged === 'function') window.rdDashboardDataChanged(); } catch (_) {}
         if (document.getElementById('usersList') && typeof displayUsersList === 'function') {
             displayUsersList();
         }
@@ -104508,6 +104536,7 @@ async function loadAllDataFromAPI(options = {}) {
             { name: 'supplies', fn: typeof syncSuppliesFromAPI === 'function' ? syncSuppliesFromAPI : null },
             { name: 'utilities', fn: typeof syncUtilitiesFromAPI === 'function' ? syncUtilitiesFromAPI : null },
             { name: 'tasks', fn: typeof syncTasksFromAPI === 'function' ? syncTasksFromAPI : null },
+            { name: 'assignments', fn: typeof window.syncTeamsFromAPI === 'function' ? (() => window.syncTeamsFromAPI()) : null },
             { name: 'schedules', fn: typeof syncSchedulesFromAPIWithRetry === 'function' ? (() => syncSchedulesFromAPIWithRetry({ attempts: 4, delayMs: 700 })) : (typeof syncSchedulesFromAPI === 'function' ? syncSchedulesFromAPI : null) },
             { name: 'vendors', fn: typeof syncVendorsFromAPI === 'function' ? syncVendorsFromAPI : null },
             { name: 'roles', fn: typeof syncRolesFromAPI === 'function' ? syncRolesFromAPI : null }
@@ -123918,10 +123947,16 @@ console.log('? Global functions exported to window object');
         async function syncTeamsFromAPI() {
             try {
                 var base = (typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : '').replace(/\/$/, '');
+                // Changes made on this PC that haven't reached the database yet go up first,
+                // so the server copy fetched below already includes them.
+                var pendingBefore = loadTeams().filter(function (t) { return t && t.needsSync; });
+                for (var _p = 0; _p < pendingBefore.length; _p++) {
+                    await pushTeamToAPI(pendingBefore[_p]);
+                }
                 var resp = await fetch(base + API_PATH, { cache: 'no-store' });
-                if (!resp.ok) return;
+                if (!resp.ok) return false;
                 var data = await resp.json();
-                if (!Array.isArray(data)) return;
+                if (!Array.isArray(data)) return false;
                 // If API has no teams but localStorage has unsaved local teams, push them up first
                 if (data.length === 0) {
                     var localTeams = loadTeams();
@@ -123930,38 +123965,81 @@ console.log('? Global functions exported to window object');
                             await pushTeamToAPI(localTeams[_i]);
                         }
                         var resp2 = await fetch(base + API_PATH, { cache: 'no-store' });
-                        if (!resp2.ok) return;
+                        if (!resp2.ok) return false;
                         var data2 = await resp2.json();
                         if (Array.isArray(data2)) data = data2;
                     }
                 }
                 var normalized = data.map(normalizeTeam);
-                var snapshot = JSON.stringify(normalized);
-                if (snapshot === localStorage.getItem(SNAPSHOT_KEY)) return;
-                localStorage.setItem(SNAPSHOT_KEY, snapshot);
-                saveTeams(normalized);
+                localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(normalized));
+                // The database is the shared copy: every PC shows it. Only this PC's changes that
+                // still couldn't be saved (marked needsSync) are kept until they go through.
+                // (Before, the copy was only refreshed when the server changed, so a PC whose
+                // copy had drifted kept showing its own version.)
+                var stillPending = loadTeams().filter(function (t) { return t && t.needsSync; });
+                var merged = normalized.map(function (serverTeam) {
+                    var mine = stillPending.find(function (p) { return String(p.id) === String(serverTeam.id); });
+                    return mine || serverTeam;
+                });
+                stillPending.forEach(function (p) {
+                    if (String(p.id || '').indexOf('local_') === 0) merged.push(p);
+                });
+                var next = JSON.stringify(merged);
+                if (next === (localStorage.getItem(STORAGE_KEY) || '[]')) return true;
+                saveTeams(merged);
                 renderTeamsPageList();
                 updateTeamsDashboardCounts();
-            } catch (e) { console.warn('[Teams] sync failed:', e.message); }
+                try { if (typeof window.rdDashboardDataChanged === 'function') window.rdDashboardDataChanged(); } catch (_) {}
+                return true;
+            } catch (e) { console.warn('[Teams] sync failed:', e.message); return false; }
         }
 
-        async function pushTeamToAPI(team) {
+        // One save at a time per assignment, so a new assignment is never created twice
+        var __teamPushQueue = {};
+        var __teamIdRemap = {};
+        function setTeamNeedsSync(teamId, pending) {
+            var teams = loadTeams();
+            var idx = teams.findIndex(function (t) { return String(t.id) === String(teamId); });
+            if (idx === -1) return;
+            if (pending) teams[idx].needsSync = true; else delete teams[idx].needsSync;
+            saveTeams(teams);
+        }
+        function pushTeamToAPI(team) {
+            if (!team) return Promise.resolve(false);
+            var key = String(team.id || '');
+            var previous = __teamPushQueue[key] || Promise.resolve();
+            var run = previous.catch(function () {}).then(function () { return pushTeamNow(key, team); });
+            __teamPushQueue[key] = run;
+            run.then(function () { if (__teamPushQueue[key] === run) delete __teamPushQueue[key]; }, function () { if (__teamPushQueue[key] === run) delete __teamPushQueue[key]; });
+            return run;
+        }
+        async function pushTeamNow(key, team) {
+            var id = __teamIdRemap[key] || key;
+            var latest = loadTeams().find(function (t) { return String(t.id) === String(id); });
+            var payload = Object.assign({}, latest || team);
+            delete payload.needsSync;
+            var isNew = !payload.id || String(payload.id).indexOf('local_') === 0;
             try {
+                setTeamNeedsSync(payload.id, true);   // stays set if the save fails, so it is retried
                 var base = (typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : '').replace(/\/$/, '');
-                var isNew = !team.id || String(team.id).startsWith('local_');
-                var url = isNew ? base + API_PATH : base + API_PATH + '/' + team.id;
-                var resp = await fetch(url, { method: isNew ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(team) });
-                if (!resp.ok) return;
+                var url = isNew ? base + API_PATH : base + API_PATH + '/' + payload.id;
+                var resp = await fetch(url, { method: isNew ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (!resp.ok) return false;
+                var newId = null;
                 if (isNew) {
-                    var result = await resp.json();
-                    if (result && result.id) {
-                        var teams = loadTeams();
-                        var idx = teams.findIndex(t => t.id === team.id);
-                        if (idx !== -1) { teams[idx].id = result.id; saveTeams(teams); }
-                    }
+                    var result = await resp.json().catch(function () { return null; });
+                    if (result && result.id) newId = result.id;
+                }
+                var teams = loadTeams();
+                var idx = teams.findIndex(function (t) { return String(t.id) === String(payload.id); });
+                if (idx !== -1) {
+                    if (newId) { teams[idx].id = newId; __teamIdRemap[key] = String(newId); }
+                    delete teams[idx].needsSync;
+                    saveTeams(teams);
                 }
                 localStorage.removeItem(SNAPSHOT_KEY);
-            } catch (e) { console.warn('[Teams] push failed:', e.message); }
+                return true;
+            } catch (e) { console.warn('[Teams] push failed:', e.message); return false; }
         }
 
         async function deleteTeamFromAPI(id) {
