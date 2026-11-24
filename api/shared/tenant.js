@@ -34,6 +34,12 @@ function _toIntOrNull(v) {
 function getRequestUserId(req) {
     if (!req) return null;
 
+    // Signed-in user from the session token (set by shared/auth withAuth). When present it is
+    // the only identity we trust; header/query/body values below are caller-supplied.
+    if (req.authUser && Number.isInteger(req.authUser.id) && req.authUser.id > 0) {
+        return req.authUser.id;
+    }
+
     // Header lookup (works for v3 plain object and v4 Headers instance).
     const headers = req.headers;
     let headerVal;

@@ -848,3 +848,5 @@ module.exports = async function (context, req) {
         });
     }
 };
+
+module.exports = require('../shared/auth').withAuth(module.exports);

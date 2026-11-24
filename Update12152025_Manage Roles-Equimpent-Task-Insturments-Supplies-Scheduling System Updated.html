@@ -2,10 +2,92 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReformDental - Management Dashboard</title>
+    <script>
+        /* Session token: sent as X-Auth-Token on every /api/ call. Also removes passwords
+           that older builds cached in local storage, and signs out sessions that have no token. */
+        (function () {
+            var TOKEN_KEY = 'rdAuthToken';
+            var SESSION_KEYS = ['loggedInUser', 'userName', 'userRole', 'currentUser'];
+            var PASSWORD_FIELDS = ['password', 'Password', 'passwordHash', 'PasswordHash', 'newPassword'];
+            function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (_) { return ''; } }
+            function clearToken() { try { localStorage.removeItem(TOKEN_KEY); } catch (_) {} }
+            window.rdAuth = {
+                get: getToken,
+                set: function (token) { try { if (token) localStorage.setItem(TOKEN_KEY, token); else localStorage.removeItem(TOKEN_KEY); } catch (_) {} },
+                clear: clearToken,
+                stripPasswords: function (obj) {
+                    if (!obj || typeof obj !== 'object') return false;
+                    var changed = false;
+                    PASSWORD_FIELDS.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(obj, k)) { delete obj[k]; changed = true; } });
+                    return changed;
+                }
+            };
+            try {
+                ['appUsers', 'appUsersRawFromAPI'].forEach(function (key) {
+                    var raw = localStorage.getItem(key);
+                    if (!raw) return;
+                    var data = JSON.parse(raw), changed = false;
+                    if (Array.isArray(data)) data.forEach(function (u) { changed = window.rdAuth.stripPasswords(u) || changed; });
+                    else if (data && typeof data === 'object') Object.keys(data).forEach(function (k) { changed = window.rdAuth.stripPasswords(data[k]) || changed; });
+                    if (changed) localStorage.setItem(key, JSON.stringify(data));
+                });
+                var cu = localStorage.getItem('currentUser');
+                if (cu) { var cuObj = JSON.parse(cu); if (window.rdAuth.stripPasswords(cuObj)) localStorage.setItem('currentUser', JSON.stringify(cuObj)); }
+            } catch (_) {}
+            try {
+                if (localStorage.getItem('loggedInUser') && !getToken()) {
+                    SESSION_KEYS.forEach(function (k) { localStorage.removeItem(k); });
+                }
+            } catch (_) {}
+
+            var nativeFetch = window.fetch.bind(window);
+            var signingOut = false;
+            function isApiUrl(url) {
+                if (!url) return false;
+                try {
+                    var parsed = new URL(url, window.location.href);
+                    if (parsed.origin !== window.location.origin) return false; // never send the token to other sites
+                    return /^\/api\//i.test(parsed.pathname);
+                } catch (_) {
+                    return /^\/?api\//i.test(url);
+                }
+            }
+            function handleUnauthorized() {
+                if (signingOut) return;
+                var wasSignedIn = false;
+                try { wasSignedIn = !!localStorage.getItem('loggedInUser'); } catch (_) {}
+                clearToken();
+                if (!wasSignedIn) return;
+                signingOut = true;
+                try { SESSION_KEYS.forEach(function (k) { localStorage.removeItem(k); }); } catch (_) {}
+                setTimeout(function () {
+                    try { if (typeof window.showNotification === 'function') window.showNotification('Your session has ended. Please sign in again.', 'warning'); } catch (_) {}
+                    if (typeof window.checkAuth === 'function') window.checkAuth(); else window.location.reload();
+                    signingOut = false;
+                }, 0);
+            }
+            window.rdAuthHandleUnauthorized = handleUnauthorized;
+            window.fetch = function (resource, init) {
+                var url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
+                if (!isApiUrl(url)) return nativeFetch(resource, init);
+                var token = getToken();
+                if (token) {
+                    init = Object.assign({}, init || {});
+                    var headers = new Headers(init.headers || (resource && typeof resource !== 'string' && resource.headers) || {});
+                    headers.set('X-Auth-Token', token);
+                    init.headers = headers;
+                }
+                return nativeFetch(resource, init).then(function (res) {
+                    if (res && res.status === 401 && !/\/api\/login(\b|\?|$)/i.test(url)) handleUnauthorized();
+                    return res;
+                });
+            };
+        })();
+    </script>
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261115-calendar-undo-toolbar-v192';
+                const buildVersion = '20261123-auth-tokens-v193';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -10922,6 +11004,7 @@
             localStorage.removeItem('userName');
             localStorage.removeItem('userRole');
             localStorage.removeItem('currentUser');
+            if (window.rdAuth) window.rdAuth.clear();
             try { sessionStorage.removeItem(LOGIN_AUDIT_SESSION_ID_KEY); } catch (_) {}
 
             if (typeof window.checkAuth === 'function') {
@@ -12010,6 +12093,7 @@
 
                     if (response.ok && result && result.success && result.user) {
                         console.log('? API login successful');
+                        if (window.rdAuth) window.rdAuth.set(result.token || '');
 
                         const role = result.user.role || 'user';
                         const firstName = result.user.firstName || '';
@@ -12050,38 +12134,7 @@
                     console.log('API login unavailable, using local fallback');
                 }
 
-                // Fallback to localStorage (for offline/local testing)
-                if (!sessionUser) {
-                    const users = loadUsers();
-                    if (users[username] && users[username].password === password) {
-                        const user = users[username];
-                        const normalizedUserPermissions = normalizePermissionsForRole(user.permissions, user.role || 'user');
-
-                        user.permissions = normalizedUserPermissions;
-                        users[username] = user;
-                        saveUsers(users);
-
-                        const dbUserId = user.id || user.dbId || user.Id;
-                        const officeLocation = (user.officeLocation || user.OfficeLocation || user.office || user.Office || user.clinic || user.Clinic || '').toString().trim();
-
-                        if (dbUserId) {
-                            window.currentDbUserId = dbUserId;
-                        }
-
-                        sessionUser = {
-                            username: username,
-                            role: user.role,
-                            name: user.name,
-                            firstName: user.firstName,
-                            lastName: user.lastName,
-                            dbId: dbUserId,
-                            officeLocation: officeLocation,
-                            clinics: (typeof getClinicsFromUser === 'function') ? getClinicsFromUser(user) : (officeLocation ? [officeLocation] : []),
-                            permissions: normalizedUserPermissions
-                        };
-                    }
-                }
-
+                // Passwords are checked only by the server; there is no offline login.
                 if (sessionUser) {
                     didLogin = true;
 
@@ -12239,6 +12292,7 @@
             console.log('Logout function called');
             if (confirm('Are you sure you want to logout?')) {
                 endCurrentLoginSession('logout');
+                if (window.rdAuth) window.rdAuth.clear();
                 try { sessionStorage.removeItem(LOGIN_AUDIT_SESSION_ID_KEY); } catch (_) {}
                 localStorage.removeItem('loggedInUser');
                 localStorage.removeItem('userName');
@@ -12691,7 +12745,6 @@
                 // Only create admin account as fallback - database is source of truth
                 const defaultUsers = {
                     'admin': {
-                        password: 'admin123',
                         role: 'admin',
                         name: 'Admin User',
                         firstName: 'Admin',
@@ -12724,6 +12777,9 @@
 
         // Save users to localStorage and optionally sync to API
         function saveUsers(users) {
+            if (users && typeof users === 'object' && window.rdAuth) {
+                Object.keys(users).forEach((name) => window.rdAuth.stripPasswords(users[name]));
+            }
             localStorage.setItem('appUsers', JSON.stringify(users));
         }
 
@@ -12812,7 +12868,6 @@
                 isOnline: userData.isOnline === true,
                 lastSeen: userData.lastSeen || null,
                 failedLoginAttempts: Number(userData.failedLoginAttempts || 0) || 0,
-                passwordHash: userData.passwordHash || userData.PasswordHash || null,
 
                 Id: resolvedRecordId,
                 Username: normalizedUsername,
@@ -12867,12 +12922,13 @@
                 IsActive: userData.isActive !== false,
                 IsOnline: userData.isOnline === true,
                 LastSeen: userData.lastSeen || null,
-                FailedLoginAttempts: Number(userData.failedLoginAttempts || 0) || 0,
-                PasswordHash: userData.passwordHash || userData.PasswordHash || null
+                FailedLoginAttempts: Number(userData.failedLoginAttempts || 0) || 0
             };
-
-            if (includePassword) {
-                payload.password = userData.password || 'changeme123';
+            if (includePassword && userData.password) {
+                payload.password = userData.password;
+            }
+            if (userData.newPassword) {
+                payload.newPassword = userData.newPassword;
             }
 
             return payload;
@@ -14714,10 +14770,11 @@
                 addUserEditRecordId = editRecordId;
 
                 if (newPassword) {
-                    userDraft.password = newPassword;
+                    userDraft.newPassword = newPassword;
                 }
 
                 const persisted = await updateUserViaAPI(editRecordId, userDraft);
+                delete userDraft.newPassword;
                 if (!persisted) {
                     errorDiv.style.display = 'block';
                     errorDiv.textContent = 'Save failed: SQL update did not complete. No local changes were applied.';
@@ -15776,17 +15833,30 @@
         }
         window.openUserCredentialsModal = openUserCredentialsModal;
 
-        function saveUserCardPassword(username) {
+        async function saveUserCardPassword(username) {
             const input = document.getElementById('userCredsNewPassword');
             const pwd = String(input?.value || '').trim();
-            if (!pwd) { if (typeof showNotification === 'function') showNotification('Enter a password first.', 'warning'); return; }
-            if (pwd.length < 6) { if (typeof showNotification === 'function') showNotification('Password must be at least 6 characters.', 'warning'); return; }
+            const notify = (msg, type) => { if (typeof showNotification === 'function') showNotification(msg, type); };
+            if (!pwd) { notify('Enter a password first.', 'warning'); return; }
+            if (pwd.length < 6) { notify('Password must be at least 6 characters.', 'warning'); return; }
             const users = loadUsers();
-            if (!users[username]) { if (typeof showNotification === 'function') showNotification('User not found.', 'warning'); return; }
-            users[username] = { ...users[username], password: pwd, modifiedDate: new Date().toISOString() };
-            saveUsers(users);
-            if (typeof showNotification === 'function') showNotification('Password updated locally. API sync not yet wired.', 'success');
-            _userCardClose('userCredentialsModal');
+            const user = users[username];
+            if (!user) { notify('User not found.', 'warning'); return; }
+            const userId = Number(getUserRecordId(user) || 0);
+            if (!Number.isInteger(userId) || userId <= 0) { notify('Cannot change password: this user has no database record.', 'error'); return; }
+            try {
+                const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ passwordOnly: true, newPassword: pwd })
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok) { notify(result.error || 'Password change failed.', 'error'); return; }
+                notify('Password updated.', 'success');
+                _userCardClose('userCredentialsModal');
+            } catch (error) {
+                notify('Password change failed: the server could not be reached.', 'error');
+            }
         }
         window.saveUserCardPassword = saveUserCardPassword;
 
@@ -17062,7 +17132,6 @@
             user.isOnline = document.getElementById('viewUserIsOnline').value === 'true';
             user.lastSeen = document.getElementById('viewUserLastSeen').value.trim();
             user.failedLoginAttempts = Number(document.getElementById('viewUserFailedLoginAttempts').value || 0) || 0;
-            user.passwordHash = document.getElementById('viewUserPasswordHash').value.trim();
 
             const permissionsRaw = document.getElementById('viewUserPermissions').value.trim();
             if (!permissionsRaw) {
@@ -17274,7 +17343,7 @@
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Online Flag</label><select id="viewUserIsOnline" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"><option value="true" ${(user.isOnline === true || user.IsOnline === true) ? 'selected' : ''}>true</option><option value="false" ${(user.isOnline === true || user.IsOnline === true) ? '' : 'selected'}>false</option></select></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Last Seen</label><input id="viewUserLastSeen" type="text" value="${escapeUserViewValue(user.lastSeen || user.LastSeen || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
                             <div><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Failed Login Attempts</label><input id="viewUserFailedLoginAttempts" type="number" min="0" value="${escapeUserViewValue(user.failedLoginAttempts ?? user.FailedLoginAttempts ?? 0)}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
-                            <div style="grid-column:1 / -1;"><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Password Hash</label><input id="viewUserPasswordHash" type="text" value="${escapeUserViewValue(user.passwordHash || user.PasswordHash || '')}" style="width:100%; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary);"></div>
+                            
                             <div style="grid-column:1 / -1;"><label style="display:block; margin-bottom:0.35rem; color: var(--text-secondary);">Permissions (JSON)</label><textarea id="viewUserPermissions" style="width:100%; min-height:90px; padding:0.6rem; border:1px solid var(--border-color); border-radius:8px; background: var(--card-bg); color: var(--text-primary); resize:vertical;">${escapeUserViewValue(typeof user.permissions === 'string' ? user.permissions : JSON.stringify(user.permissions || {}, null, 2))}</textarea></div>
                             <div style="grid-column:1 / -1; margin-top:0.4rem; padding-top:0.75rem; border-top:1px solid var(--border-color);">
                                 <div style="font-weight:700; color: var(--text-primary); margin-bottom:0.6rem;">Duties</div>
@@ -21599,9 +21668,9 @@
             
             // Validate password if provided
             if (newPassword) {
-                if (newPassword.length < 4) {
+                if (newPassword.length < 6) {
                     errorDiv.style.display = 'block';
-                    errorDiv.textContent = 'Password must be at least 4 characters.';
+                    errorDiv.textContent = 'Password must be at least 6 characters.';
                     return;
                 }
                 if (newPassword !== confirmPassword) {
@@ -21609,7 +21678,7 @@
                     errorDiv.textContent = 'Passwords do not match.';
                     return;
                 }
-                user.password = newPassword;
+                user.newPassword = newPassword;
             }
             
             // Update user fields
@@ -21676,6 +21745,7 @@
             } else if (typeof saveUserToAPI === 'function') {
                 await saveUserToAPI(editingUsername, user);
             }
+            delete user.newPassword;
             
             // Close modal and refresh list
             closeEditUserModal();
@@ -82944,6 +83014,7 @@ window.addEventListener('load', function() {
                 window.chatActiveUploadXhr = xhr;
                 xhr.open('POST', '/api/chat', true);
                 xhr.setRequestHeader('Content-Type', 'application/json');
+                if (window.rdAuth && window.rdAuth.get()) xhr.setRequestHeader('X-Auth-Token', window.rdAuth.get());
 
                 const cleanup = () => {
                     if (window.chatActiveUploadXhr === xhr) {
@@ -99543,7 +99614,6 @@ async function syncUsersFromAPI(options = {}) {
             ...existing,
             id: user.Id || user.id,
             username,
-            password: existing.password || '***',
             role: user.Role || user.role || 'user',
             name: `${user.FirstName || ''} ${user.LastName || ''}`.trim(),
             title: pickFirstNonEmpty(user.Title, user.title, existing.title),
@@ -99606,6 +99676,10 @@ async function syncUsersFromAPI(options = {}) {
     }
     
     // REPLACE localStorage with API users only (database is source of truth)
+    if (window.rdAuth) {
+        Object.keys(localUsers || {}).forEach((name) => window.rdAuth.stripPasswords(localUsers[name]));
+        Object.keys(rawApiUsersByUsername || {}).forEach((name) => window.rdAuth.stripPasswords(rawApiUsersByUsername[name]));
+    }
     localStorage.setItem('appUsers', JSON.stringify(localUsers));
     localStorage.setItem('appUsersRawFromAPI', JSON.stringify(rawApiUsersByUsername));
     window.__lastSyncedApiUsersByUsername = rawApiUsersByUsername;
@@ -99776,7 +99850,7 @@ async function createUserViaAPI(userData) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 username: userData.username,
-                password: userData.password || 'changeme123',
+                password: userData.password || undefined,
                 firstName: userData.firstName,
                 lastName: userData.lastName,
                 officeLocation: userData.officeLocation || userData.OfficeLocation || userData.office || userData.clinic || '',

@@ -172,3 +172,5 @@ module.exports = async function (context, req) {
         context.res = { status: 500, headers, body: { error: err.message, stack: err.stack } };
     }
 };
+
+module.exports = require('../shared/auth').withAuth(module.exports);

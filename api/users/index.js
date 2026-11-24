@@ -1,5 +1,7 @@
 const { sql, getPool, resetPool } = require('../shared/database');
 const { TENANT_PARAM, getRequestUserId, tenantVisibleUserIdsClause } = require('../shared/tenant');
+const crypto = require('crypto');
+const { withAuth, hashPassword, validateNewPassword, isAdminOrManager } = require('../shared/auth');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -547,7 +549,7 @@ module.exports = async function (context, req) {
                     : (hasColumn(userHrInfoColumns, 'HRInfo') ? 'HRInfo' : null));
 
             const preferredColumns = [
-                'Id', 'Username', 'PasswordHash', 'FirstName', 'MiddleName', 'LastName', 'Gender', 'DateOfBirth',
+                'Id', 'Username', 'FirstName', 'MiddleName', 'LastName', 'Gender', 'DateOfBirth',
                 'PersonalEmail', 'WorkEmail', 'HomePhone', 'CellPhone', 'Address', 'City', 'State', 'ZipCode',
                 'JobTitle', 'StaffType', 'EmployeeType', 'Department', 'EmployeeStatus', 'Role', 'HireDate',
                 'HourlyRate', 'Salary', 'Color', 'ProfileImage', 'Permissions', 'CreatedDate', 'ModifiedDate',
@@ -649,6 +651,21 @@ module.exports = async function (context, req) {
                 context.res = { status: 200, headers, body: hydratedUsers };
             }
         } else if (req.method === 'POST') {
+            if (!isAdminOrManager(req.authUser)) {
+                context.res = { status: 403, headers, body: { error: 'Only an admin or manager can create users.' } };
+                return;
+            }
+            const rawCreateBody = parseRequestBody(req.body) || {};
+            const requestedPassword = rawCreateBody.password || rawCreateBody.newPassword || '';
+            if (requestedPassword) {
+                const passwordProblem = validateNewPassword(requestedPassword);
+                if (passwordProblem) {
+                    context.res = { status: 400, headers, body: { error: passwordProblem } };
+                    return;
+                }
+            }
+            // No password given: store a random one so the account can't be used until a password is set.
+            const newUserPasswordHash = hashPassword(requestedPassword || crypto.randomBytes(24).toString('base64'));
             const body = parseRequestBody(req.body);
             let userColumns = await getTableColumns(pool, 'Users');
             userColumns = await ensureUserPermissionsStorage(pool, userColumns);
@@ -669,7 +686,7 @@ module.exports = async function (context, req) {
                 }
                 const result = await insertReq
                     .input('username', sql.NVarChar, body.username)
-                    .input('passwordHash', sql.NVarChar, body.password || body.passwordHash || body.PasswordHash || 'changeme')
+                    .input('passwordHash', sql.NVarChar, newUserPasswordHash)
                     .input('firstName', sql.NVarChar, toNullableString(body.firstName || body.FirstName))
                     .input('middleName', sql.NVarChar, toNullableString(body.middleName || body.MiddleName))
                     .input('lastName', sql.NVarChar, toNullableString(body.lastName || body.LastName))
@@ -754,6 +771,43 @@ module.exports = async function (context, req) {
             }
         } else if (req.method === 'PUT' && id) {
             const body = parseRequestBody(req.body);
+            const actor = req.authUser || null;
+            const actorIsManager = isAdminOrManager(actor);
+            const isSelf = !!actor && Number(id) === Number(actor.id);
+            if (!actorIsManager && !isSelf) {
+                context.res = { status: 403, headers, body: { error: 'You can only update your own profile.' } };
+                return;
+            }
+            if (body && !actorIsManager) {
+                // Staff editing their own profile can't change their role or permissions.
+                if (body.permissionsOnly === true || String(body.permissionsOnly || '').toLowerCase() === 'true') {
+                    context.res = { status: 403, headers, body: { error: 'Only an admin or manager can change permissions.' } };
+                    return;
+                }
+                ['role', 'Role', 'roleId', 'RoleId', 'permissions', 'Permissions'].forEach((key) => { delete body[key]; });
+            }
+
+            const newPassword = body && (body.newPassword ?? body.NewPassword);
+            if (newPassword !== undefined && newPassword !== null && newPassword !== '') {
+                const passwordProblem = validateNewPassword(newPassword);
+                if (passwordProblem) {
+                    context.res = { status: 400, headers, body: { error: passwordProblem } };
+                    return;
+                }
+                const pwResult = await pool.request()
+                    .input('id', sql.Int, id)
+                    .input('passwordHash', sql.NVarChar, hashPassword(newPassword))
+                    .query('UPDATE Users SET PasswordHash = @passwordHash WHERE Id = @id');
+                const pwRows = Array.isArray(pwResult.rowsAffected) ? pwResult.rowsAffected.reduce((a, n) => a + Number(n || 0), 0) : 0;
+                if (pwRows === 0) {
+                    context.res = { status: 404, headers, body: { error: 'User not found' } };
+                    return;
+                }
+                if (body.passwordOnly === true || String(body.passwordOnly || '').toLowerCase() === 'true') {
+                    context.res = { status: 200, headers, body: { message: 'Password updated', user: { Id: Number(id) } } };
+                    return;
+                }
+            }
             let userColumns = await getTableColumns(pool, 'Users');
             userColumns = await ensureUserPermissionsStorage(pool, userColumns);
             const hasUsersHrInfoColumn = hasColumn(userColumns, 'HRInfo');
@@ -1010,7 +1064,7 @@ module.exports = async function (context, req) {
                             DirectSupervisor=@directSupervisor, SeparationDate=@separationDate,
                             SeparationReason=@separationReason, PhotoFileName=@photoFileName,
                             Documents=@documents${hasUsersHrInfoColumn ? ', HRInfo=@hrInfo' : ''}, FailedLoginAttempts=@failedLoginAttempts,
-                            IsActive=COALESCE(@isActive, IsActive, 1), IsOnline=@isOnline, LastSeen=@lastSeen, RoleId=@roleId,
+                            IsActive=COALESCE(@isActive, IsActive, 1), IsOnline=@isOnline, LastSeen=@lastSeen, RoleId=COALESCE(@roleId, RoleId),
                             ModifiedDate=GETUTCDATE() WHERE Id=@id`);
 
                 const affectedRows = Array.isArray(updateResult.rowsAffected)
@@ -1092,6 +1146,10 @@ module.exports = async function (context, req) {
                 throw e;
             }
         } else if (req.method === 'DELETE' && id) {
+            if (!isAdminOrManager(req.authUser)) {
+                context.res = { status: 403, headers, body: { error: 'Only an admin or manager can remove users.' } };
+                return;
+            }
             const userColumns = await getTableColumns(pool, 'Users');
             const hasUserIsActive = hasColumn(userColumns, 'IsActive');
 
@@ -1156,3 +1214,5 @@ module.exports = async function (context, req) {
         };
     }
 };
+
+module.exports = withAuth(module.exports);

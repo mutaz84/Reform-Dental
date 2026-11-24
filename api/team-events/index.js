@@ -250,3 +250,5 @@ module.exports = async function (context, req) {
         return jsonResponse(context, 500, { error: 'Internal server error', detail: err.message });
     }
 };
+
+module.exports = require('../shared/auth').withAuth(module.exports);
