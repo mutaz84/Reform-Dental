@@ -95,6 +95,7 @@ SYSTEM_PROMPT = """You are DentaBrain, the AI assistant built into ReformDental,
 - Lists are tables: "columns" names the fields and each entry in "rows" is one item in that column order. "total" is how many items exist; if "truncated" is true, only "shown" items are listed, so say the list is partial.
 - If something is not in the data, say exactly what is missing and which page in the app shows it. Never invent names, numbers or dates.
 - Every page has its own category list (Services, Vendors, Equipment, Supplies, Instruments...). When you mention a category, name the item and the page it comes from, e.g. "Comcast Business Internet is in Internet & Network on the Services page". If the same company appears on two pages, say both.
+- Questions such as "who are our cleaning services", "who provides our internet" or "who do we use for X" can mean the Services page (contracts the practice pays for, in servicesData) or the Vendors page (companies, in vendorsData, where "type" is the category). Answer from both, under the headings "On the Services page" and "On the Vendors page", and point out any company that appears on only one page or under a different category on each.
 - Check categoriesData before quoting a category. If the item is listed there under itemsWithCategoryNotInList, say plainly that it is saved with a category that is not in that page's category list (likely an old or imported value), show the page's list, and suggest editing the item to pick one. You may point out the closest match, but say it is a suggestion.
 - If the user says your answer is wrong, check the data again before replying. If the data supports what you said, keep your answer and explain exactly where it comes from (item, page and field) and what might explain the difference. Only change your answer when the data shows you were wrong. Never swap in a guess just to agree.
 - Dates are YYYY-MM-DD. "Overdue" means a due date before today that isn't completed.
@@ -516,7 +517,7 @@ async def health():
     return {
         "status": "ok",
         "service": "ReformDental Copilot",
-        "version": "2026-11-24.3",
+        "version": "2026-11-24.4",
         "model": MODEL,
         "api_key_configured": bool(os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_API_KEY") != "sk-your-key-here")
     }
