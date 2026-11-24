@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261124-dentabrain-staff-v199';
+                const buildVersion = '20261124-dentabrain-categories-v201';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -109256,6 +109256,58 @@ console.log('? Global functions exported to window object');
             };
         },
 
+        // Each page's own category list, and items saved with a category that isn't in that list
+        getCategoriesData() {
+            const managed = (typeof loadCategoriesFromStorage === 'function') ? loadCategoriesFromStorage() : this.safeParse('categories', []);
+            const all = Array.isArray(managed) ? managed : [];
+            const activeNames = (entries) => {
+                const seen = new Set();
+                const out = [];
+                (entries || []).filter((c) => c && c.isActive !== false)
+                    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+                    .forEach((c) => {
+                        const n = String(c.name || '').trim();
+                        const k = n.toLowerCase();
+                        if (n && !seen.has(k)) { seen.add(k); out.push(n); }
+                    });
+                return out;
+            };
+            const check = (page, list, items, nameOf, catOf) => {
+                const known = new Set(list.map((n) => n.toLowerCase()));
+                const notInList = {};
+                if (list.length) {
+                    (items || []).forEach((it) => {
+                        const cat = String(catOf(it) || '').trim();
+                        if (!cat || known.has(cat.toLowerCase())) return;
+                        (notInList[cat] = notInList[cat] || []).push(nameOf(it));
+                    });
+                }
+                return {
+                    page,
+                    categoryList: list,
+                    itemsWithCategoryNotInList: Object.entries(notInList).map(([category, names]) => ({ category, count: names.length, items: names.slice(0, 15) }))
+                };
+            };
+            const listFor = (type) => activeNames(all.filter((c) => c && c.categoryType === type));
+            const utilitiesRaw = (typeof window.loadUtilities === 'function') ? window.loadUtilities() : this.safeParse('utilities', []);
+            const utilities = (Array.isArray(utilitiesRaw) ? utilitiesRaw : []).filter((u) => u && u.isActive !== false);
+            const vendorTypes = (typeof loadVendorTypesFromStorage === 'function') ? loadVendorTypesFromStorage() : this.safeParse('reformDentalVendorTypes', []);
+            const vendorsRaw = this.safeParse('vendors', []);
+            const vendors = (Array.isArray(vendorsRaw) ? vendorsRaw : []).filter((v) => v && v.isActive !== false);
+            const supplyName = (s) => s.supplyName || s.name || '(unnamed)';
+            return {
+                note: 'Each page has its own category list: what users pick from in that page\'s form and filter. An item listed under itemsWithCategoryNotInList is saved with a category that is not in its page\'s list (usually an old or imported value). An empty categoryList means the list has not loaded, so nothing is checked.',
+                services: check('Services', listFor('utilities'), utilities, (u) => u.utilityName || u.name || '(unnamed)', (u) => u.category),
+                vendors: check('Vendors', activeNames(Array.isArray(vendorTypes) ? vendorTypes : []), vendors, (v) => v.vendorName || v.name || '(unnamed)', (v) => v.vendorType || v.type || v.category),
+                dentalEquipment: check('Dental Equipment', listFor('equipment'), this._activeArray('equipment'), (e) => this._equipmentName(e), (e) => e.category || e.equipmentType),
+                officeEquipment: check('Office Equipment', listFor('office-equipment'), this._activeArray('officeEquipment'), (e) => this._equipmentName(e), (e) => e.category || e.equipmentType),
+                instruments: check('Instruments', listFor('instruments'), this._activeArray('instruments'), (i) => i.instrumentName || i.name || '(unnamed)', (i) => i.category),
+                dentalSupplies: check('Dental Supplies', listFor('supplies'), this._activeArray('dentalSupplies'), supplyName, (s) => s.category),
+                officeSupplies: check('Office Supplies', listFor('office-supplies'), this._activeArray('officeSupplies'), supplyName, (s) => s.category),
+                assignments: check('Assignments', listFor('teams'), this._activeArray('teams'), (a) => a.teamName || a.name || '(unnamed)', (a) => a.category)
+            };
+        },
+
         // Assignments (recurring team work: cleaning, lab work, huddles...)
         getAssignmentsData() {
             const list = (this.safeParse('teams', []) || []).filter(Boolean);
@@ -109451,6 +109503,7 @@ console.log('? Global functions exported to window object');
                 assignmentsData: safe(() => this.getAssignmentsData()),
                 requestsData: safe(() => this.getRequestsData()),
                 vendorsData: safe(() => this.getVendorsData()),
+                categoriesData: safe(() => this.getCategoriesData()),
                 tasksData: safe(() => this.getTasksData()),
                 proceduresData: safe(() => this.getProceduresData()),
                 clinicsData: safe(() => this.getClinicsData()),
@@ -109949,34 +110002,90 @@ console.log('? Global functions exported to window object');
                 },
 
                 'open_settings_panel': (data) => {
-                    const panelMap = {
-                        'manage-users': 'openManageUsersModal',
-                        'manage-roles': 'openManageRolesModal',
-                        'manage-clinics': 'openManageClinicsModal',
-                        'manage-rooms': 'openManageRoomsModal',
-                        'manage-schedule': 'openManageScheduleModal',
-                        'manage-tasks': 'openManageTasksModal',
-                        'manage-duties': 'openManageDutiesModal',
-                        'manage-permissions': 'openManagePermissionsModal',
-                        'master-settings': 'openMasterSettingsModal'
+                    const panels = {
+                        'manage-users': { fn: 'openUserManagement', item: 'manageUsersMenuItem', label: 'Manage Users' },
+                        'manage-roles': { fn: 'openRolesManagement', item: 'manageRolesMenuItem', label: 'Manage Roles' },
+                        'manage-clinics': { fn: 'openOfficesManagement', item: 'manageOfficesMenuItem', label: 'Manage Clinics' },
+                        'manage-rooms': { fn: 'openRoomsManagement', item: 'manageRoomsMenuItem', label: 'Manage Rooms' },
+                        'manage-permissions': { fn: 'openPermissionsManagement', item: 'managePermissionsMenuItem', label: 'Manage Permissions' },
+                        'master-settings': { fn: 'openMasterSettings', item: 'masterSettingsMenuItem', label: 'Master Settings' },
+                        'calendar-settings': { fn: 'openDashboardCalendarSettings', item: 'calendarSettingsMenuItem', label: 'Calendar Settings' },
+                        'manage-schedule': { fn: 'openScheduleManager', label: 'Manage Schedule' },
+                        'manage-tasks': { fn: 'openTasksManagement', label: 'Manage Tasks' },
+                        'manage-duties': { fn: 'openDutiesManagement', label: 'Manage Duties' }
                     };
-                    const fnName = panelMap[data.panel];
-                    if (fnName && typeof window[fnName] === 'function') {
-                        window[fnName]();
-                        this.showToast(`Opened ${data.panel}`, 'fa-gear');
-                    } else {
-                        // Try clicking the settings menu item
-                        const settingsLink = document.querySelector(`[onclick*="${fnName}"]`);
-                        if (settingsLink) {
-                            settingsLink.click();
-                            this.showToast(`Opened ${data.panel}`, 'fa-gear');
+                    const key = String((data && data.panel) || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+                    const panel = panels[key] || panels['manage-' + key];
+                    if (!panel) {
+                        CopilotUI.addMessage('assistant', `I can't open "${(data && data.panel) || 'that'}" from here yet.`);
+                        return;
+                    }
+                    // Respect the same permissions the menus use: a hidden menu entry means no access.
+                    const menuItem = panel.item ? document.getElementById(panel.item) : null;
+                    const navLinks = panel.item ? [] : Array.from(document.querySelectorAll(`.nav-item[onclick*="${panel.fn}("]`));
+                    const hiddenByPermission = (menuItem && menuItem.style.display === 'none')
+                        || (navLinks.length > 0 && navLinks.every((link) => link.style.display === 'none'));
+                    if (hiddenByPermission) {
+                        CopilotUI.addMessage('assistant', `${panel.label} isn't available for your account.`);
+                        return;
+                    }
+                    try {
+                        if (typeof window[panel.fn] === 'function') {
+                            window[panel.fn]();
+                        } else {
+                            const trigger = menuItem || navLinks[0] || document.querySelector(`[onclick*="${panel.fn}("]`);
+                            if (!trigger) throw new Error(`${panel.fn} not found`);
+                            trigger.click();
                         }
+                        this.showToast(`Opened ${panel.label}`, 'fa-gear');
+                    } catch (e) {
+                        console.warn('DentaBrain: could not open panel', key, e);
+                        CopilotUI.addMessage('assistant', `I couldn't open ${panel.label}. You can open it from the settings menu.`);
                     }
                 },
 
                 'create_task': (data) => {
-                    this.showToast(`Task "${data.title}" ready to create`, 'fa-plus-circle');
-                    this.navigateToView('task-hub');
+                    // Open the real task form filled in; the user reviews it and clicks Save.
+                    const priorityMap = { low: 'Low', medium: 'Medium', high: 'High', urgent: 'Critical', critical: 'Critical' };
+                    const template = {
+                        title: String((data && data.title) || '').trim(),
+                        description: String((data && data.description) || '').trim(),
+                        priority: priorityMap[String((data && data.priority) || '').toLowerCase()] || 'Medium',
+                        taskType: 'Regular'
+                    };
+                    const due = String((data && data.dueDate) || '').match(/^\d{4}-\d{2}-\d{2}/);
+                    if (due) template.dueDate = due[0];
+                    const wanted = String((data && data.assignee) || '').trim();
+                    let unmatchedAssignee = '';
+                    if (wanted) {
+                        let users = {};
+                        try { users = JSON.parse(localStorage.getItem('appUsers') || '{}') || {}; } catch (_) { users = {}; }
+                        let me = '';
+                        try { me = String((JSON.parse(localStorage.getItem('currentUser') || '{}') || {}).username || ''); } catch (_) {}
+                        const lc = (s) => String(s || '').trim().toLowerCase();
+                        const target = /^(me|myself|i)$/i.test(wanted) ? lc(me) : lc(wanted);
+                        const entry = Object.entries(users).find(([key, u]) => {
+                            if (!u || typeof u !== 'object') return false;
+                            const full = `${u.firstName || ''} ${u.lastName || ''}`.trim();
+                            return [key, u.username, u.fullName, u.name, full].some((v) => v && lc(v) === target);
+                        });
+                        if (entry) {
+                            const [key, u] = entry;
+                            template.assignee = (u.firstName && u.lastName) ? `${u.firstName} ${u.lastName}` : key;
+                        } else {
+                            unmatchedAssignee = wanted;
+                        }
+                    }
+                    if (typeof window.openTaskFormSafe === 'function') {
+                        window.openTaskFormSafe(template);
+                        this.showToast('Task form ready. Check it and click Save.', 'fa-plus-circle');
+                        if (unmatchedAssignee) {
+                            CopilotUI.addMessage('assistant', `I couldn't find "${unmatchedAssignee}" to assign, so please pick the assignee in the form.`);
+                        }
+                    } else {
+                        this.navigateToView('task-hub');
+                        CopilotUI.addMessage('assistant', 'The task form isn\'t ready yet. I opened the Task Hub so you can add it there.');
+                    }
                 },
 
                 'highlight_item': (data) => {
@@ -110028,49 +110137,92 @@ console.log('? Global functions exported to window object');
                 },
 
                 'open_chat': (data) => {
-                    // Open the Team Chat modal
-                    if (typeof window.openChat === 'function') {
-                        window.openChat();
-                        this.showToast('Chat opened!', 'fa-comments');
-
-                        // If a specific username was provided, try to open DM with them
-                        if (data.username) {
-                            setTimeout(() => {
-                                // Try to find and start chat with the user
-                                if (typeof window.startChatWithLocal === 'function') {
-                                    // Look up user info from appUsers
-                                    try {
-                                        const appUsers = JSON.parse(localStorage.getItem('appUsers') || '{}');
-                                        const userEntry = Object.entries(appUsers).find(([key, u]) => {
-                                            const uname = (u.username || key || '').toLowerCase();
-                                            const fname = (u.fullName || u.name || '').toLowerCase();
-                                            const target = data.username.toLowerCase();
-                                            return uname === target || fname.includes(target) || target.includes(uname);
-                                        });
-                                        if (userEntry) {
-                                            const [key, user] = userEntry;
-                                            const firstName = (user.fullName || user.name || key).split(' ')[0];
-                                            const lastName = (user.fullName || user.name || '').split(' ').slice(1).join(' ');
-                                            window.startChatWithLocal(user.username || key, firstName, lastName);
-                                            this.showToast(`Opened chat with ${firstName}`, 'fa-user');
-                                        }
-                                    } catch (e) {
-                                        console.warn('Copilot: Could not find user for chat', e);
-                                    }
-                                }
-                                // Pre-fill message if provided
-                                if (data.message) {
-                                    const input = document.getElementById('messageInput');
-                                    if (input) {
-                                        input.value = data.message;
-                                        input.focus();
-                                    }
-                                }
-                            }, 600);
-                        }
-                    } else {
+                    // Open Team Chat; when a person is named, open the direct conversation with them.
+                    if (typeof window.openChat !== 'function') {
                         this.showToast('Chat is not available', 'fa-exclamation-circle');
+                        return;
                     }
+                    window.openChat();
+                    const target = String((data && (data.username || data.name || data.person)) || '').trim();
+                    const prefill = String((data && data.message) || '');
+                    if (!target) {
+                        this.showToast('Chat opened!', 'fa-comments');
+                        return;
+                    }
+                    const norm = (s) => String(s || '').toLowerCase().normalize('NFD')
+                        .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9@.]+/g, ' ').replace(/\s+/g, ' ').trim();
+                    const want = norm(target);
+                    const findMatches = (users) => {
+                        const scored = [];
+                        (users || []).forEach((u) => {
+                            if (!u || u.Id === undefined || u.Id === null || u.Id === '') return;
+                            const first = norm(u.FirstName);
+                            const uname = norm(u.Username);
+                            const full = norm(`${u.FirstName || ''} ${u.LastName || ''}`);
+                            let score = 0;
+                            if (full && full === want) score = 100;
+                            else if (uname && uname === want) score = 90;
+                            else if (first && first === want) score = 70;
+                            else if (full && want.length >= 3 && full.includes(want)) score = 50;
+                            else if (full && full.length >= 3 && want.includes(full)) score = 40;
+                            if (score) scored.push({ u, score });
+                        });
+                        if (!scored.length) return [];
+                        const best = Math.max(...scored.map((s) => s.score));
+                        return scored.filter((s) => s.score === best).map((s) => s.u);
+                    };
+                    const showPicker = (searchText) => {
+                        if (typeof window.showNewChatPanel !== 'function') return;
+                        window.showNewChatPanel();
+                        let tries = 0;
+                        const fill = () => {
+                            const search = document.getElementById('userSearchInput');
+                            const list = document.getElementById('chatUsersList');
+                            const loading = list && list.querySelector('.fa-spinner');
+                            if ((!search || loading) && tries++ < 20) { setTimeout(fill, 150); return; }
+                            if (!search) return;
+                            search.value = searchText;
+                            if (typeof window.filterChatUsers === 'function') window.filterChatUsers();
+                            search.focus();
+                        };
+                        setTimeout(fill, 150);
+                    };
+                    const openWith = async () => {
+                        let users = [];
+                        try {
+                            const myId = typeof window.getCurrentChatUserId === 'function' ? await window.getCurrentChatUserId() : null;
+                            const res = await fetch(`/api/chat?action=users&userId=${encodeURIComponent(myId || '')}`);
+                            if (res.ok) {
+                                const list = await res.json();
+                                if (Array.isArray(list)) { users = list; window.chatUsersCache = list; }
+                            }
+                        } catch (e) {
+                            console.warn('DentaBrain: could not load chat users', e);
+                        }
+                        if (!users.length && Array.isArray(window.chatUsersCache)) users = window.chatUsersCache;
+                        const matches = findMatches(users);
+                        if (matches.length === 1 && typeof window.startChatWith === 'function') {
+                            const person = matches[0];
+                            const label = `${person.FirstName || ''} ${person.LastName || ''}`.trim() || target;
+                            await window.startChatWith(person.Id);
+                            this.showToast(`Opened chat with ${label}`, 'fa-user');
+                            if (prefill) {
+                                setTimeout(() => {
+                                    const input = document.getElementById('messageInput');
+                                    if (input) { input.value = prefill; input.focus(); }
+                                }, 300);
+                            }
+                            return;
+                        }
+                        if (matches.length > 1) {
+                            showPicker(target);
+                            CopilotUI.addMessage('assistant', `More than one person matches "${target}". Pick the right one in Team Chat.`);
+                        } else {
+                            showPicker(target.split(/\s+/)[0]);
+                            CopilotUI.addMessage('assistant', `I couldn't find "${target}" among the people you can chat with. Team Chat is open so you can pick them, or check that they have an account.`);
+                        }
+                    };
+                    setTimeout(() => { openWith(); }, 250);
                 },
 
                 'show_create_form': (data) => {
