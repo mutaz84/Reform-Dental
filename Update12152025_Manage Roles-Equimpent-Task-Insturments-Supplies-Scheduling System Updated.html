@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261124-dentabrain-attendance-v198';
+                const buildVersion = '20261124-dentabrain-staff-v199';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -108311,21 +108311,78 @@ console.log('? Global functions exported to window object');
         // Get staff/employees data
         getStaffData() {
             const users = this.safeParse('appUsers', {});
+            // Personal details (age, birthday, phone, email) only for people who can open employee profiles.
+            let canSeePersonal = false;
+            try {
+                canSeePersonal = typeof hasPermission === 'function' && hasPermission('users', 'edit', 'readonly');
+            } catch (_) { canSeePersonal = false; }
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            const parseDay = (value) => {
+                const raw = String(value || '').trim();
+                let m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+                if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+                m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                if (m) return new Date(Number(m[3]), Number(m[1]) - 1, Number(m[2]));
+                return null;
+            };
+            const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const fullYearsSince = (d) => {
+                let years = today.getFullYear() - d.getFullYear();
+                if (today.getMonth() < d.getMonth() || (today.getMonth() === d.getMonth() && today.getDate() < d.getDate())) years--;
+                return years;
+            };
+            const bump = (map, key) => { const k = String(key || '').trim() || 'Not set'; map[k] = (map[k] || 0) + 1; };
             const summary = {
                 totalUsers: 0,
                 byRole: {},
+                byJobTitle: {},
+                byDepartment: {},
+                byStatus: {},
+                personalDetailsIncluded: canSeePersonal,
+                note: canSeePersonal
+                    ? 'age and birthday come from Date of Birth on each employee profile, and hireDate/yearsOfService from Hire Date. A missing field means it was not entered on the profile. Pay, SSN, home address and emergency contacts are never shared with DentaBrain.'
+                    : 'Age, birthday, phone and email are not shared for this signed-in user because they cannot open employee profiles. Pay, SSN, home address and emergency contacts are never shared with DentaBrain.',
                 userList: []
             };
-            for (const [username, userData] of Object.entries(users)) {
+            for (const [username, userData] of Object.entries(users || {})) {
+                if (!userData || typeof userData !== 'object') continue;
                 summary.totalUsers++;
                 const role = userData.role || 'unassigned';
-                summary.byRole[role] = (summary.byRole[role] || 0) + 1;
-                summary.userList.push({
-                    username,
-                    name: userData.fullName || userData.name || username,
-                    role: role,
-                    status: userData.status || 'active'
-                });
+                const status = userData.employeeStatus || userData.status || 'active';
+                const name = userData.fullName || userData.name
+                    || [userData.firstName, userData.lastName].filter(Boolean).join(' ').trim()
+                    || username;
+                bump(summary.byRole, role);
+                bump(summary.byJobTitle, userData.jobTitle);
+                bump(summary.byDepartment, userData.department);
+                bump(summary.byStatus, status);
+                const row = { username, name, role, status };
+                if (userData.jobTitle) row.jobTitle = userData.jobTitle;
+                if (userData.department) row.department = userData.department;
+                if (userData.staffType) row.staffType = userData.staffType;
+                if (userData.employeeType) row.employeeType = userData.employeeType;
+                const office = userData.officeLocation || userData.office || '';
+                if (office) row.office = typeof office === 'string' ? office : (office.name || '');
+                if (userData.directSupervisor) row.supervisor = userData.directSupervisor;
+                const hire = parseDay(userData.hireDate || userData.HireDate);
+                if (hire) {
+                    row.hireDate = isoDay(hire);
+                    row.yearsOfService = Math.max(0, fullYearsSince(hire));
+                }
+                const separated = parseDay(userData.separationDate);
+                if (separated) row.separationDate = isoDay(separated);
+                if (canSeePersonal) {
+                    const dob = parseDay(userData.dateOfBirth || userData.DateOfBirth);
+                    if (dob) {
+                        row.age = fullYearsSince(dob);
+                        row.birthday = `${MONTHS[dob.getMonth()]} ${dob.getDate()}`;
+                    }
+                    if (userData.cellPhone) row.cellPhone = userData.cellPhone;
+                    if (userData.workEmail) row.workEmail = userData.workEmail;
+                }
+                summary.userList.push(row);
             }
             return summary;
         },
@@ -110187,21 +110244,45 @@ console.log('? Global functions exported to window object');
 
         formatResponse(text) {
             if (!text) return '';
-            // Convert markdown-like formatting to HTML
-            let html = this.escapeHtml(text);
-            // Bold
-            html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-            // Bullet lists
-            html = html.replace(/^[\-\*]\s+(.+)$/gm, '<li>$1</li>');
-            html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-            // Numbered lists
-            html = html.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
-            // Line breaks
-            html = html.replace(/\n/g, '<br>');
-            // Clean up consecutive br tags around lists
-            html = html.replace(/<br><ul>/g, '<ul>');
-            html = html.replace(/<\/ul><br>/g, '</ul>');
-            return html;
+            // Small markdown renderer: paragraphs, headings, bullet and numbered lists, bold, inline code.
+            const inline = (s) => this.escapeHtml(s)
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/`([^`]+)`/g, '<code>$1</code>');
+            const lines = String(text).replace(/\r\n?/g, '\n').split('\n');
+            const out = [];
+            let list = null;
+            let para = [];
+            const flushPara = () => {
+                if (para.length) { out.push('<p style="margin:0 0 8px">' + para.join('<br>') + '</p>'); para = []; }
+            };
+            const closeList = () => { if (list) { out.push('</' + list + '>'); list = null; } };
+            for (const rawLine of lines) {
+                const line = rawLine.replace(/\s+$/, '');
+                let m;
+                if (!line.trim()) { flushPara(); continue; }
+                if ((m = line.match(/^\s*[-*•]\s+(.*)$/))) {
+                    flushPara();
+                    if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; }
+                    out.push('<li>' + inline(m[1]) + '</li>');
+                    continue;
+                }
+                if ((m = line.match(/^\s*(\d+)[.)]\s+(.*)$/))) {
+                    flushPara();
+                    if (list !== 'ol') { closeList(); out.push('<ol start="' + Number(m[1]) + '">'); list = 'ol'; }
+                    out.push('<li>' + inline(m[2]) + '</li>');
+                    continue;
+                }
+                if ((m = line.match(/^\s*#{1,6}\s+(.*)$/))) {
+                    flushPara(); closeList();
+                    out.push('<p style="margin:0 0 6px"><strong>' + inline(m[1]) + '</strong></p>');
+                    continue;
+                }
+                closeList();
+                para.push(inline(line));
+            }
+            flushPara();
+            closeList();
+            return out.join('');
         },
 
         escapeHtml(text) {
@@ -110784,7 +110865,7 @@ console.log('? Global functions exported to window object');
             }
             const peopleList = clockedInPeople.slice(0, 25).map((name) => `- ${name}`).join('\n');
             return {
-                reply: `${actualClockedIn} employee${actualClockedIn === 1 ? '' : 's'} are clocked in right now:\n${peopleList}`,
+                reply: `${actualClockedIn} ${actualClockedIn === 1 ? 'employee is' : 'employees are'} clocked in right now:\n${peopleList}`,
                 suggestions: ['Who is on break?', 'How many are absent today?', 'Show attendance overview']
             };
         }
