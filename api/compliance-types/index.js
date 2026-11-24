@@ -220,3 +220,5 @@ VALUES (${insertValues.join(', ')})`);
         }
     }
 };
+
+module.exports = require('../shared/auth').withAuth(module.exports);

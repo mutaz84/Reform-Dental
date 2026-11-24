@@ -407,3 +407,5 @@ WHERE ${byNumericId ? 'Id = @id' : 'TemplateKey = @templateKey'}
         }
     }
 };
+
+module.exports = require('../shared/auth').withAuth(module.exports);

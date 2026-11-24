@@ -717,3 +717,5 @@ WHERE ${whereClauses.join(' AND ')}`);
         context.res = { status: 500, headers, body: { error: err.message } };
     }
 };
+
+module.exports = require('../shared/auth').withAuth(module.exports);

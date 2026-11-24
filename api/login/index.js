@@ -1,4 +1,5 @@
 const sql = require('mssql');
+const { issueToken, verifyPassword, hashPassword, withAuth } = require('../shared/auth');
 
 function getConfig() {
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -135,11 +136,25 @@ module.exports = async function (context, req) {
         const user = result.recordset[0];
     const permissionsFromTable = hasPermissionsTable ? await readUserPermissionsFromTable(pool, user.Id) : null;
         const permissionsPayload = permissionsFromTable || (hasPermissionsColumn ? user.Permissions : null);
-        // Simple password check (in production, use bcrypt.compare)
-        if (user.PasswordHash !== password && password !== 'admin123') {
+        const passwordCheck = verifyPassword(password, user.PasswordHash);
+        if (!passwordCheck.ok) {
             context.res = { status: 401, headers, body: { error: 'Invalid credentials' } };
             return;
         }
+
+        // Older rows store the password in plain text (or bcrypt). Replace it with a scrypt
+        // hash now that we know the password is correct, so no one has to reset.
+        if (passwordCheck.needsUpgrade) {
+            try {
+                await pool.request()
+                    .input('id', sql.Int, user.Id)
+                    .input('passwordHash', sql.NVarChar, hashPassword(password))
+                    .query('UPDATE Users SET PasswordHash = @passwordHash WHERE Id = @id');
+            } catch (upgradeError) {
+                context.log.warn('Password hash upgrade failed:', upgradeError.message);
+            }
+        }
+        delete user.PasswordHash;
 
         // Load assigned clinics (many-to-many)
         let clinics = [];
@@ -226,11 +241,14 @@ module.exports = async function (context, req) {
             context.log.warn('Login session tracking write failed:', sessionError.message);
         }
 
+        const session = issueToken(user);
         context.res = {
             status: 200,
             headers,
             body: {
                 success: true,
+                token: session.token,
+                tokenExpiresAt: session.expiresAt,
                 user: {
                     id: user.Id,
                     username: user.Username,
@@ -247,6 +265,8 @@ module.exports = async function (context, req) {
         };
     } catch (err) {
         context.log.error('Login error:', err);
-        context.res = { status: 500, headers, body: { error: 'Server error', details: err.message } };
+        context.res = { status: 500, headers, body: { error: 'Server error' } };
     }
 };
+
+module.exports = withAuth(module.exports, { public: true });

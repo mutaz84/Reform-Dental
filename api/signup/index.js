@@ -1,4 +1,5 @@
 const { sql, getPool, resetPool } = require('../shared/database');
+const { withAuth, hashPassword } = require('../shared/auth');
 
 const TRIAL_DAYS = 14;
 
@@ -134,7 +135,7 @@ module.exports = async function (context, req) {
         // 2) Create User (role=admin — CK constraint compatible; treated same as owner by app permissions)
         const userReq = tReq()
             .input('username', sql.NVarChar, email)
-            .input('passwordHash', sql.NVarChar, password)
+            .input('passwordHash', sql.NVarChar, hashPassword(password))
             .input('firstName', sql.NVarChar, ownerFirstName)
             .input('lastName', sql.NVarChar, ownerLastName);
         const uCols = ['Username', 'PasswordHash', 'FirstName', 'LastName'];
@@ -250,3 +251,5 @@ module.exports = async function (context, req) {
         context.res = { status, headers, body: { error: friendly, code, detail: raw } };
     }
 };
+
+module.exports = withAuth(module.exports, { public: true });

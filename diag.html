@@ -35,6 +35,15 @@
     const url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
     const isApi = /\/api\//.test(url);
     if (!isApi) return originalFetch(resource, init);
+    // The API now identifies you from your sign-in token (X-Auth-Token); "Act as" is ignored by the server.
+    try {
+      const token = localStorage.getItem('rdAuthToken');
+      if (token) {
+        const h = new Headers((init && init.headers) || {});
+        h.set('X-Auth-Token', token);
+        init = { ...(init || {}), headers: h };
+      }
+    } catch (_) {}
     let uid = null;
     const actAsEl = document.getElementById('actAs');
     if (actAsEl && actAsEl.value && actAsEl.value.trim()) {

@@ -298,3 +298,18 @@ For production, consider:
 1. Check Azure Function logs: Portal → Function App → Functions → [function] → Monitor
 2. Check SQL logs: Portal → SQL Database → Query editor
 3. Test API directly: `https://your-function-app.azurewebsites.net/api/users`
+
+## Sign-in tokens (API authentication)
+
+Every API function except `login`, `signup` and `GET /subscription-plans` requires a signed-in
+session token. The browser sends it in the `X-Auth-Token` header; the server identifies the
+user from the token and ignores any `X-User-Id` header sent by the browser.
+
+- **Recommended:** in each Static Web App (black-sky and gray-forest) go to
+  *Settings → Environment variables* and add `AUTH_TOKEN_SECRET` with a long random value
+  (for example the output of `openssl rand -base64 48`). Changing it later signs everyone out.
+- If `AUTH_TOKEN_SECRET` is not set, the API derives a secret from `SQL_CONNECTION_STRING`,
+  so sign-in still works.
+- Tokens last 12 hours. After that the app returns to the sign-in screen.
+- Passwords are stored as scrypt hashes. Accounts that still hold a plain-text password are
+  converted the next time that person signs in successfully.

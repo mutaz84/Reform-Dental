@@ -251,3 +251,5 @@ module.exports = async function (context, req) {
         context.res = errorResponse('Failed to process equipment-services request.', 500, error.message);
     }
 };
+
+module.exports = require('../shared/auth').withAuth(module.exports);

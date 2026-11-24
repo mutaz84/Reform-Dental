@@ -554,3 +554,5 @@ module.exports = async function (context, req) {
         context.res = errorResponse('Server error', 500, error.message);
     }
 };
+
+module.exports = require('../shared/auth').withAuth(module.exports);
