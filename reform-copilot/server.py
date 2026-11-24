@@ -172,7 +172,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "open_settings_panel",
-            "description": "Open a settings/management panel in the app",
+            "description": "Open a settings or management window: Manage Users, Roles, Clinics, Rooms, Permissions, Schedule, Tasks, Duties, Master Settings or Calendar Settings.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -180,7 +180,8 @@ TOOLS = [
                         "type": "string",
                         "enum": ["manage-users", "manage-roles", "manage-clinics",
                                  "manage-rooms", "manage-schedule", "manage-tasks",
-                                 "manage-duties", "manage-permissions", "master-settings"],
+                                 "manage-duties", "manage-permissions", "master-settings",
+                                 "calendar-settings"],
                         "description": "The settings panel to open"
                     }
                 },
@@ -192,13 +193,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "create_task",
-            "description": "Create a new task and optionally assign it to an employee",
+            "description": "Open the new-task form filled in with these details. The user reviews it and clicks Save; nothing is saved by this call.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": {"type": "string", "description": "Task title"},
                     "description": {"type": "string", "description": "Task description"},
-                    "assignee": {"type": "string", "description": "Employee username to assign to"},
+                    "assignee": {"type": "string", "description": "Who to assign it to: their full name as listed in staffData, or 'me' for the signed-in user."},
                     "priority": {"type": "string", "enum": ["low", "medium", "high", "urgent"]},
                     "dueDate": {"type": "string", "description": "Due date in YYYY-MM-DD format"}
                 },
@@ -282,11 +283,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "open_chat",
-            "description": "Open the Team Chat modal, optionally starting a direct message conversation with a specific user",
+            "description": "Open Team Chat. When the user names a person, pass that person and the direct conversation with them opens.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "username": {"type": "string", "description": "The username of the person to chat with. If omitted, just opens the chat modal."},
+                    "username": {"type": "string", "description": "The person to chat with: their full name as listed in staffData (e.g. 'Sofia Ramirez'), or their username. Omit to just open Team Chat."},
                     "message": {"type": "string", "description": "Optional message to pre-fill in the chat input"}
                 },
                 "required": []
@@ -378,6 +379,27 @@ def build_system_prompt(context: Optional[AppContext]) -> str:
 # Main Chat Endpoint
 # ====================================================
 
+def describe_actions(actions):
+    """Short reply for when the AI only called tools."""
+    first = actions[0]
+    data = first.data or {}
+    if first.type == "open_chat":
+        who = str(data.get("username") or "").strip()
+        return f"Opening your chat with {who}." if who else "Opening Team Chat."
+    if first.type == "navigate_to_view":
+        view = str(data.get("view") or data.get("viewName") or "").strip()
+        return f"Opening {view}." if view else "Opening that page."
+    if first.type == "create_sticky_note":
+        return "Adding your sticky note."
+    if first.type == "create_task":
+        return "I've opened the task form with those details. Check it and click Save."
+    if first.type == "open_settings_panel":
+        panel = str(data.get("panel") or "").strip()
+        label = panel.replace("-", " ").title() if panel else "that window"
+        return f"Opening {label}."
+    return "Done."
+
+
 @app.post("/api/ai/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """Process a user message and return AI response + actions."""
@@ -425,7 +447,7 @@ async def chat(request: ChatRequest):
 
         # If the AI only returned tool calls with no text, generate a follow-up
         if not reply and actions:
-            reply = "Done! I've executed that action for you."
+            reply = describe_actions(actions)
 
         # Generate contextual follow-up suggestions
         suggestions = generate_suggestions(request.message, request.context)
@@ -489,7 +511,7 @@ async def health():
     return {
         "status": "ok",
         "service": "ReformDental Copilot",
-        "version": "2026-11-24.1",
+        "version": "2026-11-24.2",
         "model": MODEL,
         "api_key_configured": bool(os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_API_KEY") != "sk-your-key-here")
     }
