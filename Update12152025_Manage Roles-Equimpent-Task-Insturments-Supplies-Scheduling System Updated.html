@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261124-dentabrain-data-v197';
+                const buildVersion = '20261124-dentabrain-attendance-v198';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -108614,7 +108614,14 @@ console.log('? Global functions exported to window object');
                     clinic: users[username]?.clinic || users[username]?.office || ''
                 }));
 
-            const todaysRecords = (Array.isArray(records) ? records : []).filter((record) => getRecordDateISO(record) === todayISO);
+            // Same rule as the dashboard's "Today's attendance": records dated today, plus a
+            // shift that is still open from late yesterday (clocked in within 36 hours).
+            const isRecentOpenRecord = (record) => {
+                if (!record || !record.clockIn || record.clockOut) return false;
+                const ms = new Date(record.clockIn).getTime();
+                return Number.isFinite(ms) && (Date.now() - ms) <= (36 * 60 * 60 * 1000);
+            };
+            const todaysRecords = (Array.isArray(records) ? records : []).filter((record) => getRecordDateISO(record) === todayISO || isRecentOpenRecord(record));
 
             const latestByUser = {};
             todaysRecords.forEach((record) => {
@@ -108625,6 +108632,22 @@ console.log('? Global functions exported to window object');
                 if (!existing || recordTimestamp(record) >= recordTimestamp(existing)) {
                     latestByUser[key] = record;
                 }
+            });
+
+            // Anyone who clocked in today counts, including the admin account and people
+            // missing from the user list (the employee list above leaves those out).
+            const listedKeys = new Set(employeeUsers.map((employee) => toKey(canonicalFromAny(employee.username) || employee.username)));
+            Object.keys(latestByUser).forEach((key) => {
+                if (listedKeys.has(key)) return;
+                const record = latestByUser[key];
+                const username = canonicalFromAny(record?.username || record?.displayName) || String(record?.username || record?.displayName || key).trim();
+                employeeUsers.push({
+                    username,
+                    displayName: getDisplayName(username, record?.displayName || username),
+                    role: String(users[username]?.role || 'user').toLowerCase(),
+                    clinic: users[username]?.clinic || users[username]?.office || ''
+                });
+                listedKeys.add(key);
             });
 
             const teamStatus = employeeUsers.map((employee) => {
@@ -109060,7 +109083,7 @@ console.log('? Global functions exported to window object');
         getInstrumentsData() {
             const list = this._activeArray('instruments');
             const qty = (i) => Number(i.quantity ?? i.count ?? 0) || 0;
-            const stock = (i) => (i.outOfStock === true || qty(i) <= 0) ? 'Out of stock' : (i.lowStock === true ? 'Low' : 'OK');
+            const stock = (i) => i.outOfStock === true ? 'Out of stock' : (i.lowStock === true ? 'Low' : 'OK');
             const rows = list.map((i) => [i.instrumentName || i.name || '(unnamed)', i.category || '', qty(i), i.status || '', stock(i), i.sterilizationRequired === false ? 'No' : 'Yes', i.officeName || '']);
             return {
                 summary: {
@@ -109068,7 +109091,9 @@ console.log('? Global functions exported to window object');
                     totalQuantity: list.reduce((sum, i) => sum + qty(i), 0),
                     byCategory: this._countBy(list, (i) => i.category || 'Uncategorized'),
                     outOfStock: list.filter((i) => stock(i) === 'Out of stock').length,
-                    lowStock: list.filter((i) => stock(i) === 'Low').length
+                    lowStock: list.filter((i) => stock(i) === 'Low').length,
+                    withZeroQuantity: list.filter((i) => qty(i) <= 0).length,
+                    note: 'stock follows the In Stock / Out of Stock switch on each instrument; quantity is the counted amount'
                 },
                 items: this._table(['name', 'category', 'quantity', 'status', 'stock', 'sterilizationRequired', 'office'], rows, 300)
             };
@@ -109080,7 +109105,7 @@ console.log('? Global functions exported to window object');
                 .concat(this._activeArray('officeSupplies').map((s) => ({ s, group: 'Office' })));
             const qty = (s) => Number(s.quantityInStock ?? s.quantity ?? 0) || 0;
             const reorder = (s) => Number(s.reorderLevel ?? s.minimumStock ?? 0) || 0;
-            const state = (s) => (s.outOfStock === true || qty(s) <= 0) ? 'Out of stock'
+            const state = (s) => s.outOfStock === true ? 'Out of stock'
                 : ((s.lowStock === true || (reorder(s) > 0 && qty(s) <= reorder(s))) ? 'Low' : 'OK');
             const name = (s) => s.supplyName || s.name || '(unnamed)';
             const rows = list.map(({ s, group }) => [name(s), group, s.category || '', qty(s), s.unit || '', reorder(s), state(s), s.vendorName || s.vendor || '', this._date(s.expirationDate)]);
@@ -109091,7 +109116,9 @@ console.log('? Global functions exported to window object');
                     lowStockCount: list.filter((x) => state(x.s) === 'Low').length,
                     outOfStockCount: list.filter((x) => state(x.s) === 'Out of stock').length,
                     lowStockItems: list.filter((x) => state(x.s) === 'Low').map((x) => `${name(x.s)} (${x.group}, ${qty(x.s)} left)`).slice(0, 80),
-                    outOfStockItems: list.filter((x) => state(x.s) === 'Out of stock').map((x) => `${name(x.s)} (${x.group})`).slice(0, 80)
+                    outOfStockItems: list.filter((x) => state(x.s) === 'Out of stock').map((x) => `${name(x.s)} (${x.group})`).slice(0, 80),
+                    withZeroQuantity: list.filter((x) => qty(x.s) <= 0).length,
+                    note: 'stock follows the In Stock / Out of Stock switch on each supply (Low also when quantity is at or below the reorder level); quantity is the counted amount'
                 },
                 items: this._table(['name', 'group', 'category', 'quantity', 'unit', 'reorderLevel', 'stock', 'vendor', 'expires'], rows, 400)
             };
