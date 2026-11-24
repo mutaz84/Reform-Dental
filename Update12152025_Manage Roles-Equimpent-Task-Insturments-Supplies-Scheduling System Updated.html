@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261124-qc-freeze-fix-v196';
+                const buildVersion = '20261124-dentabrain-data-v197';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -108994,71 +108994,232 @@ console.log('? Global functions exported to window object');
             };
         },
 
-        // Get equipment data
+        // ---- Helpers for compact, complete context ----
+        // Big lists go out as {columns, rows} tables: every item is included (up to a
+        // generous cap) without repeating field names, so the AI can count and search.
+        _table(columns, rows, limit) {
+            const list = Array.isArray(rows) ? rows : [];
+            const max = Math.min(list.length, limit || list.length);
+            return { columns, rows: list.slice(0, max), shown: max, total: list.length, truncated: list.length > max };
+        },
+        _todayIso() {
+            const d = new Date();
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        },
+        _date(value) {
+            const text = String(value || '').trim();
+            return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : '';
+        },
+        _isClosed(value) {
+            return /^(completed|complete|closed|cancelled|canceled|resolved|done|denied|dismissed)$/i.test(String(value || '').trim());
+        },
+        _countBy(list, keyFn) {
+            const out = {};
+            list.forEach((item) => { const key = String(keyFn(item) || 'Unknown'); out[key] = (out[key] || 0) + 1; });
+            return out;
+        },
+        _activeArray(key) {
+            const raw = this.safeParse(key, []);
+            return (Array.isArray(raw) ? raw : []).filter((x) => x && x.isActive !== false && x.IsActive !== false);
+        },
+        _equipmentList() {
+            return this._activeArray('equipment').map((e) => ({ e, group: 'Dental' }))
+                .concat(this._activeArray('officeEquipment').map((e) => ({ e, group: 'Office' })));
+        },
+        _equipmentName(e) {
+            return String(e?.equipmentName || e?.EquipmentName || e?.name || e?.Name || '(unnamed)').trim();
+        },
+
+        // Get equipment data (dental + office, every item)
         getEquipmentData() {
-            const equipment = this.safeParse('equipment', []);
-            const summary = {
-                total: equipment.length,
-                byStatus: {},
-                items: equipment.slice(0, 30).map(e => ({
-                    name: e.name,
-                    status: e.status || 'unknown',
-                    location: e.location || e.room,
-                    lastMaintenance: e.lastMaintenance,
-                    nextMaintenance: e.nextMaintenance,
-                    category: e.category
-                }))
+            const list = this._equipmentList();
+            const today = this._todayIso();
+            const nextService = (e) => this._date(e.nextServiceDate || e.NextServiceDate || e.nextMaintenanceDate || e.NextMaintenanceDate);
+            const rows = list.map(({ e, group }) => [
+                this._equipmentName(e), group,
+                e.category || e.equipmentType || '',
+                e.status || e.condition || 'Unknown',
+                e.officeName || '', e.roomName || '',
+                e.manufacturer || '', e.model || '', e.serialNumber || '',
+                nextService(e), this._date(e.warrantyExpiry || e.WarrantyExpiry)
+            ]);
+            return {
+                summary: {
+                    total: list.length,
+                    byGroup: this._countBy(list, (x) => x.group),
+                    byStatus: this._countBy(list, (x) => x.e.status || 'Unknown'),
+                    byCategory: this._countBy(list, (x) => x.e.category || 'Uncategorized'),
+                    notOperational: list.filter(({ e }) => !/^(operational|available|active|ok|good)$/i.test(String(e.status || 'Operational').trim())).length,
+                    serviceDueTodayOrEarlier: list.filter(({ e }) => { const d = nextService(e); return d && d <= today; }).length
+                },
+                items: this._table(['name', 'group', 'category', 'status', 'office', 'room', 'manufacturer', 'model', 'serial', 'nextService', 'warrantyExpires'], rows, 300)
             };
-            equipment.forEach(e => {
-                const st = e.status || 'unknown';
-                summary.byStatus[st] = (summary.byStatus[st] || 0) + 1;
-            });
-            return summary;
         },
 
-        // Get instruments data
+        // Get instruments data (every item)
         getInstrumentsData() {
-            const instruments = this.safeParse('instruments', []);
+            const list = this._activeArray('instruments');
+            const qty = (i) => Number(i.quantity ?? i.count ?? 0) || 0;
+            const stock = (i) => (i.outOfStock === true || qty(i) <= 0) ? 'Out of stock' : (i.lowStock === true ? 'Low' : 'OK');
+            const rows = list.map((i) => [i.instrumentName || i.name || '(unnamed)', i.category || '', qty(i), i.status || '', stock(i), i.sterilizationRequired === false ? 'No' : 'Yes', i.officeName || '']);
             return {
-                total: instruments.length,
-                items: instruments.slice(0, 30).map(i => ({
-                    name: i.name,
-                    quantity: i.quantity || i.count,
-                    status: i.status,
-                    category: i.category,
-                    sterilized: i.sterilized
-                }))
+                summary: {
+                    total: list.length,
+                    totalQuantity: list.reduce((sum, i) => sum + qty(i), 0),
+                    byCategory: this._countBy(list, (i) => i.category || 'Uncategorized'),
+                    outOfStock: list.filter((i) => stock(i) === 'Out of stock').length,
+                    lowStock: list.filter((i) => stock(i) === 'Low').length
+                },
+                items: this._table(['name', 'category', 'quantity', 'status', 'stock', 'sterilizationRequired', 'office'], rows, 300)
             };
         },
 
-        // Get supplies data
+        // Get supplies data (dental + office, every item)
         getSuppliesData() {
-            // Real storage keys are namespaced: dentalSupplies / officeSupplies.
-            // Field names follow the supply schema (supplyName, quantityInStock, reorderLevel, ...).
-            const dental = this.safeParse('dentalSupplies', []);
-            const office = this.safeParse('officeSupplies', []);
-            const all = []
-                .concat(Array.isArray(dental) ? dental : [])
-                .concat(Array.isArray(office) ? office : [])
-                .filter(s => s && s.isActive !== false);
-            const lowStock = all.filter(s => {
-                const qty = parseInt(s.quantityInStock ?? s.quantity ?? 0) || 0;
-                const threshold = parseInt(s.reorderLevel ?? 0) || 0;
-                return threshold > 0 && qty <= threshold;
-            });
-            const mapItem = (s) => ({
-                name: s.supplyName || s.name || '(unnamed)',
-                quantity: Number(s.quantityInStock ?? s.quantity ?? 0) || 0,
-                category: s.category || '',
-                vendor: s.vendorName || s.vendor || '',
-                reorderLevel: Number(s.reorderLevel ?? 0) || 0,
-                type: s.supplyType || ''
-            });
+            const list = this._activeArray('dentalSupplies').map((s) => ({ s, group: 'Dental' }))
+                .concat(this._activeArray('officeSupplies').map((s) => ({ s, group: 'Office' })));
+            const qty = (s) => Number(s.quantityInStock ?? s.quantity ?? 0) || 0;
+            const reorder = (s) => Number(s.reorderLevel ?? s.minimumStock ?? 0) || 0;
+            const state = (s) => (s.outOfStock === true || qty(s) <= 0) ? 'Out of stock'
+                : ((s.lowStock === true || (reorder(s) > 0 && qty(s) <= reorder(s))) ? 'Low' : 'OK');
+            const name = (s) => s.supplyName || s.name || '(unnamed)';
+            const rows = list.map(({ s, group }) => [name(s), group, s.category || '', qty(s), s.unit || '', reorder(s), state(s), s.vendorName || s.vendor || '', this._date(s.expirationDate)]);
             return {
-                total: all.length,
-                lowStockCount: lowStock.length,
-                lowStockItems: lowStock.map(mapItem),
-                allItems: all.slice(0, 30).map(mapItem)
+                summary: {
+                    total: list.length,
+                    byGroup: this._countBy(list, (x) => x.group),
+                    lowStockCount: list.filter((x) => state(x.s) === 'Low').length,
+                    outOfStockCount: list.filter((x) => state(x.s) === 'Out of stock').length,
+                    lowStockItems: list.filter((x) => state(x.s) === 'Low').map((x) => `${name(x.s)} (${x.group}, ${qty(x.s)} left)`).slice(0, 80),
+                    outOfStockItems: list.filter((x) => state(x.s) === 'Out of stock').map((x) => `${name(x.s)} (${x.group})`).slice(0, 80)
+                },
+                items: this._table(['name', 'group', 'category', 'quantity', 'unit', 'reorderLevel', 'stock', 'vendor', 'expires'], rows, 400)
+            };
+        },
+
+        // Equipment service tickets (repairs / maintenance), linked to their equipment
+        getServiceTicketsData() {
+            const raw = (typeof loadEquipmentServiceTicketsRaw === 'function') ? loadEquipmentServiceTicketsRaw() : this.safeParse('equipmentServiceTickets', []);
+            let tickets = Array.isArray(raw) ? raw : [];
+            try { if (typeof dedupeEquipmentServiceTickets === 'function') tickets = dedupeEquipmentServiceTickets(tickets); } catch (_) {}
+            tickets = tickets.filter((t) => t && !t.isDashboardTest && !t.IsDashboardTest);
+            const today = this._todayIso();
+            const equipment = this._equipmentList();
+            const idsOf = (e) => [e.apiId, e.equipmentID, e.EquipmentID, e.equipmentId, e.id, e.Id].map((v) => String(v ?? '').trim()).filter(Boolean);
+            const findEquipment = (id) => {
+                const key = String(id || '').trim();
+                if (!key) return [];
+                return equipment.filter(({ e }) => idsOf(e).includes(key));
+            };
+            const closed = (t) => (typeof isServiceTicketClosed === 'function') ? isServiceTicketClosed(t) : this._isClosed(t.status);
+            const due = (t) => { try { if (typeof getEquipmentServiceDueDate === 'function') return this._date(getEquipmentServiceDueDate(t)); } catch (_) {} return this._date(t.scheduledDate || t.scheduleStartDate); };
+            const overdue = (t) => { if (closed(t)) return false; try { if (typeof isEquipmentServiceOverdue === 'function') return !!isEquipmentServiceOverdue(t); } catch (_) {} const d = due(t); return !!d && d < today; };
+            const enriched = tickets.map((t) => {
+                const matches = findEquipment(t.equipmentID);
+                const groups = [...new Set(matches.map((m) => m.group))];
+                return {
+                    t,
+                    equipment: matches.length ? this._equipmentName(matches[0].e) : (t.equipmentID ? `Equipment #${t.equipmentID}` : ''),
+                    group: groups.length === 1 ? groups[0] : (groups.length > 1 ? 'Dental or Office (same ID)' : 'Unknown'),
+                    isOpen: !closed(t),
+                    isOverdue: overdue(t)
+                };
+            });
+            const open = enriched.filter((x) => x.isOpen);
+            const rows = enriched.map((x) => [x.t.title || x.t.type || 'Service ticket', x.equipment, x.group, x.t.type || '', x.t.status || 'Open', x.t.priority || '', due(x.t), x.isOverdue ? 'Yes' : 'No', x.t.assignedEmployee || '', x.t.vendor || '', x.t.isAutoGenerated ? 'Automatic (preventive schedule)' : 'Manual', this._date(x.t.createdDate)]);
+            return {
+                summary: {
+                    totalTickets: enriched.length,
+                    openTickets: open.length,
+                    closedTickets: enriched.length - open.length,
+                    overdueOpenTickets: open.filter((x) => x.isOverdue).length,
+                    openTicketsByEquipmentGroup: this._countBy(open, (x) => x.group),
+                    openTicketsByStatus: this._countBy(open, (x) => x.t.status || 'Open'),
+                    openTicketsByType: this._countBy(open, (x) => x.t.type || 'Unknown'),
+                    equipmentItemsWithOpenTickets: new Set(open.map((x) => `${x.group}|${x.t.equipmentID}`)).size,
+                    note: 'The Equipment page card "Open Service Tickets" counts equipment items that have at least one open ticket (equipmentItemsWithOpenTickets), not tickets.'
+                },
+                items: this._table(['title', 'equipment', 'equipmentGroup', 'type', 'status', 'priority', 'dueDate', 'overdue', 'assignedTo', 'vendor', 'source', 'created'], rows, 300)
+            };
+        },
+
+        // Services (utilities and contracts: internet, phone, waste, software...) and their tickets
+        getServicesData() {
+            const raw = (typeof window.loadUtilities === 'function') ? window.loadUtilities() : this.safeParse('utilities', []);
+            const all = (Array.isArray(raw) ? raw : []).filter(Boolean);
+            const active = all.filter((u) => u.isActive !== false);
+            const today = this._todayIso();
+            const in60 = (() => { const d = new Date(); d.setDate(d.getDate() + 60); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+            const cost = (u) => Number(String(u.monthlyCost ?? '').replace(/[^0-9.]/g, '')) || 0;
+            const rows = all.map((u) => [u.utilityName || u.name || '(unnamed)', u.category || '', u.provider || '', u.service || '', cost(u), this._date(u.contractEndDate), u.status || '', u.isActive === false ? 'Archived' : 'Active']);
+            const tickets = (this.safeParse('utilityTickets', []) || []).filter(Boolean);
+            const nameById = {};
+            all.forEach((u) => { [u.utilityID, u.apiId, u.id].forEach((id) => { if (id !== undefined && id !== null) nameById[String(id)] = u.utilityName || u.name || ''; }); });
+            const openTickets = tickets.filter((t) => !this._isClosed(t.status));
+            return {
+                summary: {
+                    total: all.length,
+                    active: active.length,
+                    archived: all.length - active.length,
+                    monthlyTotalActive: Math.round(active.reduce((sum, u) => sum + cost(u), 0) * 100) / 100,
+                    byCategory: this._countBy(active, (u) => u.category || 'Uncategorized'),
+                    contractsEndingWithin60Days: active.filter((u) => { const d = this._date(u.contractEndDate); return d && d >= today && d <= in60; }).map((u) => `${u.utilityName || u.name} (${this._date(u.contractEndDate)})`),
+                    totalTickets: tickets.length,
+                    openTickets: openTickets.length
+                },
+                items: this._table(['name', 'category', 'provider', 'service', 'monthlyCost', 'contractEnds', 'status', 'state'], rows, 200),
+                tickets: this._table(['title', 'service', 'status', 'priority', 'date'], tickets.map((t) => [t.title || t.type || 'Ticket', nameById[String(t.utilityId)] || '', t.status || 'Open', t.priority || '', this._date(t.scheduledDate || t.date || t.createdDate)]), 150)
+            };
+        },
+
+        // Assignments (recurring team work: cleaning, lab work, huddles...)
+        getAssignmentsData() {
+            const list = (this.safeParse('teams', []) || []).filter(Boolean);
+            const active = list.filter((a) => a.isActive !== false);
+            const status = (a) => a.workStatus || a.status || 'Pending';
+            const rows = list.map((a) => [a.teamName || a.name || '(unnamed)', a.category || '', a.teamLeadName || '', Array.isArray(a.members) ? a.members.length : 0, a.priority || '', status(a), this._date(a.scheduleDate), a.scheduleTime || '', a.isActive === false ? 'Inactive' : 'Active']);
+            return {
+                summary: {
+                    total: list.length,
+                    active: active.length,
+                    byCategory: this._countBy(active, (a) => a.category || 'Uncategorized'),
+                    byStatus: this._countBy(active, status),
+                    withoutLead: active.filter((a) => !a.teamLeadName).length
+                },
+                items: this._table(['name', 'category', 'lead', 'members', 'priority', 'status', 'scheduledDate', 'scheduledTime', 'state'], rows, 200)
+            };
+        },
+
+        // The dashboard's Overdue / Unscheduled / Scheduled-today lists, exactly as shown on screen
+        getOperationsData() {
+            try {
+                if (typeof dashboardBuildModel !== 'function') return null;
+                const model = dashboardBuildModel();
+                const days = (entry) => { try { return typeof dashboardOverdueDays === 'function' ? dashboardOverdueDays(entry, model.activeDate) : null; } catch (_) { return null; } };
+                const row = (e) => [e.title || '', e.kind || '', e.parentName || '', e.operationType || '', e.assignedName || '', e.scheduleDate || '', e.scheduleTime || '', days(e), (e.record && (e.record.priority || e.record.Priority)) || '', (e.record && (e.record.workStatus || e.record.status || e.record.Status)) || ''];
+                const cols = ['title', 'kind', 'for', 'type', 'assignedTo', 'dueDate', 'time', 'daysOverdue', 'priority', 'status'];
+                return {
+                    dashboardDate: model.activeDate,
+                    summary: { overdue: model.overdue.length, unscheduled: model.unscheduled.length, scheduledOnDashboardDate: model.scheduled.length, unassignedUnscheduled: model.unassigned, oldestOverdueDays: model.oldest },
+                    overdue: this._table(cols, model.overdue.map(row), 60),
+                    unscheduled: this._table(cols, model.unscheduled.map(row), 60),
+                    scheduledOnDashboardDate: this._table(cols, model.scheduled.map(row), 60)
+                };
+            } catch (_) { return null; }
+        },
+
+        // Staff requests (time off, purchases, help...) as loaded for the dashboard
+        getRequestsData() {
+            const raw = Array.isArray(window.__dashboardRequestsCache) ? window.__dashboardRequestsCache : this.safeParse('dashboardRequestsCache', []);
+            const list = (Array.isArray(raw) ? raw : []).filter(Boolean);
+            if (!list.length) return null;
+            const pick = (r, keys) => { for (const k of keys) { const v = r[k]; if (v !== undefined && v !== null && String(v).trim()) return String(v).trim(); } return ''; };
+            const status = (r) => pick(r, ['status', 'Status']) || 'Pending';
+            const type = (r) => pick(r, ['requestType', 'RequestType', 'type', 'Type', 'category', 'Category']);
+            const rows = list.map((r) => [pick(r, ['title', 'Title', 'subject', 'Subject']) || type(r) || 'Request', type(r), status(r), pick(r, ['requestedByName', 'RequestedByName', 'requesterName', 'RequesterName', 'createdByName', 'CreatedByName']), pick(r, ['assignedToName', 'AssignedToName', 'approverName', 'ApproverName']), this._date(pick(r, ['createdDate', 'CreatedDate', 'createdAt', 'CreatedAt', 'date', 'Date']))]);
+            return {
+                summary: { total: list.length, byStatus: this._countBy(list, status), byType: this._countBy(list, (r) => type(r) || 'General') },
+                items: this._table(['title', 'type', 'status', 'requestedBy', 'assignedTo', 'created'], rows, 100)
             };
         },
 
@@ -109180,28 +109341,39 @@ console.log('? Global functions exported to window object');
             return null;
         },
 
-        // Build full context for the AI
+        // Build full context for the AI. Each section is built on its own, so one
+        // unexpected record can't stop DentaBrain from answering.
         buildFullContext() {
             const userInfo = this.getUserInfo();
+            const now = new Date();
+            const safe = (fn) => { try { return fn(); } catch (error) { console.warn('[DentaBrain] context section failed:', error); return null; } };
             return {
                 currentView: this.getCurrentView(),
                 userName: userInfo.userName,
                 userRole: userInfo.userRole,
-                currentDate: new Date().toISOString(),
-                staffData: this.getStaffData(),
-                scheduleData: this.getScheduleData(),
-                attendanceData: this.getAttendanceData(),
-                stickyNotesData: this.getStickyNotesData(),
-                documentsData: this.getCopilotDocumentsData(),
-                equipmentData: this.getEquipmentData(),
-                instrumentsData: this.getInstrumentsData(),
-                suppliesData: this.getSuppliesData(),
-                vendorsData: this.getVendorsData(),
-                tasksData: this.getTasksData(),
-                proceduresData: this.getProceduresData(),
-                clinicsData: this.getClinicsData(),
-                roomsData: this.getRoomsData(),
-                dashboardSummaryData: this.getDashboardSummaryData()
+                currentDate: now.toISOString(),
+                localDateTime: now.toLocaleString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+                todayIso: this._todayIso(),
+                timeZone: safe(() => Intl.DateTimeFormat().resolvedOptions().timeZone) || '',
+                staffData: safe(() => this.getStaffData()),
+                scheduleData: safe(() => this.getScheduleData()),
+                attendanceData: safe(() => this.getAttendanceData()),
+                operationsData: safe(() => this.getOperationsData()),
+                equipmentData: safe(() => this.getEquipmentData()),
+                serviceTicketsData: safe(() => this.getServiceTicketsData()),
+                instrumentsData: safe(() => this.getInstrumentsData()),
+                suppliesData: safe(() => this.getSuppliesData()),
+                servicesData: safe(() => this.getServicesData()),
+                assignmentsData: safe(() => this.getAssignmentsData()),
+                requestsData: safe(() => this.getRequestsData()),
+                vendorsData: safe(() => this.getVendorsData()),
+                tasksData: safe(() => this.getTasksData()),
+                proceduresData: safe(() => this.getProceduresData()),
+                clinicsData: safe(() => this.getClinicsData()),
+                roomsData: safe(() => this.getRoomsData()),
+                stickyNotesData: safe(() => this.getStickyNotesData()),
+                documentsData: safe(() => this.getCopilotDocumentsData()),
+                dashboardSummaryData: safe(() => this.getDashboardSummaryData())
             };
         }
     };

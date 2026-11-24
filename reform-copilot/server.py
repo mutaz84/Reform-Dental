@@ -13,13 +13,13 @@ from datetime import datetime
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
 
-app = FastAPI(title="ReformDental Copilot", version="1.0.0")
+app = FastAPI(title="ReformDental Copilot", version="2026-11-24.1")
 
 # Allow CORS from the dental app (file:// and localhost)
 app.add_middleware(
@@ -38,22 +38,21 @@ MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 # ====================================================
 
 class AppContext(BaseModel):
-    """Current state of the dental app sent with each message."""
+    """Current state of the dental app sent with each message.
+
+    Sections are free-form dicts built by the app (ContextEngine.buildFullContext).
+    Unknown sections are kept too (extra="allow"), so a new section in the app
+    reaches the AI without a server change.
+    """
+    model_config = ConfigDict(extra="allow")
+
     currentView: Optional[str] = None
     userRole: Optional[str] = None
     userName: Optional[str] = None
     currentDate: Optional[str] = None
-    # Data summaries (the frontend builds these)
-    scheduleData: Optional[dict] = None
-    staffData: Optional[dict] = None
-    equipmentData: Optional[dict] = None
-    instrumentsData: Optional[dict] = None
-    suppliesData: Optional[dict] = None
-    vendorsData: Optional[dict] = None
-    tasksData: Optional[dict] = None
-    proceduresData: Optional[dict] = None
-    clinicsData: Optional[dict] = None
-    roomsData: Optional[dict] = None
+    localDateTime: Optional[str] = None
+    todayIso: Optional[str] = None
+    timeZone: Optional[str] = None
 
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
@@ -79,80 +78,70 @@ class ChatResponse(BaseModel):
 # System Prompt - Defines the Copilot's personality & capabilities
 # ====================================================
 
-SYSTEM_PROMPT = """You are ReformDental Copilot, an AI assistant embedded in a dental practice management application called ReformDental.
+SYSTEM_PROMPT = """You are DentaBrain, the AI assistant built into ReformDental, a dental practice management app.
 
-## Your Role
-You help dental office staff with scheduling, inventory, tasks, procedures, and general office management. You are knowledgeable, professional, helpful, and concise.
+## Today
+{current_datetime} (time zone: {time_zone}). Today's date is {today}.
 
-## Current Date/Time
-{current_datetime}
-
-## Current User
+## Current user
 - Name: {user_name}
 - Role: {user_role}
-- Current View: {current_view}
+- Page they are on: {current_view}
 
-## Capabilities
-You can answer questions about AND take actions on:
-1. **Scheduling** - View today's schedule, who's working, room availability
-2. **Staff** - Employee info, roles, who's on duty
-3. **Equipment** - Equipment inventory, status, maintenance needs
-4. **Instruments** - Instrument inventory and availability
-5. **Supplies** - Supply stock levels, reorder needs
-6. **Tasks** - Task assignments, status, workload
-7. **Procedures** - Dental procedure info, required instruments/supplies
-8. **Vendors** - Vendor contact info, orders
-9. **Navigation** - Navigate the user to any page/section in the app
-10. **Clinics & Rooms** - Office/clinic info, room assignments
+## How to answer
+- Answer from the practice data below. It is live data from the app, sent with this question.
+- Be specific: give numbers, names, dates and statuses. Be concise; use short bullet lists for lists.
+- "How many" questions: use the precomputed counts in each section's "summary" first. If you count rows yourself, count carefully and only rows that match.
+- Lists are tables: "columns" names the fields and each entry in "rows" is one item in that column order. "total" is how many items exist; if "truncated" is true, only "shown" items are listed, so say the list is partial.
+- If something is not in the data, say exactly what is missing and which page in the app shows it. Never invent names, numbers or dates.
+- Dates are YYYY-MM-DD. "Overdue" means a due date before today that isn't completed.
+- When the user wants to go to a page or do something, use the matching tool.
 
-## Response Format Rules
-- Be concise and direct. No filler text.
-- Use bullet points for lists.
-- When you have data, give specific numbers and names.
-- If data is not available in the context, say so honestly.
-- When suggesting an action, include it in the function call.
+## What the data means
+- equipmentData: every piece of equipment. group "Dental" = Dental Equipment page, "Office" = Office Equipment page.
+- serviceTicketsData: service tickets = repair, maintenance and compliance work orders on equipment. Each row names its equipment and equipmentGroup (Dental / Office). Open = not completed or cancelled. The Equipment page card "Open Service Tickets" counts equipment items with an open ticket (summary.equipmentItemsWithOpenTickets), not tickets; when asked about tickets give the ticket count and, if useful, that number too.
+- servicesData: the Services page = utilities and contracts (internet, phone, waste, software, banking...), with their own tickets. These are not equipment service tickets.
+- assignmentsData: the Assignments page = team work such as cleaning, lab work and huddles.
+- operationsData: the dashboard's Overdue / Unscheduled / scheduled lists, exactly as the dashboard shows them for dashboardDate. Use it for "what is overdue" and "what is unscheduled".
+- suppliesData (Dental + Office supplies) and instrumentsData: stock levels; "stock" is OK, Low or Out of stock.
+- staffData, attendanceData, scheduleData: people, who is clocked in, schedules. vendorsData: suppliers and contacts. requestsData: staff requests. tasksData, proceduresData, clinicsData, roomsData, stickyNotesData, documentsData: as named.
 
-## IMPORTANT: Creating Items
-When the user wants to create/add a new instrument, equipment, or supply:
-- ALWAYS use the show_create_form tool to display an interactive form inside the chat.
-- Do NOT ask the user to type all the details one by one. Show the form immediately.
-- If the user mentions any details (like name, category, manufacturer), pre-fill those in the prefill parameter.
-- Example: "add a new dental mirror" → call show_create_form with entity_type="instrument" and prefill={{"instrumentName": "Dental Mirror", "category": "Diagnostic"}}
-- The form lets users fill in what they need and submit with one click.
+## Creating items
+When the user wants to create or add a new instrument, equipment or supply:
+- ALWAYS use the show_create_form tool to show an interactive form in the chat; don't ask for details one by one.
+- Pre-fill anything the user mentioned (name, category, manufacturer...) in the prefill parameter.
+- Example: "add a new dental mirror" -> show_create_form with entity_type="instrument" and prefill={{"instrumentName": "Dental Mirror", "category": "Diagnostic"}}
 
-## App Data Context
-The following data is from the live application:
-
-### Schedule Data
-{schedule_data}
-
-### Staff Data
-{staff_data}
-
-### Equipment Data
-{equipment_data}
-
-### Instruments Data
-{instruments_data}
-
-### Supplies Data
-{supplies_data}
-
-### Vendors Data
-{vendors_data}
-
-### Tasks Data  
-{tasks_data}
-
-### Procedures Data
-{procedures_data}
-
-### Clinics Data
-{clinics_data}
-
-### Rooms Data
-{rooms_data}
+## Practice data
+{context_sections}
 """
+
+# Order the sections so the most-asked-about data comes first; anything else the app
+# sends follows. Compact JSON keeps all items within the model's context window.
+SECTION_ORDER = [
+    ("operationsData", "Dashboard: overdue, unscheduled, scheduled"),
+    ("serviceTicketsData", "Equipment service tickets"),
+    ("equipmentData", "Equipment (dental and office)"),
+    ("suppliesData", "Supplies (dental and office)"),
+    ("instrumentsData", "Instruments"),
+    ("servicesData", "Services (utilities and contracts)"),
+    ("assignmentsData", "Assignments"),
+    ("staffData", "Staff"),
+    ("attendanceData", "Attendance (clock-ins)"),
+    ("scheduleData", "Schedule"),
+    ("requestsData", "Staff requests"),
+    ("tasksData", "Tasks"),
+    ("vendorsData", "Vendors"),
+    ("proceduresData", "Procedures"),
+    ("clinicsData", "Clinics"),
+    ("roomsData", "Rooms"),
+    ("stickyNotesData", "Sticky notes"),
+    ("documentsData", "Uploaded documents"),
+    ("dashboardSummaryData", "Summary dashboard"),
+]
+META_FIELDS = {"currentView", "userRole", "userName", "currentDate", "localDateTime", "todayIso", "timeZone"}
+SECTION_CHAR_LIMIT = int(os.getenv("DENTABRAIN_SECTION_CHARS", "60000"))
+TOTAL_CHAR_LIMIT = int(os.getenv("DENTABRAIN_TOTAL_CHARS", "240000"))
 
 # ====================================================
 # Tools / Function Definitions for OpenAI
@@ -169,10 +158,10 @@ TOOLS = [
                 "properties": {
                     "view": {
                         "type": "string",
-                        "enum": ["calendar", "schedule", "duties", "task-hub", "requests",
+                        "enum": ["dashboard", "calendar", "schedule", "duties", "task-hub", "requests",
                                  "projects", "sticky-notes", "equipment", "instruments",
-                                 "supplies", "vendors", "procedures"],
-                        "description": "The view to navigate to"
+                                 "supplies", "vendors", "procedures", "utilities", "teams"],
+                        "description": "The view to navigate to. 'utilities' is the Services page, 'teams' is the Assignments page."
                     }
                 },
                 "required": ["view"]
@@ -349,31 +338,40 @@ TOOLS = [
 # ====================================================
 
 def build_system_prompt(context: Optional[AppContext]) -> str:
-    """Inject app data into the system prompt."""
+    """Inject the app's data into the system prompt."""
     ctx = context or AppContext()
+    data = ctx.model_dump(exclude_none=True)
 
-    def fmt(data) -> str:
-        if data is None:
-            return "No data available"
-        if isinstance(data, dict) and not data:
-            return "No data available"
-        return json.dumps(data, indent=2, default=str)[:3000]  # Truncate to save tokens
+    def compact(value) -> str:
+        text = json.dumps(value, separators=(",", ":"), default=str, ensure_ascii=False)
+        if len(text) > SECTION_CHAR_LIMIT:
+            text = text[:SECTION_CHAR_LIMIT] + " ...[section cut short: too large]"
+        return text
+
+    ordered = [(key, title) for key, title in SECTION_ORDER if key in data]
+    known = {key for key, _ in SECTION_ORDER}
+    ordered += [(key, key) for key in data if key not in known and key not in META_FIELDS]
+
+    parts, used = [], 0
+    for key, title in ordered:
+        value = data.get(key)
+        if value in (None, {}, []):
+            continue
+        block = f"### {title} ({key})\n{compact(value)}\n"
+        if used + len(block) > TOTAL_CHAR_LIMIT:
+            parts.append(f"### {title} ({key})\n[not included: the data was too large to send in full]\n")
+            continue
+        parts.append(block)
+        used += len(block)
 
     return SYSTEM_PROMPT.format(
-        current_datetime=ctx.currentDate or datetime.now().strftime("%Y-%m-%d %H:%M"),
+        current_datetime=ctx.localDateTime or ctx.currentDate or datetime.now().strftime("%Y-%m-%d %H:%M"),
+        time_zone=ctx.timeZone or "not given",
+        today=ctx.todayIso or (ctx.currentDate or "")[:10] or datetime.now().strftime("%Y-%m-%d"),
         user_name=ctx.userName or "Unknown",
         user_role=ctx.userRole or "Unknown",
         current_view=ctx.currentView or "Unknown",
-        schedule_data=fmt(ctx.scheduleData),
-        staff_data=fmt(ctx.staffData),
-        equipment_data=fmt(ctx.equipmentData),
-        instruments_data=fmt(ctx.instrumentsData),
-        supplies_data=fmt(ctx.suppliesData),
-        vendors_data=fmt(ctx.vendorsData),
-        tasks_data=fmt(ctx.tasksData),
-        procedures_data=fmt(ctx.proceduresData),
-        clinics_data=fmt(ctx.clinicsData),
-        rooms_data=fmt(ctx.roomsData),
+        context_sections="\n".join(parts) if parts else "No data was sent with this question.",
     )
 
 # ====================================================
@@ -404,8 +402,8 @@ async def chat(request: ChatRequest):
             messages=messages,
             tools=TOOLS,
             tool_choice="auto",
-            temperature=0.3,
-            max_tokens=1000,
+            temperature=0.2,
+            max_tokens=1500,
         )
 
         choice = response.choices[0]
@@ -491,6 +489,7 @@ async def health():
     return {
         "status": "ok",
         "service": "ReformDental Copilot",
+        "version": "2026-11-24.1",
         "model": MODEL,
         "api_key_configured": bool(os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_API_KEY") != "sk-your-key-here")
     }
