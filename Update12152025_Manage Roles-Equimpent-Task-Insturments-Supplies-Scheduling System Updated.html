@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261124-dentabrain-actions-v200';
+                const buildVersion = '20261124-dentabrain-categories-v201';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -109256,6 +109256,58 @@ console.log('? Global functions exported to window object');
             };
         },
 
+        // Each page's own category list, and items saved with a category that isn't in that list
+        getCategoriesData() {
+            const managed = (typeof loadCategoriesFromStorage === 'function') ? loadCategoriesFromStorage() : this.safeParse('categories', []);
+            const all = Array.isArray(managed) ? managed : [];
+            const activeNames = (entries) => {
+                const seen = new Set();
+                const out = [];
+                (entries || []).filter((c) => c && c.isActive !== false)
+                    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+                    .forEach((c) => {
+                        const n = String(c.name || '').trim();
+                        const k = n.toLowerCase();
+                        if (n && !seen.has(k)) { seen.add(k); out.push(n); }
+                    });
+                return out;
+            };
+            const check = (page, list, items, nameOf, catOf) => {
+                const known = new Set(list.map((n) => n.toLowerCase()));
+                const notInList = {};
+                if (list.length) {
+                    (items || []).forEach((it) => {
+                        const cat = String(catOf(it) || '').trim();
+                        if (!cat || known.has(cat.toLowerCase())) return;
+                        (notInList[cat] = notInList[cat] || []).push(nameOf(it));
+                    });
+                }
+                return {
+                    page,
+                    categoryList: list,
+                    itemsWithCategoryNotInList: Object.entries(notInList).map(([category, names]) => ({ category, count: names.length, items: names.slice(0, 15) }))
+                };
+            };
+            const listFor = (type) => activeNames(all.filter((c) => c && c.categoryType === type));
+            const utilitiesRaw = (typeof window.loadUtilities === 'function') ? window.loadUtilities() : this.safeParse('utilities', []);
+            const utilities = (Array.isArray(utilitiesRaw) ? utilitiesRaw : []).filter((u) => u && u.isActive !== false);
+            const vendorTypes = (typeof loadVendorTypesFromStorage === 'function') ? loadVendorTypesFromStorage() : this.safeParse('reformDentalVendorTypes', []);
+            const vendorsRaw = this.safeParse('vendors', []);
+            const vendors = (Array.isArray(vendorsRaw) ? vendorsRaw : []).filter((v) => v && v.isActive !== false);
+            const supplyName = (s) => s.supplyName || s.name || '(unnamed)';
+            return {
+                note: 'Each page has its own category list: what users pick from in that page\'s form and filter. An item listed under itemsWithCategoryNotInList is saved with a category that is not in its page\'s list (usually an old or imported value). An empty categoryList means the list has not loaded, so nothing is checked.',
+                services: check('Services', listFor('utilities'), utilities, (u) => u.utilityName || u.name || '(unnamed)', (u) => u.category),
+                vendors: check('Vendors', activeNames(Array.isArray(vendorTypes) ? vendorTypes : []), vendors, (v) => v.vendorName || v.name || '(unnamed)', (v) => v.vendorType || v.type || v.category),
+                dentalEquipment: check('Dental Equipment', listFor('equipment'), this._activeArray('equipment'), (e) => this._equipmentName(e), (e) => e.category || e.equipmentType),
+                officeEquipment: check('Office Equipment', listFor('office-equipment'), this._activeArray('officeEquipment'), (e) => this._equipmentName(e), (e) => e.category || e.equipmentType),
+                instruments: check('Instruments', listFor('instruments'), this._activeArray('instruments'), (i) => i.instrumentName || i.name || '(unnamed)', (i) => i.category),
+                dentalSupplies: check('Dental Supplies', listFor('supplies'), this._activeArray('dentalSupplies'), supplyName, (s) => s.category),
+                officeSupplies: check('Office Supplies', listFor('office-supplies'), this._activeArray('officeSupplies'), supplyName, (s) => s.category),
+                assignments: check('Assignments', listFor('teams'), this._activeArray('teams'), (a) => a.teamName || a.name || '(unnamed)', (a) => a.category)
+            };
+        },
+
         // Assignments (recurring team work: cleaning, lab work, huddles...)
         getAssignmentsData() {
             const list = (this.safeParse('teams', []) || []).filter(Boolean);
@@ -109451,6 +109503,7 @@ console.log('? Global functions exported to window object');
                 assignmentsData: safe(() => this.getAssignmentsData()),
                 requestsData: safe(() => this.getRequestsData()),
                 vendorsData: safe(() => this.getVendorsData()),
+                categoriesData: safe(() => this.getCategoriesData()),
                 tasksData: safe(() => this.getTasksData()),
                 proceduresData: safe(() => this.getProceduresData()),
                 clinicsData: safe(() => this.getClinicsData()),
