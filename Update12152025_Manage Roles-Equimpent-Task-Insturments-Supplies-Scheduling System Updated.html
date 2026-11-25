@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261125-my-schedule-v208';
+                const buildVersion = '20261125-attendance-v209';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -3907,7 +3907,7 @@
                         <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.6rem;">
                             <h2 class="section-title">
                                 <i class="fas fa-user-clock" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
-                                <span id="attendanceViewTitle">My Attendance &amp; Time Off</span>
+                                <span id="attendanceViewTitle">My Attendance</span>
                                 <span class="attendance-timezone-badge" id="attendanceTimeZoneLabel"><i class="fas fa-globe"></i> --</span>
                             </h2>
                             <div class="attendance-btn-row" style="margin-top:0;">
@@ -4274,7 +4274,7 @@
                                 </div>
 
                                 <div class="attendance-card" data-attendance-manager-panel="policy" style="padding:0.7rem;">
-                                    <h3 style="font-size:0.88rem;"><i class="fas fa-user-cog"></i> PTO Manager</h3>
+                                    <h3 style="font-size:0.88rem;"><i class="fas fa-user-cog"></i> Add hours to a balance</h3>
                                     <div class="attendance-input-row">
                                         <div>
                                             <label>Employee</label>
@@ -4283,18 +4283,18 @@
                                     </div>
                                     <div class="attendance-stat-grid" style="margin-bottom:0.45rem;">
                                         <div class="attendance-stat attendance-stat-wide">
-                                            <div class="attendance-stat-label">Current Available PTO Balance</div>
+                                            <div class="attendance-stat-label">Hours available now</div>
                                             <div class="attendance-stat-value" id="attendanceSelectedPtoBalance">0.00 h</div>
                                         </div>
                                     </div>
                                     <div class="attendance-input-row" style="grid-template-columns:minmax(180px, 1fr);">
                                         <div>
-                                            <label>Add PTO Hours</label>
+                                            <label>Hours to add</label>
                                             <input type="number" id="attendancePtoAddHours" min="0" step="0.5" placeholder="8">
                                         </div>
                                     </div>
                                     <div class="attendance-btn-row">
-                                        <button class="attendance-tab-action attendance-tab-action-primary" type="button" onclick="if(window.saveAttendancePolicyAndCredit){window.saveAttendancePolicyAndCredit();}">Save</button>
+                                        <button class="attendance-tab-action attendance-tab-action-primary" type="button" onclick="if(window.saveAttendancePolicyAndCredit){window.saveAttendancePolicyAndCredit();}">Add hours</button>
                                     </div>
                                 </div>
                             </div>
@@ -4303,10 +4303,10 @@
                                 <div class="attendance-card" data-attendance-manager-panel="audit" style="padding:0.7rem;">
                                     <div class="attendance-audit-report" id="attendanceAuditReportPanel" style="display:none; margin-bottom:0;">
                                         <div class="attendance-audit-report-head">
-                                            <h4 class="attendance-audit-report-title"><i class="fas fa-clipboard-check"></i> Absence Audit Report</h4>
+                                            <h4 class="attendance-audit-report-title"><i class="fas fa-clipboard-check"></i> Absences</h4>
                                             <div class="attendance-btn-row" style="margin-top:0;">
-                                                <button class="btn-primary attendance-audit-run-btn" type="button" onclick="if(window.auditAttendanceAbsences){window.auditAttendanceAbsences();}">
-                                                    <i class="fas fa-user-check"></i> Run Audit
+                                                <button class="btn-secondary attendance-audit-run-btn" type="button" title="Keeps a record of these absences for later reports" onclick="if(window.auditAttendanceAbsences){window.auditAttendanceAbsences();}">
+                                                    <i class="fas fa-save"></i> Save these absences
                                                 </button>
                                                 <button class="btn-secondary" type="button" onclick="if(window.exportAttendanceAuditReportExcel){window.exportAttendanceAuditReportExcel();}">
                                                     <i class="fas fa-file-excel"></i> Export Excel
@@ -4362,7 +4362,7 @@
                                 <div class="attendance-card attendance-manager-overview" data-attendance-manager-panel="managetimeoff" style="padding:0.7rem;">
                                     <div class="attendance-manager-head" style="margin-bottom:0.6rem;">
                                         <div>
-                                            <h3 class="attendance-manager-title"><i class="fas fa-hourglass-half"></i> Manage Time Off</h3>
+                                            <h3 class="attendance-manager-title"><i class="fas fa-hourglass-half"></i> Time off requests</h3>
                                             <div class="attendance-manager-subtitle">Review employee requests and approve or deny from the same Time Off request stream.</div>
                                         </div>
                                     </div>
@@ -4385,7 +4385,7 @@
                                         </div>
                                     </div>
                                     <div class="attendance-manager-summary" style="margin-bottom:0.6rem;">
-                                        <strong>Employee Available Balances</strong>
+                                        <strong>Hours available</strong>
                                         <div id="attendanceManageTimeoffBalances" class="attendance-timeoff-balance-list" style="margin-top:0.45rem;"></div>
                                     </div>
                                     <div class="attendance-manager-filter" style="margin-bottom:0.65rem; max-width:220px;">
@@ -117766,8 +117766,8 @@ console.log('? Global functions exported to window object');
                 let statusLabel = 'Full Time';
                 let statusClass = 'status-warning';
                 if (actualWorkedMinutes <= 0) {
-                    statusLabel = 'Timeoff';
-                    statusClass = 'status-info';
+                    statusLabel = scheduledMinutes > 0 ? 'No hours' : '-';
+                    statusClass = scheduledMinutes > 0 ? 'status-danger' : 'status-neutral';
                 } else if (actualWorkedMinutes > scheduledMinutes) {
                     statusLabel = 'Overtime';
                     statusClass = 'status-success';
@@ -118483,7 +118483,7 @@ console.log('? Global functions exported to window object');
 
             const titleEl = document.getElementById('attendanceViewTitle');
             if (titleEl) {
-                titleEl.textContent = managerMode ? 'Manage Attendance' : 'My Attendance & Time Off';
+                titleEl.textContent = managerMode ? 'Manage Attendance' : 'My Attendance';
             }
             const timezoneEl = document.getElementById('attendanceTimeZoneLabel');
             if (timezoneEl) {
@@ -118496,17 +118496,15 @@ console.log('? Global functions exported to window object');
                 const pendingCount = getPendingRecordSyncQueue().length;
                 const detail = String(attendanceApiState.lastError || '').trim();
                 const hasCooldown = attendanceApiState.cooldownUntil > Date.now();
+                syncStatusEl.title = detail ? `Last server error: ${detail.slice(0, 300)}` : '';
                 if (pendingCount > 0) {
-                    syncStatusEl.textContent = `Sync pending: ${pendingCount} record(s) queued.${detail ? ` Last error: ${detail}` : ''}`;
-                    syncStatusEl.style.color = 'var(--warning-color, #d97706)';
+                    syncStatusEl.textContent = `${pendingCount} punch${pendingCount === 1 ? ' is' : 'es are'} saved on this device and will be sent to the server when the connection is back.`;
+                    syncStatusEl.style.color = 'var(--warning-color, #b54708)';
                 } else if (attendanceApiState.available === false) {
-                    syncStatusEl.textContent = `Server sync offline.${detail ? ` Last error: ${detail}` : ''}${hasCooldown ? ' Retrying shortly.' : ''}`;
-                    syncStatusEl.style.color = 'var(--danger-color, #dc2626)';
-                } else if (attendanceApiState.available === true) {
-                    syncStatusEl.textContent = 'Server sync connected.';
-                    syncStatusEl.style.color = 'var(--success-color, #16a34a)';
+                    syncStatusEl.textContent = `Can't reach the server right now. Clock-ins still work and are saved on this device${hasCooldown ? '; trying again shortly' : ''}.`;
+                    syncStatusEl.style.color = 'var(--warning-color, #b54708)';
                 } else {
-                    syncStatusEl.textContent = 'Server sync status: checking...';
+                    syncStatusEl.textContent = '';
                     syncStatusEl.style.color = 'var(--text-secondary)';
                 }
             }
@@ -118661,8 +118659,8 @@ console.log('? Global functions exported to window object');
                             </div>
                             ${reasonText ? `<p class="attendance-timeoff-request-meta">${esc(reasonText)}</p>` : ''}
                             <p class="attendance-timeoff-request-meta">${esc(dateLabel)} (${esc(hoursLabel)} Hours)</p>
-                            <p class="attendance-timeoff-request-meta">PTO Balance: ${usesPtoBalance ? 'Yes' : 'No'}</p>
-                            <p class="attendance-timeoff-request-meta">Submitted On: ${submittedAt ? formatDate(submittedAt) : '-'}</p>
+                            ${usesPtoBalance ? '' : '<p class="attendance-timeoff-request-meta">Unpaid (doesn\'t use the balance)</p>'}
+                            ${submittedAt ? `<p class="attendance-timeoff-request-meta">Asked on ${formatDate(submittedAt)}</p>` : ''}
                             ${actionButtons}
                         </article>
                     `;
@@ -119032,14 +119030,14 @@ console.log('? Global functions exported to window object');
                         return `
                             <article class="attendance-timeoff-request-card">
                                 <div class="attendance-timeoff-request-head">
-                                    <h5 class="attendance-timeoff-request-title">${esc(titleText)} - ${esc(employeeLabel)}</h5>
+                                    <h5 class="attendance-timeoff-request-title">${esc(employeeLabel)}${titleText && titleText !== 'Time Off Request' ? ` · ${esc(titleText)}` : ''}</h5>
                                     <span class="status-badge-enhanced ${statusClass}">${esc(statusLabel)}</span>
                                 </div>
                                 ${reasonText ? `<p class="attendance-timeoff-request-meta">${esc(reasonText)}</p>` : ''}
                                 <p class="attendance-timeoff-request-meta">${esc(dateLabel)} (${esc(hoursLabel)} Hours)</p>
-                                <p class="attendance-timeoff-request-meta">PTO Balance: ${usesPtoBalance ? 'Yes' : 'No'}</p>
-                                <p class="attendance-timeoff-request-meta">Available Balance: ${Number(availableBalance || 0).toFixed(2)} h</p>
-                                <p class="attendance-timeoff-request-meta">Submitted On: ${submittedAt ? formatDate(submittedAt) : '-'}</p>
+                                ${usesPtoBalance ? '' : '<p class="attendance-timeoff-request-meta">Unpaid (doesn\'t use the balance)</p>'}
+                                <p class="attendance-timeoff-request-meta">Hours available: ${Number(availableBalance || 0).toFixed(2)} h</p>
+                                ${submittedAt ? `<p class="attendance-timeoff-request-meta">Asked on ${formatDate(submittedAt)}</p>` : ''}
                                 ${actionButtons}
                             </article>
                         `;
@@ -119051,6 +119049,11 @@ console.log('? Global functions exported to window object');
             if (dateEl && !dateEl.value) dateEl.value = todayISO;
             calculateAttendanceHours();
             scheduleAttendanceLiveRefresh(hasOpenClockIn);
+            try {
+                if (window.rdAttUI && typeof window.rdAttUI.render === 'function') window.rdAttUI.render();
+            } catch (uiErr) {
+                console.error('Attendance screen render failed:', uiErr);
+            }
         }
 
         async function refreshAttendanceView() {
@@ -119105,6 +119108,30 @@ console.log('? Global functions exported to window object');
         window.printAttendanceManagerPinBadges = printAttendanceManagerPinBadges;
         window.sendAttendanceManagerSelectedPinCard = sendAttendanceManagerSelectedPinCard;
         window.submitAttendancePinQuickClock = submitAttendancePinQuickClock;
+        window.rdAttData = {
+            ctx: getCurrentUserContext,
+            identity: getAttendanceIdentityCandidates,
+            schedule: getScheduleForDate,
+            records: getRecords,
+            dayRows: buildDailyAttendanceReportRows,
+            businessDate: getRecordBusinessDateISO,
+            matches: recordMatchesIdentityCandidates,
+            pto: getPtoRequests,
+            ptoAvailable: getPtoAvailableForUser,
+            inPto: isDateInPto,
+            notifications: getNotifications,
+            todayISO: function () { return toISODateInTimeZone(new Date()); },
+            parseISO: parseISODateLocal,
+            shiftISO: shiftISODate,
+            isManager: isManagerRole,
+            canonical: resolveCanonicalUsername,
+            describeFlag: describeFlag,
+            absences: getAbsences,
+            absenceRows: buildAbsenceAuditRows,
+            renderAbsenceReport: renderAttendanceAbsenceAuditReport,
+            auditFilters: getAttendanceAuditReportFilters,
+            render: renderAttendanceView
+        };
 
         window.openMyAttendance = function(event) {
             if (event) event.preventDefault();
@@ -136206,6 +136233,599 @@ console.log('? Global functions exported to window object');
             setWeek: function (d) { var x = d instanceof Date ? d : parseIso(d); if (x && !isNaN(x.getTime())) { state.weekStart = startOfWeek(x); state.copyArmed = false; } },
             render: render, people: people, shiftOn: shiftOn, isSeries: isSeries, copyCandidates: copyCandidates, _state: state };
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+    })();
+    </script>
+
+    <script>
+    /* ============================================================
+       Attendance, simplified.
+       My Attendance: one screen (Today card with one changing button,
+       this week, time off). Manage Attendance: Today / Time off / Reports.
+       Uses the attendance engine through window.rdAttData and the existing
+       actions (attendanceClockIn, attendanceClockOut, submitPtoRequest, ...),
+       so clock rules, QR checks, sync and payroll math are unchanged.
+       ============================================================ */
+    (function () {
+        'use strict';
+        var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        var STORE = 'rdAttManagerTab';
+        var state = { tab: 'today', report: 'timesheet', showPast: false, busy: false, confirmOut: false, mgrTimer: null };
+        try { var saved = JSON.parse(localStorage.getItem(STORE) || '{}'); if (saved.tab) state.tab = saved.tab; if (saved.report) state.report = saved.report; } catch (_) {}
+
+        function D() { return window.rdAttData || null; }
+        function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+        function key(v) { return String(v || '').trim().toLowerCase(); }
+        function pad(n) { return String(n).padStart(2, '0'); }
+        function hm(t) {
+            var m = String(t || '').match(/(\d{1,2}):(\d{2})/);
+            if (!m) return '';
+            var h = Number(m[1]), mi = Number(m[2]);
+            return (h % 12 === 0 ? 12 : h % 12) + (mi ? ':' + pad(mi) : '') + ' ' + (h >= 12 ? 'PM' : 'AM');
+        }
+        function clock(iso) {
+            var d = new Date(iso);
+            if (isNaN(d.getTime())) return '';
+            return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        }
+        function dur(min) {
+            min = Math.max(0, Math.round(Number(min) || 0));
+            var h = Math.floor(min / 60), m = min % 60;
+            if (!h) return m + ' m';
+            return h + ' h' + (m ? ' ' + m + ' m' : '');
+        }
+        function hrs(min) { var h = (Number(min) || 0) / 60; return (Math.round(h * 10) / 10).toFixed(1).replace(/\.0$/, '') + ' h'; }
+        function minutesOf(t) { var m = String(t || '').match(/(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; }
+        function nowMinutes() { var n = new Date(); return n.getHours() * 60 + n.getMinutes(); }
+        function dayLabel(iso, opts) { var d = D(); var x = d ? d.parseISO(iso) : new Date(iso); return x.toLocaleDateString([], opts || { weekday: 'short', month: 'short', day: 'numeric' }); }
+        function notify(msg, type) { try { if (typeof showNotification === 'function') showNotification(msg, type || 'info'); } catch (_) {} }
+        function reasonOf(row) { var r = key(row && row.clockOutReason); return r.indexOf('lunch') >= 0 ? 'lunch' : (r.indexOf('break') >= 0 ? 'break' : 'home'); }
+        function requestBelongs(req, ids) {
+            return [req.username, req.employeeName, req.employee, req.displayName, req.requestedFor].some(function (v) { return v && ids.has(key(v)); });
+        }
+        function statusText(s) {
+            s = key(s);
+            if (s === 'pending' || s === 'submitted') return { t: 'Waiting for approval', c: 'is-warn' };
+            if (s === 'approved') return { t: 'Approved', c: 'is-ok' };
+            if (s === 'denied' || s === 'rejected') return { t: 'Denied', c: 'is-bad' };
+            if (s === 'cancelled' || s === 'canceled') return { t: 'Cancelled', c: 'is-muted' };
+            return { t: s || 'Waiting for approval', c: 'is-muted' };
+        }
+        function rangeLabel(r) {
+            var s = r.startDate, e = r.endDate || r.startDate;
+            if (!s) return '';
+            return s === e ? dayLabel(s) : dayLabel(s, { month: 'short', day: 'numeric' }) + ' – ' + dayLabel(e, { month: 'short', day: 'numeric' });
+        }
+
+        // ---------- skeletons ----------
+        function ensureEmployeeSkeleton() {
+            var sec = document.getElementById('attendanceEmployeeSection');
+            if (!sec) return null;
+            var root = document.getElementById('rdAttMe');
+            if (!root) {
+                root = document.createElement('div');
+                root.id = 'rdAttMe';
+                root.className = 'rd-att';
+                root.innerHTML = '<section class="rd-att-card rd-att-today" id="rdAttMeToday" aria-live="polite"></section>'
+                    + '<section class="rd-att-week" id="rdAttMeWeek" aria-label="This week"></section>'
+                    + '<section class="rd-att-card" id="rdAttMeTimeoff"><div id="rdAttMeTimeoffHead"></div><div id="rdAttMeFormSlot"></div><div id="rdAttMeRequests"></div></section>'
+                    + '<section class="rd-att-card rd-att-updates" id="rdAttMeUpdates"></section>';
+                sec.insertBefore(root, sec.firstChild);
+                sec.classList.add('rd-att-on');
+            }
+            var form = document.getElementById('attendanceTimeoffRequestFormWrap');
+            var slot = document.getElementById('rdAttMeFormSlot');
+            if (form && slot && form.parentNode !== slot) slot.appendChild(form);
+            return root;
+        }
+        function ensureManagerSkeleton() {
+            var sec = document.getElementById('attendanceManagerSection');
+            if (!sec) return null;
+            var root = document.getElementById('rdAttMgr');
+            if (!root) {
+                root = document.createElement('div');
+                root.id = 'rdAttMgr';
+                root.innerHTML = '<div class="rd-att-tabs" role="tablist" aria-label="Attendance sections">'
+                    + '<button type="button" role="tab" data-rd-btn="skip" data-rd-att-tab="today">Today</button>'
+                    + '<button type="button" role="tab" data-rd-btn="skip" data-rd-att-tab="timeoff">Time off<span class="rd-att-badge" id="rdAttPendingBadge"></span></button>'
+                    + '<button type="button" role="tab" data-rd-btn="skip" data-rd-att-tab="reports">Reports</button></div>'
+                    + '<div class="rd-att-subtabs" id="rdAttReportTabs" role="tablist" aria-label="Reports">'
+                    + '<button type="button" role="tab" data-rd-btn="skip" data-rd-att-report="timesheet">Timesheet</button>'
+                    + '<button type="button" role="tab" data-rd-btn="skip" data-rd-att-report="audit">Absences</button>'
+                    + '<button type="button" role="tab" data-rd-btn="skip" data-rd-att-report="detailed">Punches</button></div>'
+                    + '<div id="rdAttTodayPanel" class="rd-att" aria-live="polite"></div>';
+                var head = sec.querySelector(':scope > h3');
+                if (head) head.classList.add('rd-att-hide');
+                sec.insertBefore(root, head ? head.nextSibling : sec.firstChild);
+                sec.classList.add('rd-att-on');
+                // Time off: requests, balances and "add hours" together.
+                var policy = sec.querySelector('[data-attendance-manager-panel="policy"]');
+                var timeoff = sec.querySelector('[data-attendance-manager-panel="managetimeoff"]');
+                if (policy && timeoff && policy.parentNode !== timeoff) timeoff.appendChild(policy);
+                if (timeoff) {
+                    var stats = timeoff.querySelector('.attendance-stat-grid'); if (stats) stats.classList.add('rd-att-hide');
+                    // Requests first, then everyone's hours, then "add hours".
+                    var balances = timeoff.querySelector('.attendance-manager-summary');
+                    if (balances && policy && policy.parentNode === timeoff) timeoff.insertBefore(balances, policy);
+                }
+                // Timesheet: quick ranges instead of Year and Month boxes.
+                ['attendanceTimesheetYear', 'attendanceTimesheetMonth'].forEach(function (id) {
+                    var el = document.getElementById(id);
+                    var wrap = el && el.closest('.attendance-manager-filter');
+                    if (wrap) wrap.classList.add('rd-att-hide');
+                });
+                var tsStart = document.getElementById('attendanceTimesheetRangeStart');
+                var tsFilters = tsStart && tsStart.closest('.attendance-manager-filters');
+                if (tsFilters && !document.getElementById('rdAttTsChips')) {
+                    var chips = document.createElement('div');
+                    chips.id = 'rdAttTsChips';
+                    chips.className = 'rd-att-chips';
+                    chips.innerHTML = ['thisweek:This week', 'lastweek:Last week', 'thismonth:This month', 'lastmonth:Last month'].map(function (p) {
+                        var parts = p.split(':');
+                        return '<button type="button" data-rd-btn="skip" data-rd-att-range="' + parts[0] + '">' + parts[1] + '</button>';
+                    }).join('');
+                    tsFilters.parentNode.insertBefore(chips, tsFilters);
+                }
+            }
+            sec.setAttribute('data-rd-tab', state.tab);
+            sec.setAttribute('data-rd-report', state.report);
+            return root;
+        }
+
+        // ---------- My Attendance ----------
+        function myData() {
+            var d = D();
+            var c = d.ctx();
+            var user = c.username;
+            var ids = d.identity(user);
+            [c.rawUsername, c.displayName, c.user && c.user.name].forEach(function (v) { if (v) ids.add(key(v)); });
+            var todayISO = d.todayISO();
+            var records = d.records();
+            var requests = d.pto().filter(function (r) { return r.username === user || requestBelongs(r, ids); });
+            return { d: d, c: c, user: user, ids: ids, todayISO: todayISO, records: records, requests: requests };
+        }
+        function flagsFor(m, iso) {
+            var out = [];
+            m.records.forEach(function (r) {
+                if (!m.d.matches(r, m.ids) || m.d.businessDate(r, '') !== iso) return;
+                (Array.isArray(r.flags) ? r.flags : []).forEach(function (f) { if (out.indexOf(f) < 0 && !/^clock[_-]?out[_-]?reason/i.test(f) && f !== 'auto_closed_duplicate_open') out.push(f); });
+            });
+            return out;
+        }
+        function renderToday(m) {
+            var el = document.getElementById('rdAttMeToday');
+            if (!el) return;
+            var d = m.d;
+            var rows = d.dayRows(m.records, m.todayISO, { identityCandidates: m.ids });
+            var latest = rows[0] || null;
+            var worked = rows.reduce(function (s, r) { return s + Number(r.minutesWorked || 0); }, 0);
+            var sched = d.schedule(m.todayISO)[m.user] || null;
+            var off = m.requests.some(function (r) { return d.inPto(r, m.todayISO); });
+            var stateName = 'out';
+            if (latest && latest.clockIn && !latest.clockOut) stateName = 'working';
+            else if (latest && latest.clockOut) stateName = reasonOf(latest) === 'home' ? 'done' : reasonOf(latest);
+            var shiftLine = off ? 'Today · Time off' : (sched ? 'Today · ' + hm(sched.startTime) + ' – ' + hm(sched.endTime) + (sched.room ? ' · ' + sched.room : '') : 'Today · No shift scheduled');
+            var head = '', sub = '', buttons = '', hint = '';
+            if (stateName === 'out') {
+                head = off ? 'You’re off today' : 'You’re not clocked in';
+                sub = sched && !off ? 'Your shift ' + (nowMinutes() > minutesOf(sched.startTime) ? 'started' : 'starts') + ' at ' + hm(sched.startTime) + '.' : '';
+                buttons = '<button type="button" class="rd-att-btn is-primary" data-rd-btn="skip" data-att-act="in"><i class="fas fa-sign-in-alt" aria-hidden="true"></i> Clock in</button>';
+            } else if (stateName === 'working') {
+                head = 'Working since ' + clock(latest.clockIn);
+                sub = dur(worked) + ' so far today';
+                buttons = '<button type="button" class="rd-att-btn" data-rd-btn="skip" data-att-act="lunch"><i class="fas fa-utensils" aria-hidden="true"></i> Start lunch</button>'
+                    + '<button type="button" class="rd-att-btn" data-rd-btn="skip" data-att-act="break"><i class="fas fa-coffee" aria-hidden="true"></i> Start break</button>'
+                    + '<button type="button" class="rd-att-btn is-primary" data-rd-btn="skip" data-att-act="home"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> ' + (state.confirmOut ? 'Click again to clock out' : 'Clock out for the day') + '</button>';
+            } else if (stateName === 'lunch' || stateName === 'break') {
+                head = (stateName === 'lunch' ? 'On lunch' : 'On a break') + ' since ' + clock(latest.clockOut);
+                sub = dur(worked) + ' worked today';
+                buttons = '<button type="button" class="rd-att-btn is-primary" data-rd-btn="skip" data-att-act="in"><i class="fas fa-sign-in-alt" aria-hidden="true"></i> Back from ' + stateName + '</button>';
+                hint = 'Going home instead? You’re already clocked out, so there’s nothing else to do.';
+            } else {
+                head = 'Done for today';
+                sub = 'Clocked out at ' + clock(latest.clockOut) + ' · ' + dur(worked) + ' worked';
+                buttons = '<button type="button" class="rd-att-btn" data-rd-btn="skip" data-att-act="in">Clock in again</button>';
+            }
+            var notes = [];
+            var segs = rows.slice().sort(function (a, b) { return new Date(a.clockIn || 0) - new Date(b.clockIn || 0); });
+            var todayFlags = flagsFor(m, m.todayISO);
+            if (segs.length && sched && sched.startTime) {
+                var first = new Date(segs[0].clockIn), st = minutesOf(sched.startTime);
+                var late = first.getHours() * 60 + first.getMinutes() - st;
+                if (late > 0) notes.push('Clocked in ' + dur(late) + ' late');
+            } else if (segs.length && todayFlags.indexOf('unscheduled_clock_in') >= 0) {
+                notes.push('Not on the schedule today');
+            }
+            if (stateName === 'done' && sched && sched.endTime) {
+                var out = new Date(latest.clockOut), en = minutesOf(sched.endTime);
+                var early = en - (out.getHours() * 60 + out.getMinutes());
+                if (early > 0) notes.push('Left ' + dur(early) + ' early');
+            }
+            var flags = notes.map(function (n) { return '<span class="rd-att-chip is-warn">' + esc(n) + '</span>'; }).join('');
+            if (state.busy) buttons = buttons.replace(/<button /g, '<button disabled ');
+            el.innerHTML = '<div class="rd-att-today-main"><div>'
+                + '<div class="rd-att-muted">' + esc(shiftLine) + '</div>'
+                + '<div class="rd-att-head">' + esc(head) + '</div>'
+                + (sub ? '<div class="rd-att-muted">' + esc(sub) + '</div>' : '')
+                + (flags ? '<div class="rd-att-chips-row">' + flags + '</div>' : '')
+                + '</div><div class="rd-att-actions">' + buttons + '</div></div>'
+                + (hint ? '<div class="rd-att-hint">' + esc(hint) + '</div>' : '');
+        }
+        function renderWeek(m) {
+            var el = document.getElementById('rdAttMeWeek');
+            if (!el) return;
+            var d = m.d;
+            var today = d.parseISO(m.todayISO);
+            var startISO = d.shiftISO(m.todayISO, -today.getDay());
+            var html = '';
+            for (var i = 0; i < 7; i++) {
+                var iso = d.shiftISO(startISO, i);
+                var dt = d.parseISO(iso);
+                var rows = d.dayRows(m.records, iso, { identityCandidates: m.ids });
+                var mins = rows.reduce(function (s, r) { return s + Number(r.minutesWorked || 0); }, 0);
+                var sched = d.schedule(iso)[m.user] || null;
+                var off = m.requests.some(function (r) { return d.inPto(r, iso); });
+                var late = flagsFor(m, iso).some(function (f) { return /late/.test(f); });
+                var past = iso < m.todayISO, isToday = iso === m.todayISO;
+                var main = 'Off', note = '', cls = '';
+                if (mins > 0) { main = hrs(mins); note = late ? 'Late' : (sched ? 'On time' : 'Extra'); cls = late ? 'is-warn' : 'is-ok'; }
+                else if (off) { main = 'Time off'; cls = 'is-off'; }
+                else if (sched && past) { main = 'Missed'; cls = 'is-bad'; }
+                else if (sched) { main = hm(sched.startTime).replace(':00', '') + '–' + hm(sched.endTime).replace(':00', ''); }
+                if (isToday && !note) note = 'Today';
+                html += '<div class="rd-att-day' + (isToday ? ' is-today' : '') + (cls === 'is-off' ? ' is-off' : '') + '">'
+                    + '<div class="rd-att-day-name">' + DAYS[dt.getDay()] + ' ' + dt.getDate() + '</div>'
+                    + '<div class="rd-att-day-main">' + esc(main) + '</div>'
+                    + (note ? '<div class="rd-att-day-note ' + cls + '">' + esc(note) + '</div>' : '')
+                    + '</div>';
+            }
+            el.innerHTML = html;
+        }
+        function renderTimeoff(m) {
+            var head = document.getElementById('rdAttMeTimeoffHead');
+            var list = document.getElementById('rdAttMeRequests');
+            if (!head || !list) return;
+            var d = m.d;
+            var available = Number(d.ptoAvailable(m.user) || 0);
+            var form = document.getElementById('attendanceTimeoffRequestFormWrap');
+            var formOpen = !!(form && form.style.display && form.style.display !== 'none');
+            head.innerHTML = '<div class="rd-att-row"><div><div class="rd-att-muted">Time off</div>'
+                + '<div class="rd-att-big">' + esc((Math.round(available * 10) / 10).toString()) + ' hours available</div></div>'
+                + '<button type="button" class="rd-att-btn' + (formOpen ? '' : ' is-primary') + '" data-rd-btn="skip" data-att-act="request">' + (formOpen ? 'Close form' : 'Request time off') + '</button></div>';
+            var sorted = m.requests.slice().sort(function (a, b) { return String(a.startDate).localeCompare(String(b.startDate)); });
+            var upcoming = sorted.filter(function (r) { return String(r.endDate || r.startDate) >= m.todayISO && !/cancel/.test(key(r.status)); });
+            var past = sorted.filter(function (r) { return upcoming.indexOf(r) < 0; }).reverse();
+            function row(r) {
+                var st = statusText(r.status), s = key(r.status);
+                var id = esc(r.id);
+                var acts = '';
+                if (s === 'pending' || s === 'submitted') acts = '<button type="button" class="rd-att-link" data-rd-btn="skip" data-att-edit="' + id + '">Change</button><button type="button" class="rd-att-link" data-rd-btn="skip" data-att-cancel="' + id + '">Cancel request</button>';
+                else if (s === 'approved' && String(r.endDate || r.startDate) >= m.todayISO) acts = '<button type="button" class="rd-att-link" data-rd-btn="skip" data-att-cancel="' + id + '">Cancel</button>';
+                var h = Number(r.hours || 0);
+                return '<div class="rd-att-req"><div class="rd-att-req-main"><strong>' + esc(rangeLabel(r)) + '</strong>'
+                    + (h > 0 ? '<span class="rd-att-muted"> · ' + esc((Math.round(h * 10) / 10) + ' h') + '</span>' : '')
+                    + (r.reason ? '<div class="rd-att-muted">' + esc(r.reason) + '</div>' : '') + '</div>'
+                    + '<span class="rd-att-chip ' + st.c + '">' + esc(st.t) + '</span>'
+                    + (acts ? '<div class="rd-att-req-acts">' + acts + '</div>' : '') + '</div>';
+            }
+            var html = upcoming.length ? upcoming.map(row).join('') : '<div class="rd-att-muted rd-att-pad">No upcoming time off.</div>';
+            if (past.length) {
+                html += '<button type="button" class="rd-att-link rd-att-pad" data-rd-btn="skip" data-att-act="past">' + (state.showPast ? 'Hide past requests' : 'Show past requests (' + past.length + ')') + '</button>';
+                if (state.showPast) html += past.map(row).join('');
+            }
+            list.innerHTML = html;
+        }
+        function renderUpdates(m) {
+            var el = document.getElementById('rdAttMeUpdates');
+            if (!el) return;
+            var notes = (m.d.notifications() || []).filter(function (n) { return n && (n.user === m.user || m.ids.has(key(n.user))); }).slice(0, 3);
+            el.style.display = notes.length ? '' : 'none';
+            el.innerHTML = '<div class="rd-att-muted">Recent updates</div>' + notes.map(function (n) {
+                return '<div class="rd-att-update"><span>' + esc(n.message) + '</span><span class="rd-att-muted">' + esc(new Date(n.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })) + '</span></div>';
+            }).join('');
+        }
+
+        // ---------- Manage Attendance: Today ----------
+        function teamToday() {
+            var d = D();
+            var todayISO = d.todayISO();
+            var records = d.records();
+            var requests = d.pto();
+            var sMap = d.schedule(todayISO);
+            var nowMin = nowMinutes();
+            var people = [], seen = {};
+            Object.keys(sMap).forEach(function (u) {
+                var s = sMap[u]; if (!s) return;
+                var canon = d.canonical(s.username || u) || s.username || u;
+                if (seen[key(canon)]) return;
+                seen[key(canon)] = true;
+                people.push({ username: canon, name: s.displayName || canon, start: s.startTime, end: s.endTime, scheduled: true });
+            });
+            // People who clocked in without a shift today
+            d.dayRows(records, todayISO, { includeEmployee: true }).forEach(function (r) {
+                var u = d.canonical(r.__sourceUsername) || r.__sourceUsername || r.employee;
+                if (!u || seen[key(u)]) return;
+                seen[key(u)] = true;
+                people.push({ username: u, name: r.employee || u, start: null, end: null, scheduled: false });
+            });
+            return people.map(function (p) {
+                var ids = d.identity(p.username); ids.add(key(p.name));
+                var rows = d.dayRows(records, todayISO, { identityCandidates: ids });
+                var latest = rows[0] || null;
+                var mins = rows.reduce(function (s, r) { return s + Number(r.minutesWorked || 0); }, 0);
+                var off = requests.some(function (r) { return requestBelongs(r, ids) && d.inPto(r, todayISO); });
+                var st = minutesOf(p.start), en = minutesOf(p.end);
+                var status, text, cls, order;
+                if (latest && latest.clockIn && !latest.clockOut) { status = 'working'; text = 'Working since ' + clock(latest.clockIn) + (p.scheduled ? '' : ' · not scheduled'); cls = 'is-ok'; order = 2; }
+                else if (latest && latest.clockOut && reasonOf(latest) !== 'home') { status = 'break'; text = (reasonOf(latest) === 'lunch' ? 'On lunch' : 'On a break') + ' since ' + clock(latest.clockOut); cls = ''; order = 3; }
+                else if (latest && latest.clockOut) { status = 'done'; text = 'Done · left ' + clock(latest.clockOut); cls = 'is-muted'; order = 5; }
+                else if (off) { status = 'off'; text = 'Time off'; cls = 'is-muted'; order = 6; }
+                else if (en != null && nowMin > en) { status = 'absent'; text = 'Absent'; cls = 'is-bad'; order = 0; }
+                else if (st != null && nowMin > st) { status = 'late'; text = 'Not in · ' + dur(nowMin - st) + ' late'; cls = 'is-warn'; order = 1; }
+                else { status = 'notyet'; text = st != null ? 'Starts at ' + hm(p.start) : 'Not in yet'; cls = 'is-muted'; order = 4; }
+                return { p: p, status: status, text: text, cls: cls, order: order, mins: mins };
+            }).sort(function (a, b) { return a.order - b.order || a.p.name.localeCompare(b.p.name); });
+        }
+        function renderTeamToday() {
+            var el = document.getElementById('rdAttTodayPanel');
+            if (!el) return;
+            var d = D();
+            var list = teamToday();
+            var count = function (names) { return list.filter(function (x) { return names.indexOf(x.status) >= 0; }).length; };
+            var pending = d.pto().filter(function (r) { return key(r.status) === 'pending'; }).length;
+            var onBreak = count(['break']);
+            var tiles = [
+                ['Working now', count(['working', 'break']), onBreak ? onBreak + ' on lunch or a break' : '', ''],
+                ['Late or not in', count(['late', 'absent']), '', count(['late', 'absent']) ? 'is-warn' : ''],
+                ['On time off', count(['off']), '', ''],
+                ['Done for the day', count(['done']), '', '']
+            ];
+            var html = '<div class="rd-att-row"><div class="rd-att-big">' + esc(dayLabel(d.todayISO(), { weekday: 'long', month: 'long', day: 'numeric' })) + '</div></div>';
+            if (pending) html += '<button type="button" class="rd-att-banner" data-rd-btn="skip" data-rd-att-tab="timeoff"><i class="fas fa-umbrella-beach" aria-hidden="true"></i> ' + pending + ' time-off request' + (pending === 1 ? ' is' : 's are') + ' waiting for you. <span class="rd-att-link">Review</span></button>';
+            html += '<div class="rd-att-tiles">' + tiles.map(function (t) {
+                return '<div class="rd-att-tile"><div class="rd-att-muted">' + esc(t[0]) + '</div><div class="rd-att-tile-num ' + t[3] + '">' + t[1] + '</div>' + (t[2] ? '<div class="rd-att-muted rd-att-small">' + esc(t[2]) + '</div>' : '') + '</div>';
+            }).join('') + '</div>';
+            if (!list.length) {
+                html += '<div class="rd-att-card rd-att-muted">No one is scheduled today.</div>';
+            } else {
+                html += '<div class="rd-att-table" role="table" aria-label="Today’s attendance"><div class="rd-att-tr rd-att-th" role="row"><span role="columnheader">Person</span><span role="columnheader">Shift</span><span role="columnheader">Status</span><span role="columnheader">Hours</span></div>'
+                    + list.map(function (x) {
+                        return '<button type="button" class="rd-att-tr" role="row" data-rd-btn="skip" data-att-person="' + esc(x.p.username) + '" title="See or fix ' + esc(x.p.name) + '’s punches for today">'
+                            + '<span role="cell">' + esc(x.p.name) + '</span>'
+                            + '<span role="cell" class="rd-att-muted">' + esc(x.p.scheduled ? hm(x.p.start) + ' – ' + hm(x.p.end) : 'Not scheduled') + '</span>'
+                            + '<span role="cell" class="rd-att-status ' + x.cls + '">' + esc(x.text) + '</span>'
+                            + '<span role="cell">' + (x.mins > 0 ? esc(hrs(x.mins)) : '–') + '</span></button>';
+                    }).join('') + '</div>'
+                    + '<div class="rd-att-muted rd-att-small rd-att-pad">Click a person to see or fix their punches for today.</div>';
+            }
+            el.innerHTML = html;
+        }
+
+        // ---------- Manage Attendance: Absences (shown live, no Run button) ----------
+        function renderAbsences() {
+            var d = D();
+            var f = d.auditFilters();
+            var todayISO = d.todayISO();
+            var end = f.endISO > todayISO ? todayISO : f.endISO;
+            var records = d.records(), requests = d.pto(), absences = d.absences();
+            var rows = [], cursor = f.startISO, guard = 0, nowMin = nowMinutes();
+            while (cursor <= end && guard < 120) {
+                var sMap = d.schedule(cursor);
+                var dayRows = d.absenceRows(cursor, sMap, records, requests, absences, f.selectedEmployee);
+                if (cursor === todayISO) dayRows = dayRows.filter(function (r) { var st = minutesOf((sMap[r.username] || {}).startTime); return st == null || nowMin >= st + 15; });
+                dayRows.forEach(function (r) { r.status = r.status === 'Recorded' ? 'Saved' : 'Not saved yet'; });
+                rows = rows.concat(dayRows);
+                cursor = d.shiftISO(cursor, 1);
+                guard++;
+            }
+            var sel = document.getElementById('attendanceAuditEmployee');
+            var label = sel && sel.value ? (sel.options[sel.selectedIndex] || {}).text || sel.value : 'Everyone';
+            window.__attendanceAbsenceAuditReport = { dateISO: f.startISO, startISO: f.startISO, endISO: f.endISO, selectedEmployee: f.selectedEmployee, employeeLabel: label, createdCount: 0, rows: rows };
+            d.renderAbsenceReport();
+            var sum = document.getElementById('attendanceAuditReportSummary');
+            if (sum) {
+                var range = f.startISO === f.endISO ? dayLabel(f.startISO) : dayLabel(f.startISO) + ' – ' + dayLabel(f.endISO);
+                sum.textContent = rows.length + ' absence' + (rows.length === 1 ? '' : 's') + ' · ' + label + ' · ' + range + (f.endISO > todayISO ? ' · days after today aren’t counted' : '');
+            }
+        }
+
+        function setRange(kind) {
+            var d = D();
+            var t = d.parseISO(d.todayISO());
+            var s, e;
+            var iso = function (x) { return x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate()); };
+            if (kind === 'thisweek') { s = new Date(t); s.setDate(t.getDate() - t.getDay()); e = t; }
+            else if (kind === 'lastweek') { s = new Date(t); s.setDate(t.getDate() - t.getDay() - 7); e = new Date(s); e.setDate(s.getDate() + 6); }
+            else if (kind === 'thismonth') { s = new Date(t.getFullYear(), t.getMonth(), 1); e = t; }
+            else { s = new Date(t.getFullYear(), t.getMonth() - 1, 1); e = new Date(t.getFullYear(), t.getMonth(), 0); }
+            var a = document.getElementById('attendanceTimesheetRangeStart'), b = document.getElementById('attendanceTimesheetRangeEnd');
+            if (a) a.value = iso(s); if (b) b.value = iso(e);
+            ['attendanceTimesheetYear', 'attendanceTimesheetMonth'].forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; });
+            state.range = kind;
+            d.render();
+        }
+
+        // ---------- render ----------
+        function managerMode() {
+            var d = D();
+            try { return window.__attendanceViewMode === 'manager' && d.isManager(d.ctx().role); } catch (_) { return false; }
+        }
+        function render() {
+            var d = D();
+            if (!d) return;
+            ensureStyles();
+            ensureEmployeeSkeleton();
+            ensureManagerSkeleton();
+            if (managerMode()) {
+                var sec = document.getElementById('attendanceManagerSection');
+                Array.prototype.forEach.call(document.querySelectorAll('[data-rd-att-tab]'), function (b) { if (b.closest('.rd-att-tabs')) { b.classList.toggle('is-on', b.getAttribute('data-rd-att-tab') === state.tab); b.setAttribute('aria-selected', b.getAttribute('data-rd-att-tab') === state.tab ? 'true' : 'false'); } });
+                Array.prototype.forEach.call(document.querySelectorAll('[data-rd-att-report]'), function (b) { b.classList.toggle('is-on', b.getAttribute('data-rd-att-report') === state.report); b.setAttribute('aria-selected', b.getAttribute('data-rd-att-report') === state.report ? 'true' : 'false'); });
+                Array.prototype.forEach.call(document.querySelectorAll('[data-rd-att-range]'), function (b) { b.classList.toggle('is-on', b.getAttribute('data-rd-att-range') === state.range); });
+                var pending = d.pto().filter(function (r) { return key(r.status) === 'pending'; }).length;
+                var badge = document.getElementById('rdAttPendingBadge');
+                if (badge) badge.textContent = pending ? String(pending) : '';
+                if (sec) { sec.setAttribute('data-rd-tab', state.tab); sec.setAttribute('data-rd-report', state.report); }
+                if (state.tab === 'today') renderTeamToday();
+                if (state.tab === 'reports' && state.report === 'audit') renderAbsences();
+                scheduleManagerRefresh();
+            } else {
+                var m = myData();
+                renderToday(m); renderWeek(m); renderTimeoff(m); renderUpdates(m);
+            }
+        }
+        function scheduleManagerRefresh() {
+            if (state.mgrTimer) clearTimeout(state.mgrTimer);
+            state.mgrTimer = setTimeout(function () {
+                state.mgrTimer = null;
+                var v = document.getElementById('view-attendance');
+                if (v && v.classList.contains('active') && managerMode() && state.tab === 'today') render();
+            }, 60000);
+        }
+        function saveState() { try { localStorage.setItem(STORE, JSON.stringify({ tab: state.tab, report: state.report })); } catch (_) {} }
+
+        // ---------- events ----------
+        function runAction(btn, fn) {
+            if (state.busy) return;
+            state.busy = true;
+            var p;
+            try { p = fn(); } catch (err) { p = Promise.reject(err); }
+            // The punch is saved on this device before the server call, so show it right away.
+            render();
+            Promise.resolve(p).catch(function (err) { console.error('Attendance action failed:', err); notify('That didn’t go through. Try again.', 'error'); })
+                .then(function () { state.busy = false; render(); });
+        }
+        document.addEventListener('click', function (e) {
+            var t = e.target;
+            if (!t || !t.closest) return;
+            var tab = t.closest('[data-rd-att-tab]');
+            if (tab && tab.closest('#attendanceManagerSection')) { state.tab = tab.getAttribute('data-rd-att-tab'); saveState(); render(); return; }
+            var rep = t.closest('[data-rd-att-report]');
+            if (rep) { state.report = rep.getAttribute('data-rd-att-report'); saveState(); render(); return; }
+            var rng = t.closest('[data-rd-att-range]');
+            if (rng) { setRange(rng.getAttribute('data-rd-att-range')); return; }
+            var person = t.closest('[data-att-person]');
+            if (person) {
+                var d = D(), u = person.getAttribute('data-att-person'), today = d.todayISO();
+                var sel = document.getElementById('attendanceManagerEmployee');
+                if (sel) { if (!Array.prototype.some.call(sel.options, function (o) { return o.value === u; })) { var o = document.createElement('option'); o.value = u; o.textContent = u; sel.appendChild(o); } sel.value = u; }
+                ['attendanceManagerRangeStart', 'attendanceManagerRangeEnd', 'attendanceManagerDay'].forEach(function (id) { var el = document.getElementById(id); if (el) el.value = today; });
+                state.tab = 'reports'; state.report = 'detailed'; saveState();
+                d.render();
+                try { document.getElementById('attendanceManagerSection').scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (_) {}
+                return;
+            }
+            var act = t.closest('[data-att-act]');
+            if (act && act.closest('#rdAttMe')) {
+                var a = act.getAttribute('data-att-act');
+                if (a === 'request') { if (typeof window.toggleAttendanceTimeoffRequestForm === 'function') window.toggleAttendanceTimeoffRequestForm(); render(); return; }
+                if (a === 'past') { state.showPast = !state.showPast; render(); return; }
+                if (a === 'home' && !state.confirmOut) { state.confirmOut = true; render(); setTimeout(function () { if (state.confirmOut) { state.confirmOut = false; render(); } }, 5000); return; }
+                state.confirmOut = false;
+                runAction(act, function () {
+                    if (a === 'in') return window.attendanceClockIn && window.attendanceClockIn();
+                    return window.attendanceClockOut && window.attendanceClockOut(a);
+                });
+                return;
+            }
+            var ed = t.closest('[data-att-edit]');
+            if (ed) { if (typeof window.startEditPtoRequest === 'function') window.startEditPtoRequest(ed.getAttribute('data-att-edit')); render(); return; }
+            var cn = t.closest('[data-att-cancel]');
+            if (cn) { if (typeof window.cancelPtoRequest === 'function') window.cancelPtoRequest(cn.getAttribute('data-att-cancel')); return; }
+        });
+        document.addEventListener('change', function (e) {
+            var id = e.target && e.target.id;
+            if ((id === 'attendanceAuditRangeStart' || id === 'attendanceAuditRangeEnd' || id === 'attendanceAuditEmployee') && managerMode()) renderAbsences();
+            if (id === 'attendanceTimesheetRangeStart' || id === 'attendanceTimesheetRangeEnd') state.range = '';
+        });
+
+        // ---------- styles ----------
+        function ensureStyles() {
+            if (document.getElementById('rdAttStyles')) return;
+            var st = document.createElement('style');
+            st.id = 'rdAttStyles';
+            st.textContent = [
+                '#attendanceTimeZoneLabel{display:none !important}',
+                '.rd-att-hide{display:none !important}',
+                '#attendanceEmployeeSection.rd-att-on>#attendanceEmployeeTabs,#attendanceEmployeeSection.rd-att-on [data-attendance-employee-panel]{display:none !important}',
+                '#attendanceManagerSection.rd-att-on #attendanceManagerTabs{display:none !important}',
+                '#attendanceManagerSection.rd-att-on [data-attendance-manager-panel]{display:none !important}',
+                '#attendanceManagerSection[data-rd-tab="timeoff"] [data-attendance-manager-panel="managetimeoff"],#attendanceManagerSection[data-rd-tab="timeoff"] [data-attendance-manager-panel="policy"],#attendanceManagerSection[data-rd-tab="reports"][data-rd-report="timesheet"] [data-attendance-manager-panel="timesheet"],#attendanceManagerSection[data-rd-tab="reports"][data-rd-report="audit"] [data-attendance-manager-panel="audit"],#attendanceManagerSection[data-rd-tab="reports"][data-rd-report="detailed"] [data-attendance-manager-panel="detailed"]{display:block !important}',
+                '#attendanceManagerSection[data-rd-tab="reports"][data-rd-report="audit"] #attendanceAuditReportPanel{display:block !important}',
+                '#attendanceManagerSection:not([data-rd-tab="today"]) #rdAttTodayPanel{display:none}',
+                '#attendanceManagerSection:not([data-rd-tab="reports"]) #rdAttReportTabs{display:none}',
+                '#attendanceManagerSection.rd-att-on .attendance-manager-subtitle{display:none}',
+                '#attendanceManagerSection [data-attendance-manager-panel="policy"]{margin-top:12px;border:1px solid #E2E8F0;border-radius:12px}',
+                '#view-attendance .attendance-manager-filters{display:flex !important;flex-wrap:wrap;gap:12px;align-items:flex-end}',
+                '#view-attendance .attendance-manager-filter{flex:1 1 200px;min-width:0}',
+                '#view-attendance .attendance-manager-filter.attendance-manager-nav-day{flex:0 0 auto}',
+                '#view-attendance .attendance-manager-filter-range{flex:2 1 330px}',
+                '#view-attendance .attendance-manager-range-row{display:flex;gap:8px;flex-wrap:nowrap}',
+                '#view-attendance .attendance-manager-range-row input[type="date"]{flex:1 1 0;min-width:150px !important;width:auto !important}',
+                '.rd-att{display:flex;flex-direction:column;gap:12px;color:var(--text-primary,#0F172A)}',
+                '.rd-att-card{background:var(--card-bg,#fff);border:1px solid #E2E8F0;border-radius:14px;padding:16px 18px}',
+                '.rd-att-muted{color:var(--text-secondary,#475569);font-size:13px}',
+                '.rd-att-small{font-size:12px}',
+                '.rd-att-pad{padding:8px 2px 0}',
+                '.rd-att-head{font-size:22px;font-weight:700;margin:2px 0}',
+                '.rd-att-big{font-size:18px;font-weight:700}',
+                '.rd-att-today-main{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}',
+                '.rd-att-actions{display:flex;gap:8px;flex-wrap:wrap}',
+                '.rd-att-hint{margin-top:10px;font-size:12px;color:var(--text-secondary,#475569)}',
+                '.rd-att-btn{height:40px;padding:0 16px;border-radius:10px;border:1px solid #CBD5E1;background:var(--card-bg,#fff);color:var(--text-primary,#0F172A);font-size:14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px}',
+                '.rd-att-btn:hover{background:#F1F5F9}',
+                '.rd-att-btn.is-primary{background:#0F5E75;border-color:#0F5E75;color:#fff}',
+                '.rd-att-btn.is-primary:hover{background:#0B4759}',
+                '.rd-att-btn:disabled{opacity:.6;cursor:wait}',
+                '.rd-att-link{background:none;border:0;padding:0;color:#0F5E75;font-weight:600;font-size:13px;cursor:pointer}',
+                '.rd-att-link:hover{text-decoration:underline}',
+                '.rd-att-chips-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}',
+                '.rd-att-chip{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600;background:#F1F5F9;color:#334155;white-space:nowrap}',
+                '.rd-att-chip.is-ok{background:#ECFDF3;color:#067647}',
+                '.rd-att-chip.is-warn{background:#FFFAEB;color:#93370D}',
+                '.rd-att-chip.is-bad{background:#FEF3F2;color:#B42318}',
+                '.rd-att-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}',
+                '.rd-att-day{background:var(--card-bg,#fff);border:1px solid #E2E8F0;border-radius:10px;padding:8px 10px;min-width:0}',
+                '.rd-att-day.is-today{border:2px solid #0F5E75}',
+                '.rd-att-day.is-off{background:#FFFAEB;border-color:#FEDF89}',
+                '.rd-att-day-name{font-size:12px;color:var(--text-secondary,#475569)}',
+                '.rd-att-day-main{font-size:14px;font-weight:700;overflow-wrap:anywhere}',
+                '.rd-att-day-note{font-size:12px;color:var(--text-secondary,#475569)}',
+                '.rd-att-day-note.is-ok{color:#067647}.rd-att-day-note.is-warn{color:#B54708}.rd-att-day-note.is-bad{color:#B42318}',
+                '.rd-att-row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}',
+                '#rdAttMeFormSlot .attendance-timeoff-form-wrap{margin-top:12px}',
+                '.rd-att-req{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;padding:10px 0;border-top:1px solid #EEF2F6}',
+                '#rdAttMeRequests{margin-top:10px}',
+                '.rd-att-req-acts{grid-column:1/-1;display:flex;gap:14px}',
+                '.rd-att-update{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid #EEF2F6;font-size:13px}',
+                '.rd-att-tabs{display:flex;gap:6px;margin:4px 0 12px;flex-wrap:wrap}',
+                '.rd-att-tabs button,.rd-att-subtabs button,.rd-att-chips button{height:36px;padding:0 16px;border-radius:10px;border:1px solid #CBD5E1;background:var(--card-bg,#fff);color:var(--text-primary,#0F172A);font-size:14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px}',
+                '.rd-att-tabs button.is-on{background:#0F5E75;border-color:#0F5E75;color:#fff}',
+                '.rd-att-subtabs{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}',
+                '.rd-att-subtabs button{height:32px;font-size:13px;border-radius:999px}',
+                '.rd-att-subtabs button.is-on,.rd-att-chips button.is-on{background:#E7F1F4;border-color:#0F5E75;color:#0F5E75}',
+                '.rd-att-chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}',
+                '.rd-att-chips button{height:30px;font-size:13px;border-radius:999px;padding:0 12px}',
+                '.rd-att-badge:empty{display:none}',
+                '.rd-att-badge{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#F79009;color:#fff;font-size:12px;display:inline-flex;align-items:center;justify-content:center}',
+                '.rd-att-banner{display:flex;gap:8px;align-items:center;width:100%;text-align:left;padding:10px 14px;border-radius:10px;border:1px solid #FEDF89;background:#FFFAEB;color:#93370D;font-size:14px;cursor:pointer}',
+                '.rd-att-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}',
+                '.rd-att-tile{background:var(--card-bg,#fff);border:1px solid #E2E8F0;border-radius:12px;padding:10px 14px}',
+                '.rd-att-tile-num{font-size:24px;font-weight:700}.rd-att-tile-num.is-warn{color:#B54708}',
+                '.rd-att-table{background:var(--card-bg,#fff);border:1px solid #E2E8F0;border-radius:12px;overflow:hidden}',
+                '.rd-att-tr{display:grid;grid-template-columns:1.4fr 1fr 1.6fr .6fr;gap:10px;align-items:center;width:100%;padding:11px 16px;border:0;border-top:1px solid #EEF2F6;background:none;text-align:left;font-size:14px;color:inherit;cursor:pointer}',
+                '.rd-att-tr:hover{background:#F8FAFC}',
+                '.rd-att-th{cursor:default;border-top:0;background:#F8FAFC;font-size:12px;font-weight:700;color:var(--text-secondary,#475569)}',
+                '.rd-att-th:hover{background:#F8FAFC}',
+                '.rd-att-status.is-ok{color:#067647;font-weight:600}.rd-att-status.is-warn{color:#B54708;font-weight:600}.rd-att-status.is-bad{color:#B42318;font-weight:600}.rd-att-status.is-muted{color:var(--text-secondary,#475569)}',
+                '@media (max-width:720px){.rd-att-week{grid-template-columns:repeat(4,minmax(0,1fr))}.rd-att-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.rd-att-tr{grid-template-columns:1.2fr 1.4fr .6fr}.rd-att-tr span:nth-child(2){display:none}}'
+            ].join('\n');
+            document.head.appendChild(st);
+        }
+
+        window.rdAttUI = { render: render, teamToday: teamToday, renderAbsences: renderAbsences, _state: state };
+        if (window.rdAttData) {
+            var v = document.getElementById('view-attendance');
+            if (v && v.classList.contains('active')) render();
+        }
     })();
     </script>
 
