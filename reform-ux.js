@@ -213,7 +213,7 @@
   /* ---------- Buttons: tag every real button as a text button or an icon button ----------
      so one rule set gives them the same size, corners and colours everywhere.
      Cards, list headers, tabs, menus and the calendar are left alone. */
-  var BTN_SKIP_CONTEXT = '.fc, .rd-calendar-time-grid, [class*="calendar-grid"], [role="menu"], .dropdown-menu, [class*="tools-menu"], .rd-view-tab, [class*="rd-view-tab"], #settingsMenu, [class*="context-menu"], .quick-calendar-dropdown, [id^="chatTab"], .copilot-header-actions, .copilot-send-btn';
+  var BTN_SKIP_CONTEXT = '.fc, .rd-calendar-time-grid, [class*="calendar-grid"], [role="menu"], .dropdown-menu, [class*="tools-menu"], .rd-view-tab, [class*="rd-view-tab"], #settingsMenu, [class*="context-menu"], .quick-calendar-dropdown, [id^="chatTab"], .copilot-header-actions, .copilot-send-btn, #viewEquipmentModal, #viewInstrumentModal, #viewSupplyModal, #viewUtilityModal, #teamPreviewModal, #vendorSubModal, #userPreviewModal, #rdDetails';
   var BTN_SKIP_CLASS = /(card|kpi|drilldown|chip|pill|badge|tile|menu-item|rd-view-tab|fc-|toggle-switch|status-toggle|warning-icon|floating|swatch|nav-item|rail-tab|tab-btn|svc-tab|svc-date-tab|calendar-corner|favorite)/i;
   var BTN_DELETE = /(delete|remove|trash)/i;
   var ALLOWED_BTN_BG = /^(rgb\(15, 94, 117\)|rgb\(11, 71, 89\)|rgb\(255, 255, 255\)|rgb\(241, 245, 249\)|rgb\(248, 250, 252\)|rgba\(0, 0, 0, 0\)|rgb\(231, 241, 244\)|rgb\(217, 45, 32\)|rgb\(180, 35, 24\)|rgb\(254, 243, 242\)|rgb\(254, 228, 226\))$/;
@@ -459,6 +459,8 @@
     });
     try { tidyBadges(); } catch (_) {}
     try { unifyModals(); } catch (_) {}
+    try { unifyPreviews(); } catch (_) {}
+    try { unifyFormActions(); } catch (_) {}
     try { placeQuickCalendar(); } catch (_) {}
     try { vendorCount(); } catch (_) {}
     try { pinActions(); } catch (_) {}
@@ -476,7 +478,12 @@
     for (var i = 0; i < records.length; i++) {
       var r = records[i];
       if (r.type === 'childList') {
-        for (var j = 0; j < r.addedNodes.length; j++) { var n = r.addedNodes[j]; if (n.nodeType === 1) pending.add(n); }
+        for (var j = 0; j < r.addedNodes.length; j++) {
+          var n = r.addedNodes[j];
+          if (n.nodeType !== 1) continue;
+          pending.add(n);
+          if (n.matches && n.matches(PREVIEW_SEL)) { try { unifyPreviews(); } catch (_) {} }
+        }
       } else if (r.type === 'attributes' && r.target.nodeType === 1) {
         pending.add(r.target);
         // Place the Quick Calendar right away (before the browser paints), not on the next idle sweep
@@ -487,6 +494,93 @@
     }
     queue();
   }
+  /* ---------- Preview windows: one look ----------
+     Equipment, Instruments, Supplies, Services, Vendors, Assignments and Users each built their own
+     preview. Tag the header, close button and footer so they all get the details-window look:
+     white header with icon tile and a neutral close, and a footer with Close then Edit on the right.
+     Existing buttons are moved, never recreated, so their actions keep working. */
+  var PREVIEW_SEL = '#viewEquipmentModal, #viewInstrumentModal, #viewSupplyModal, #viewUtilityModal, #teamPreviewModal, #vendorSubModal, #userPreviewModal';
+  function pvText(b) { return (b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim(); }
+  function unifyPreviews() {
+    Array.prototype.forEach.call(document.querySelectorAll(PREVIEW_SEL), function (modal) {
+      if (modal.dataset.rdPv) return;
+      var card = modal.firstElementChild;
+      if (!card || !card.firstElementChild) return;
+      modal.dataset.rdPv = '1';
+      card.classList.add('rd-pv-card');
+      var head = card.firstElementChild;
+      head.classList.add('rd-pv-head');
+      var buttons = Array.prototype.slice.call(card.querySelectorAll('button'));
+      var closeBtn = null, editBtn = null, xBtn = null;
+      buttons.forEach(function (b) {
+        var t = pvText(b);
+        if (!closeBtn && /^(×\s*)?close$/i.test(t)) closeBtn = b;
+        if (!editBtn && /^edit\b/i.test(t)) editBtn = b;
+        if (!xBtn && head.contains(b) && (!t || /^[×✕✖]$/.test(t))) xBtn = b;
+      });
+      // icon tile: the first small box in the header that only holds an icon
+      var tile = Array.prototype.find.call(head.querySelectorAll('div, span'), function (d) {
+        return d.children.length === 1 && d.firstElementChild.tagName === 'I' && !pvText(d);
+      });
+      if (tile) tile.classList.add('rd-pv-icon');
+      // footer: where Close lives, unless Close sits in the header (Assignments) - then build one
+      var foot = (closeBtn && !head.contains(closeBtn)) ? closeBtn.parentElement : null;
+      if (!foot) {
+        foot = document.createElement('div');
+        card.appendChild(foot);
+        Array.prototype.forEach.call(head.querySelectorAll('button'), function (b) {
+          if (b !== xBtn && pvText(b)) foot.appendChild(b);
+        });
+      }
+      foot.classList.add('rd-pv-foot');
+      if (editBtn) { editBtn.classList.add('rd-pv-edit'); if (editBtn.parentElement !== foot && !card.querySelector('.rd-pv-foot .rd-pv-edit')) foot.appendChild(editBtn); }
+      if (closeBtn) {
+        closeBtn.classList.add('rd-pv-close');
+        if (/^\u00d7\s*close$/i.test(pvText(closeBtn))) closeBtn.textContent = 'Close';
+      } else if (xBtn) {
+        // every preview gets a Close button next to Edit
+        var c = document.createElement('button');
+        c.type = 'button';
+        c.className = 'rd-pv-close';
+        c.textContent = 'Close';
+        c.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); xBtn.click(); });
+        foot.appendChild(c);
+      }
+      if (xBtn) {
+        xBtn.classList.add('rd-pv-x');
+        if (!xBtn.getAttribute('aria-label')) xBtn.setAttribute('aria-label', 'Close');
+      } else if (closeBtn) {
+        var x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'rd-pv-x';
+        x.setAttribute('aria-label', 'Close');
+        x.innerHTML = '&times;';
+        x.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); closeBtn.click(); });
+        head.appendChild(x);
+      }
+    });
+  }
+
+  /* ---------- Add/edit windows: Cancel then Save, on the right ----------
+     Same order as the preview footers (Close then Edit). The buttons are only re-ordered with CSS
+     (flex order); nothing is moved, so tab order follows what you see except for that swap. */
+  function unifyFormActions() {
+    Array.prototype.forEach.call(document.querySelectorAll('[id$="ManagementModal"] button'), function (b) {
+      if (b.dataset.rdFa) return;
+      var t = pvText(b);
+      var isSubmit = b.type === 'submit' || /SubmitBtn$/.test(b.id || '') || /^(save|add|create|update)\b/i.test(t);
+      if (!isSubmit || /^cancel$/i.test(t)) return;
+      var row = b.parentElement;
+      if (!row) return;
+      var cancel = Array.prototype.find.call(row.children, function (c) { return c.tagName === 'BUTTON' && /^cancel$/i.test(pvText(c)); });
+      if (!cancel) return;
+      b.dataset.rdFa = '1';
+      row.classList.add('rd-form-actions');
+      b.classList.add('rd-form-submit');
+      cancel.classList.add('rd-form-cancel');
+    });
+  }
+
   /* ---------- Safety net: a Cancel that leaves a management window empty closes it ----------
      Some add/edit windows used to hold a list and a form. The lists moved to their pages, but a few
      Cancel buttons still only hide the form, leaving a blank full-screen window. */
