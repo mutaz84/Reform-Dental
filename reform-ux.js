@@ -213,8 +213,8 @@
   /* ---------- Buttons: tag every real button as a text button or an icon button ----------
      so one rule set gives them the same size, corners and colours everywhere.
      Cards, list headers, tabs, menus and the calendar are left alone. */
-  var BTN_SKIP_CONTEXT = '.fc, .rd-calendar-time-grid, [class*="calendar-grid"], [role="menu"], .dropdown-menu, [class*="tools-menu"], .rd-view-tab, [class*="rd-view-tab"], #settingsMenu, [class*="context-menu"], .quick-calendar-dropdown';
-  var BTN_SKIP_CLASS = /(card|kpi|drilldown|chip|pill|badge|tile|menu-item|rd-view-tab|fc-|toggle-switch|status-toggle|warning-icon|floating|swatch|nav-item|rail-tab|tab-btn|svc-tab|svc-date-tab|calendar-corner)/i;
+  var BTN_SKIP_CONTEXT = '.fc, .rd-calendar-time-grid, [class*="calendar-grid"], [role="menu"], .dropdown-menu, [class*="tools-menu"], .rd-view-tab, [class*="rd-view-tab"], #settingsMenu, [class*="context-menu"], .quick-calendar-dropdown, [id^="chatTab"], .copilot-header-actions, .copilot-send-btn';
+  var BTN_SKIP_CLASS = /(card|kpi|drilldown|chip|pill|badge|tile|menu-item|rd-view-tab|fc-|toggle-switch|status-toggle|warning-icon|floating|swatch|nav-item|rail-tab|tab-btn|svc-tab|svc-date-tab|calendar-corner|favorite)/i;
   var BTN_DELETE = /(delete|remove|trash)/i;
   var ALLOWED_BTN_BG = /^(rgb\(15, 94, 117\)|rgb\(11, 71, 89\)|rgb\(255, 255, 255\)|rgb\(241, 245, 249\)|rgb\(248, 250, 252\)|rgba\(0, 0, 0, 0\)|rgb\(231, 241, 244\)|rgb\(217, 45, 32\)|rgb\(180, 35, 24\)|rgb\(254, 243, 242\)|rgb\(254, 228, 226\))$/;
   function classifyButtons(root) {
