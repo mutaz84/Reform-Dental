@@ -153,3 +153,18 @@ Edit the `ContextEngine` object in the HTML file to pull from additional localSt
 
 ### Change the AI Model
 Edit `.env` → `OPENAI_MODEL`. You can also switch to Anthropic by modifying `server.py` to use the Anthropic SDK.
+
+## Locking the AI server (DENTABRAIN_SHARED_SECRET)
+
+The app no longer calls this server from the browser. It calls its own Azure API at
+`/api/ai/chat` (`api/ai-proxy`), which requires the user to be signed in and forwards the
+question here with an `X-DentaBrain-Key` header.
+
+1. Make a long random value (for example a password manager's 40-character password).
+2. Azure Static Web App → Settings → Environment variables: add `DENTABRAIN_SHARED_SECRET`
+   with that value (both apps, black-sky and gray-forest). Save.
+3. Railway → this service → Variables: add `DENTABRAIN_SHARED_SECRET` with the same value.
+   Railway redeploys.
+4. `/api/ai/health` now shows `"locked": true`. Requests without the key get 401.
+
+Do step 2 before step 3; the other way round, DentaBrain stops answering until both match.

@@ -12,7 +12,8 @@ import json
 import re
 from datetime import datetime
 from typing import Optional
-from fastapi import FastAPI, HTTPException
+import hmac
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 from openai import OpenAI
@@ -407,8 +408,15 @@ def describe_actions(actions):
     return "Done."
 
 
+# Shared secret from the app's Azure API (api/ai-proxy). When DENTABRAIN_SHARED_SECRET is set here,
+# only requests carrying the same value in X-DentaBrain-Key are answered.
+SHARED_SECRET = os.getenv("DENTABRAIN_SHARED_SECRET", "").strip()
+
+
 @app.post("/api/ai/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, x_dentabrain_key: Optional[str] = Header(default=None)):
+    if SHARED_SECRET and not hmac.compare_digest((x_dentabrain_key or "").encode(), SHARED_SECRET.encode()):
+        raise HTTPException(status_code=401, detail="Not allowed.")
     """Process a user message and return AI response + actions."""
     if not os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY") == "sk-your-key-here":
         raise HTTPException(status_code=500, detail="OpenAI API key not configured. Set OPENAI_API_KEY in .env")
@@ -563,9 +571,10 @@ async def health():
     return {
         "status": "ok",
         "service": "ReformDental Copilot",
-        "version": "2026-11-25.1",
+        "version": "2026-11-25.2",
         "model": MODEL,
-        "api_key_configured": bool(os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_API_KEY") != "sk-your-key-here")
+        "api_key_configured": bool(os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_API_KEY") != "sk-your-key-here"),
+        "locked": bool(SHARED_SECRET)
     }
 
 
