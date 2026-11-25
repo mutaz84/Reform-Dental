@@ -2,6 +2,35 @@ const { sql, getPool, resetPool } = require('../shared/database');
 const { TENANT_PARAM, getRequestUserId, tenantVisibleUserIdsClause } = require('../shared/tenant');
 const crypto = require('crypto');
 const { withAuth, hashPassword, validateNewPassword, isAdminOrManager } = require('../shared/auth');
+const permissions = require('../shared/permissions');
+
+// Fields only admins, managers and people with Users > Edit Users (Read or Full) may see for
+// other people. Everyone still gets their own record in full.
+const PRIVATE_USER_FIELDS = [
+    'SSN', 'Salary', 'HourlyRate', 'HRInfo', 'SeparationReason', 'Documents', 'FailedLoginAttempts',
+    'EmergencyContactName', 'EmergencyContactRelationship', 'EmergencyContactPhone', 'EmergencyContactEmail',
+    'Address', 'City', 'State', 'ZipCode', 'HomePhone', 'PersonalEmail'
+];
+
+function actorIsAdmin(actor) {
+    if (!actor) return false;
+    return String(actor.username || '').trim().toLowerCase() === 'admin' || permissions.isAdminRole(actor.role);
+}
+
+async function canSeePrivateUserFields(pool, req) {
+    if (isAdminOrManager(req.authUser)) return true;
+    return permissions.can(pool, req, 'users', 'edit', 'readonly');
+}
+
+function redactUserRow(row, viewerId, canSeePrivate) {
+    if (!row || canSeePrivate) return row;
+    if (Number(row.Id || row.id || 0) === Number(viewerId || -1)) return row;
+    const copy = { ...row };
+    PRIVATE_USER_FIELDS.forEach((field) => {
+        if (Object.prototype.hasOwnProperty.call(copy, field)) copy[field] = field === 'HRInfo' ? {} : null;
+    });
+    return copy;
+}
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -606,7 +635,8 @@ module.exports = async function (context, req) {
                     delete row.UserHRDataJson;
 
                     const hydrated = await hydrateBenefitsForUsers(pool, [row]);
-                    const hydratedRow = hydrated[0] || row;
+                    const canSeePrivate = await canSeePrivateUserFields(pool, req);
+                    const hydratedRow = redactUserRow(hydrated[0] || row, req.authUser && req.authUser.id, canSeePrivate);
 
                     context.res = {
                         status: 200,
@@ -647,15 +677,21 @@ module.exports = async function (context, req) {
                 });
 
                 const hydratedUsers = await hydrateBenefitsForUsers(pool, users);
+                const canSeePrivate = await canSeePrivateUserFields(pool, req);
+                const viewerId = req.authUser && req.authUser.id;
 
-                context.res = { status: 200, headers, body: hydratedUsers };
+                context.res = { status: 200, headers, body: hydratedUsers.map((u) => redactUserRow(u, viewerId, canSeePrivate)) };
             }
         } else if (req.method === 'POST') {
-            if (!isAdminOrManager(req.authUser)) {
-                context.res = { status: 403, headers, body: { error: 'Only an admin or manager can create users.' } };
+            if (!(await permissions.can(pool, req, 'users', 'create'))) {
+                context.res = { status: 403, headers, body: { error: "You don't have permission to add users. Ask an admin to change it in Manage Permissions.", code: 'PERMISSION_DENIED' } };
                 return;
             }
             const rawCreateBody = parseRequestBody(req.body) || {};
+            if (permissions.isAdminRole(rawCreateBody.role || rawCreateBody.Role) && !actorIsAdmin(req.authUser)) {
+                context.res = { status: 403, headers, body: { error: 'Only an admin can add someone with the admin role.', code: 'PERMISSION_DENIED' } };
+                return;
+            }
             const requestedPassword = rawCreateBody.password || rawCreateBody.newPassword || '';
             if (requestedPassword) {
                 const passwordProblem = validateNewPassword(requestedPassword);
@@ -774,11 +810,21 @@ module.exports = async function (context, req) {
             const actor = req.authUser || null;
             const actorIsManager = isAdminOrManager(actor);
             const isSelf = !!actor && Number(id) === Number(actor.id);
-            if (!actorIsManager && !isSelf) {
-                context.res = { status: 403, headers, body: { error: 'You can only update your own profile.' } };
+            if (!isSelf && !(await permissions.can(pool, req, 'users', 'edit'))) {
+                context.res = { status: 403, headers, body: { error: "You don't have permission to change other people's profiles.", code: 'PERMISSION_DENIED' } };
                 return;
             }
-            if (body && !actorIsManager) {
+            const actorCanManagePermissions = actorIsManager || await permissions.can(pool, req, 'users', 'manage_permissions');
+            const requestedRole = body ? (body.role ?? body.Role) : undefined;
+            if (actorCanManagePermissions && requestedRole && permissions.isAdminRole(requestedRole) && !actorIsAdmin(actor)) {
+                const current = await pool.request().input('id', sql.Int, id).query('SELECT Role FROM Users WHERE Id = @id');
+                const currentRole = current.recordset && current.recordset[0] ? current.recordset[0].Role : '';
+                if (!permissions.isAdminRole(currentRole)) {
+                    context.res = { status: 403, headers, body: { error: 'Only an admin can give someone the admin role.', code: 'PERMISSION_DENIED' } };
+                    return;
+                }
+            }
+            if (body && !actorCanManagePermissions) {
                 // Staff editing their own profile can't change their role or permissions.
                 if (body.permissionsOnly === true || String(body.permissionsOnly || '').toLowerCase() === 'true') {
                     context.res = { status: 403, headers, body: { error: 'Only an admin or manager can change permissions.' } };
@@ -1146,8 +1192,8 @@ module.exports = async function (context, req) {
                 throw e;
             }
         } else if (req.method === 'DELETE' && id) {
-            if (!isAdminOrManager(req.authUser)) {
-                context.res = { status: 403, headers, body: { error: 'Only an admin or manager can remove users.' } };
+            if (!(await permissions.can(pool, req, 'users', 'delete'))) {
+                context.res = { status: 403, headers, body: { error: "You don't have permission to delete users. Ask an admin to change it in Manage Permissions.", code: 'PERMISSION_DENIED' } };
                 return;
             }
             const userColumns = await getTableColumns(pool, 'Users');
