@@ -9,9 +9,11 @@ responses + actionable commands.
 
 import os
 import json
+import re
 from datetime import datetime
 from typing import Optional
-from fastapi import FastAPI, HTTPException
+import hmac
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 from openai import OpenAI
@@ -406,8 +408,15 @@ def describe_actions(actions):
     return "Done."
 
 
+# Shared secret from the app's Azure API (api/ai-proxy). When DENTABRAIN_SHARED_SECRET is set here,
+# only requests carrying the same value in X-DentaBrain-Key are answered.
+SHARED_SECRET = os.getenv("DENTABRAIN_SHARED_SECRET", "").strip()
+
+
 @app.post("/api/ai/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, x_dentabrain_key: Optional[str] = Header(default=None)):
+    if SHARED_SECRET and not hmac.compare_digest((x_dentabrain_key or "").encode(), SHARED_SECRET.encode()):
+        raise HTTPException(status_code=401, detail="Not allowed.")
     """Process a user message and return AI response + actions."""
     if not os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY") == "sk-your-key-here":
         raise HTTPException(status_code=500, detail="OpenAI API key not configured. Set OPENAI_API_KEY in .env")
@@ -468,43 +477,88 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail=f"AI processing error: {str(e)}")
 
 
+# Follow-up chips. Every chip is a question DentaBrain can answer from the data it is sent.
+SUGGESTION_TOPICS = [
+    (("ticket", "repair", "broken", "maintenance", "work order"),
+     ["Which service tickets are overdue?", "Who is working on open tickets?", "Which equipment has open tickets?"]),
+    (("pto", "time off", "vacation", "leave", "day off"),
+     ["How many PTO requests are pending?", "Who has approved time off coming up?", "Who is absent today?"]),
+    (("clock", "attendance", "late", "break", "lunch", "absent", "working today", "on shift"),
+     ["Is anyone on lunch or break?", "Who was late today?", "Is anyone scheduled but not clocked in?"]),
+    (("schedule", "shift", "scheduled"),
+     ["Who is scheduled today?", "Is anyone scheduled but not clocked in?", "Who has time off coming up?"]),
+    (("overdue", "unscheduled", "dashboard", "first today", "priority", "priorities"),
+     ["What should I take care of first today?", "Which overdue items have no one assigned?", "How many items are unscheduled?"]),
+    (("instrument",),
+     ["Are any instruments out of stock?", "How many instruments do we have by category?", "Add an instrument"]),
+    (("supply", "supplies", "glove", "stock", "reorder", "expire"),
+     ["Are any supplies out of stock?", "What supplies expire in the next 60 days?", "What supplies are running low?"]),
+    (("equipment", "x-ray", "xray", "scanner", "autoclave", "compressor", "warranty"),
+     ["Which equipment isn't operational?", "What equipment is due for service this month?", "Which warranties expire in the next 90 days?"]),
+    (("vendor", "supplier", "laboratory", "lab "),
+     ["Which vendors are favorites?", "How many dental laboratories do we use?", "Which vendors have open service tickets?"]),
+    (("service", "utilit", "internet", "phone", "contract", "monthly cost", "bill", "security", "cleaning", "trash"),
+     ["What is our total monthly cost for services?", "Which service contracts end in the next 60 days?", "Are there open utility tickets?"]),
+    (("assignment", "huddle", "team"),
+     ["Which assignments are overdue?", "Are there assignments with no members?", "List our assignments and who leads each one"]),
+    (("task",),
+     ["What tasks are assigned to me?", "What tasks are pending?", "Create a task"]),
+    (("employee", "staff", "birthday", "hired", "hire date", "oldest", "longest", "role", "job title"),
+     ["Whose birthday is this month?", "Who has worked here the longest?", "How many employees do we have, by role?"]),
+    (("room",),
+     ["How many rooms do we have?", "Open Manage Rooms", "Where is the X-ray unit located?"]),
+    (("category", "categories"),
+     ["Which services have a category that isn't in the list?", "What categories do we use for supplies?", "What categories do we use for services?"]),
+]
+
+SUGGESTIONS_BY_VIEW = {
+    "dashboard": ["What's overdue right now?", "What should I take care of first today?", "Who is clocked in right now?"],
+    "attendance": ["Who is clocked in right now?", "Who was late today?", "How many PTO requests are pending?"],
+    "calendar": ["Who is scheduled today?", "What's due next week?", "Who has time off coming up?"],
+    "schedule": ["Who is scheduled today?", "Is anyone scheduled but not clocked in?", "Who has time off coming up?"],
+    "equipment": ["Which equipment isn't operational?", "What equipment is due for service this month?", "Which service tickets are overdue?"],
+    "instruments": ["Are any instruments out of stock?", "How many instruments do we have by category?", "Add an instrument"],
+    "supplies": ["What supplies are running low?", "Are any supplies out of stock?", "What supplies expire in the next 60 days?"],
+    "vendors": ["Which vendors are favorites?", "How many vendors do we have?", "Which vendors have open service tickets?"],
+    "utilities": ["What is our total monthly cost for services?", "Which service contracts end in the next 60 days?", "Are there open utility tickets?"],
+    "teams": ["Which assignments are overdue?", "Are there assignments with no members?", "List our assignments and who leads each one"],
+    "task-hub": ["What tasks are assigned to me?", "What tasks are pending?", "Create a task"],
+    "requests": ["How many open requests are there, by type?", "How many PTO requests are pending?", "Who has approved time off coming up?"],
+    "sticky-notes": ["What sticky notes do I have?", "Add a sticky note", "What's overdue right now?"],
+    "procedures": ["Tell me about our root canal procedure", "What procedures do we have?", "What's overdue right now?"],
+}
+
+DEFAULT_SUGGESTIONS = ["What's overdue right now?", "Who is clocked in right now?", "What supplies are running low?"]
+
+
+def _same_question(a: str, b: str) -> bool:
+    norm = lambda s: re.sub(r"[^a-z0-9 ]+", "", s.lower()).strip()
+    return norm(a) == norm(b)
+
+
 def generate_suggestions(last_message: str, context: Optional[AppContext]) -> list[str]:
-    """Generate follow-up suggestion chips based on the conversation."""
-    view = context.currentView if context else None
-
-    base_suggestions = {
-        "calendar": [
-            "Who's working today?",
-            "Any scheduling conflicts?",
-            "Show me tomorrow's appointments"
-        ],
-        "equipment": [
-            "Any equipment needing maintenance?",
-            "Show equipment by status",
-            "What's the most used equipment?"
-        ],
-        "supplies": [
-            "What supplies are running low?",
-            "Show me reorder list",
-            "Total inventory value?"
-        ],
-        "task-hub": [
-            "Any overdue tasks?",
-            "Who has the most tasks?",
-            "Show unassigned tasks"
-        ],
-        "instruments": [
-            "Any instruments needing sterilization?",
-            "Show instrument count by type",
-            "What instruments need replacement?"
-        ],
-    }
-
-    return base_suggestions.get(view, [
-        "How many employees are working today?",
-        "What supplies are running low?",
-        "Show me today's schedule"
-    ])
+    """Follow-up chips: the topic of the last question first, then the page the user is on."""
+    text = f" {(last_message or '').lower()} "
+    best, best_hits = None, 0
+    for keywords, chips in SUGGESTION_TOPICS:
+        hits = sum(1 for k in keywords if k in text)
+        if hits > best_hits:
+            best, best_hits = chips, hits
+    view = (context.currentView if context else None) or ""
+    picks = list(best or [])
+    for chip in SUGGESTIONS_BY_VIEW.get(view, []) + DEFAULT_SUGGESTIONS:
+        if len(picks) >= 3:
+            break
+        if chip not in picks:
+            picks.append(chip)
+    # don't suggest the question that was just asked
+    picks = [c for c in picks if not _same_question(c, last_message or "")]
+    for chip in DEFAULT_SUGGESTIONS:
+        if len(picks) >= 3:
+            break
+        if chip not in picks and not _same_question(chip, last_message or ""):
+            picks.append(chip)
+    return picks[:3]
 
 
 # ====================================================
@@ -517,9 +571,10 @@ async def health():
     return {
         "status": "ok",
         "service": "ReformDental Copilot",
-        "version": "2026-11-24.4",
+        "version": "2026-11-25.2",
         "model": MODEL,
-        "api_key_configured": bool(os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_API_KEY") != "sk-your-key-here")
+        "api_key_configured": bool(os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_API_KEY") != "sk-your-key-here"),
+        "locked": bool(SHARED_SECRET)
     }
 
 
