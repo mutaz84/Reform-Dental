@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261125-blank-fix-v204';
+                const buildVersion = '20261125-item-details-v205';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -41999,7 +41999,7 @@
                     const thumbHtml = thumbSrc
                         ? `<img src="${thumbSrc}" class="svc-thumb" onclick="event.stopPropagation();openSvcTicketPhotos('${esc(t.id)}',${Number(equipmentID)},0)" title="View ${ticketPhotos.length} photo${ticketPhotos.length!==1?'s':''}" alt="Problem photo">`
                         : `<div class="svc-thumb-placeholder" title="No photos"><i class="fas fa-image"></i></div>`;
-                    html += `<tr class="svc-data-row" data-svc-group="${esc(groupType)}" id="svcRow-${esc(t.id)}" style="${isExpanded ? '' : 'display:none;'} cursor:pointer;" onclick="openEquipmentServiceDetails('${esc(t.id)}',${Number(equipmentID)})">
+                    html += `<tr class="svc-data-row" data-svc-group="${esc(groupType)}" id="svcRow-${esc(t.id)}" style="${isExpanded ? '' : 'display:none;'} cursor:pointer;" onclick="openEquipmentTicketView('${esc(t.id)}',${Number(equipmentID)})">
                         <td style="padding:0.55rem 0.5rem 0.55rem 2rem;" onclick="event.stopPropagation()">
                             <div style="display:inline-flex;gap:0.25rem;">
                                 <button type="button" class="svc-action-btn journal" onclick="openEquipmentServiceJournalModal('${esc(t.id)}',${Number(equipmentID)})" title="Journal${journalCount > 0 ? ` (${journalCount})` : ''}"><i class="fas fa-book-open"></i>${journalCount > 0 ? `<span class="action-count-badge" style="background:#1d4ed8;">${journalCount}</span>` : ''}</button>
@@ -54702,7 +54702,7 @@
                     const dateDisplay = activeTab === 'completed' ? fmtDate(t.completedDate || startDate) : fmtDate(startDate);
                     const thumbSrc = Array.isArray(t.photos) && t.photos[0] ? (t.photos[0].dataUrl || '') : '';
                     const thumbHtml = thumbSrc ? `<img src="${thumbSrc}" class="svc-thumb" title="View photo" alt="Photo">` : `<div class="svc-thumb-placeholder" title="No photos"><i class="fas fa-image"></i></div>`;
-                    html += `<tr class="svc-data-row" data-svc-group="${esc(groupType)}" id="svcRow-${esc(t.id)}" style="${isExpanded ? '' : 'display:none;'}">
+                    html += `<tr class="svc-data-row" data-svc-group="${esc(groupType)}" id="svcRow-${esc(t.id)}" style="${isExpanded ? '' : 'display:none;'}cursor:pointer;" onclick="openInstrumentTicketView('${esc(t.id)}',${Number(instrumentID)})">
                         <td style="padding:0.55rem 0.5rem 0.55rem 2rem;">
                             <div style="display:inline-flex;gap:0.25rem;" onclick="event.stopPropagation()">
                                 ${!closed ? `<button type="button" class="svc-action-btn" onclick="editInstrumentServiceTicketFromCenter('${esc(t.id)}',${Number(instrumentID)})" title="Edit"><i class="fas fa-edit"></i></button>` : ''}
@@ -57870,7 +57870,7 @@
 
         function openDashboardOperation(entry) {
             if (!entry) return;
-            openDashboardOperationStory(entry);
+            openDashboardItemDetails(entry);
         }
 
         function openDashboardOperationSource(entry) {
@@ -57896,6 +57896,340 @@
         window.openDashboardOperation = openDashboardOperation;
         window.openDashboardOperationStory = openDashboardOperationStory;
         window.openDashboardOperationSource = openDashboardOperationSource;
+
+        // ===== Shared read-only details window (tickets, calendar events). Edit opens the existing form. =====
+        // spec: { kind, icon, title, chips:[{text,tone}], rows:[[label,value]], blocks:[[label,text]],
+        //         journal:[{text,meta}], actions:[{label,icon,primary,run}] }
+        function ensureRdDetailsStyles() {
+            if (document.getElementById('rdDetailsStyles')) return;
+            const style = document.createElement('style');
+            style.id = 'rdDetailsStyles';
+            style.textContent = `
+                #rdDetails{position:fixed;inset:0;z-index:11050;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+                #rdDetails .rd-dt-card{width:min(580px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--card-bg,#fff);color:var(--text-primary,#0F172A);border-radius:14px;box-shadow:0 24px 60px rgba(15,23,42,.25);display:flex;flex-direction:column}
+                #rdDetails .rd-dt-head{display:flex;align-items:flex-start;gap:12px;padding:18px 20px 10px}
+                #rdDetails .rd-dt-icon{width:36px;height:36px;border-radius:10px;background:#E7F1F4;color:#0F5E75;display:inline-flex;align-items:center;justify-content:center;flex:0 0 36px;font-size:15px}
+                #rdDetails .rd-dt-kind{font-size:12px;font-weight:600;color:var(--text-secondary,#475569);text-transform:uppercase;letter-spacing:.04em}
+                #rdDetails .rd-dt-title{margin:2px 0 0;font-size:18px;line-height:1.3;font-weight:700;overflow-wrap:anywhere}
+                #rdDetails .rd-dt-x{margin-left:auto;flex:0 0 36px;width:36px;height:36px;border-radius:10px;border:1px solid var(--border-color,#E2E8F0);background:var(--card-bg,#fff);color:#475569;cursor:pointer;font-size:20px;line-height:1}
+                #rdDetails .rd-dt-x:hover{background:#F1F5F9;color:#0F172A}
+                #rdDetails .rd-dt-chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 20px 14px}
+                #rdDetails .rd-dt-chip{font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;background:#F1F5F9;color:#334155;border:1px solid #E2E8F0}
+                #rdDetails .rd-dt-chip.is-red{background:#FEF3F2;color:#B42318;border-color:#FECDCA}
+                #rdDetails .rd-dt-chip.is-amber{background:#FFFAEB;color:#93370D;border-color:#FEDF89}
+                #rdDetails .rd-dt-chip.is-green{background:#ECFDF3;color:#067647;border-color:#ABEFC6}
+                #rdDetails .rd-dt-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;margin:0;padding:14px 20px;border-top:1px solid var(--border-color,#E2E8F0)}
+                #rdDetails .rd-dt-grid dt{font-size:12px;color:var(--text-secondary,#475569);margin:0 0 2px}
+                #rdDetails .rd-dt-grid dd{margin:0;font-size:14px;overflow-wrap:anywhere}
+                #rdDetails .rd-dt-block{padding:12px 20px;border-top:1px solid var(--border-color,#E2E8F0)}
+                #rdDetails .rd-dt-label{font-size:12px;color:var(--text-secondary,#475569)}
+                #rdDetails .rd-dt-block p{margin:4px 0 0;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+                #rdDetails .rd-dt-journal{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:8px}
+                #rdDetails .rd-dt-journal li{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
+                #rdDetails .rd-dt-journal span{display:block;font-size:12px;color:var(--text-secondary,#475569)}
+                #rdDetails .rd-dt-foot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:14px 20px;border-top:1px solid var(--border-color,#E2E8F0);position:sticky;bottom:0;background:var(--card-bg,#fff)}
+                #rdDetails .rd-dt-spacer{flex:1 1 auto}
+                #rdDetails .rd-dt-btn{height:36px;padding:0 14px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #CBD5E1;background:var(--card-bg,#fff);color:var(--text-primary,#0F172A);display:inline-flex;align-items:center;gap:6px}
+                #rdDetails .rd-dt-btn:hover{background:#F1F5F9}
+                #rdDetails .rd-dt-btn.is-primary{background:#0F5E75;border-color:#0F5E75;color:#fff}
+                #rdDetails .rd-dt-btn.is-primary:hover{background:#0B4759}
+                @media(max-width:520px){#rdDetails .rd-dt-grid{grid-template-columns:1fr}}
+            `;
+            document.head.appendChild(style);
+        }
+
+        function rdDetailsEsc(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        }
+
+        function rdCloseDetails(restoreFocus = true) {
+            const overlay = document.getElementById('rdDetails');
+            if (overlay) overlay.remove();
+            document.removeEventListener('keydown', rdDetailsKeydown, true);
+            const back = window.__rdDetailsReturnFocus;
+            window.__rdDetailsReturnFocus = null;
+            if (restoreFocus && back && document.contains(back)) { try { back.focus({ preventScroll: true }); } catch (_) {} }
+        }
+
+        function rdDetailsKeydown(event) {
+            if (event.key === 'Escape' && document.getElementById('rdDetails')) {
+                event.preventDefault();
+                event.stopPropagation();
+                rdCloseDetails();
+            }
+        }
+
+        function rdShowDetails(spec) {
+            if (!spec) return;
+            rdCloseDetails(false);
+            ensureRdDetailsStyles();
+            const esc = rdDetailsEsc;
+            const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+            const rows = (spec.rows || []).filter(row => clean(row && row[1]));
+            const blocks = (spec.blocks || []).filter(block => String(block && block[1] || '').trim());
+            const journal = (spec.journal || []).filter(item => item && String(item.text || '').trim());
+            const actions = (spec.actions || []).filter(action => action && typeof action.run === 'function');
+            const secondary = actions.filter(action => !action.primary);
+            const primary = actions.filter(action => action.primary);
+            const button = (action, index, cls) => `<button type="button" class="rd-dt-btn ${cls}" data-rd-btn="skip" data-dt-index="${index}">${action.icon ? `<i class="${esc(action.icon)}" aria-hidden="true"></i> ` : ''}${esc(action.label)}</button>`;
+            const overlay = document.createElement('div');
+            overlay.id = 'rdDetails';
+            overlay.setAttribute('role', 'dialog');
+            overlay.setAttribute('aria-modal', 'true');
+            overlay.setAttribute('aria-labelledby', 'rdDetailsTitle');
+            overlay.innerHTML = `<div class="rd-dt-card">
+                <div class="rd-dt-head"><span class="rd-dt-icon" aria-hidden="true"><i class="${esc(spec.icon || 'fas fa-circle-info')}"></i></span>
+                    <div style="min-width:0"><div class="rd-dt-kind">${esc(spec.kind || 'Details')}</div><div class="rd-dt-title" id="rdDetailsTitle">${esc(clean(spec.title) || spec.kind || 'Details')}</div></div>
+                    <button type="button" class="rd-dt-x" data-rd-btn="skip" data-dt-close="1" aria-label="Close">&times;</button></div>
+                ${(spec.chips || []).length ? `<div class="rd-dt-chips">${spec.chips.filter(c => c && clean(c.text)).map(c => `<span class="rd-dt-chip ${c.tone ? 'is-' + esc(c.tone) : ''}">${esc(clean(c.text))}</span>`).join('')}</div>` : ''}
+                ${rows.length ? `<dl class="rd-dt-grid">${rows.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(clean(value))}</dd></div>`).join('')}</dl>` : ''}
+                ${blocks.map(([label, text]) => `<div class="rd-dt-block"><div class="rd-dt-label">${esc(label)}</div><p>${esc(String(text).trim())}</p></div>`).join('')}
+                ${journal.length ? `<div class="rd-dt-block"><div class="rd-dt-label">Latest progress notes</div><ul class="rd-dt-journal">${journal.map(item => `<li>${esc(String(item.text).trim())}${item.meta ? `<span>${esc(item.meta)}</span>` : ''}</li>`).join('')}</ul></div>` : ''}
+                <div class="rd-dt-foot">
+                    ${secondary.map(action => button(action, actions.indexOf(action), '')).join('')}
+                    <span class="rd-dt-spacer"></span>
+                    <button type="button" class="rd-dt-btn" data-rd-btn="skip" data-dt-close="1">Close</button>
+                    ${primary.map(action => button(action, actions.indexOf(action), 'is-primary')).join('')}
+                </div></div>`;
+            overlay.addEventListener('click', (event) => {
+                if (event.target === overlay || event.target.closest('[data-dt-close]')) { event.preventDefault(); rdCloseDetails(); return; }
+                const indexEl = event.target.closest('[data-dt-index]');
+                if (!indexEl) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const action = actions[Number(indexEl.getAttribute('data-dt-index'))];
+                rdCloseDetails(false);
+                try { action.run(); } catch (error) { console.error('Details action failed:', error); }
+            });
+            window.__rdDetailsReturnFocus = document.activeElement;
+            document.body.appendChild(overlay);
+            document.addEventListener('keydown', rdDetailsKeydown, true);
+            try { (overlay.querySelector('.rd-dt-btn.is-primary') || overlay.querySelector('.rd-dt-x')).focus({ preventScroll: true }); } catch (_) {}
+        }
+
+        function rdDetailsTodayIso() {
+            const d = new Date();
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+        function rdDetailsDateOnly(value) {
+            const m = String(value || '').match(/^(\d{4}-\d{2}-\d{2})/);
+            return m ? m[1] : '';
+        }
+        function rdDetailsDateLabel(value) {
+            const iso = rdDetailsDateOnly(value);
+            if (!iso) return '';
+            const d = new Date(`${iso}T00:00:00`);
+            return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+        function rdDetailsTimeLabel(value) {
+            const m = String(value || '').match(/(\d{1,2}):(\d{2})/);
+            if (!m) return '';
+            const d = new Date(1970, 0, 1, Number(m[1]), Number(m[2]));
+            return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        }
+        function rdDetailsDue(dateValue, timeValue) {
+            const date = rdDetailsDateLabel(dateValue);
+            if (!date) return 'Not scheduled';
+            const time = rdDetailsTimeLabel(timeValue);
+            return time ? `${date}, ${time}` : date;
+        }
+        function rdDetailsCan(category, permission) {
+            try { return typeof hasPermission !== 'function' || hasPermission(category, permission); } catch (_) { return true; }
+        }
+        function rdDetailsMoney(value) {
+            const n = Number(String(value ?? '').replace(/[^0-9.]/g, ''));
+            return n > 0 ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
+        }
+        // Status / priority / overdue chips shared by every ticket type
+        function rdTicketChips(status, priority, dueDate) {
+            const chips = [];
+            const closed = /^(completed|complete|closed|cancelled|canceled|done)$/i.test(String(status || '').trim());
+            if (status) chips.push({ text: status, tone: closed ? 'green' : '' });
+            if (priority) chips.push({ text: `${priority} priority`, tone: /critical|urgent|high/i.test(priority) ? 'red' : (/medium|normal/i.test(priority) ? 'amber' : '') });
+            const due = rdDetailsDateOnly(dueDate);
+            const today = rdDetailsTodayIso();
+            if (!closed && due && due < today) {
+                const days = Math.round((new Date(`${today}T00:00:00`) - new Date(`${due}T00:00:00`)) / 86400000);
+                chips.push({ text: `${days} day${days === 1 ? '' : 's'} overdue`, tone: 'red' });
+            } else if (!closed && !due) {
+                chips.push({ text: 'Not scheduled', tone: 'amber' });
+            }
+            return chips;
+        }
+        function rdTicketFiles(ticket) {
+            const count = (list) => Array.isArray(list) ? list.length : 0;
+            const parts = [];
+            const photos = count(ticket.photos), files = count(ticket.attachments), links = count(ticket.links);
+            if (photos) parts.push(`${photos} photo${photos === 1 ? '' : 's'}`);
+            if (files) parts.push(`${files} file${files === 1 ? '' : 's'}`);
+            if (links) parts.push(`${links} link${links === 1 ? '' : 's'}`);
+            return parts.join(', ');
+        }
+        function rdTicketJournal(ticket) {
+            return (Array.isArray(ticket.journal) ? ticket.journal : []).filter(item => item && item.text).slice(0, 3)
+                .map(item => ({ text: item.text, meta: [item.author, rdDetailsDateLabel(item.createdAt)].filter(Boolean).join(' / ') }));
+        }
+
+        // Equipment service ticket
+        function rdFindEquipmentRecord(equipmentId) {
+            const key = String(equipmentId ?? '').trim();
+            if (!key) return null;
+            let list = [];
+            try { list = typeof dashboardEquipmentRecords === 'function' ? dashboardEquipmentRecords() : []; } catch (_) { list = []; }
+            return list.find(item => [item.apiId, item.equipmentID, item.EquipmentID, item.equipmentId, item.EquipmentId, item.id, item.Id].some(v => String(v ?? '').trim() === key)) || null;
+        }
+        function openEquipmentTicketView(ticketId, equipmentId) {
+            const ticket = typeof getEquipmentServiceTicketById === 'function' ? getEquipmentServiceTicketById(ticketId, equipmentId) : null;
+            if (!ticket) {
+                if (typeof showNotification === 'function') showNotification('Service ticket not found.', 'error');
+                return;
+            }
+            const eqKey = ticket.equipmentID ?? ticket.EquipmentID ?? equipmentId;
+            const equipment = rdFindEquipmentRecord(eqKey);
+            let parsed = {};
+            try { parsed = (typeof parseEquipmentServiceNotesMetadata === 'function' ? parseEquipmentServiceNotesMetadata(ticket.notes || '', ticket, ticket.scheduledDate || '') : null) || {}; } catch (_) { parsed = {}; }
+            const dueDate = ticket.scheduledDate || ticket.scheduleStartDate || parsed.scheduledDate || parsed.scheduleStartDate || '';
+            const dueTime = ticket.scheduledTime || parsed.scheduledTime || '';
+            const cadence = /recurr/i.test(String(ticket.scheduleMode || parsed.scheduleMode || '')) ? String(ticket.scheduleCadence || parsed.scheduleCadence || '').trim() : '';
+            const localEquipmentId = equipment ? (equipment.equipmentID ?? equipment.EquipmentID) : null;
+            const canView = localEquipmentId !== null && localEquipmentId !== undefined && typeof viewEquipment === 'function'
+                && typeof loadEquipment === 'function' && loadEquipment().some(e => e.equipmentID == localEquipmentId);
+            const actions = [];
+            if (canView) actions.push({ label: 'View equipment', icon: 'fas fa-tools', run: () => viewEquipment(localEquipmentId) });
+            if (rdDetailsCan('equipment', 'edit')) actions.push({ label: 'Edit', icon: 'fas fa-edit', primary: true, run: () => openEquipmentServiceDetails(String(ticket.id), Number(eqKey) || eqKey || 0) });
+            rdShowDetails({
+                kind: 'Service ticket',
+                icon: 'fas fa-wrench',
+                title: ticket.title || ticket.type || 'Service ticket',
+                chips: rdTicketChips(ticket.status || 'Open', ticket.priority || 'Medium', dueDate),
+                rows: [
+                    ['Equipment', equipment ? (equipment.equipmentName || equipment.name || equipment.Name) : ''],
+                    ['Ticket type', ticket.type],
+                    ['Due', rdDetailsDue(dueDate, dueTime)],
+                    ['Repeats', cadence ? cadence.charAt(0).toUpperCase() + cadence.slice(1) : ''],
+                    ['Assigned to', ticket.assignedEmployee || 'Unassigned'],
+                    ['Vendor', ticket.vendor || ticket.vendorName],
+                    ['Cost', rdDetailsMoney(ticket.cost)],
+                    ['Files', rdTicketFiles(ticket)],
+                    ['Created', rdDetailsDateLabel(ticket.createdDate || ticket.createdAt)],
+                    ['Completed', rdDetailsDateLabel(ticket.completedDate)]
+                ],
+                blocks: [['Description', ticket.description], ['Notes', parsed.plainNotes !== undefined ? parsed.plainNotes : ticket.notes]],
+                journal: rdTicketJournal(ticket),
+                actions
+            });
+        }
+
+        // Instrument service ticket
+        function openInstrumentTicketView(ticketId, instrumentId) {
+            const tickets = typeof loadInstrumentServiceTickets === 'function' ? (loadInstrumentServiceTickets() || []) : [];
+            const ticket = tickets.find(t => String(t && t.id) === String(ticketId));
+            if (!ticket) {
+                if (typeof showNotification === 'function') showNotification('Service ticket not found.', 'error');
+                return;
+            }
+            const instruments = typeof loadInstruments === 'function' ? (loadInstruments() || []) : [];
+            const instrument = instruments.find(i => Number(i.instrumentID) === Number(ticket.instrumentID ?? instrumentId));
+            const dueDate = ticket.scheduledDate || ticket.scheduleStartDate || '';
+            const cadence = String(ticket.scheduleCadence || '').trim();
+            const actions = [];
+            if (rdDetailsCan('instruments', 'edit') && typeof editInstrumentServiceTicketFromCenter === 'function') {
+                actions.push({ label: 'Edit', icon: 'fas fa-edit', primary: true, run: () => editInstrumentServiceTicketFromCenter(String(ticket.id), Number(ticket.instrumentID ?? instrumentId)) });
+            }
+            rdShowDetails({
+                kind: 'Instrument service ticket',
+                icon: 'fas fa-wrench',
+                title: ticket.title || ticket.type || 'Service ticket',
+                chips: rdTicketChips(ticket.status || 'Open', ticket.priority || 'Medium', dueDate),
+                rows: [
+                    ['Instrument', instrument ? instrument.instrumentName : ''],
+                    ['Ticket type', ticket.type],
+                    ['Due', rdDetailsDue(dueDate, ticket.scheduledTime)],
+                    ['Repeats', cadence ? cadence.charAt(0).toUpperCase() + cadence.slice(1) : ''],
+                    ['Assigned to', ticket.assignedEmployee || 'Unassigned'],
+                    ['Vendor', ticket.vendor],
+                    ['Cost', rdDetailsMoney(ticket.cost)],
+                    ['Files', rdTicketFiles(ticket)],
+                    ['Created', rdDetailsDateLabel(ticket.createdDate)],
+                    ['Completed', rdDetailsDateLabel(ticket.completedDate)]
+                ],
+                blocks: [['Description', ticket.description], ['Notes', ticket.notes]],
+                journal: rdTicketJournal(ticket),
+                actions
+            });
+        }
+
+        // Dashboard calendar event
+        function openDashboardCalendarEventView(entry) {
+            const record = entry.record || {};
+            const start = entry.start instanceof Date && !Number.isNaN(entry.start.getTime()) ? entry.start : null;
+            const end = entry.end instanceof Date && !Number.isNaN(entry.end.getTime()) ? entry.end : null;
+            const timeOf = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+            const when = start ? `${start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}, ${timeOf(start)}${end ? ` - ${timeOf(end)}` : ''}` : '';
+            const actions = [];
+            const id = String(entry.id || '').trim();
+            if (id && typeof window.editDashboardEvent === 'function' && dashboardCalendarEntryCanModify(entry)) {
+                actions.push({ label: 'Edit', icon: 'fas fa-edit', primary: true, run: () => window.editDashboardEvent(id) });
+            }
+            rdShowDetails({
+                kind: 'Calendar event',
+                icon: 'far fa-calendar',
+                title: entry.title || 'Calendar event',
+                rows: [
+                    ['When', when],
+                    ['Type', record.eventType || record.EventType || record.type || record.Type],
+                    ['Location', entry.location || record.location || record.Location],
+                    ['People', entry.attendeesText || record.attendeesText || dashboardEventAttendeesText(record.attendees || record.Attendees || '')],
+                    ['Created by', entry.createdByName || record.createdByName]
+                ],
+                blocks: [['Description', entry.description || record.description || record.Description]],
+                actions
+            });
+        }
+
+        // Dashboard lists and calendar: show information first, the same way the item's own page does
+        function dashboardDetailsResolveEntry(entry) {
+            if (!entry || !/^(Service|Equipment|Assignment)$/.test(entry.kind || '')) return entry;
+            try {
+                const idsOf = (item) => [item.id, item.serviceTicketId, item.serviceEquipmentId, item.equipmentId].map(value => String(value || '').trim()).filter(Boolean);
+                const wanted = idsOf(entry);
+                const all = buildDashboardOperationsEntries();
+                return all.find(candidate => candidate.kind === entry.kind && wanted.length && idsOf(candidate).some(id => wanted.includes(id)))
+                    || all.find(candidate => candidate.kind === entry.kind && entry.title && candidate.title === entry.title)
+                    || entry;
+            } catch (_) {
+                return entry;
+            }
+        }
+        function openDashboardItemDetails(rawEntry) {
+            const entry = dashboardDetailsResolveEntry(rawEntry);
+            if (!entry) return;
+            const id = String(entry.id || '').trim();
+            if (entry.kind === 'Calendar') return openDashboardCalendarEventView(entry);
+            if (entry.kind === 'Service' && id) return openEquipmentTicketView(id, Number(entry.equipmentId) || entry.equipmentId || 0);
+            if (entry.kind === 'Equipment') {
+                const ticket = entry.relatedTicket;
+                const ticketId = String(entry.serviceTicketId || (ticket && (ticket.id || ticket.Id || ticket.ticketId || ticket.TicketId)) || '').trim();
+                if (ticketId) return openEquipmentTicketView(ticketId, Number(entry.serviceEquipmentId || entry.equipmentId || id) || 0);
+                const localId = entry.record ? (entry.record.equipmentID ?? entry.record.EquipmentID) : null;
+                if (localId !== null && localId !== undefined && typeof viewEquipment === 'function') return viewEquipment(localId);
+            }
+            if (entry.kind === 'Assignment' && id && typeof viewTeam === 'function') return viewTeam(id);
+            return openDashboardOperationSource(entry);
+        }
+
+        window.rdShowDetails = rdShowDetails;
+        window.rdCloseDetails = rdCloseDetails;
+        window.rdTicketChips = rdTicketChips;
+        window.rdDetailsDue = rdDetailsDue;
+        window.rdDetailsDateLabel = rdDetailsDateLabel;
+        window.rdDetailsMoney = rdDetailsMoney;
+        window.rdTicketFiles = rdTicketFiles;
+        window.rdTicketJournal = rdTicketJournal;
+        window.rdDetailsCan = rdDetailsCan;
+        window.openEquipmentTicketView = openEquipmentTicketView;
+        window.openInstrumentTicketView = openInstrumentTicketView;
+        window.openDashboardItemDetails = openDashboardItemDetails;
 
         document.addEventListener('click', event => {
             const row = event.target.closest('#dashboardOperationsPanel .rd-dashboard-row');
@@ -59991,7 +60325,7 @@
                 scheduleDate: String(element?.dataset?.scheduleDate || '').trim(),
                 scheduleTime: String(element?.dataset?.scheduleTime || '').trim()
             };
-            if (entry && (entry.title || entry.id || entry.serviceTicketId || entry.equipmentId)) focusDashboardOperationCard(entry);
+            if (entry && (entry.title || entry.id || entry.serviceTicketId || entry.equipmentId)) openDashboardItemDetails(entry);
         };
 
         function dashboardOperationSchedulePayload(entry) {
@@ -60074,7 +60408,7 @@
                 event.stopPropagation();
             }
             const entry = getDashboardOperationEntryFromRow(element);
-            if (entry) openDashboardOperationSource(entry);
+            if (entry) openDashboardItemDetails(entry);
         }
         window.openDashboardOperationCard = openDashboardOperationCard;
 
@@ -128128,7 +128462,7 @@ console.log('? Global functions exported to window object');
                           + (linkCount   > 0 ? '<button type="button" onclick="openUtilityServiceDetails(\''+esc(t.id)+'\',\''+uIdEsc+'\')" style="font-size:0.72rem;color:var(--text-secondary);background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;cursor:pointer;padding:0.16rem 0.35rem;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:0.25rem;text-align:left;" title="'+esc(linkLabel)+'"><i class="fas fa-link"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(linkLabel)+'</span></button>' : '')
                           + '</div>'
                         : '';
-                    html += '<tr class="svc-data-row" data-svc-group="'+esc(groupType)+'" id="utRow-'+esc(t.id)+'" style="'+(isExpanded?'':'display:none;')+'cursor:pointer;" onclick="openUtilityServiceDetails(\''+esc(t.id)+'\',\''+uIdEsc+'\')">'
+                    html += '<tr class="svc-data-row" data-svc-group="'+esc(groupType)+'" id="utRow-'+esc(t.id)+'" style="'+(isExpanded?'':'display:none;')+'cursor:pointer;" onclick="openUtilityTicketView(\''+esc(t.id)+'\',\''+uIdEsc+'\')">'
                          +    '<td style="padding:0.55rem 0.5rem 0.55rem 2rem;" onclick="event.stopPropagation()"><div style="display:inline-flex;gap:0.25rem;">'
                          +      '<button type="button" class="svc-action-btn journal" onclick="openUtilityServiceDetails(\''+esc(t.id)+'\',\''+uIdEsc+'\')" title="Journal'+(journalCount?' ('+journalCount+')':'')+'"><i class="fas fa-book-open"></i>'+(journalCount?'<span class="action-count-badge" style="background:#1d4ed8;">'+journalCount+'</span>':'')+'</button>'
                          +      (closed
@@ -129507,6 +129841,40 @@ console.log('? Global functions exported to window object');
         }
 
         // Detail-modal exports (equipment-style)
+        // Read-only details for a Services ticket; Edit opens the full ticket window
+        function openUtilityTicketView(ticketId, utilityId) {
+            var idStr = String(ticketId || '').trim();
+            var ticket = loadAllUtilityTickets().find(function(t) { return String(t.id) === idStr; });
+            if (!ticket || typeof window.rdShowDetails !== 'function') { openUtilityServiceDetails(ticketId, utilityId); return; }
+            var uId = String(ticket.utilityId || utilityId || '').trim();
+            var services = (typeof window.loadUtilities === 'function') ? (window.loadUtilities() || []) : [];
+            var service = services.find(function(u) { return [u.utilityID, u.apiId, u.id].some(function(v) { return String(v == null ? '' : v).trim() === uId; }); });
+            var actions = [];
+            var canEdit = typeof window.rdDetailsCan === 'function' ? window.rdDetailsCan('utilities', 'edit') : true;
+            if (canEdit) actions.push({ label: 'Edit', icon: 'fas fa-edit', primary: true, run: function() { openUtilityServiceDetails(ticket.id, uId); } });
+            var freq = String(ticket.frequency || '').trim();
+            window.rdShowDetails({
+                kind: 'Services ticket',
+                icon: 'fas fa-bolt',
+                title: ticket.title || ticket.type || 'Ticket',
+                chips: window.rdTicketChips(ticket.status || 'Open', ticket.priority || 'Medium', ticket.date),
+                rows: [
+                    ['Service', service ? (service.utilityName || service.name) : ''],
+                    ['Ticket type', ticket.type],
+                    ['Due', window.rdDetailsDue(ticket.date, ticket.time)],
+                    ['Repeats', freq && !/^(once|one-?time|none)$/i.test(freq) ? freq.charAt(0).toUpperCase() + freq.slice(1) : ''],
+                    ['Assigned to', ticket.assignedTo || 'Unassigned'],
+                    ['Vendor', ticket.vendor],
+                    ['Cost', window.rdDetailsMoney(ticket.cost)],
+                    ['Files', window.rdTicketFiles(ticket)],
+                    ['Created', window.rdDetailsDateLabel(ticket.createdDate || ticket.createdAt)]
+                ],
+                blocks: [['Description', ticket.description], ['Notes', ticket.notes]],
+                journal: window.rdTicketJournal(ticket),
+                actions: actions
+            });
+        }
+        window.openUtilityTicketView = openUtilityTicketView;
         window.openUtilityServiceDetails         = openUtilityServiceDetails;
         window.openUtilityServiceTicketPhotos    = openUtilityServiceTicketPhotos;
         window.closeUtilityServiceDetailsModal   = closeUtilityServiceDetailsModal;
