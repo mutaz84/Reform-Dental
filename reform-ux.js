@@ -487,6 +487,30 @@
     }
     queue();
   }
+  /* ---------- Safety net: a Cancel that leaves a management window empty closes it ----------
+     Some add/edit windows used to hold a list and a form. The lists moved to their pages, but a few
+     Cancel buttons still only hide the form, leaving a blank full-screen window. */
+  document.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('button') : null;
+    if (!btn || btn.classList.contains('rd-close-btn')) return;
+    if ((btn.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase() !== 'cancel') return;
+    var modal = btn.closest('[id$="ManagementModal"]');
+    if (!modal || modal.dataset.rdClosing) return;
+    setTimeout(function () {
+      if (getComputedStyle(modal).display === 'none') return;
+      var body = modal.querySelector('.modal-body');
+      if (!body) return;
+      var shown = Array.prototype.some.call(body.children, function (c) {
+        return c.tagName !== 'STYLE' && c.tagName !== 'SCRIPT' && c.getClientRects().length > 0;
+      });
+      if (shown) return;
+      modal.dataset.rdClosing = '1';
+      var close = modal.querySelector('.login-header button[onclick*="close" i], .modal-header button[onclick*="close" i]');
+      try { if (close) close.click(); else modal.style.display = 'none'; } catch (_) { modal.style.display = 'none'; }
+      setTimeout(function () { delete modal.dataset.rdClosing; }, 300);
+    }, 60);
+  }, false);
+
   function start() {
     sweep();
     new MutationObserver(onMutations).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'style'] });
