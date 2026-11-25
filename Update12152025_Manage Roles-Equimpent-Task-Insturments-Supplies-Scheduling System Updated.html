@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261125-staff-planner-v207';
+                const buildVersion = '20261125-my-schedule-v208';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -1515,7 +1515,7 @@
                         <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                             <h2 class="section-title">
                                 <i class="fas fa-clock" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
-                                My Schedule - Working Hours
+                                <span id="myScheduleTitleText">My Schedule</span>
                             </h2>
                             <div style="display: flex; align-items: center; gap: 0.5rem;">
                                 <button onclick="mySchedulePrevWeek()" style="padding: 0.5rem 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);">
@@ -1528,14 +1528,31 @@
                                 <button onclick="myScheduleToday()" style="padding: 0.5rem 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; margin-left: 0.5rem;">
                                     Today
                                 </button>
-                                <button type="button" id="myScheduleEditBtn" onclick="openScheduleManager()" title="Add, change or move staff shifts" style="display: none; padding: 0.5rem 0.75rem; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-weight: 600; margin-left: 0.25rem;">
+                                <button type="button" id="myScheduleEditBtn" onclick="window.rdMySchedule ? window.rdMySchedule.openPlanner(window.myScheduleCurrentWeekStart) : openScheduleManager()" title="Add, change or move staff shifts" style="display: none; padding: 0.5rem 0.75rem; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-weight: 600; margin-left: 0.25rem;">
                                     <i class="fas fa-pen" style="margin-right: 0.35rem;"></i>Edit schedule
                                 </button>
                             </div>
                         </div>
                         
-                        <!-- Filters Row -->
-                        <div style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
+                        <!-- Simple toolbar: next shift, who to show (managers), more menu -->
+                        <div class="rd-ms-toolbar" id="myScheduleToolbar">
+                            <div class="rd-ms-next" id="myScheduleNextShift" aria-live="polite"></div>
+                            <label class="rd-ms-show" id="myScheduleShowWrap" style="display: none;">Show
+                                <select id="myScheduleShowPicker" aria-label="Whose shifts to show"></select>
+                            </label>
+                            <div class="rd-ms-more">
+                                <button type="button" id="myScheduleMoreBtn" data-rd-btn="skip" aria-haspopup="menu" aria-expanded="false" aria-label="More options" title="More options"><i class="fas fa-ellipsis-h"></i></button>
+                                <div class="rd-ms-menu" id="myScheduleMoreMenu" role="menu" hidden>
+                                    <button type="button" role="menuitem" data-rd-btn="skip" data-ms-act="refresh"><i class="fas fa-sync-alt"></i> Refresh</button>
+                                    <button type="button" role="menuitem" data-rd-btn="skip" data-ms-act="print"><i class="fas fa-print"></i> Print</button>
+                                    <button type="button" role="menuitem" data-rd-btn="skip" data-ms-act="pdf"><i class="fas fa-file-pdf"></i> Save as PDF</button>
+                                    <button type="button" role="menuitem" data-rd-btn="skip" data-ms-act="conflicts" data-ms-manager style="display: none;"><i class="fas fa-exclamation-triangle"></i> Check for overlaps</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Old filters row: kept for print/export code, hidden from view -->
+                        <div id="myScheduleAdvancedFilters" style="display: none !important; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
                             <!-- Type Filter (Clinical/Non-Clinical) -->
                             <div style="flex: 1; min-width: 130px;">
                                 <label style="font-size: 0.7rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.25rem;">
@@ -1615,16 +1632,372 @@
                         <!-- Weekly Calendar Grid -->
                         <div id="myScheduleCalendar" style="display: flex; flex-direction: column; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; background: var(--card-bg);">
                             <!-- Week Header -->
-                            <div id="myScheduleHeader" style="display: grid; grid-template-columns: repeat(7, 1fr); background: var(--bg-secondary); border-bottom: 2px solid var(--border-color);">
+                            <div id="myScheduleHeader" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); background: var(--bg-secondary); border-bottom: 2px solid var(--border-color);">
                                 <!-- Days will be populated by JavaScript -->
                             </div>
                             
                             <!-- Week Body with shift cards -->
-                            <div id="myScheduleBody" style="display: grid; grid-template-columns: repeat(7, 1fr); min-height: 400px;">
+                            <div id="myScheduleBody" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); min-height: 400px;">
                                 <!-- Day columns with shifts will be populated by JavaScript -->
                             </div>
                         </div>
                         
+                        <script>
+                        /* ============================================================
+                           My Schedule, simplified: a personal page first.
+                           - "Next shift" line at the top
+                           - cards show only time, room and who you work with
+                           - your approved time off on the right days
+                           - managers get one "Show" picker (My shifts / Everyone / a person)
+                           - changes happen in the planner (Edit schedule), not on the cards
+                           Used by renderMyScheduleCalendar and getFilteredShifts.
+                           ============================================================ */
+                        (function () {
+                            'use strict';
+                            var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                            var STORE_KEY = 'rdMyScheduleShow';
+                            var lastCtx = { canManage: false };
+
+                            function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+                            function key(v) { return String(v || '').trim().toLowerCase(); }
+                            function pad(n) { return String(n).padStart(2, '0'); }
+                            function iso(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+                            function parseIso(s) { var m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null; }
+                            function minutes(t) { var m = String(t || '').match(/(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; }
+                            function timeLabel(t) {
+                                var m = String(t || '').match(/(\d{1,2}):(\d{2})/);
+                                if (!m) return '';
+                                var h = Number(m[1]), mi = Number(m[2]);
+                                return (h % 12 === 0 ? 12 : h % 12) + (mi ? ':' + pad(mi) : '') + ' ' + (h >= 12 ? 'PM' : 'AM');
+                            }
+                            function range(s) { return timeLabel(s.startTime) + ' – ' + timeLabel(s.endTime); }
+                            function dayLabel(d) { return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }); }
+                            function storeGet() { try { return localStorage.getItem(STORE_KEY) || ''; } catch (_) { return ''; } }
+                            function storeSet(v) { try { localStorage.setItem(STORE_KEY, v); } catch (_) {} }
+
+                            function allShifts() {
+                                var list = Array.isArray(window.myScheduleShifts) ? window.myScheduleShifts : [];
+                                return (typeof dedupeScheduleShiftList === 'function') ? dedupeScheduleShiftList(list) : list;
+                            }
+                            function owner(s) { return String(s && (s.name || s.employee) || '').trim(); }
+                            function assistantsOf(s) {
+                                var own = key(owner(s));
+                                return String(s && s.assistant || '').split(',').map(function (a) { return a.trim(); })
+                                    .filter(function (a) { return a && key(a) !== own && !/^(unassigned|none|no assistant)$/i.test(a); });
+                            }
+                            function tokens() {
+                                try { if (typeof window.myScheduleGetCurrentUserIdentityTokens === 'function') return window.myScheduleGetCurrentUserIdentityTokens(); } catch (_) {}
+                                return new Set();
+                            }
+                            function isMine(s) {
+                                try { if (typeof window.myScheduleShiftBelongsToCurrentUser === 'function') return window.myScheduleShiftBelongsToCurrentUser(s); } catch (_) {}
+                                return false;
+                            }
+                            function onDay(s, d) {
+                                var days = Array.isArray(s.days) ? s.days : String(s.days || '').split(',');
+                                if (days.map(function (x) { return String(x).trim().slice(0, 3); }).indexOf(DAYS[d.getDay()]) < 0) return false;
+                                var ds = iso(d);
+                                if (s.startDate && ds < s.startDate) return false;
+                                if (s.endDate && ds > s.endDate) return false;
+                                return true;
+                            }
+                            function clinicCount() {
+                                try { return (window.masterData && Array.isArray(window.masterData.clinics)) ? window.masterData.clinics.length : 0; } catch (_) { return 0; }
+                            }
+
+                            // ---------- who is being shown ----------
+                            function personMatches(s, name) {
+                                var k = key(name);
+                                return key(owner(s)) === k || assistantsOf(s).some(function (a) { return key(a) === k; });
+                            }
+                            function mode() {
+                                if (!lastCtx.canManage) return 'me';
+                                var v = storeGet();
+                                if (v === 'all') return 'all';
+                                if (v.indexOf('person:') === 0) return 'person';
+                                if (v === 'me') return 'me';
+                                // First visit: show my own shifts if I have any, otherwise everyone.
+                                return allShifts().some(isMine) ? 'me' : 'all';
+                            }
+                            function person() { var v = storeGet(); return v.indexOf('person:') === 0 ? v.slice(7) : ''; }
+                            function inScope(s) {
+                                var m = mode();
+                                if (m === 'me') return isMine(s);
+                                if (m === 'person') return personMatches(s, person());
+                                return true;
+                            }
+                            function ownView() { return mode() === 'me'; }
+
+                            // ---------- time off ----------
+                            function timeOffOn(d) {
+                                var ds = iso(d), reqs = [];
+                                try { reqs = JSON.parse(localStorage.getItem('attendancePtoRequestsV1') || '[]') || []; } catch (_) { reqs = []; }
+                                var m = mode(), toks = m === 'me' ? tokens() : null, who = key(person());
+                                var out = [];
+                                reqs.forEach(function (r) {
+                                    if (!r || key(r.status) !== 'approved') return;
+                                    var s = String(r.startDate || '').slice(0, 10), e = String(r.endDate || r.startDate || '').slice(0, 10);
+                                    if (!s || ds < s || ds > (e || s)) return;
+                                    var names = [key(r.employeeName), key(r.name), key(r.username)].filter(Boolean);
+                                    if (m === 'me' && !names.some(function (n) { return toks.has(n); })) return;
+                                    if (m === 'person' && names.indexOf(who) < 0) return;
+                                    out.push({ name: r.employeeName || r.name || r.username || '', type: r.type || r.leaveType || '' });
+                                });
+                                return out;
+                            }
+
+                            // ---------- day cells ----------
+                            // In "My shifts" or "one person" view, the card is about that person:
+                            // hide their name and list everyone else on the shift.
+                            function focusTokens() {
+                                var m = mode();
+                                if (m === 'me') return tokens();
+                                if (m === 'person') return new Set([key(person())]);
+                                return null;
+                            }
+                            function isFocusOwner(s) { var t = focusTokens(); return !!t && t.has(key(owner(s))); }
+                            function withText(s) {
+                                var t = focusTokens();
+                                var people = assistantsOf(s);
+                                if (t) people = (t.has(key(owner(s))) ? people : [owner(s)].concat(people)).filter(function (n) { return n && !t.has(key(n)); });
+                                return people.length ? 'With ' + people.join(', ') : '';
+                            }
+                            function cardHtml(s, d) {
+                                var showName = mode() === 'all';
+                                var place = [s.room, clinicCount() > 1 ? s.clinic : ''].filter(function (x) { return String(x || '').trim(); }).join(' · ');
+                                var w = withText(s);
+                                return '<button type="button" class="rd-ms-card" data-rd-btn="skip" data-ms-shift="' + esc(s.id) + '" data-ms-date="' + iso(d) + '" style="--rd-ms-color:' + esc(s.color || '#0F5E75') + '">'
+                                    + '<span class="rd-ms-time">' + esc(range(s)) + '</span>'
+                                    + (showName ? '<span class="rd-ms-name">' + esc(owner(s)) + '</span>' : '')
+                                    + (place ? '<span class="rd-ms-meta"><i class="fas fa-door-open" aria-hidden="true"></i>' + esc(place) + '</span>' : '')
+                                    + (w ? '<span class="rd-ms-meta"><i class="fas fa-user-friends" aria-hidden="true"></i>' + esc(w) + '</span>' : '')
+                                    + '</button>';
+                            }
+                            function dayCellHtml(d, dayShifts) {
+                                var html = '';
+                                timeOffOn(d).forEach(function (o) {
+                                    html += '<div class="rd-ms-off"><i class="fas fa-umbrella-beach" aria-hidden="true"></i>' + esc(ownView() ? 'Time off' : (o.name + ' · time off')) + '</div>';
+                                });
+                                var list = (dayShifts || []).slice().sort(function (a, b) { return (minutes(a.startTime) || 0) - (minutes(b.startTime) || 0) || owner(a).localeCompare(owner(b)); });
+                                list.forEach(function (s) { html += cardHtml(s, d); });
+                                if (!html) html = '<div class="rd-ms-empty">' + (ownView() ? 'Off' : 'No shifts') + '</div>';
+                                return html;
+                            }
+
+                            // ---------- the line at the top ----------
+                            function nextShiftText() {
+                                var m = mode();
+                                var scoped = allShifts().filter(inScope);
+                                var now = new Date(), today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                                var nowMin = now.getHours() * 60 + now.getMinutes();
+                                if (m === 'all') {
+                                    var working = scoped.filter(function (s) { return onDay(s, today); }).map(owner);
+                                    var uniq = working.filter(function (n, i) { return n && working.indexOf(n) === i; });
+                                    if (!uniq.length) return { icon: 'fa-clock', text: 'No one is scheduled today.' };
+                                    var shown = uniq.slice(0, 4).join(', ') + (uniq.length > 4 ? ' and ' + (uniq.length - 4) + ' more' : '');
+                                    return { icon: 'fa-clock', text: '<strong>Working today:</strong> ' + esc(shown) };
+                                }
+                                var who = m === 'me' ? 'Your' : esc(person()) + '’s';
+                                for (var i = 0; i < 56; i++) {
+                                    var d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i);
+                                    var day = scoped.filter(function (s) { return onDay(s, d); })
+                                        .sort(function (a, b) { return (minutes(a.startTime) || 0) - (minutes(b.startTime) || 0); });
+                                    for (var j = 0; j < day.length; j++) {
+                                        var s = day[j], st = minutes(s.startTime), en = minutes(s.endTime);
+                                        if (i === 0 && en != null && en <= nowMin) continue;
+                                        var place = s.room ? ' · ' + esc(s.room) : '';
+                                        if (i === 0 && st != null && st <= nowMin) {
+                                            return { icon: 'fa-clock', text: '<strong>' + (m === 'me' ? 'Working now' : esc(person()) + ' is working now') + '</strong> until ' + esc(timeLabel(s.endTime)) + place };
+                                        }
+                                        var when = i === 0 ? 'Today' : (i === 1 ? 'Tomorrow' : dayLabel(d));
+                                        return { icon: 'fa-clock', text: '<strong>' + who + ' next shift:</strong> ' + esc(when) + ' · ' + esc(range(s)) + place };
+                                    }
+                                }
+                                return { icon: 'fa-clock', text: (m === 'me' ? 'You have' : esc(person()) + ' has') + ' no shifts in the next 8 weeks.' };
+                            }
+
+                            // ---------- Show picker (managers) ----------
+                            function peopleNames() {
+                                var names = [], seen = {};
+                                function add(n) { var k = key(n); if (k && !seen[k] && !/^(unassigned|open)/.test(k)) { seen[k] = 1; names.push(String(n).trim()); } }
+                                try { (window.masterData && window.masterData.getAllEmployees ? window.masterData.getAllEmployees() : []).forEach(function (e) { add(e.title || e.name); }); } catch (_) {}
+                                allShifts().forEach(function (s) { add(owner(s)); assistantsOf(s).forEach(add); });
+                                return names.sort(function (a, b) { return a.localeCompare(b); });
+                            }
+                            function syncPicker() {
+                                var wrap = document.getElementById('myScheduleShowWrap');
+                                var sel = document.getElementById('myScheduleShowPicker');
+                                if (!wrap || !sel) return;
+                                wrap.style.display = lastCtx.canManage ? '' : 'none';
+                                if (!lastCtx.canManage) return;
+                                var m = mode(), p = person();
+                                var current = m === 'person' ? 'person:' + p : m;
+                                var opts = '<option value="me">My shifts</option><option value="all">Everyone</option><optgroup label="One person">'
+                                    + peopleNames().map(function (n) { return '<option value="person:' + esc(n) + '">' + esc(n) + '</option>'; }).join('') + '</optgroup>';
+                                if (sel.dataset.rdOpts !== opts) { sel.innerHTML = opts; sel.dataset.rdOpts = opts; }
+                                sel.value = current;
+                                if (sel.value !== current) sel.value = 'all';
+                            }
+
+                            function afterRender(ctx) {
+                                lastCtx = ctx || lastCtx;
+                                syncPicker();
+                                var el = document.getElementById('myScheduleNextShift');
+                                if (el) {
+                                    var info = nextShiftText();
+                                    el.innerHTML = '<i class="fas ' + info.icon + '" aria-hidden="true"></i><span>' + info.text + '</span>';
+                                }
+                                var menu = document.getElementById('myScheduleMoreMenu');
+                                if (menu) Array.prototype.forEach.call(menu.querySelectorAll('[data-ms-manager]'), function (b) { b.style.display = lastCtx.canManage ? '' : 'none'; });
+                                var title = document.getElementById('myScheduleTitleText');
+                                if (title) title.textContent = titleText();
+                            }
+                            function titleText() { return mode() === 'me' ? 'My Schedule' : (mode() === 'person' ? person() + '’s schedule' : 'Team schedule'); }
+                            function beforeRender(ctx) { lastCtx = ctx || lastCtx; }
+
+                            // ---------- details popover ----------
+                            function closeDetails() {
+                                var p = document.getElementById('rdMsPopover');
+                                if (p) p.remove();
+                                document.removeEventListener('keydown', detailsKeys, true);
+                                document.removeEventListener('mousedown', detailsOutside, true);
+                            }
+                            function detailsKeys(e) { if (e.key === 'Escape') { e.preventDefault(); closeDetails(); } }
+                            function detailsOutside(e) { var p = document.getElementById('rdMsPopover'); if (p && !p.contains(e.target) && !e.target.closest('.rd-ms-card')) closeDetails(); }
+                            function openDetails(anchor, shiftId, dateIso) {
+                                closeDetails();
+                                var s = allShifts().filter(function (x) { return String(x.id) === String(shiftId); })[0];
+                                if (!s) return;
+                                var d = parseIso(dateIso) || new Date();
+                                var series = !s.startDate || !s.endDate || s.endDate > s.startDate;
+                                var days = (Array.isArray(s.days) ? s.days : String(s.days || '').split(',')).map(function (x) { return String(x).trim(); }).filter(Boolean);
+                                var end = parseIso(s.endDate);
+                                var rows = [];
+                                if (mode() === 'all') rows.push(['Who', owner(s)]);
+                                if (s.room) rows.push(['Room', s.room]);
+                                if (s.clinic) rows.push(['Clinic', s.clinic]);
+                                var w = withText(s); if (w) rows.push(['Working with', w.replace(/^With /, '')]);
+                                rows.push(['Repeats', series ? 'Every ' + days.join(', ') + (end ? ' until ' + end.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '') : 'One time']);
+                                var notes = String(s.notes || '').replace(/assistants?:[^\n\r]*/ig, '').trim();
+                                if (notes) rows.push(['Notes', notes]);
+                                var pop = document.createElement('div');
+                                pop.id = 'rdMsPopover';
+                                pop.setAttribute('role', 'dialog');
+                                pop.setAttribute('aria-label', 'Shift details');
+                                pop.innerHTML = '<div class="rd-ms-pop-date">' + esc(d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })) + '</div>'
+                                    + '<div class="rd-ms-pop-time">' + esc(range(s)) + '</div>'
+                                    + '<dl>' + rows.map(function (r) { return '<dt>' + esc(r[0]) + '</dt><dd>' + esc(r[1]) + '</dd>'; }).join('') + '</dl>'
+                                    + '<div class="rd-ms-pop-foot">'
+                                    + (lastCtx.canManage ? '<button type="button" class="rd-ms-btn" data-rd-btn="skip" data-ms-act="planner"><i class="fas fa-pen" aria-hidden="true"></i> Change in planner</button>' : '')
+                                    + '<button type="button" class="rd-ms-btn is-primary" data-rd-btn="skip" data-ms-act="close">Close</button></div>';
+                                document.body.appendChild(pop);
+                                var r = anchor.getBoundingClientRect(), w2 = pop.offsetWidth || 300, h2 = pop.offsetHeight || 240;
+                                var left = r.right + 8;
+                                if (left + w2 > window.innerWidth - 8) left = Math.max(8, r.left - w2 - 8);
+                                var top = Math.min(Math.max(8, r.top), window.innerHeight - h2 - 8);
+                                pop.style.left = left + 'px'; pop.style.top = top + 'px';
+                                pop.addEventListener('click', function (e) {
+                                    var b = e.target.closest('[data-ms-act]');
+                                    if (!b) return;
+                                    if (b.getAttribute('data-ms-act') === 'planner') { closeDetails(); openPlanner(d); }
+                                    else closeDetails();
+                                });
+                                document.addEventListener('keydown', detailsKeys, true);
+                                setTimeout(function () { document.addEventListener('mousedown', detailsOutside, true); }, 0);
+                                try { pop.querySelector('[data-ms-act="close"]').focus({ preventScroll: true }); } catch (_) {}
+                            }
+                            function openPlanner(d) {
+                                try { if (window.StaffPlanner && typeof window.StaffPlanner.setWeek === 'function') window.StaffPlanner.setWeek(d || window.myScheduleCurrentWeekStart || new Date()); } catch (_) {}
+                                if (typeof window.openScheduleManager === 'function') window.openScheduleManager();
+                            }
+
+                            // ---------- more menu ----------
+                            function setMenu(open) {
+                                var btn = document.getElementById('myScheduleMoreBtn'), menu = document.getElementById('myScheduleMoreMenu');
+                                if (!btn || !menu) return;
+                                menu.hidden = !open;
+                                btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                                if (open) { var first = menu.querySelector('button:not([style*="none"])'); if (first) try { first.focus({ preventScroll: true }); } catch (_) {} }
+                            }
+
+                            // ---------- events ----------
+                            document.addEventListener('click', function (e) {
+                                var card = e.target.closest && e.target.closest('.rd-ms-card');
+                                if (card) { e.stopPropagation(); openDetails(card, card.getAttribute('data-ms-shift'), card.getAttribute('data-ms-date')); return; }
+                                var more = e.target.closest && e.target.closest('#myScheduleMoreBtn');
+                                if (more) { var m = document.getElementById('myScheduleMoreMenu'); setMenu(m && m.hidden); return; }
+                                var item = e.target.closest && e.target.closest('#myScheduleMoreMenu [data-ms-act]');
+                                if (item) {
+                                    setMenu(false);
+                                    var act = item.getAttribute('data-ms-act');
+                                    if (act === 'refresh' && typeof window.refreshMySchedule === 'function') window.refreshMySchedule();
+                                    if (act === 'print' && typeof window.printMySchedule === 'function') window.printMySchedule();
+                                    if (act === 'pdf' && typeof window.exportMyScheduleToPDF === 'function') window.exportMyScheduleToPDF();
+                                    if (act === 'conflicts' && typeof window.checkMyScheduleConflicts === 'function') window.checkMyScheduleConflicts();
+                                    return;
+                                }
+                                if (!(e.target.closest && e.target.closest('#myScheduleMoreMenu'))) setMenu(false);
+                            });
+                            document.addEventListener('keydown', function (e) {
+                                if (e.key === 'Escape') { var m = document.getElementById('myScheduleMoreMenu'); if (m && !m.hidden) { setMenu(false); try { document.getElementById('myScheduleMoreBtn').focus(); } catch (_) {} } }
+                            });
+                            document.addEventListener('change', function (e) {
+                                if (!e.target || e.target.id !== 'myScheduleShowPicker') return;
+                                storeSet(e.target.value);
+                                if (typeof window.renderMyScheduleCalendar === 'function') window.renderMyScheduleCalendar();
+                            });
+
+                            // ---------- styles ----------
+                            function ensureStyles() {
+                                if (document.getElementById('rdMyScheduleStyles')) return;
+                                var st = document.createElement('style');
+                                st.id = 'rdMyScheduleStyles';
+                                st.textContent = [
+                                    '#myScheduleHeader,#myScheduleBody{grid-template-columns:repeat(7,minmax(0,1fr)) !important}',
+                                    '#myScheduleBody>div{min-width:0}',
+                                    '.rd-ms-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}',
+                                    '.rd-ms-next{flex:1 1 320px;display:flex;align-items:center;gap:8px;min-height:40px;padding:8px 12px;border-radius:10px;background:#E7F1F4;color:#0B4759;font-size:14px}',
+                                    '.rd-ms-next strong{font-weight:700}',
+                                    '.rd-ms-show{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--text-secondary,#475569)}',
+                                    '.rd-ms-show select{height:36px;min-width:170px;border:1px solid #CBD5E1;border-radius:10px;padding:0 8px;font-size:13px;background:var(--card-bg,#fff);color:var(--text-primary,#0F172A)}',
+                                    '.rd-ms-more{position:relative}',
+                                    '#myScheduleMoreBtn{width:36px;height:36px;border-radius:10px;border:1px solid #CBD5E1;background:var(--card-bg,#fff);color:var(--text-primary,#0F172A);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}',
+                                    '#myScheduleMoreBtn:hover{background:#F1F5F9}',
+                                    '.rd-ms-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:50;min-width:200px;background:var(--card-bg,#fff);border:1px solid #CBD5E1;border-radius:10px;box-shadow:0 12px 32px rgba(15,23,42,.18);padding:4px}',
+                                    '.rd-ms-menu[hidden]{display:none}',
+                                    '.rd-ms-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:0;background:none;border-radius:8px;font-size:13px;color:var(--text-primary,#0F172A);cursor:pointer;text-align:left}',
+                                    '.rd-ms-menu button:hover,.rd-ms-menu button:focus-visible{background:#F1F5F9}',
+                                    '.rd-ms-card{display:flex;flex-direction:column;gap:3px;width:100%;text-align:left;margin:0 0 6px;padding:8px 9px;border-radius:8px;border:1px solid #E2E8F0;border-left:4px solid var(--rd-ms-color,#0F5E75);background:var(--card-bg,#fff);color:var(--text-primary,#0F172A);cursor:pointer;font:inherit;min-width:0}',
+                                    '.rd-ms-card:hover{background:#F8FAFC;border-color:#CBD5E1}',
+                                    '.rd-ms-card:focus-visible{outline:2px solid #0F5E75;outline-offset:2px}',
+                                    '.rd-ms-time{font-size:13px;font-weight:700;line-height:1.25}',
+                                    '.rd-ms-name{font-size:12px;font-weight:600;color:var(--text-primary,#0F172A);overflow-wrap:anywhere}',
+                                    '.rd-ms-meta{display:flex;gap:5px;align-items:baseline;font-size:12px;color:var(--text-secondary,#475569);overflow-wrap:anywhere;line-height:1.3}',
+                                    '.rd-ms-meta i{font-size:11px;flex:none}',
+                                    '.rd-ms-off{display:flex;gap:6px;align-items:center;margin:0 0 6px;padding:5px 8px;border-radius:8px;background:#FFFAEB;color:#93370D;font-size:12px;font-weight:600;overflow-wrap:anywhere}',
+                                    '.rd-ms-empty{padding:12px 4px;text-align:center;color:var(--text-secondary,#64748B);font-size:12px}',
+                                    '#rdMsPopover{position:fixed;z-index:11060;width:300px;background:var(--card-bg,#fff);color:var(--text-primary,#0F172A);border:1px solid #CBD5E1;border-radius:12px;box-shadow:0 18px 44px rgba(15,23,42,.22);padding:14px}',
+                                    '#rdMsPopover .rd-ms-pop-date{font-size:12px;color:var(--text-secondary,#475569)}',
+                                    '#rdMsPopover .rd-ms-pop-time{font-size:18px;font-weight:700;margin:2px 0 10px}',
+                                    '#rdMsPopover dl{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:0 0 12px;font-size:13px}',
+                                    '#rdMsPopover dt{color:var(--text-secondary,#475569)}',
+                                    '#rdMsPopover dd{margin:0;overflow-wrap:anywhere}',
+                                    '#rdMsPopover .rd-ms-pop-foot{display:flex;justify-content:flex-end;gap:6px}',
+                                    '.rd-ms-btn{height:34px;padding:0 12px;border-radius:10px;border:1px solid #CBD5E1;background:var(--card-bg,#fff);color:var(--text-primary,#0F172A);font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px}',
+                                    '.rd-ms-btn.is-primary{background:#0F5E75;border-color:#0F5E75;color:#fff}'
+                                ].join('\n');
+                                document.head.appendChild(st);
+                            }
+                            ensureStyles();
+
+                            window.rdMySchedule = {
+                                mode: mode, person: person, inScope: inScope, personMatches: personMatches,
+                                dayCellHtml: dayCellHtml, beforeRender: beforeRender, afterRender: afterRender,
+                                openPlanner: openPlanner, nextShiftText: nextShiftText, title: titleText
+                            };
+                        })();
+                        </script>
+
                         <script>
                         // Helper function to convert 24-hour time to 12-hour AM/PM format
                         function convertTo12Hour(time24) {
@@ -1973,8 +2346,14 @@
                                     };
                                 };
 
+                                const rdMs = window.rdMySchedule || null;
+                                if (rdMs) rdMs.beforeRender({ canManage: canManageSchedule });
+                                const rdMode = rdMs ? rdMs.mode() : (canManageSchedule ? 'all' : 'me');
                                 return shifts.filter(shift => {
-                                    if (!canManageSchedule && !myScheduleShiftBelongsToCurrentUser(shift)) {
+                                    if (rdMode === 'me' && !myScheduleShiftBelongsToCurrentUser(shift)) {
+                                        return false;
+                                    }
+                                    if (rdMode === 'person' && rdMs && !rdMs.personMatches(shift, rdMs.person())) {
                                         return false;
                                     }
 
@@ -2274,6 +2653,9 @@
                                 if (providerName && identityTokens.has(providerName)) return true;
                                 return assistantNames.some((name) => identityTokens.has(name));
                             }
+
+                            window.myScheduleShiftBelongsToCurrentUser = myScheduleShiftBelongsToCurrentUser;
+                            window.myScheduleGetCurrentUserIdentityTokens = myScheduleGetCurrentUserIdentityTokens;
 
                             function applyMyScheduleRoleVisibility() {
                                 const canManageSchedule = myScheduleUserCanManageShifts();
@@ -2659,95 +3041,23 @@
                                     });
                                     
                                     let shiftsHtml = '';
-                                    dayShifts.forEach(shift => {
-                                        const shiftIds = Array.isArray(shift.shiftIds) && shift.shiftIds.length
-                                            ? shift.shiftIds.map(id => String(id || '').trim()).filter(Boolean)
-                                            : [String(shift.id || '').trim()].filter(Boolean);
-                                        const relatedShiftRows = shiftIds.length > 0
-                                            ? scheduleSourceForSyncState.filter((row) => shiftIds.includes(String(row?.id || '').trim()))
-                                            : [shift];
-                                        const linkedCount = relatedShiftRows.filter((row) => toNumericId(row?.shiftBuilderShiftId || row?.sbShiftId)).length;
-                                        const totalCount = relatedShiftRows.length || 1;
-                                        const isFullyLinked = linkedCount > 0 && linkedCount === totalCount;
-                                        const isPartiallyLinked = linkedCount > 0 && linkedCount < totalCount;
-                                        const syncBadgeText = isFullyLinked
-                                            ? 'Shift Builder Linked'
-                                            : (isPartiallyLinked ? 'Shift Builder Partial' : 'Shift Builder Pending');
-                                        const syncBadgeStyle = isFullyLinked
-                                            ? 'background: #dcfce7; color: #166534; border: 1px solid #86efac;'
-                                            : (isPartiallyLinked
-                                                ? 'background: #fef9c3; color: #854d0e; border: 1px solid #fde047;'
-                                                : 'background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5;');
-                                        const shiftIdsAttr = shiftIds.join(',');
-                                        const providerKey = String(shift.name || '').trim().toLowerCase();
-                                        const assistants = String(shift.assistant || '')
-                                            .split(',')
-                                            .map(a => a.trim())
-                                            .filter(a => !!a && a.toLowerCase() !== providerKey);
-                                        const assistantText = assistants.length ? assistants.join(', ') : 'No Assistant';
-                                        const startTimeDisplay = typeof convertTo12Hour === 'function' ? convertTo12Hour(shift.startTime) : shift.startTime;
-                                        const endTimeDisplay = typeof convertTo12Hour === 'function' ? convertTo12Hour(shift.endTime) : shift.endTime;
-                                        const cardActionsHtml = canManageSchedule ? `
-                                                <div style="display: flex; gap: 0.35rem; margin-top: 0.45rem;">
-                                                    <button type="button" onclick="handleMyScheduleCardEdit(event, '${shiftIdsAttr}')" style="flex: 1; padding: 0.22rem 0.4rem; border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; border-radius: 5px; font-size: 0.65rem; cursor: pointer;" title="Edit in Relational Schedule Builder"><i class="fas fa-pen" style="margin-right: 0.2rem;"></i>Edit</button>
-                                                    <button type="button" onclick="handleMyScheduleCardDelete(event, '${shiftIdsAttr}')" style="flex: 1; padding: 0.22rem 0.4rem; border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c; border-radius: 5px; font-size: 0.65rem; cursor: pointer;" title="Delete schedule"><i class="fas fa-trash" style="margin-right: 0.2rem;"></i>Delete</button>
-                                                </div>
-                                            ` : '';
-                                        shiftsHtml += `
-                                            <div style="padding: 0.6rem; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid ${shift.color}; cursor: pointer; margin-bottom: 0.5rem; transition: transform 0.15s, box-shadow 0.15s;" 
-                                                 onmouseover="this.style.transform='scale(1.02)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)';"
-                                                 onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none';"
-                                                 onclick="handleMyScheduleCardClick(event, '${shiftIdsAttr}', '${shift.id}')"
-                                                 draggable="${canManageSchedule ? 'true' : 'false'}"
-                                                 ondragstart="handleMyScheduleCardDragStart(event, '${shiftIdsAttr}', '${dayName}')">
-                                                <div style="font-weight: 600; color: var(--text-primary); font-size: 0.8rem; margin-bottom: 0.25rem;">
-                                                    <i class="fas fa-user-md" style="color: ${shift.color}; margin-right: 0.3rem; font-size: 0.7rem;"></i>${shift.name}
-                                                </div>
-                                                <div style="font-size: 0.65rem; color: ${shift.color}; font-weight: 500; margin-bottom: 0.3rem; padding: 0.15rem 0.4rem; background: ${shift.color}15; border-radius: 3px; display: inline-block;">
-                                                    ${shift.role}
-                                                </div>
-                                                ${isPartiallyLinked ? `<div style="font-size: 0.62rem; font-weight: 600; margin-bottom: 0.35rem; padding: 0.14rem 0.38rem; border-radius: 999px; display: inline-block; ${syncBadgeStyle}">
-                                                    ${syncBadgeText}
-                                                </div>` : ''}
-                                                <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.2rem;">
-                                                    <i class="fas fa-clock" style="margin-right: 0.2rem; width: 12px;"></i>${startTimeDisplay} - ${endTimeDisplay}
-                                                </div>
-                                                <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.2rem;">
-                                                    <i class="fas fa-hospital" style="margin-right: 0.2rem; width: 12px;"></i>${shift.clinic} - ${shift.room}
-                                                </div>
-                                                <div style="font-size: 0.7rem; color: var(--text-secondary);">
-                                                    <i class="fas fa-user-friends" style="margin-right: 0.2rem; width: 12px;"></i>${assistantText}
-                                                </div>
-                                                ${cardActionsHtml}
-                                            </div>
-                                        `;
-                                    });
-                                    
-                                    if (dayShifts.length === 0) {
-                                        shiftsHtml = canManageSchedule
-                                            ? `
-                                                <div style="padding: 1rem; text-align: center; color: var(--text-secondary); font-size: 0.75rem; font-style: italic;">
-                                                    <div style="margin-bottom: 0.55rem;">No shifts</div>
-                                                    <button type="button" onclick="handleMyScheduleAddFromEmpty('${dateIso}')" title="Add schedule in Relational Schedule Builder" style="width: 34px; height: 34px; border-radius: 50%; border: 1px solid #86efac; background: #f0fdf4; color: #15803d; cursor: pointer; font-size: 1rem; display: inline-flex; align-items: center; justify-content: center;">
-                                                        <i class="fas fa-plus"></i>
-                                                    </button>
-                                                </div>
-                                            `
-                                            : `
-                                                <div style="padding: 1rem; text-align: center; color: var(--text-secondary); font-size: 0.75rem; font-style: italic;">
-                                                    No shifts
-                                                </div>
-                                            `;
+                                    try {
+                                        shiftsHtml = window.rdMySchedule
+                                            ? window.rdMySchedule.dayCellHtml(date, dayShifts)
+                                            : (dayShifts.map(s => `<div class="rd-ms-card">${String(s.name || '').replace(/[<>&]/g, '')} ${s.startTime}-${s.endTime}</div>`).join('') || '<div class="rd-ms-empty">No shifts</div>');
+                                    } catch (err) {
+                                        console.error('My Schedule day render failed:', err);
+                                        shiftsHtml = '<div class="rd-ms-empty">Could not show this day</div>';
                                     }
-                                    
+
                                     body.innerHTML += `
-                                        <div style="padding: 0.5rem; border-right: 1px solid var(--border-color); min-height: 300px; ${isTodayBg}"
-                                             ondragover="handleMyScheduleDayDragOver(event)"
-                                             ondragleave="handleMyScheduleDayDragLeave(event)"
-                                             ondrop="handleMyScheduleDayDrop(event, '${dayName}', '${dateIso}')">
+                                        <div style="padding: 0.5rem; border-right: 1px solid var(--border-color); min-height: 300px; min-width: 0; ${isTodayBg}" data-ms-day="${dateIso}">
                                             ${shiftsHtml}
                                         </div>
                                     `;
+                                }
+                                if (window.rdMySchedule) {
+                                    try { window.rdMySchedule.afterRender({ canManage: canManageSchedule }); } catch (err) { console.error('My Schedule toolbar failed:', err); }
                                 }
                             };
                             
@@ -2866,7 +3176,7 @@
                                     </head>
                                     <body>
                                         <div class="print-header">
-                                            <h1><i class="fas fa-calendar-alt"></i> My Schedule - Working Hours</h1>
+                                            <h1><i class="fas fa-calendar-alt"></i> ${window.rdMySchedule ? window.rdMySchedule.title() : 'My Schedule'}</h1>
                                             <div class="week-range">${weekLabel ? weekLabel.textContent : ''}</div>
                                             ${filterInfo.length > 0 ? '<div class="filters">Filters: ' + filterInfo.join(' | ') + '</div>' : ''}
                                         </div>
@@ -2941,7 +3251,7 @@
                                             <p>Press <strong>Ctrl+P</strong> (or Cmd+P on Mac), then select <strong>"Save as PDF"</strong> as the destination.</p>
                                         </div>
                                         <div class="print-header">
-                                            <h1><i class="fas fa-calendar-alt"></i> My Schedule - Working Hours</h1>
+                                            <h1><i class="fas fa-calendar-alt"></i> ${window.rdMySchedule ? window.rdMySchedule.title() : 'My Schedule'}</h1>
                                             <div class="week-range">${weekLabel ? weekLabel.textContent : ''}</div>
                                             ${filterInfo.length > 0 ? '<div class="filters">Filters: ' + filterInfo.join(' | ') + '</div>' : ''}
                                         </div>
@@ -3124,7 +3434,7 @@
                                             .no-shifts { text-align:center; color:#9ca3af; font-style:italic; padding:20px; }
                                         </style>
                                         <div style="text-align:center; margin-bottom:20px; padding-bottom:15px; border-bottom:2px solid #e5e7eb;">
-                                            <h1 style="font-size:1.5rem; margin:0 0 6px 0;">My Schedule - Working Hours</h1>
+                                            <h1 style="font-size:1.5rem; margin:0 0 6px 0;">${window.rdMySchedule ? window.rdMySchedule.title() : 'My Schedule'}</h1>
                                             <div style="font-size:1rem; color:#6b7280; margin-bottom:5px;">${weekLabel ? weekLabel.textContent : ''}</div>
                                             ${filterInfo.length > 0 ? `<div style="font-size:0.85rem; color:#9ca3af;">Filters: ${filterInfo.join(' | ')}</div>` : ''}
                                         </div>
@@ -135892,7 +136202,9 @@ console.log('? Global functions exported to window object');
             if (viewVisible()) render();
         }
         window.renderStaffPlanner = render;
-        window.StaffPlanner = { render: render, people: people, shiftOn: shiftOn, isSeries: isSeries, copyCandidates: copyCandidates, _state: state };
+        window.StaffPlanner = {
+            setWeek: function (d) { var x = d instanceof Date ? d : parseIso(d); if (x && !isNaN(x.getTime())) { state.weekStart = startOfWeek(x); state.copyArmed = false; } },
+            render: render, people: people, shiftOn: shiftOn, isSeries: isSeries, copyCandidates: copyCandidates, _state: state };
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
     })();
     </script>
