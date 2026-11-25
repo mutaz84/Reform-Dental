@@ -37097,7 +37097,7 @@
             if (typeof populateVendorTypeDropdown === 'function') {
                 populateVendorTypeDropdown();
             }
-            document.getElementById('newVendorType').value = vendor.vendorType || '';
+            window.rdSelectKeep(document.getElementById('newVendorType'), vendor.vendorType || '');
             
             document.getElementById('newVendorContactName').value = vendor.contactName || '';
             document.getElementById('newVendorEmail').value = vendor.email || '';
@@ -55963,7 +55963,7 @@
             
             document.getElementById('editSupplyId').value = item.supplyID;
             document.getElementById('newSupplyName').value = item.supplyName || '';
-            document.getElementById('newSupplyCategory').value = item.category || '';
+            window.rdSelectKeep(document.getElementById('newSupplyCategory'), item.category || '');
             document.getElementById('newSupplyManufacturer').value = item.manufacturer || '';
             if (document.getElementById('newSupplyModel')) document.getElementById('newSupplyModel').value = item.model || '';
             document.getElementById('newSupplyOffice').value = item.officeId || '';
@@ -56025,7 +56025,7 @@
 
             document.getElementById('editSupplyId').value = '';
             document.getElementById('newSupplyName').value = item.supplyName || '';
-            document.getElementById('newSupplyCategory').value = item.category || '';
+            window.rdSelectKeep(document.getElementById('newSupplyCategory'), item.category || '');
             document.getElementById('newSupplyManufacturer').value = item.manufacturer || '';
             if (document.getElementById('newSupplyModel')) document.getElementById('newSupplyModel').value = item.model || '';
             document.getElementById('newSupplyOffice').value = item.officeId || '';
@@ -100344,6 +100344,30 @@ function getCategoriesForType(type) {
 }
 
 // Populate a category dropdown from the categories table
+// Set a <select> to a saved value. A value that isn't one of the options (an old or imported
+// category, or a provider no longer in the vendor list) is added as "<value> (not in list)",
+// so opening and saving a form never silently blanks it.
+function rdSelectKeep(sel, value) {
+    if (!sel) return;
+    const v = value === undefined || value === null ? '' : String(value);
+    if (sel.tagName === 'SELECT') {
+        // Drop a leftover "(not in list)" option from the previous record.
+        Array.from(sel.querySelectorAll('option[data-rd-unlisted]')).forEach((o) => { if (o.value !== v) o.remove(); });
+    }
+    if (sel.tagName !== 'SELECT' || !v) { sel.value = v; return; }
+    const opts = Array.from(sel.options);
+    if (opts.some((o) => o.value === v)) { sel.value = v; return; }
+    const sameText = opts.find((o) => o.value && o.value.trim().toLowerCase() === v.trim().toLowerCase());
+    if (sameText) { sel.value = sameText.value; return; }
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = v + ' (not in list)';
+    opt.setAttribute('data-rd-unlisted', '1');
+    sel.appendChild(opt);
+    sel.value = v;
+}
+window.rdSelectKeep = rdSelectKeep;
+
 function populateCategoryDropdown(selectId, categoryType, includeOther) {
     const select = document.getElementById(selectId);
     if (!select) return;
@@ -100369,7 +100393,7 @@ function populateCategoryDropdown(selectId, categoryType, includeOther) {
     }
     
     // Restore previous value if it exists
-    if (currentVal) select.value = currentVal;
+    if (currentVal) rdSelectKeep(select, currentVal);
 }
 
 function getActiveEquipmentCategoryType() {
@@ -100767,7 +100791,7 @@ function populateVendorTypeDropdown() {
         select.appendChild(option);
     });
 
-    if (currentVal) select.value = currentVal;
+    if (currentVal) rdSelectKeep(select, currentVal);
 }
 
 function openVendorTypeManager() {
@@ -100983,7 +101007,7 @@ function populateRoleTypeDropdown() {
         select.appendChild(option);
     });
 
-    if (currentVal) select.value = currentVal;
+    if (currentVal) rdSelectKeep(select, currentVal);
 }
 
 function openRoleTypeManager() {
@@ -101169,7 +101193,7 @@ function populateDutyTypeDropdown() {
         select.appendChild(option);
     });
 
-    if (currentVal) select.value = currentVal;
+    if (currentVal) rdSelectKeep(select, currentVal);
 }
 
 function openDutyTypeManager() {
@@ -123531,8 +123555,8 @@ console.log('? Global functions exported to window object');
                 fs.style.display = 'block';
                 document.getElementById('editUtilityId').value            = item.utilityID;
                 document.getElementById('newUtilityName').value           = item.utilityName      || '';
-                document.getElementById('newUtilityCategory').value       = item.category         || '';
-                document.getElementById('newUtilityProvider').value       = item.provider         || '';
+                window.rdSelectKeep(document.getElementById('newUtilityCategory'), item.category || '');
+                window.rdSelectKeep(document.getElementById('newUtilityProvider'), item.provider || '');
                 document.getElementById('newUtilityService').value        = item.service          || '';
                 document.getElementById('newUtilityAccountNumber').value  = item.accountNumber    || '';
                 document.getElementById('newUtilityServiceStartDate').value = (item.serviceStartDate || '').slice(0, 10);
@@ -123897,8 +123921,8 @@ console.log('? Global functions exported to window object');
                 var setVal = function(id, v) { var el = document.getElementById(id); if (el) el.value = v == null ? '' : v; };
                 setVal('editUtilityId', '');
                 setVal('newUtilityName', dupName);
-                setVal('newUtilityCategory', item.category || '');
-                setVal('newUtilityProvider', item.provider || '');
+                window.rdSelectKeep(document.getElementById('newUtilityCategory'), item.category || '');
+                window.rdSelectKeep(document.getElementById('newUtilityProvider'), item.provider || '');
                 setVal('newUtilityService',  item.service  || '');
                 setVal('newUtilityAccountNumber', '');
                 setVal('newUtilityServiceStartDate', String(item.serviceStartDate || '').slice(0, 10));
@@ -125294,7 +125318,7 @@ console.log('? Global functions exported to window object');
             document.getElementById('teamsModalTitle').textContent = 'Edit Assignment';
             document.getElementById('editingTeamId').value = id;
             function sv(elId, val) { var el=document.getElementById(elId); if(el) el.value=val||''; }
-            sv('newTeamName', t.teamName); sv('newTeamCategory', t.category); sv('newTeamLead', t.teamLeadId);
+            sv('newTeamName', t.teamName); window.rdSelectKeep(document.getElementById('newTeamCategory'), t.category); sv('newTeamLead', t.teamLeadId);
             sv('newTeamOffice', t.officeId); sv('newTeamSchedule', t.schedule); sv('newTeamDescription', t.description);
             applyTeamScheduleToControls(t);
             sv('newTeamNotes', t.notes); sv('newTeamWarnings', t.warnings);
