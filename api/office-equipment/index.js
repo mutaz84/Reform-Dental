@@ -260,4 +260,4 @@ module.exports = async function (context, req) {
     }
 };
 
-module.exports = require('../shared/auth').withAuth(module.exports);
+module.exports = require('../shared/auth').withAuth(require('../shared/permissions').guardMethods(module.exports, { POST: ['equipment', 'create'], DELETE: ['equipment', 'delete'] }));
