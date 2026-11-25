@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261125-one-look-v206';
+                const buildVersion = '20261125-staff-planner-v207';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -1528,6 +1528,9 @@
                                 <button onclick="myScheduleToday()" style="padding: 0.5rem 0.75rem; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; margin-left: 0.5rem;">
                                     Today
                                 </button>
+                                <button type="button" id="myScheduleEditBtn" onclick="openScheduleManager()" title="Add, change or move staff shifts" style="display: none; padding: 0.5rem 0.75rem; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-weight: 600; margin-left: 0.25rem;">
+                                    <i class="fas fa-pen" style="margin-right: 0.35rem;"></i>Edit schedule
+                                </button>
                             </div>
                         </div>
                         
@@ -2703,9 +2706,9 @@
                                                 <div style="font-size: 0.65rem; color: ${shift.color}; font-weight: 500; margin-bottom: 0.3rem; padding: 0.15rem 0.4rem; background: ${shift.color}15; border-radius: 3px; display: inline-block;">
                                                     ${shift.role}
                                                 </div>
-                                                <div style="font-size: 0.62rem; font-weight: 600; margin-bottom: 0.35rem; padding: 0.14rem 0.38rem; border-radius: 999px; display: inline-block; ${syncBadgeStyle}">
+                                                ${isPartiallyLinked ? `<div style="font-size: 0.62rem; font-weight: 600; margin-bottom: 0.35rem; padding: 0.14rem 0.38rem; border-radius: 999px; display: inline-block; ${syncBadgeStyle}">
                                                     ${syncBadgeText}
-                                                </div>
+                                                </div>` : ''}
                                                 <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.2rem;">
                                                     <i class="fas fa-clock" style="margin-right: 0.2rem; width: 12px;"></i>${startTimeDisplay} - ${endTimeDisplay}
                                                 </div>
@@ -7299,17 +7302,15 @@
                         <span>Manage Schedules</span>
                     </h2>
                 </div>
-                <div style="padding: 1.5rem;">
-                    <div style="background: var(--card-bg); border-radius: 16px; padding: 2.5rem; border: 1px solid var(--border-color); text-align: center; max-width: 100%; margin: 0 auto;">
-                        <div style="width: 70px; height: 70px; background: linear-gradient(135deg, #0891b2, #0e7490); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
-                            <i class="fas fa-calendar-check" style="font-size: 1.8rem; color: white;"></i>
-                        </div>
-                        <h2 style="color: var(--text-primary); margin-bottom: 0.5rem; font-size: 1.6rem;">Schedule Builder</h2>
-                        <p style="margin-bottom: 1.5rem; color: var(--text-secondary); line-height: 1.6; font-size: 0.95rem;">Choose your preferred method to create schedules.</p>
-                        
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; max-width: 600px; margin-left: auto; margin-right: auto;">
+                <div style="padding: 1.25rem 1.5rem 1.5rem;">
+                    <div id="staffPlannerHost"></div>
+                    <details class="rd-sp-more" id="staffPlannerMoreOptions">
+                        <summary>More options: Table Builder and Relational Builder</summary>
+                        <div class="rd-sp-more-body">
+                        <p style="margin: 0 0 1rem; color: var(--text-secondary); font-size: 0.85rem;">The older builders are still here if you need bulk entry or the step-by-step wizard.</p>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 0; max-width: 600px;">
                             <!-- Table/Excel Mode -->
-                            <div onclick="openTableScheduleBuilder()" style="background: var(--bg-secondary); border: 2px solid var(--border-color); border-radius: 12px; padding: 1.5rem; cursor: pointer; transition: all 0.3s; text-align: center;" onmouseover="this.style.borderColor='var(--accent-primary)'; this.style.background=var(--card-bg);" onmouseout="this.style.borderColor='var(--border-color)'; this.style.background=var(--bg-secondary);">
+                            <div onclick="openTableScheduleBuilder()" style="background: var(--bg-secondary); border: 2px solid var(--border-color); border-radius: 12px; padding: 1.5rem; cursor: pointer; transition: all 0.3s; text-align: center;" onmouseover="this.style.borderColor='var(--accent-primary)'; this.style.background='var(--card-bg)';" onmouseout="this.style.borderColor='var(--border-color)'; this.style.background='var(--bg-secondary)';">
                                 <div style="width: 50px; height: 50px; background: #dcfce7; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem;">
                                     <i class="fas fa-table" style="font-size: 1.5rem; color: #16a34a;"></i>
                                 </div>
@@ -7321,7 +7322,7 @@
                             </div>
                             
                             <!-- Step-by-Step Mode -->
-                            <div onclick="startScheduleBuilderGame()" style="background: var(--bg-secondary); border: 2px solid var(--border-color); border-radius: 12px; padding: 1.5rem; cursor: pointer; transition: all 0.3s; text-align: center;" onmouseover="this.style.borderColor='var(--accent-primary)'; this.style.background=var(--card-bg);" onmouseout="this.style.borderColor='var(--border-color)'; this.style.background=var(--bg-secondary);">
+                            <div onclick="startScheduleBuilderGame()" style="background: var(--bg-secondary); border: 2px solid var(--border-color); border-radius: 12px; padding: 1.5rem; cursor: pointer; transition: all 0.3s; text-align: center;" onmouseover="this.style.borderColor='var(--accent-primary)'; this.style.background='var(--card-bg)';" onmouseout="this.style.borderColor='var(--border-color)'; this.style.background='var(--bg-secondary)';">
                                 <div style="width: 50px; height: 50px; background: #cffafe; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem;">
                                     <i class="fas fa-project-diagram" style="font-size: 1.5rem; color: #0891b2;"></i>
                                 </div>
@@ -7332,7 +7333,8 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
+                        </div>
+                    </details>
                 </div>
             </div>
         </div>
@@ -25241,6 +25243,9 @@
             }
             if (!activateManagementView('manage-schedules')) {
                 switchContentView('manage-schedules');
+            }
+            if (typeof window.renderStaffPlanner === 'function') {
+                window.renderStaffPlanner();
             }
         }
 
@@ -135182,6 +135187,713 @@ console.log('? Global functions exported to window object');
         window.dataImportReset = reset;
         window.dataImportDownloadErrors = downloadErrors;
         window.__dataImportRegistry = REGISTRY;
+    })();
+    </script>
+
+    <script>
+    /* ============================================================
+       Staff week planner: staff down the side, days across.
+       Click an empty box to add a shift, click a shift to change it,
+       drag a one-time shift to move it, copy last week in one click.
+       Saves through the existing schedule API (saveScheduleToAPI,
+       updateScheduleViaAPI, deleteScheduleViaAPI) and then re-syncs,
+       so My Schedule, attendance and DentaBrain see the same shifts.
+       ============================================================ */
+    (function () {
+        'use strict';
+        var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        var PRESETS = [
+            { key: 'full', label: 'Full day', start: '08:00', end: '17:00' },
+            { key: 'am', label: 'Morning', start: '08:00', end: '12:00' },
+            { key: 'pm', label: 'Afternoon', start: '13:00', end: '17:00' }
+        ];
+        var REPEATS = [
+            { key: 'none', label: 'Does not repeat', weeks: 0 },
+            { key: 'w4', label: 'Every week for 4 weeks', weeks: 4 },
+            { key: 'w12', label: 'Every week for 12 weeks', weeks: 12 },
+            { key: 'w26', label: 'Every week for 26 weeks', weeks: 26 }
+        ];
+        var state = { weekStart: null, busy: false, clinic: '', copyArmed: false, dragId: '' };
+
+        // ---------- small helpers ----------
+        function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+        function pad(n) { return String(n).padStart(2, '0'); }
+        function iso(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+        function parseIso(s) { var m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null; }
+        function addDays(d, n) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() + n); return x; }
+        function startOfWeek(d) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - x.getDay()); return x; }
+        function key(s) { return String(s || '').trim().toLowerCase(); }
+        function dayToken(v) {
+            var k = key(v).slice(0, 3);
+            var map = { sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat' };
+            return map[k] || '';
+        }
+        function timeLabel(t) {
+            var m = String(t || '').match(/(\d{1,2}):(\d{2})/);
+            if (!m) return '';
+            var h = Number(m[1]), mi = Number(m[2]);
+            var suffix = h >= 12 ? 'PM' : 'AM';
+            var h12 = h % 12 === 0 ? 12 : h % 12;
+            return h12 + (mi ? ':' + pad(mi) : '') + ' ' + suffix;
+        }
+        function minutes(t) { var m = String(t || '').match(/(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; }
+        function dateLabel(d, withWeekday) { return d.toLocaleDateString([], withWeekday ? { weekday: 'short', month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric' }); }
+        function notify(msg, type) { try { if (typeof showNotification === 'function') showNotification(msg, type || 'info'); } catch (_) {} }
+
+        function canManage() {
+            try { if (typeof hasPermission === 'function' && hasPermission('schedule', 'manage')) return true; } catch (_) {}
+            var role = key(localStorage.getItem('userRole'));
+            if (!role) { try { role = key((JSON.parse(localStorage.getItem('currentUser') || '{}') || {}).role); } catch (_) {} }
+            if (!role) role = key(document.documentElement && document.documentElement.getAttribute('data-role'));
+            return ['admin', 'administrator', 'owner', 'manager', 'superadmin'].indexOf(role) >= 0;
+        }
+
+        // ---------- data ----------
+        function allShifts() {
+            var list = Array.isArray(window.myScheduleShifts) ? window.myScheduleShifts : null;
+            if (!list) { try { list = JSON.parse(localStorage.getItem('scheduleShifts') || '[]'); } catch (_) { list = []; } }
+            return (Array.isArray(list) ? list : []).filter(function (s) { return s && (s.name || s.employee || s.provider); });
+        }
+        function shiftDays(s) {
+            var raw = Array.isArray(s.days) ? s.days : String(s.days || s.daysOfWeek || '').split(',');
+            return raw.map(dayToken).filter(Boolean);
+        }
+        function shiftOwner(s) { return String(s.name || s.employee || s.provider || '').trim(); }
+        function shiftOn(s, d) {
+            if (shiftDays(s).indexOf(DAYS[d.getDay()]) < 0) return false;
+            var ds = iso(d);
+            if (s.startDate && ds < s.startDate) return false;
+            if (s.endDate && ds > s.endDate) return false;
+            return true;
+        }
+        function isSeries(s) { return !s.startDate || !s.endDate || s.endDate > s.startDate; }
+        function dbIds(s) {
+            var ids = Array.isArray(s.shiftIds) && s.shiftIds.length ? s.shiftIds : [s.dbId || s.id];
+            return ids.map(function (v) { var m = String(v == null ? '' : v).match(/(\d+)$/); return m ? Number(m[1]) : null; }).filter(Boolean);
+        }
+        function shiftKey(s) { return String(s.id || s.dbId || ''); }
+        function findShift(id) { var all = allShifts(); for (var i = 0; i < all.length; i++) { if (shiftKey(all[i]) === String(id)) return all[i]; } return null; }
+
+        function clinics() {
+            var list = [];
+            try { list = typeof loadOffices === 'function' ? (loadOffices() || []) : []; } catch (_) { list = []; }
+            return list.map(function (o) { return { id: o.officeID || o.id || '', name: String(o.officeName || o.name || '').trim() }; }).filter(function (c) { return c.name; });
+        }
+        function selectedClinic() {
+            var list = clinics();
+            if (state.clinic) { for (var i = 0; i < list.length; i++) if (list[i].name === state.clinic) return list[i]; }
+            var meta = null;
+            try { meta = typeof getSelectedClinicMetadata === 'function' ? getSelectedClinicMetadata() : null; } catch (_) {}
+            var name = meta && (meta.selectedClinicName || meta.name) || (list[0] && list[0].name) || '';
+            for (var j = 0; j < list.length; j++) if (list[j].name === name) return list[j];
+            return name ? { id: meta && (meta.selectedClinicId || meta.id) || '', name: name } : { id: '', name: '' };
+        }
+        function rooms() {
+            var md = window.masterData || {};
+            var clinic = selectedClinic();
+            var list = [];
+            try {
+                if (Array.isArray(md.rooms) && md.rooms.length) {
+                    list = (clinic.id && typeof md.getRoomsByClinic === 'function') ? md.getRoomsByClinic(clinic.id) : md.rooms;
+                    if (!list.length && clinic.id) list = md.rooms;
+                } else if (typeof loadRooms === 'function') {
+                    list = loadRooms() || [];
+                }
+            } catch (_) { list = []; }
+            var seen = {};
+            return list.filter(function (r) { return r && r.isActive !== false; }).map(function (r) {
+                return { id: r.dbId || r.roomID || r.id || '', name: String(r.name || r.roomName || r.roomType || '').trim() };
+            }).filter(function (r) { if (!r.name || seen[r.name]) return false; seen[r.name] = true; return true; })
+              .sort(function (a, b) { return a.name.localeCompare(b.name, undefined, { numeric: true }); });
+        }
+
+        function people() {
+            var out = [], seen = {};
+            function add(name, group, extra) {
+                var k = key(name);
+                if (!k || seen[k] || /^(open|unassigned)( shift| slot)?$/.test(k)) return;
+                seen[k] = true;
+                out.push(Object.assign({ name: String(name).trim(), key: k, group: group, provider: group === 'Providers' }, extra || {}));
+            }
+            var md = window.masterData || {};
+            var providers = [], everyone = [];
+            try { providers = md.getProviders ? (md.getProviders() || []) : []; } catch (_) {}
+            try { everyone = md.getAllEmployees ? (md.getAllEmployees() || []) : []; } catch (_) {}
+            providers.forEach(function (p) { add(p.title || p.name, 'Providers'); });
+            everyone.forEach(function (e) {
+                var role = String((e.extendedProps && (e.extendedProps.role || e.extendedProps.jobTitle)) || e.role || '');
+                add(e.title || e.name, /assist|hygien/i.test(role) ? 'Assistants' : 'Team');
+            });
+            if (!everyone.length) {
+                var users = {};
+                try { users = typeof getUsersDataSafe === 'function' ? getUsersDataSafe() : JSON.parse(localStorage.getItem('users') || '{}'); } catch (_) { users = {}; }
+                Object.keys(users || {}).forEach(function (username) {
+                    var u = users[username] || {};
+                    if (u.isActive === false || /inactive|terminated|separated|archived/i.test(String(u.employeeStatus || u.status || ''))) return;
+                    var nm = (u.firstName || u.lastName) ? (String(u.firstName || '') + ' ' + String(u.lastName || '')).trim() : (u.fullName || u.name || username);
+                    var role = String(u.jobTitle || u.role || '');
+                    add(nm, /dentist|doctor|\bdds\b|\bdmd\b|provider/i.test(role) ? 'Providers' : (/assist|hygien/i.test(role) ? 'Assistants' : 'Team'), { username: username });
+                });
+            }
+            allShifts().forEach(function (s) { add(shiftOwner(s), s.type === 'provider' ? 'Providers' : 'Team'); });
+            out.sort(function (a, b) { return a.name.localeCompare(b.name); });
+            return out;
+        }
+
+        function approvedTimeOff(person, d) {
+            var ds = iso(d), reqs = [];
+            try { reqs = JSON.parse(localStorage.getItem('attendancePtoRequestsV1') || '[]') || []; } catch (_) { reqs = []; }
+            for (var i = 0; i < reqs.length; i++) {
+                var r = reqs[i] || {};
+                if (key(r.status) !== 'approved') continue;
+                var who = [key(r.employeeName), key(r.username), key(r.name)];
+                if (who.indexOf(person.key) < 0 && (!person.username || who.indexOf(key(person.username)) < 0)) continue;
+                var s = String(r.startDate || '').slice(0, 10), e = String(r.endDate || r.startDate || '').slice(0, 10);
+                if (s && ds >= s && ds <= (e || s)) return r.type || r.reason || 'Time off';
+            }
+            return '';
+        }
+
+        function overlaps(list) {
+            var bad = {};
+            for (var i = 0; i < list.length; i++) for (var j = i + 1; j < list.length; j++) {
+                var a1 = minutes(list[i].startTime), a2 = minutes(list[i].endTime), b1 = minutes(list[j].startTime), b2 = minutes(list[j].endTime);
+                if (a1 == null || a2 == null || b1 == null || b2 == null) continue;
+                if (a1 < b2 && b1 < a2) { bad[shiftKey(list[i])] = true; bad[shiftKey(list[j])] = true; }
+            }
+            return bad;
+        }
+
+        // ---------- saving ----------
+        // Goes through the app's own persist helpers so the Shift Builder link,
+        // room/clinic ids and employee ids are handled the same way as everywhere else.
+        async function resync() {
+            try {
+                if (typeof syncSchedulesFromAPIWithRetry === 'function') await syncSchedulesFromAPIWithRetry({ attempts: 2, delayMs: 300 });
+                else if (typeof syncSchedulesFromAPI === 'function') await syncSchedulesFromAPI();
+            } catch (_) {}
+            render();
+        }
+        function ownerFields(person) {
+            return {
+                name: person.name,
+                employee: person.name,
+                provider: person.provider ? person.name : '',
+                role: person.provider ? 'Provider' : 'Employee',
+                type: person.provider ? 'provider' : 'assistant',
+                color: person.provider ? '#0F5E75' : '#2E90FA'
+            };
+        }
+        function newShiftShape(person, d, start, end, room, repeatWeeks) {
+            var clinic = selectedClinic();
+            return Object.assign(ownerFields(person), {
+                clinic: clinic.name || '',
+                room: room || '',
+                assistant: null,
+                days: [DAYS[d.getDay()]],
+                startDate: iso(d),
+                endDate: repeatWeeks ? iso(addDays(d, repeatWeeks * 7 - 1)) : iso(d),
+                startTime: start,
+                endTime: end,
+                notes: ''
+            });
+        }
+        function copyOf(s, changes) {
+            var c = JSON.parse(JSON.stringify(s));
+            delete c.shiftIds;
+            if (changes && 'room' in changes) { c.room = changes.room || ''; delete c.roomId; delete c.dbRoomId; }
+            if (changes && changes.startTime) c.startTime = changes.startTime;
+            if (changes && changes.endTime) c.endTime = changes.endTime;
+            if (changes && changes.endDate) c.endDate = changes.endDate;
+            return c;
+        }
+        function idCopies(s) {
+            // Duplicate rows of the same shift are merged on screen; change every row.
+            return dbIds(s).map(function (id) { var c = JSON.parse(JSON.stringify(s)); delete c.shiftIds; c.dbId = id; c.id = 'shift-' + id; return c; });
+        }
+        async function createShift(person, d, start, end, room, repeatWeeks) {
+            var shape = newShiftShape(person, d, start, end, room, repeatWeeks);
+            if (typeof persistShiftCreateToAPI === 'function') {
+                var id = await persistShiftCreateToAPI(shape, { showToast: false });
+                if (!id) throw new Error('The shift was not saved. Check the connection and try again.');
+                return id;
+            }
+            if (typeof saveScheduleToAPI !== 'function') throw new Error('Schedule saving is not available');
+            var result = await saveScheduleToAPI({
+                userName: person.name, providerName: person.provider ? person.name : null, employeeName: person.provider ? null : person.name,
+                clinicName: shape.clinic || null, roomName: shape.room || null, startDate: shape.startDate, endDate: shape.endDate,
+                startTime: start, endTime: end, daysOfWeek: shape.days.join(','), color: shape.color, notes: ''
+            });
+            if (!result) throw new Error('The shift was not saved. Check the connection and try again.');
+            return result;
+        }
+        async function updateShift(s, changes) {
+            var rows = idCopies(s);
+            if (!rows.length) {
+                // Never reached the server: save it now with the changes.
+                if (typeof persistShiftUpdateToAPI !== 'function') throw new Error('This shift cannot be changed here');
+                if (!(await persistShiftUpdateToAPI(copyOf(s, changes), { showToast: false }))) throw new Error('The change was not saved. Try again.');
+                return;
+            }
+            for (var i = 0; i < rows.length; i++) {
+                var row = copyOf(rows[i], changes);
+                var ok = false;
+                if (typeof persistShiftUpdateToAPI === 'function') ok = await persistShiftUpdateToAPI(row, { showToast: false });
+                else if (typeof updateScheduleViaAPI === 'function' && typeof buildScheduleApiPayloadFromShift === 'function') ok = await updateScheduleViaAPI(row.dbId, buildScheduleApiPayloadFromShift(row));
+                if (!ok) throw new Error('The change was not saved. Try again.');
+            }
+        }
+        async function moveShift(s, d, person) {
+            if (key(shiftOwner(s)) !== person.key) {
+                // Another person: add theirs first, then remove the old one, so nothing is lost if the add fails.
+                await createShift(person, d, s.startTime, s.endTime, s.room || '', 0);
+                await deleteShift(s);
+                return;
+            }
+            var rows = idCopies(s);
+            if (!rows.length || typeof persistShiftUpdateToAPI !== 'function') throw new Error('This shift cannot be moved here');
+            for (var i = 0; i < rows.length; i++) {
+                var ok = await persistShiftUpdateToAPI(rows[i], { showToast: false, dateOnlyUpdate: true, targetDate: iso(d), targetDay: DAYS[d.getDay()] });
+                if (!ok) throw new Error('The shift was not moved. Try again.');
+            }
+        }
+        async function deleteShift(s) {
+            var rows = idCopies(s);
+            if (!rows.length) rows = [s];
+            for (var i = 0; i < rows.length; i++) {
+                var ok = false;
+                if (typeof persistShiftDeleteToAPI === 'function') ok = await persistShiftDeleteToAPI(rows[i], { showToast: false });
+                else if (typeof deleteScheduleViaAPI === 'function' && rows[i].dbId) ok = await deleteScheduleViaAPI(rows[i].dbId);
+                if (!ok) throw new Error('The shift was not deleted. Try again.');
+            }
+        }
+        async function run(label, fn) {
+            if (state.busy) return;
+            state.busy = true;
+            setStatus(label + '…');
+            try {
+                await fn();
+                closePopover();
+                await resync();
+                setStatus('');
+            } catch (err) {
+                console.error('Staff planner:', err);
+                setStatus('');
+                notify((err && err.message) || 'Something went wrong. Please try again.', 'error');
+            } finally {
+                state.busy = false;
+            }
+        }
+
+        // ---------- rendering ----------
+        function ensureStyles() {
+            if (document.getElementById('rdStaffPlannerStyles')) return;
+            var st = document.createElement('style');
+            st.id = 'rdStaffPlannerStyles';
+            st.textContent = [
+                '.rd-sp{font-size:13px;color:var(--text-primary,#0F172A)}',
+                '.rd-sp-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px}',
+                '.rd-sp-title{font-size:18px;font-weight:700;margin-right:8px}',
+                '.rd-sp-range{font-size:15px;color:var(--text-secondary,#475569);font-weight:600}',
+                '.rd-sp-spacer{flex:1 1 auto}',
+                '.rd-sp-btn{height:34px;padding:0 12px;border-radius:10px;border:1px solid #CBD5E1;background:var(--card-bg,#fff);color:var(--text-primary,#0F172A);font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px}',
+                '.rd-sp-btn:hover{background:#F1F5F9}',
+                '.rd-sp-btn.is-primary{background:#0F5E75;border-color:#0F5E75;color:#fff}',
+                '.rd-sp-btn.is-primary:hover{background:#0B4759}',
+                '.rd-sp-btn.is-armed{background:#FFFAEB;border-color:#FEDF89;color:#93370D}',
+                '.rd-sp-btn.is-danger{color:#B42318;border-color:#FECDCA}',
+                '.rd-sp-select{height:34px;border-radius:10px;border:1px solid #CBD5E1;padding:0 8px;font-size:13px;background:var(--card-bg,#fff);color:inherit}',
+                '.rd-sp-hint{font-size:12px;color:var(--text-secondary,#475569);margin:0 0 10px}',
+                '.rd-sp-alert{font-size:12px;background:#FEF3F2;color:#912018;border:1px solid #FECDCA;border-radius:8px;padding:6px 10px;margin-bottom:10px}',
+                '.rd-sp-status{font-size:12px;color:#0F5E75;font-weight:600;min-height:16px}',
+                '.rd-sp-grid{display:grid;grid-template-columns:180px repeat(7,minmax(96px,1fr));border:1px solid #E2E8F0;border-radius:12px;overflow:auto;background:var(--card-bg,#fff)}',
+                '.rd-sp-head{padding:8px 6px;text-align:center;font-weight:700;font-size:12px;background:#F8FAFC;border-bottom:1px solid #E2E8F0;border-left:1px solid #E2E8F0;position:sticky;top:0;z-index:1}',
+                '.rd-sp-head span{display:block;font-weight:500;color:var(--text-secondary,#475569)}',
+                '.rd-sp-head.is-today{background:#E7F1F4;color:#0F5E75}',
+                '.rd-sp-corner{background:#F8FAFC;border-bottom:1px solid #E2E8F0;position:sticky;top:0;left:0;z-index:2}',
+                '.rd-sp-group{grid-column:1/-1;padding:6px 10px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-secondary,#475569);background:#F8FAFC;border-bottom:1px solid #E2E8F0}',
+                '.rd-sp-name{padding:8px 10px;font-weight:600;border-bottom:1px solid #EEF2F6;display:flex;align-items:center;position:sticky;left:0;background:var(--card-bg,#fff);z-index:1;overflow-wrap:anywhere}',
+                '.rd-sp-cell{min-height:52px;padding:4px;border-bottom:1px solid #EEF2F6;border-left:1px solid #EEF2F6;display:flex;flex-direction:column;gap:4px}',
+                '.rd-sp-cell.is-today{background:#F7FBFC}',
+                '.rd-sp-cell.can-add{cursor:pointer}',
+                '.rd-sp-cell.can-add:hover{background:#F1F7F9}',
+                '.rd-sp-cell.is-drop{outline:2px dashed #0F5E75;outline-offset:-3px;background:#E7F1F4}',
+                '.rd-sp-add{display:none;align-items:center;justify-content:center;flex:1 1 auto;min-height:26px;border:1px dashed #9FBFC9;border-radius:8px;color:#0F5E75;font-size:16px}',
+                '.rd-sp-cell.can-add:hover .rd-sp-add{display:flex}',
+                '.rd-sp-shift{border-radius:8px;padding:4px 6px;background:#E1F0F4;color:#0B4759;font-size:12px;line-height:1.3;cursor:pointer;border:1px solid transparent}',
+                '.rd-sp-shift.is-team{background:#EAF2FE;color:#1849A9}',
+                '.rd-sp-shift.is-conflict{border-color:#D92D20;background:#FEF3F2;color:#912018}',
+                '.rd-sp-shift[draggable="true"]{cursor:grab}',
+                '.rd-sp-shift small{display:block;color:inherit;opacity:.8;font-size:11px}',
+                '.rd-sp-shift .rd-sp-rep{font-size:10px;margin-left:3px}',
+                '.rd-sp-off{border-radius:8px;padding:3px 6px;background:#FFFAEB;color:#93370D;font-size:11px;font-weight:600}',
+                '.rd-sp-empty{grid-column:1/-1;padding:24px;text-align:center;color:var(--text-secondary,#475569)}',
+                '.rd-sp-more{margin-top:20px;border:1px solid #E2E8F0;border-radius:12px;background:var(--card-bg,#fff)}',
+                '.rd-sp-more>summary{cursor:pointer;padding:12px 14px;font-weight:600;font-size:13px;color:var(--text-secondary,#475569);list-style:revert}',
+                '.rd-sp-more[open]>summary{border-bottom:1px solid #E2E8F0}',
+                '.rd-sp-more-body{padding:14px}',
+                '#rdSpPopover{position:fixed;z-index:11060;width:320px;background:var(--card-bg,#fff);color:var(--text-primary,#0F172A);border:1px solid #CBD5E1;border-radius:12px;box-shadow:0 18px 44px rgba(15,23,42,.22);padding:14px}',
+                '#rdSpPopover h4{margin:0 0 2px;font-size:14px;font-weight:700}',
+                '#rdSpPopover .rd-sp-sub{font-size:12px;color:var(--text-secondary,#475569);margin-bottom:10px}',
+                '#rdSpPopover .rd-sp-warn{font-size:12px;background:#FFFAEB;color:#93370D;border:1px solid #FEDF89;border-radius:8px;padding:6px 8px;margin-bottom:10px}',
+                '#rdSpPopover .rd-sp-presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}',
+                '#rdSpPopover .rd-sp-preset{height:30px;padding:0 10px;border-radius:8px;border:1px solid #CBD5E1;background:var(--card-bg,#fff);font-size:12px;font-weight:600;cursor:pointer;color:inherit}',
+                '#rdSpPopover .rd-sp-preset.is-on{border-color:#0F5E75;background:#E7F1F4;color:#0F5E75}',
+                '#rdSpPopover .rd-sp-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}',
+                '#rdSpPopover label{display:block;font-size:12px;color:var(--text-secondary,#475569);margin-bottom:3px}',
+                '#rdSpPopover input,#rdSpPopover select{width:100%;height:34px;border:1px solid #CBD5E1;border-radius:8px;padding:0 8px;font-size:13px;background:var(--card-bg,#fff);color:inherit;box-sizing:border-box}',
+                '#rdSpPopover .rd-sp-foot{display:flex;gap:6px;align-items:center;margin-top:4px}',
+                '#rdSpPopover .rd-sp-err{color:#B42318;font-size:12px;min-height:14px;margin-bottom:6px}'
+            ].join('\n');
+            document.head.appendChild(st);
+        }
+
+        function host() { return document.getElementById('staffPlannerHost'); }
+        function setStatus(text) { var el = document.getElementById('rdSpStatus'); if (el) el.textContent = text || ''; }
+
+        function render() {
+            var h = host();
+            if (!h) return;
+            ensureStyles();
+            if (!state.weekStart) state.weekStart = startOfWeek(new Date());
+            var manage = canManage();
+            var week = []; for (var i = 0; i < 7; i++) week.push(addDays(state.weekStart, i));
+            var todayIso = iso(new Date());
+            var shifts = allShifts();
+            var ppl = people();
+            var clinicList = clinics();
+            var current = selectedClinic();
+            var inClinic = function (s) { return clinicList.length < 2 || !s.clinic || !current.name || key(s.clinic) === key(current.name); };
+            var groups = ['Providers', 'Assistants', 'Team'];
+            var conflicts = [];
+            var html = '<div class="rd-sp">';
+            html += '<div class="rd-sp-bar">'
+                + '<span class="rd-sp-range">' + esc(dateLabel(week[0]) + ' – ' + dateLabel(week[6]) + ', ' + week[6].getFullYear()) + '</span>'
+                + '<span class="rd-sp-spacer"></span>'
+                + (clinicList.length > 1 ? '<select class="rd-sp-select" data-sp="clinic" aria-label="Clinic">' + clinicList.map(function (c) { return '<option' + (c.name === current.name ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select>' : '')
+                + '<button type="button" class="rd-sp-btn" data-sp="prev" data-rd-btn="skip" aria-label="Previous week"><i class="fas fa-chevron-left"></i></button>'
+                + '<button type="button" class="rd-sp-btn" data-sp="today" data-rd-btn="skip">This week</button>'
+                + '<button type="button" class="rd-sp-btn" data-sp="next" data-rd-btn="skip" aria-label="Next week"><i class="fas fa-chevron-right"></i></button>'
+                + (manage ? '<button type="button" class="rd-sp-btn' + (state.copyArmed ? ' is-armed' : '') + '" data-sp="copy" data-rd-btn="skip"><i class="fas fa-copy"></i> ' + esc(state.copyArmed ? copyLabel() : 'Copy last week') + '</button>' : '')
+                + '</div>';
+            html += manage
+                ? '<p class="rd-sp-hint">Click an empty box to add a shift. Click a shift to change or delete it. Drag a one-time shift to move it to another day or person.</p>'
+                : '<p class="rd-sp-hint">Only managers can change the schedule.</p>';
+            html += '<div class="rd-sp-status" id="rdSpStatus" aria-live="polite"></div>';
+            html += '%%CONFLICTS%%';
+            html += '<div class="rd-sp-grid" role="grid" aria-label="Staff schedule for the week">';
+            html += '<div class="rd-sp-corner"></div>';
+            week.forEach(function (d) {
+                html += '<div class="rd-sp-head' + (iso(d) === todayIso ? ' is-today' : '') + '">' + DAYS[d.getDay()] + '<span>' + esc(dateLabel(d)) + '</span></div>';
+            });
+            if (!ppl.length) html += '<div class="rd-sp-empty">No staff found. Add people in Manage Users first.</div>';
+            groups.forEach(function (g) {
+                var rows = ppl.filter(function (p) { return p.group === g; });
+                if (!rows.length) return;
+                html += '<div class="rd-sp-group">' + esc(g) + '</div>';
+                rows.forEach(function (p) {
+                    html += '<div class="rd-sp-name">' + esc(p.name) + '</div>';
+                    week.forEach(function (d) {
+                        var ds = iso(d);
+                        var mine = shifts.filter(function (s) { return key(shiftOwner(s)) === p.key && inClinic(s) && shiftOn(s, d); })
+                            .sort(function (a, b) { return (minutes(a.startTime) || 0) - (minutes(b.startTime) || 0); });
+                        var bad = overlaps(mine);
+                        if (Object.keys(bad).length) conflicts.push(p.name + ' (' + DAYS[d.getDay()] + ')');
+                        var off = approvedTimeOff(p, d);
+                        var cell = '<div class="rd-sp-cell' + (ds === todayIso ? ' is-today' : '') + (manage ? ' can-add' : '') + '" data-person="' + esc(p.key) + '" data-date="' + ds + '">';
+                        if (off) cell += '<div class="rd-sp-off" title="Approved time off">' + esc(off) + '</div>';
+                        mine.forEach(function (s) {
+                            var series = isSeries(s);
+                            var cls = 'rd-sp-shift' + (p.provider ? '' : ' is-team') + (bad[shiftKey(s)] ? ' is-conflict' : '');
+                            var title = (bad[shiftKey(s)] ? 'Overlaps another shift. ' : '') + (series ? 'Repeats weekly.' : '');
+                            cell += '<div class="' + cls + '" data-shift="' + esc(shiftKey(s)) + '" draggable="' + (manage && !series ? 'true' : 'false') + '" title="' + esc(title) + '">'
+                                + esc(timeLabel(s.startTime) + ' – ' + timeLabel(s.endTime))
+                                + (series ? '<i class="fas fa-repeat rd-sp-rep" aria-label="Repeats weekly"></i>' : '')
+                                + (s.room ? '<small>' + esc(s.room) + '</small>' : '')
+                                + '</div>';
+                        });
+                        if (manage) cell += '<div class="rd-sp-add" aria-hidden="true">+</div>';
+                        cell += '</div>';
+                        html += cell;
+                    });
+                });
+            });
+            html += '</div></div>';
+            html = html.replace('%%CONFLICTS%%', conflicts.length
+                ? '<div class="rd-sp-alert" role="status"><i class="fas fa-triangle-exclamation"></i> Overlapping shifts: ' + esc(conflicts.join(', ')) + '. ' + (manage ? 'Click a red shift to fix it.' : '') + '</div>'
+                : '');
+            h.innerHTML = html;
+        }
+
+        // ---------- copy last week ----------
+        function copyCandidates() {
+            var prevStart = addDays(state.weekStart, -7), out = [], skipped = 0;
+            var shifts = allShifts();
+            for (var i = 0; i < 7; i++) {
+                var from = addDays(prevStart, i), to = addDays(state.weekStart, i);
+                shifts.forEach(function (s) {
+                    if (isSeries(s) || !shiftOn(s, from)) return;
+                    var owner = key(shiftOwner(s));
+                    var exists = shifts.some(function (o) { return key(shiftOwner(o)) === owner && shiftOn(o, to) && o.startTime === s.startTime; });
+                    if (exists) { skipped++; return; }
+                    out.push({ shift: s, to: to });
+                });
+            }
+            return { list: out, skipped: skipped };
+        }
+        function copyLabel() { var c = copyCandidates(); return c.list.length ? 'Copy ' + c.list.length + ' shift' + (c.list.length === 1 ? '' : 's') + '? Click again' : 'Nothing to copy'; }
+        function copyLastWeek() {
+            var c = copyCandidates();
+            state.copyArmed = false;
+            if (!c.list.length) { render(); notify(c.skipped ? 'Last week\'s one-time shifts are already in this week.' : 'Last week has no one-time shifts to copy. Repeating shifts already show here.', 'info'); return; }
+            run('Copying ' + c.list.length + ' shifts', async function () {
+                var ppl = people();
+                for (var i = 0; i < c.list.length; i++) {
+                    var item = c.list[i], owner = key(shiftOwner(item.shift));
+                    var person = ppl.filter(function (p) { return p.key === owner; })[0] || { name: shiftOwner(item.shift), key: owner, provider: item.shift.type === 'provider' };
+                    setStatus('Copying shift ' + (i + 1) + ' of ' + c.list.length + '…');
+                    await createShift(person, item.to, item.shift.startTime, item.shift.endTime, item.shift.room || '', 0);
+                }
+                notify('Copied ' + c.list.length + ' shift' + (c.list.length === 1 ? '' : 's') + ' from last week' + (c.skipped ? ' (' + c.skipped + ' already there)' : '') + '.', 'success');
+            });
+        }
+
+        // ---------- popover ----------
+        function closePopover() {
+            var p = document.getElementById('rdSpPopover');
+            if (p) p.remove();
+            document.removeEventListener('keydown', popoverKeys, true);
+            document.removeEventListener('mousedown', popoverOutside, true);
+        }
+        function popoverKeys(e) { if (e.key === 'Escape') { e.preventDefault(); closePopover(); } }
+        function popoverOutside(e) { var p = document.getElementById('rdSpPopover'); if (p && !p.contains(e.target)) closePopover(); }
+        function placePopover(pop, anchor) {
+            var r = anchor.getBoundingClientRect();
+            var w = 320, hgt = pop.offsetHeight || 300;
+            var left = Math.min(Math.max(8, r.left), window.innerWidth - w - 8);
+            var top = r.bottom + 6;
+            if (top + hgt > window.innerHeight - 8) top = Math.max(8, r.top - hgt - 6);
+            pop.style.left = left + 'px';
+            pop.style.top = top + 'px';
+        }
+        function personByKey(k) { return people().filter(function (p) { return p.key === k; })[0] || null; }
+
+        function openPopover(anchor, opts) {
+            closePopover();
+            var person = opts.person, d = opts.date, s = opts.shift || null;
+            var series = s && isSeries(s);
+            var start = s ? s.startTime : PRESETS[0].start, end = s ? s.endTime : PRESETS[0].end;
+            var roomList = rooms();
+            var roomNow = s ? (s.room || '') : '';
+            var warnings = [];
+            var off = person ? approvedTimeOff(person, d) : '';
+            if (off) warnings.push(person.name + ' has approved time off this day.');
+            var pop = document.createElement('div');
+            pop.id = 'rdSpPopover';
+            pop.setAttribute('role', 'dialog');
+            pop.setAttribute('aria-label', s ? 'Change shift' : 'Add shift');
+            var title = s ? (series ? 'Repeating shift' : 'Shift') : 'Add shift';
+            var sub = esc((person ? person.name : shiftOwner(s)) + ' · ' + dateLabel(d, true));
+            var html = '<h4>' + title + '</h4><div class="rd-sp-sub">' + sub + '</div>';
+            if (series) {
+                var sd = parseIso(s.startDate), ed = parseIso(s.endDate);
+                html += '<div class="rd-sp-sub">Every ' + esc(shiftDays(s).join(', ')) + (sd ? ' from ' + esc(dateLabel(sd)) : '') + (ed ? ' to ' + esc(dateLabel(ed)) : '') + '. Changes apply to every week.</div>';
+            }
+            if (warnings.length) html += '<div class="rd-sp-warn">' + warnings.map(esc).join('<br>') + '</div>';
+            html += '<div class="rd-sp-presets">' + PRESETS.map(function (pr) {
+                var on = pr.start === start && pr.end === end;
+                return '<button type="button" class="rd-sp-preset' + (on ? ' is-on' : '') + '" data-rd-btn="skip" data-preset="' + pr.key + '">' + esc(pr.label) + ' ' + esc(timeLabel(pr.start).replace(':00', '') + '–' + timeLabel(pr.end).replace(':00', '')) + '</button>';
+            }).join('') + '</div>';
+            html += '<div class="rd-sp-row"><div><label for="rdSpStart">Start</label><input type="time" id="rdSpStart" value="' + esc(start) + '"></div>'
+                + '<div><label for="rdSpEnd">End</label><input type="time" id="rdSpEnd" value="' + esc(end) + '"></div></div>';
+            html += '<div class="rd-sp-row"><div><label for="rdSpRoom">Room</label><select id="rdSpRoom"><option value="">No room</option>'
+                + roomList.map(function (r) { return '<option' + (r.name === roomNow ? ' selected' : '') + '>' + esc(r.name) + '</option>'; }).join('')
+                + (roomNow && !roomList.some(function (r) { return r.name === roomNow; }) ? '<option selected>' + esc(roomNow) + '</option>' : '')
+                + '</select></div>';
+            if (!s) {
+                html += '<div><label for="rdSpRepeat">Repeat</label><select id="rdSpRepeat">' + REPEATS.map(function (r) { return '<option value="' + r.key + '">' + esc(r.label) + '</option>'; }).join('') + '</select></div>';
+            } else if (series) {
+                html += '<div><label for="rdSpUntil">Ends</label><input type="date" id="rdSpUntil" value="' + esc(s.endDate || '') + '"></div>';
+            } else {
+                html += '<div></div>';
+            }
+            html += '</div><div class="rd-sp-err" id="rdSpErr" role="alert"></div>';
+            html += '<div class="rd-sp-foot">'
+                + (s ? '<button type="button" class="rd-sp-btn is-danger" data-rd-btn="skip" data-act="delete">' + (series ? 'Delete every week' : 'Delete') + '</button>' : '')
+                + '<span class="rd-sp-spacer"></span>'
+                + '<button type="button" class="rd-sp-btn" data-rd-btn="skip" data-act="cancel">Cancel</button>'
+                + '<button type="button" class="rd-sp-btn is-primary" data-rd-btn="skip" data-act="save">' + (s ? 'Save' : 'Add shift') + '</button></div>';
+            pop.innerHTML = html;
+            document.body.appendChild(pop);
+            placePopover(pop, anchor);
+            var startEl = pop.querySelector('#rdSpStart'), endEl = pop.querySelector('#rdSpEnd'), errEl = pop.querySelector('#rdSpErr');
+            function syncPresets() {
+                Array.prototype.forEach.call(pop.querySelectorAll('[data-preset]'), function (b) {
+                    var pr = PRESETS.filter(function (x) { return x.key === b.getAttribute('data-preset'); })[0];
+                    b.classList.toggle('is-on', pr.start === startEl.value && pr.end === endEl.value);
+                });
+            }
+            startEl.addEventListener('input', function () { errEl.textContent = ''; syncPresets(); });
+            endEl.addEventListener('input', function () { errEl.textContent = ''; syncPresets(); });
+            pop.addEventListener('click', function (e) {
+                var pb = e.target.closest('[data-preset]');
+                if (pb) {
+                    var pr = PRESETS.filter(function (x) { return x.key === pb.getAttribute('data-preset'); })[0];
+                    startEl.value = pr.start; endEl.value = pr.end; errEl.textContent = ''; syncPresets();
+                    return;
+                }
+                var act = e.target.closest('[data-act]');
+                if (!act) return;
+                var what = act.getAttribute('data-act');
+                if (what === 'cancel') { closePopover(); return; }
+                if (what === 'delete') {
+                    if (act.dataset.confirm !== '1') { act.dataset.confirm = '1'; act.textContent = 'Click again to delete'; return; }
+                    run('Deleting', function () { return deleteShift(s); });
+                    return;
+                }
+                if (what === 'save') {
+                    var st = startEl.value, en = endEl.value;
+                    if (!st || !en) { errEl.textContent = 'Enter a start and end time.'; return; }
+                    if (minutes(en) <= minutes(st)) { errEl.textContent = 'The end time must be after the start time.'; return; }
+                    var room = pop.querySelector('#rdSpRoom').value;
+                    var owner = person ? person : personByKey(key(shiftOwner(s)));
+                    var others = allShifts().filter(function (o) { return (!s || shiftKey(o) !== shiftKey(s)) && key(shiftOwner(o)) === (owner ? owner.key : '') && shiftOn(o, d); });
+                    var clash = others.filter(function (o) { var a = minutes(o.startTime), b = minutes(o.endTime); return a != null && b != null && a < minutes(en) && minutes(st) < b; })[0];
+                    if (clash && act.dataset.confirm !== '1') {
+                        act.dataset.confirm = '1';
+                        act.textContent = 'Save anyway';
+                        errEl.textContent = 'Overlaps ' + timeLabel(clash.startTime) + ' – ' + timeLabel(clash.endTime) + ' that day.';
+                        return;
+                    }
+                    if (!s) {
+                        var rep = REPEATS.filter(function (r) { return r.key === pop.querySelector('#rdSpRepeat').value; })[0] || REPEATS[0];
+                        run('Adding shift', function () { return createShift(owner, d, st, en, room, rep.weeks); });
+                    } else {
+                        var changes = { startTime: st, endTime: en, room: room };
+                        if (series) {
+                            var until = pop.querySelector('#rdSpUntil').value;
+                            if (until && s.startDate && until < s.startDate) { errEl.textContent = 'The end date must be after ' + dateLabel(parseIso(s.startDate)) + '.'; return; }
+                            if (until) changes.endDate = until;
+                        }
+                        run('Saving', function () { return updateShift(s, changes); });
+                    }
+                }
+            });
+            document.addEventListener('keydown', popoverKeys, true);
+            setTimeout(function () { document.addEventListener('mousedown', popoverOutside, true); }, 0);
+            try { pop.querySelector('[data-act="save"]').focus({ preventScroll: true }); } catch (_) {}
+        }
+
+        // ---------- events ----------
+        function onClick(e) {
+            var h = host();
+            if (!h || !h.contains(e.target)) return;
+            var btn = e.target.closest('[data-sp]');
+            if (btn && btn.tagName === 'BUTTON') {
+                var a = btn.getAttribute('data-sp');
+                if (a === 'prev') { state.weekStart = addDays(state.weekStart, -7); state.copyArmed = false; render(); }
+                else if (a === 'next') { state.weekStart = addDays(state.weekStart, 7); state.copyArmed = false; render(); }
+                else if (a === 'today') { state.weekStart = startOfWeek(new Date()); state.copyArmed = false; render(); }
+                else if (a === 'copy') { if (state.copyArmed) copyLastWeek(); else { state.copyArmed = true; render(); } }
+                return;
+            }
+            if (!canManage() || state.busy) return;
+            var chip = e.target.closest('[data-shift]');
+            var cell = e.target.closest('.rd-sp-cell');
+            if (!cell) return;
+            var d = parseIso(cell.getAttribute('data-date'));
+            var person = personByKey(cell.getAttribute('data-person'));
+            if (chip) {
+                var s = findShift(chip.getAttribute('data-shift'));
+                if (s) openPopover(chip, { person: person, date: d, shift: s });
+                return;
+            }
+            if (person && d) openPopover(cell, { person: person, date: d });
+        }
+        function onChange(e) {
+            var sel = e.target.closest('[data-sp="clinic"]');
+            if (sel && host() && host().contains(sel)) { state.clinic = sel.value; render(); }
+        }
+        function onDragStart(e) {
+            var chip = e.target.closest && e.target.closest('.rd-sp-shift[draggable="true"]');
+            if (!chip || !host() || !host().contains(chip)) return;
+            state.dragId = chip.getAttribute('data-shift');
+            try { e.dataTransfer.setData('text/plain', state.dragId); e.dataTransfer.effectAllowed = 'move'; } catch (_) {}
+        }
+        function onDragOver(e) {
+            if (!state.dragId) return;
+            var cell = e.target.closest && e.target.closest('.rd-sp-cell');
+            if (!cell || !host() || !host().contains(cell)) return;
+            e.preventDefault();
+            Array.prototype.forEach.call(host().querySelectorAll('.rd-sp-cell.is-drop'), function (c) { if (c !== cell) c.classList.remove('is-drop'); });
+            cell.classList.add('is-drop');
+        }
+        function onDrop(e) {
+            if (!state.dragId) return;
+            var cell = e.target.closest && e.target.closest('.rd-sp-cell');
+            var id = state.dragId;
+            state.dragId = '';
+            if (host()) Array.prototype.forEach.call(host().querySelectorAll('.rd-sp-cell.is-drop'), function (c) { c.classList.remove('is-drop'); });
+            if (!cell || !host() || !host().contains(cell)) return;
+            e.preventDefault();
+            var s = findShift(id);
+            var d = parseIso(cell.getAttribute('data-date'));
+            var person = personByKey(cell.getAttribute('data-person'));
+            if (!s || !d || !person || isSeries(s)) return;
+            if (s.startDate === iso(d) && key(shiftOwner(s)) === person.key) return;
+            var offWarn = approvedTimeOff(person, d);
+            run(key(shiftOwner(s)) === person.key ? 'Moving shift' : 'Moving shift to ' + person.name, async function () {
+                await moveShift(s, d, person);
+                if (offWarn) notify(person.name + ' has approved time off on ' + dateLabel(d, true) + '.', 'warning');
+            });
+        }
+        function onDragEnd() {
+            state.dragId = '';
+            if (host()) Array.prototype.forEach.call(host().querySelectorAll('.rd-sp-cell.is-drop'), function (c) { c.classList.remove('is-drop'); });
+        }
+
+        // Render whenever Manage Schedules becomes visible
+        function viewVisible() { var v = document.getElementById('view-manage-schedules'); return !!(v && v.getClientRects().length); }
+        var lastVisible = false;
+        function watchView() {
+            var v = document.getElementById('view-manage-schedules');
+            if (!v) return;
+            new MutationObserver(function () {
+                var vis = viewVisible();
+                if (vis && !lastVisible) render();
+                lastVisible = vis;
+            }).observe(v, { attributes: true, attributeFilter: ['class', 'style'] });
+        }
+        function updateMyScheduleButton() {
+            var b = document.getElementById('myScheduleEditBtn');
+            if (b) b.style.display = canManage() ? '' : 'none';
+        }
+        function watchMySchedule() {
+            var v = document.getElementById('view-schedule');
+            if (v) new MutationObserver(updateMyScheduleButton).observe(v, { attributes: true, attributeFilter: ['class', 'style'] });
+            var orig = window.renderMyScheduleCalendar;
+            if (typeof orig === 'function' && !orig.__rdSpWrapped) {
+                var wrapped = function () { var r = orig.apply(this, arguments); try { updateMyScheduleButton(); } catch (_) {} return r; };
+                wrapped.__rdSpWrapped = true;
+                window.renderMyScheduleCalendar = wrapped;
+            }
+        }
+        function init() {
+            document.addEventListener('click', onClick);
+            document.addEventListener('change', onChange);
+            document.addEventListener('dragstart', onDragStart);
+            document.addEventListener('dragover', onDragOver);
+            document.addEventListener('drop', onDrop);
+            document.addEventListener('dragend', onDragEnd);
+            watchView();
+            watchMySchedule();
+            updateMyScheduleButton();
+            setTimeout(updateMyScheduleButton, 3000);
+            if (viewVisible()) render();
+        }
+        window.renderStaffPlanner = render;
+        window.StaffPlanner = { render: render, people: people, shiftOn: shiftOn, isSeries: isSeries, copyCandidates: copyCandidates, _state: state };
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
     })();
     </script>
 
