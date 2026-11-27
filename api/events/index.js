@@ -1,5 +1,6 @@
 const { sql, getPool, resetPool } = require('../shared/database');
 const { getRequestUserId, tenantClinicScopeSql, resolveWritableClinicId, TENANT_PARAM } = require('../shared/tenant');
+const permissions = require('../shared/permissions');
 
 async function getTableColumns(pool, tableName) {
     const result = await pool.request()
@@ -122,7 +123,10 @@ async function getMutationActorUserId(pool, req) {
     return await resolveUserId(pool, headerIdentity);
 }
 
-async function authorizeEventMutation(pool, eventColumns, eventId, actorUserId) {
+// The event's creator may always change it. For updates, people with Office Calendar >
+// Move Anyone's Events may change other people's events too (owner: false tells the caller
+// to keep the original organizer).
+async function authorizeEventMutation(pool, eventColumns, eventId, actorUserId, req = null, allowCalendarMover = false) {
     const ownerColumns = ['OrganizerUserId', 'CreatedBy'].filter((column) => hasColumn(eventColumns, column));
     const selectColumns = ['Id', ...ownerColumns].join(', ');
     const result = await pool.request()
@@ -130,14 +134,15 @@ async function authorizeEventMutation(pool, eventColumns, eventId, actorUserId) 
         .query(`SELECT TOP 1 ${selectColumns} FROM Events WHERE Id = @id`);
     const row = result.recordset?.[0] || null;
     if (!row) return { ok: false, status: 404, body: { error: 'Event not found' } };
-    if (!ownerColumns.length) return { ok: true };
+    if (!ownerColumns.length) return { ok: true, owner: true };
 
     const actorId = Number(actorUserId) || 0;
     if (!actorId) return { ok: false, status: 401, body: { error: 'A valid X-User-Id is required to modify this event.' } };
 
     const ownsEvent = ownerColumns.some((column) => Number(row[column]) === actorId);
-    if (!ownsEvent) return { ok: false, status: 403, body: { error: 'Only the event creator can modify this event.' } };
-    return { ok: true };
+    if (ownsEvent) return { ok: true, owner: true };
+    if (allowCalendarMover && req && await permissions.can(pool, req, 'calendar', 'move_events')) return { ok: true, owner: false };
+    return { ok: false, status: 403, body: { error: 'Only the event creator can modify this event.', code: 'PERMISSION_DENIED' } };
 }
 
 function getHeaderValue(req, names) {
@@ -587,7 +592,7 @@ module.exports = async function (context, req) {
             const attendees = normalizeAttendees(body.attendees);
             const dashboardScope = normalizeDashboardScope(body.dashboardScope || body.DashboardScope);
             const actorUserId = await getMutationActorUserId(pool, req);
-            const auth = await authorizeEventMutation(pool, eventColumns, id, actorUserId);
+            const auth = await authorizeEventMutation(pool, eventColumns, id, actorUserId, req, true);
             if (!auth.ok) {
                 context.res = { status: auth.status, headers, body: auth.body };
                 return;
@@ -635,7 +640,11 @@ module.exports = async function (context, req) {
                 updateDefs.push({ column: 'EndTime', param: 'endTime', type: sql.NVarChar(20), value: toIsoTime(endDateTime) });
             }
 
-            const filteredDefs = updateDefs.filter((def) => hasColumn(eventColumns, def.column));
+            // Someone moving another person's event keeps that person as the organizer.
+            const allowedDefs = auth.owner === false
+                ? updateDefs.filter((def) => def.column !== 'OrganizerUserId' && def.column !== 'OrganizerName')
+                : updateDefs;
+            const filteredDefs = allowedDefs.filter((def) => hasColumn(eventColumns, def.column));
             const request = pool.request().input('id', sql.Int, id);
             filteredDefs.forEach((def) => request.input(def.param, def.type, def.value));
 

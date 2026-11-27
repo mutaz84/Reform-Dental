@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261125-permissions-v210';
+                const buildVersion = '20261126-calendar-layouts-v211';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -12803,6 +12803,15 @@
                     delete: { label: 'Delete Assignments', description: 'Remove assignments' }
                 }
             },
+            calendar: {
+                label: 'Office Calendar',
+                icon: 'fa-calendar-days',
+                color: '#0F5E75',
+                permissions: {
+                    manage_layouts: { label: 'Edit Calendar Layouts', description: 'Layouts button on the dashboard: add, rename, link, color, hide and reorder columns' },
+                    move_events: { label: "Move Anyone's Events", description: "Drag any office event or item to another column or time, not only the ones you created" }
+                }
+            },
             reports: {
                 label: 'Reports',
                 icon: 'fa-chart-bar',
@@ -12841,7 +12850,8 @@
                 tasks: { view_all: 'full', create: 'full', edit: 'full', delete: 'full', assign: 'full' },
                 password_manager: { edit: 'full', export: 'full' },
                 reports: { view: 'full', export: 'full' },
-                supplies: { create: 'full' }
+                supplies: { create: 'full' },
+                calendar: { manage_layouts: 'hidden', move_events: 'full' }
             },
             user: {
                 instruments: { view: 'readonly' },
@@ -59319,6 +59329,11 @@
                     apiSaved = true;
                 }
             } catch (error) {
+                if (error && (error.status === 403 || error.status === 401)) {
+                    if (typeof showNotification === 'function') showNotification(error.status === 401 ? 'Sign in again to move this event.' : "Only the person who created this event can move it. Ask an admin to turn on Office Calendar › Move Anyone's Events for you.", 'warning');
+                    refreshDashboardScheduleSurfaces();
+                    return false;
+                }
                 console.warn('Calendar event move API save failed; keeping the moved event locally.', error);
             }
             events[index] = { ...updated, dashboardBackup: !apiSaved, apiSyncPending: !apiSaved };
@@ -60182,6 +60197,10 @@
                     apiSaved = true;
                 }
             } catch (error) {
+                if (editingId && error && (error.status === 403 || error.status === 401)) {
+                    if (typeof showNotification === 'function') showNotification(error.status === 401 ? 'Sign in again to change this event.' : "Only the person who created this event can change it. Ask an admin to turn on Office Calendar › Move Anyone's Events for you.", 'warning');
+                    return;
+                }
                 console.error('Dashboard event API save failed; event is only stored locally on this machine.', error);
             }
             setDashboardEventScope(eventRecord.id, eventScope);
@@ -61016,20 +61035,32 @@
             return `rd:calendarLayouts:${getDashboardCurrentCreator().id || 'guest'}:${dashboardCalendarClinicId()}`;
         }
 
-        function dashboardCalendarLayouts() {
+        // Layouts and drag-to-column placements ("pins") are stored per clinic on the server and
+        // cached in this browser so the calendar draws straight away.
+        function dashboardCalendarLayoutsState() {
             const key = dashboardCalendarLayoutsKey();
             if (!dashboardCalendarLayoutsCache.has(key)) {
                 let layouts = [];
+                let pins = {};
                 try { layouts = JSON.parse(localStorage.getItem(key) || '[]'); } catch (_) {}
-                dashboardCalendarLayoutsCache.set(key, { layouts: Array.isArray(layouts) ? layouts : [], attemptedAt: 0, pending: null });
+                try { pins = JSON.parse(localStorage.getItem(`${key}:pins`) || '{}'); } catch (_) {}
+                dashboardCalendarLayoutsCache.set(key, {
+                    layouts: Array.isArray(layouts) ? layouts : [],
+                    pins: pins && typeof pins === 'object' && !Array.isArray(pins) ? pins : {},
+                    attemptedAt: 0,
+                    pending: null
+                });
             }
-            return dashboardCalendarLayoutsCache.get(key).layouts;
+            return dashboardCalendarLayoutsCache.get(key);
+        }
+
+        function dashboardCalendarLayouts() {
+            return dashboardCalendarLayoutsState().layouts;
         }
 
         async function loadDashboardCalendarLayouts(force = false) {
-            dashboardCalendarLayouts();
             const key = dashboardCalendarLayoutsKey();
-            const state = dashboardCalendarLayoutsCache.get(key);
+            const state = dashboardCalendarLayoutsState();
             const clinicId = dashboardCalendarClinicId();
             if (!clinicId || state.pending || (!force && Date.now() - state.attemptedAt < 60000)) return state.pending;
             state.attemptedAt = Date.now();
@@ -61043,9 +61074,13 @@
                     }
                     const payload = await response.json();
                     const layouts = Array.isArray(payload.calendarLayouts) ? payload.calendarLayouts : [];
-                    const changed = JSON.stringify(layouts) !== JSON.stringify(state.layouts);
+                    const pins = payload.calendarPins && typeof payload.calendarPins === 'object' && !Array.isArray(payload.calendarPins) ? payload.calendarPins : {};
+                    const changed = JSON.stringify(layouts) !== JSON.stringify(state.layouts) || JSON.stringify(pins) !== JSON.stringify(state.pins);
                     state.layouts = layouts;
+                    state.pins = pins;
                     localStorage.setItem(key, JSON.stringify(layouts));
+                    localStorage.setItem(`${key}:pins`, JSON.stringify(pins));
+                    migrateDashboardCalendarLegacyPins(state);
                     const form = document.getElementById('dashboardEventForm');
                     if (changed && key === dashboardCalendarLayoutsKey() && (!form || form.hidden)) refreshDashboardScheduleSurfaces();
                     return true;
@@ -61166,15 +61201,69 @@
             return keys;
         }
 
-        function dashboardCalendarColumnPinsKey() {
+        function dashboardCalendarLegacyPinsKey() {
             return `rd:calendarColumnPins:${getDashboardCurrentCreator().id || 'guest'}:${dashboardCalendarClinicId()}`;
         }
 
         function dashboardCalendarColumnPinMap() {
-            try {
-                const parsed = JSON.parse(localStorage.getItem(dashboardCalendarColumnPinsKey()) || '{}');
-                return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-            } catch (_) { return {}; }
+            return dashboardCalendarLayoutsState().pins || {};
+        }
+
+        function canMoveAnyDashboardCalendarItem() {
+            if (typeof isPlatformAdminUser === 'function' && isPlatformAdminUser()) return true;
+            if (typeof window.hasPermission === 'function') return window.hasPermission('calendar', 'move_events');
+            return canManageDashboardCalendarLayouts();
+        }
+
+        const DASHBOARD_CALENDAR_PIN_VALUE = /^[a-zA-Z0-9_-]{1,80}:[a-zA-Z0-9_-]{1,80}$/;
+
+        // Saves placement changes for the whole clinic. Shows the change at once and puts it back
+        // if the server refuses it.
+        function saveDashboardCalendarPins(changes, options = {}) {
+            const state = dashboardCalendarLayoutsState();
+            const key = dashboardCalendarLayoutsKey();
+            const clinicId = dashboardCalendarClinicId();
+            const before = { ...state.pins };
+            changes.forEach(change => { if (change.value) state.pins[change.key] = change.value; else delete state.pins[change.key]; });
+            try { localStorage.setItem(`${key}:pins`, JSON.stringify(state.pins)); } catch (_) {}
+            if (!clinicId) return Promise.resolve(false);
+            return (async () => {
+                try {
+                    const response = await fetch(`${getEventsApiBaseUrl()}/settings`, await getEventsTenantFetchInit({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ calendarClinicId: clinicId, calendarPin: changes }) }));
+                    if (!response.ok) {
+                        const failure = await response.json().catch(() => null);
+                        throw new Error(failure?.error || `The calendar placement was not saved (${response.status}).`);
+                    }
+                    return true;
+                } catch (error) {
+                    changes.forEach(change => { if (before[change.key]) state.pins[change.key] = before[change.key]; else delete state.pins[change.key]; });
+                    try { localStorage.setItem(`${key}:pins`, JSON.stringify(state.pins)); } catch (_) {}
+                    if (!options.quiet) {
+                        refreshDashboardScheduleSurfaces();
+                        if (typeof showNotification === 'function') showNotification(error.message, 'warning');
+                    }
+                    return false;
+                }
+            })();
+        }
+
+        // Placements used to be kept only in each browser. Move them to the shared list once.
+        function migrateDashboardCalendarLegacyPins(state) {
+            const legacyKey = dashboardCalendarLegacyPinsKey();
+            let legacy = {};
+            try { legacy = JSON.parse(localStorage.getItem(legacyKey) || 'null'); } catch (_) { legacy = null; }
+            if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) return;
+            const changes = Object.entries(legacy)
+                .filter(([pinKey, value]) => pinKey && pinKey.length <= 200 && typeof value === 'string' && DASHBOARD_CALENDAR_PIN_VALUE.test(value) && !state.pins[pinKey])
+                .slice(0, 200)
+                .map(([pinKey, value]) => ({ key: pinKey, value }));
+            if (!changes.length) { localStorage.removeItem(legacyKey); return; }
+            if (!canMoveAnyDashboardCalendarItem()) return;
+            saveDashboardCalendarPins(changes, { quiet: true }).then(ok => {
+                if (!ok) return;
+                localStorage.removeItem(legacyKey);
+                refreshDashboardScheduleSurfaces();
+            });
         }
 
         function dashboardCalendarEntryPinKey(entry) {
@@ -61182,7 +61271,7 @@
             const id = String(entry?.id || '').trim();
             const title = String(entry?.title || '').trim().toLowerCase();
             if (!kind || (!id && !title)) return '';
-            return `${kind}:${id || title}`;
+            return `${kind}:${id || title}`.slice(0, 200);
         }
 
         function dashboardCalendarColumnPin(entry) {
@@ -61191,11 +61280,15 @@
         }
 
         function setDashboardCalendarColumnPin(entryKey, value) {
-            if (!entryKey) return;
-            const map = dashboardCalendarColumnPinMap();
-            if (value) map[entryKey] = value;
-            else delete map[entryKey];
-            localStorage.setItem(dashboardCalendarColumnPinsKey(), JSON.stringify(map));
+            if (!entryKey) return false;
+            const next = String(value || '');
+            if (String(dashboardCalendarColumnPinMap()[entryKey] || '') === next) return true;
+            if (!canMoveAnyDashboardCalendarItem()) {
+                if (typeof showNotification === 'function') showNotification("You don't have permission to arrange the office calendar. Ask an admin to turn on Office Calendar › Move Anyone's Events.", 'warning');
+                return false;
+            }
+            void saveDashboardCalendarPins([{ key: entryKey, value: next }]);
+            return true;
         }
 
         function dashboardAssignOperationToStaff(payload, name) {
@@ -61237,20 +61330,18 @@
             const value = String(columnValue || '');
             if (!value) {
                 if (!dashboardCalendarColumnPin(payload)) return false;
-                setDashboardCalendarColumnPin(pinKey, '');
-                return true;
+                return setDashboardCalendarColumnPin(pinKey, '');
             }
             const [layoutId = '', columnId = ''] = value.split(':');
             const layout = dashboardCalendarLayouts().find(item => item.id === layoutId);
             const column = layout?.columns.find(item => item.id === columnId);
             if (!column) return false;
             if (column.entityType === 'staff' && column.entityName && dashboardAssignOperationToStaff(payload, column.entityName)) {
-                setDashboardCalendarColumnPin(pinKey, '');
+                if (dashboardCalendarColumnPin(payload)) setDashboardCalendarColumnPin(pinKey, '');
                 if (typeof showNotification === 'function') showNotification(`Assigned to ${column.entityName}.`, 'success');
                 return true;
             }
-            setDashboardCalendarColumnPin(pinKey, value);
-            return true;
+            return setDashboardCalendarColumnPin(pinKey, value);
         }
 
         function dashboardCalendarColumnEntityCellHtml(column) {
@@ -61268,8 +61359,111 @@
         }
 
         function canManageDashboardCalendarLayouts() {
+            if (typeof isPlatformAdminUser === 'function' && isPlatformAdminUser()) return true;
+            if (typeof window.hasPermission === 'function') return window.hasPermission('calendar', 'manage_layouts');
             const role = String(localStorage.getItem('userRole') || '').toLowerCase();
-            return (typeof isPlatformAdminUser === 'function' && isPlatformAdminUser()) || ['admin', 'owner', 'manager-admin', 'manageradmin'].includes(role);
+            return ['admin', 'owner', 'administrator', 'superadmin', 'manager-admin', 'manageradmin'].includes(role);
+        }
+
+        let dashboardCalendarDraftSnapshot = null;
+        const DASHBOARD_CALENDAR_ID = /^[a-zA-Z0-9_-]{1,80}$/;
+        const DASHBOARD_CALENDAR_MAX_LAYOUTS = 20;
+        const DASHBOARD_CALENDAR_MAX_COLUMNS = 30;
+
+        function dashboardCalendarDraftIsDirty() {
+            return dashboardCalendarDraftSnapshot !== null && JSON.stringify(dashboardCalendarLayoutDraft) !== dashboardCalendarDraftSnapshot;
+        }
+
+        function refreshDashboardCalendarDirtyNote() {
+            const note = document.getElementById('dashboardCalendarDirtyNote');
+            if (note) note.style.display = dashboardCalendarDraftIsDirty() ? '' : 'none';
+        }
+
+        // Older saved layouts can miss a color, an id or the on/off flag, which the server rejects.
+        // Fill those in when the editor opens so Save works.
+        function normalizeDashboardCalendarLayoutsForEdit(layouts) {
+            let fixed = 0;
+            const newId = () => `cal-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+            const seenLayouts = new Set();
+            const list = (Array.isArray(layouts) ? layouts : []).filter(layout => layout && typeof layout === 'object').slice(0, DASHBOARD_CALENDAR_MAX_LAYOUTS).map((layout, layoutIndex) => {
+                let id = String(layout.id || '');
+                if (!DASHBOARD_CALENDAR_ID.test(id) || seenLayouts.has(id)) { id = newId(); fixed++; }
+                seenLayouts.add(id);
+                const seenColumns = new Set();
+                const columns = (Array.isArray(layout.columns) ? layout.columns : []).filter(column => column && typeof column === 'object').slice(0, DASHBOARD_CALENDAR_MAX_COLUMNS).map((column, index) => {
+                    let columnId = String(column.id || '');
+                    if (!DASHBOARD_CALENDAR_ID.test(columnId) || seenColumns.has(columnId)) { columnId = newId(); fixed++; }
+                    seenColumns.add(columnId);
+                    const color = /^#[0-9a-f]{6}$/i.test(String(column.color || '')) ? String(column.color) : '#0F5E75';
+                    if (color !== column.color) fixed++;
+                    const active = typeof column.active === 'boolean' ? column.active : !(column.active === 'false' || column.active === 0);
+                    if (active !== column.active) fixed++;
+                    const name = String(column.name || '').trim() ? String(column.name).slice(0, 80) : `Column ${index + 1}`;
+                    return {
+                        ...column,
+                        id: columnId,
+                        name,
+                        color,
+                        active,
+                        entityType: String(column.entityType || '').slice(0, 40),
+                        entityId: String(column.entityId ?? '').slice(0, 160),
+                        entityName: String(column.entityName || '').slice(0, 160)
+                    };
+                });
+                return {
+                    ...layout,
+                    id,
+                    name: String(layout.name || '').trim() ? String(layout.name).slice(0, 80) : `Layout ${layoutIndex + 1}`,
+                    columns,
+                    unassignedName: String(layout.unassignedName || '').slice(0, 80),
+                    hideUnassignedWhenEmpty: layout.hideUnassignedWhenEmpty === true
+                };
+            });
+            return { list, fixed };
+        }
+
+        // How many upcoming events and placed items sit in a column, for the remove/hide warnings.
+        function dashboardCalendarColumnUsage(layoutId, columnId) {
+            const today = dashboardLocalDateIso(new Date());
+            let count = 0;
+            dashboardCalendarReadArray('calendarEvents').forEach(item => {
+                if (String(item?.calendarLayoutId || item?.CalendarLayoutId || '') !== layoutId || String(item?.calendarColumnId || item?.CalendarColumnId || '') !== columnId) return;
+                const last = String(item?.end || item?.EndDateTime || item?.start || item?.StartDateTime || '').slice(0, 10);
+                if (!last || last >= today) count++;
+            });
+            const value = `${layoutId}:${columnId}`;
+            count += Object.values(dashboardCalendarColumnPinMap()).filter(pin => pin === value).length;
+            return count;
+        }
+
+        function dashboardCalendarUnassignedLabel(layout) {
+            return String(layout?.unassignedName || '').trim() || 'Unassigned';
+        }
+
+        function dashboardCalendarUnassignedRowHtml(layout) {
+            return `<tr data-calendar-unassigned-row="1" style="background:#FAFAF8;"><td style="padding:8px 8px 8px 0;"><input aria-label="Name of the built-in Unassigned column" data-field="unassignedName" maxlength="80" placeholder="Unassigned" value="${escapeDashboardHtml(layout.unassignedName || '')}" oninput="window.updateDashboardCalendarUnassigned(this)" style="width:100%;box-sizing:border-box;padding:8px;"></td><td style="padding:8px 8px 8px 0;font-size:12px;color:#64748b;">Built-in column for anything not placed in another column</td><td style="font-size:12px;color:#64748b;">—</td><td><label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;cursor:pointer;"><input type="checkbox" data-field="hideUnassignedWhenEmpty"${layout.hideUnassignedWhenEmpty ? ' checked' : ''} onchange="window.updateDashboardCalendarUnassigned(this)">Hide when empty</label></td><td style="font-size:12px;color:#64748b;white-space:nowrap;">Always first</td></tr>`;
+        }
+
+        window.updateDashboardCalendarUnassigned = function (input) {
+            const layout = dashboardCalendarLayoutDraft.find(item => item.id === dashboardCalendarDraftId);
+            if (!layout) return;
+            if (input.dataset.field === 'unassignedName') layout.unassignedName = input.value;
+            else if (input.dataset.field === 'hideUnassignedWhenEmpty') layout.hideUnassignedWhenEmpty = !!input.checked;
+            refreshDashboardCalendarDirtyNote();
+        };
+
+        function ensureDashboardCalendarSettingsStyles() {
+            if (document.getElementById('dashboardCalendarSettingsStyles')) return;
+            const style = document.createElement('style');
+            style.id = 'dashboardCalendarSettingsStyles';
+            // Keep Save and Cancel in view: the editor scrolls inside the page instead of the page
+            // and the editor both scrolling.
+            style.textContent = `
+                #rd-management-host-manage-calendar-settings{height:calc(100vh - 220px);max-height:calc(100vh - 220px)!important;min-height:480px;overflow:hidden!important}
+                #rd-management-host-manage-calendar-settings>.rd-ops-dashboard{height:100%!important;max-height:none!important}
+                #dashboardCalendarSettingsEditor button[disabled]{opacity:.5;cursor:not-allowed}
+            `;
+            document.head.appendChild(style);
         }
 
         function renderDashboardCalendarSettingsEditor() {
@@ -61285,7 +61479,8 @@
                 return `<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #ECEAE6;${isSelected ? 'background:#EAF4F7;' : ''}"><button type="button" data-layout-id="${escapeDashboardHtml(item.id)}" onclick="window.selectDashboardCalendarDraft(this.dataset.layoutId)" style="flex:1 1 auto;min-width:0;display:grid;gap:2px;text-align:left;background:transparent;border:0;cursor:pointer;padding:4px 0;"><strong style="font-size:14px;overflow-wrap:anywhere;color:var(--text-primary,#111827);">${escapeDashboardHtml(item.name)}${isSelected ? ' <span style="font-size:11px;font-weight:600;color:#0F5E75;">(editing)</span>' : ''}</strong><span style="font-size:12px;color:#64748b;">${escapeDashboardHtml(summary)}</span></button><button type="button" class="rd-ops-btn" data-layout-id="${escapeDashboardHtml(item.id)}" title="Duplicate layout" aria-label="Duplicate layout ${escapeDashboardHtml(item.name)}" onclick="window.dashboardCalendarLayoutAction('duplicate-layout',this.dataset.layoutId)"><i class="fas fa-copy" aria-hidden="true"></i></button><button type="button" class="rd-ops-btn" data-layout-id="${escapeDashboardHtml(item.id)}" title="Delete layout" aria-label="Delete layout ${escapeDashboardHtml(item.name)}" onclick="window.dashboardCalendarLayoutAction('delete-layout',this.dataset.layoutId)"><i class="fas fa-trash" aria-hidden="true"></i></button></div>`;
             }).join('');
             const layoutListHtml = `<div style="border:1px solid #D9D6CF;border-radius:8px;overflow:hidden;margin-bottom:20px;"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:#F6F5F2;border-bottom:1px solid #D9D6CF;"><strong>Layouts (${dashboardCalendarLayoutDraft.length})</strong><button type="button" class="rd-ops-btn" onclick="window.changeDashboardCalendarColumn('new-layout')"><i class="fas fa-plus"></i>Add layout</button></div>${layoutRows || '<div style="padding:16px 14px;color:#64748b;">No layouts yet. Select "Add layout" to create your first calendar layout.</div>'}</div>`;
-            host.innerHTML = `${layoutListHtml}${layout ? `<label style="display:grid;gap:6px;max-width:400px;margin-bottom:20px;">Layout name<input aria-label="Layout name" maxlength="80" value="${escapeDashboardHtml(layout.name)}" oninput="window.updateDashboardCalendarLayoutName(this.value)" style="padding:8px;min-width:0;"></label><div style="overflow-x:auto;"><table style="width:100%;min-width:720px;border-collapse:collapse;text-align:left;"><thead><tr><th>Column</th><th>Linked to</th><th>Color</th><th>Active</th><th>Order / remove</th></tr></thead><tbody>${layout.columns.map(column => `<tr data-calendar-column-editor="${escapeDashboardHtml(column.id)}"><td style="padding:8px 8px 8px 0;"><input aria-label="Column name" data-field="name" maxlength="80" value="${escapeDashboardHtml(column.name)}" oninput="window.updateDashboardCalendarColumn(this)" style="width:100%;box-sizing:border-box;padding:8px;"></td><td style="padding:8px 8px 8px 0;min-width:180px;">${dashboardCalendarColumnEntityCellHtml(column)}</td><td><input type="color" aria-label="Column color" data-field="color" value="${escapeDashboardHtml(column.color)}" oninput="window.updateDashboardCalendarColumn(this)"></td><td><button type="button" role="switch" aria-checked="${column.active ? 'true' : 'false'}" aria-label="Toggle column visibility" title="${column.active ? 'Column is shown on the calendar' : 'Column is hidden from the calendar'}" onclick="window.toggleDashboardCalendarColumnActive(this)" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;border:1px solid ${column.active ? '#0F5E75' : '#D9D6CF'};background:${column.active ? '#0F5E75' : 'var(--card-bg,#fff)'};color:${column.active ? '#fff' : '#64748b'};font-weight:700;cursor:pointer;white-space:nowrap;"><i class="fas fa-${column.active ? 'check' : 'eye-slash'}" aria-hidden="true"></i>${column.active ? 'Active' : 'Hidden'}</button></td><td style="white-space:nowrap;">${iconButton('up', column.id, 'arrow-up', 'Move column up')}${iconButton('down', column.id, 'arrow-down', 'Move column down')}${iconButton('remove', column.id, 'trash', 'Remove column')}</td></tr>`).join('')}</tbody></table></div><div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;"><button type="button" class="rd-ops-btn" onclick="window.changeDashboardCalendarColumn('add')"><i class="fas fa-plus"></i>Add column</button></div>` : ''}<div style="position:sticky;bottom:0;z-index:6;background:var(--card-bg,#fff);margin-top:24px;padding:14px 0;border-top:1px solid #D9D6CF;display:flex;gap:12px;"><button id="dashboardCalendarSettingsSave" type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardCalendarLayouts()"><i class="fas fa-save"></i>Save</button><button type="button" class="rd-ops-btn" onclick="window.closeDashboardCalendarSettings()">Cancel</button></div>`;
+            host.innerHTML = `${layoutListHtml}${layout ? `<label style="display:grid;gap:6px;max-width:400px;margin-bottom:20px;">Layout name<input aria-label="Layout name" maxlength="80" value="${escapeDashboardHtml(layout.name)}" oninput="window.updateDashboardCalendarLayoutName(this.value)" style="padding:8px;min-width:0;"></label><div style="overflow-x:auto;"><table style="width:100%;min-width:720px;border-collapse:collapse;text-align:left;"><thead><tr><th>Column</th><th>Linked to</th><th>Color</th><th>Active</th><th>Order / remove</th></tr></thead><tbody>${dashboardCalendarUnassignedRowHtml(layout)}${layout.columns.map(column => `<tr data-calendar-column-editor="${escapeDashboardHtml(column.id)}"><td style="padding:8px 8px 8px 0;"><input aria-label="Column name" data-field="name" maxlength="80" value="${escapeDashboardHtml(column.name)}" oninput="window.updateDashboardCalendarColumn(this)" style="width:100%;box-sizing:border-box;padding:8px;"></td><td style="padding:8px 8px 8px 0;min-width:180px;">${dashboardCalendarColumnEntityCellHtml(column)}</td><td><input type="color" aria-label="Column color" data-field="color" value="${escapeDashboardHtml(column.color)}" oninput="window.updateDashboardCalendarColumn(this)"></td><td><button type="button" role="switch" aria-checked="${column.active ? 'true' : 'false'}" aria-label="Toggle column visibility" title="${column.active ? 'Column is shown on the calendar' : 'Column is hidden from the calendar'}" onclick="window.toggleDashboardCalendarColumnActive(this)" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;border:1px solid ${column.active ? '#0F5E75' : '#D9D6CF'};background:${column.active ? '#0F5E75' : 'var(--card-bg,#fff)'};color:${column.active ? '#fff' : '#64748b'};font-weight:700;cursor:pointer;white-space:nowrap;"><i class="fas fa-${column.active ? 'check' : 'eye-slash'}" aria-hidden="true"></i>${column.active ? 'Active' : 'Hidden'}</button></td><td style="white-space:nowrap;">${iconButton('up', column.id, 'arrow-up', 'Move column up')}${iconButton('down', column.id, 'arrow-down', 'Move column down')}${iconButton('remove', column.id, 'trash', 'Remove column')}</td></tr>`).join('')}</tbody></table></div><div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;"><button type="button" class="rd-ops-btn" onclick="window.changeDashboardCalendarColumn('add')"${layout.columns.length >= DASHBOARD_CALENDAR_MAX_COLUMNS ? ' disabled title="A layout can have up to 30 columns"' : ''}><i class="fas fa-plus"></i>Add column</button><span style="align-self:center;font-size:12px;color:#64748b;">${layout.columns.length} of ${DASHBOARD_CALENDAR_MAX_COLUMNS} columns</span></div>` : ''}<div style="position:sticky;bottom:0;z-index:6;background:var(--card-bg,#fff);margin-top:24px;padding:14px 0;border-top:1px solid #D9D6CF;display:flex;gap:12px;"><button id="dashboardCalendarSettingsSave" type="button" class="rd-ops-btn rd-ops-btn-primary" onclick="window.saveDashboardCalendarLayouts()"><i class="fas fa-save"></i>Save</button><button type="button" class="rd-ops-btn" onclick="window.closeDashboardCalendarSettings()">Cancel</button><span id="dashboardCalendarDirtyNote" style="align-self:center;font-size:13px;font-weight:600;color:#B45309;display:none;">Unsaved changes</span></div>`;
+            refreshDashboardCalendarDirtyNote();
         }
 
         window.dashboardCalendarLayoutAction = function (action, layoutId) {
@@ -61298,6 +61493,10 @@
             const column = layout?.columns.find(item => item.id === button.closest('[data-calendar-column-editor]').dataset.calendarColumnEditor);
             if (!column) return;
             column.active = !column.active;
+            if (!column.active) {
+                const used = dashboardCalendarColumnUsage(layout.id, column.id);
+                if (used && typeof showNotification === 'function') showNotification(`${used} upcoming item${used === 1 ? '' : 's'} in "${column.name}" will show under ${dashboardCalendarUnassignedLabel(layout)} while it is hidden.`, 'info');
+            }
             renderDashboardCalendarSettingsEditor();
         };
 
@@ -61309,6 +61508,7 @@
         window.updateDashboardCalendarLayoutName = function (name) {
             const layout = dashboardCalendarLayoutDraft.find(item => item.id === dashboardCalendarDraftId);
             if (layout) layout.name = name;
+            refreshDashboardCalendarDirtyNote();
         };
 
         window.updateDashboardCalendarColumn = function (input) {
@@ -61327,17 +61527,19 @@
             } else {
                 column[field] = field === 'active' ? input.checked : input.value;
             }
+            refreshDashboardCalendarDirtyNote();
         };
 
         window.changeDashboardCalendarColumn = function (action, columnId) {
             const layout = dashboardCalendarLayoutDraft.find(item => item.id === dashboardCalendarDraftId);
             const newId = () => `cal-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+            const tooMany = message => { if (typeof showNotification === 'function') showNotification(message, 'warning'); };
             if (action === 'new-layout') {
-                if (dashboardCalendarLayoutDraft.length >= 20) return;
+                if (dashboardCalendarLayoutDraft.length >= DASHBOARD_CALENDAR_MAX_LAYOUTS) return tooMany('A clinic can have up to 20 calendar layouts.');
                 dashboardCalendarDraftId = newId();
                 dashboardCalendarLayoutDraft.push({ id: dashboardCalendarDraftId, name: 'New layout', columns: [] });
             } else if (action === 'duplicate-layout' && layout) {
-                if (dashboardCalendarLayoutDraft.length >= 20) return;
+                if (dashboardCalendarLayoutDraft.length >= DASHBOARD_CALENDAR_MAX_LAYOUTS) return tooMany('A clinic can have up to 20 calendar layouts.');
                 const copy = JSON.parse(JSON.stringify(layout));
                 copy.id = newId();
                 copy.name = `${layout.name} (copy)`.slice(0, 80);
@@ -61350,8 +61552,16 @@
                 dashboardCalendarDraftId = dashboardCalendarLayoutDraft[0]?.id || '';
             } else if (layout) {
                 const index = layout.columns.findIndex(column => column.id === columnId);
-                if (action === 'add' && layout.columns.length < 30) layout.columns.push({ id: newId(), name: `Column ${layout.columns.length + 1}`, color: '#0F5E75', active: true, entityType: '', entityId: '', entityName: '' });
-                if (action === 'remove' && index >= 0) layout.columns.splice(index, 1);
+                if (action === 'add') {
+                    if (layout.columns.length >= DASHBOARD_CALENDAR_MAX_COLUMNS) return tooMany('A layout can have up to 30 columns.');
+                    layout.columns.push({ id: newId(), name: `Column ${layout.columns.length + 1}`, color: '#0F5E75', active: true, entityType: '', entityId: '', entityName: '' });
+                }
+                if (action === 'remove' && index >= 0) {
+                    const removed = layout.columns[index];
+                    const used = dashboardCalendarColumnUsage(layout.id, removed.id);
+                    if (used && !window.confirm(`Remove "${removed.name}"? ${used} upcoming item${used === 1 ? '' : 's'} in this column will show under ${dashboardCalendarUnassignedLabel(layout)}.`)) return;
+                    layout.columns.splice(index, 1);
+                }
                 const next = index + (action === 'up' ? -1 : 1);
                 if ((action === 'up' || action === 'down') && index >= 0 && next >= 0 && next < layout.columns.length) [layout.columns[index], layout.columns[next]] = [layout.columns[next], layout.columns[index]];
             }
@@ -61372,9 +61582,12 @@
                 host.prepend(message);
                 return;
             }
-            dashboardCalendarLayoutDraft = JSON.parse(JSON.stringify(dashboardCalendarLayouts()));
+            const normalized = normalizeDashboardCalendarLayoutsForEdit(JSON.parse(JSON.stringify(dashboardCalendarLayouts())));
+            dashboardCalendarLayoutDraft = normalized.list;
+            dashboardCalendarDraftSnapshot = JSON.stringify(dashboardCalendarLayoutDraft);
             dashboardCalendarDraftId = dashboardCalendarLayoutDraft[0]?.id || '';
             renderDashboardCalendarSettingsEditor();
+            if (normalized.fixed && typeof showNotification === 'function') showNotification('Some older columns were missing a color or setting. They were filled in; press Save to keep them.', 'info');
         }
         window.retryDashboardCalendarSettings = loadDashboardCalendarSettingsEditor;
 
@@ -61382,6 +61595,8 @@
             if (!canManageDashboardCalendarLayouts()) return;
             dashboardCalendarDraftClinic = dashboardCalendarClinicId();
             if (!dashboardCalendarDraftClinic) { window.alert('Select a clinic before editing calendar layouts.'); return; }
+            ensureDashboardCalendarSettingsStyles();
+            dashboardCalendarDraftSnapshot = null;
             let modal = document.getElementById('dashboardCalendarSettingsModal');
             if (!modal) {
                 modal = document.createElement('div');
@@ -61400,11 +61615,41 @@
             if (typeof window.switchContentView === 'function') window.switchContentView('dashboard', null);
         };
 
+        (function guardDashboardCalendarSettingsClose() {
+            let tries = 0;
+            function install() {
+                const fn = window.closeDashboardCalendarSettings;
+                if (typeof fn !== 'function' || fn.__rdCalendarDirtyGuard) return;
+                tries++;
+                if (!fn.__rdSettingsWrappedClose && tries < 5) return;
+                const guarded = function (...args) {
+                    if (dashboardCalendarDraftIsDirty() && !window.confirm('You have unsaved calendar layout changes. Leave without saving?')) return;
+                    dashboardCalendarDraftSnapshot = null;
+                    return fn.apply(this, args);
+                };
+                guarded.__rdSettingsWrappedClose = true;
+                guarded.__rdCalendarDirtyGuard = true;
+                window.closeDashboardCalendarSettings = guarded;
+            }
+            [500, 1500, 3000, 8000, 15000].forEach(ms => setTimeout(install, ms));
+        })();
+
         window.saveDashboardCalendarLayouts = async function () {
             if (!canManageDashboardCalendarLayouts() || !dashboardCalendarDraftClinic || dashboardCalendarDraftClinic !== dashboardCalendarClinicId()) return;
-            if (dashboardCalendarLayoutDraft.some(layout => !layout.name.trim() || layout.columns.some(column => !column.name.trim()))) {
-                window.alert('Enter a name for every layout and column.');
-                return;
+            for (const layout of dashboardCalendarLayoutDraft) {
+                if (!String(layout.name || '').trim()) {
+                    dashboardCalendarDraftId = layout.id;
+                    renderDashboardCalendarSettingsEditor();
+                    window.alert('Give this layout a name before saving.');
+                    return;
+                }
+                const unnamed = layout.columns.findIndex(column => !String(column.name || '').trim());
+                if (unnamed >= 0) {
+                    dashboardCalendarDraftId = layout.id;
+                    renderDashboardCalendarSettingsEditor();
+                    window.alert(`Layout "${layout.name}": column ${unnamed + 1} needs a name.`);
+                    return;
+                }
             }
             const button = document.getElementById('dashboardCalendarSettingsSave');
             const settingsKey = dashboardCalendarLayoutsKey();
@@ -61419,6 +61664,7 @@
                 }
                 dashboardCalendarLayoutsCache.get(settingsKey).layouts = layouts;
                 localStorage.setItem(settingsKey, JSON.stringify(layouts));
+                dashboardCalendarDraftSnapshot = JSON.stringify(dashboardCalendarLayoutDraft);
                 refreshDashboardScheduleSurfaces();
                 if (typeof showNotification === 'function') showNotification('Calendar layouts saved.', 'success');
                 window.closeDashboardCalendarSettings();
@@ -61473,7 +61719,20 @@
                 const date = new Date(firstDate);
                 date.setDate(date.getDate() + index);
                 return { id: '', date: dashboardLocalDateIso(date), name: date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) };
-            }) : [{ id: '', date: activeDate, name: dashboardCalendarScope === 'mine' ? 'My calendar' : 'Unassigned' }, ...(layout?.columns || []).filter(column => column.active).map(column => ({ ...column, date: activeDate }))];
+            }) : [{ id: '', date: activeDate, name: dashboardCalendarScope === 'mine' ? 'My calendar' : dashboardCalendarUnassignedLabel(layout) }, ...(layout?.columns || []).filter(column => column.active).map(column => ({ ...column, date: activeDate }))];
+            const entryBelongsToColumn = (column, entry) => {
+                const record = entry.record || {};
+                const explicit = record.calendarLayoutId === layout?.id && layout?.columns.some(candidate => candidate.active && candidate.id === record.calendarColumnId);
+                const pin = entry.kind === 'Calendar' ? '' : dashboardCalendarColumnPin(entry);
+                const pinned = !!(pin && layout && pin.startsWith(`${layout.id}:`) && layout.columns.some(candidate => candidate.active && `${layout.id}:${candidate.id}` === pin));
+                if (column.id) {
+                    if (explicit) return record.calendarColumnId === column.id;
+                    if (pinned) return pin === `${layout.id}:${column.id}`;
+                    return dashboardCalendarColumnMatchesEntry(column, entry);
+                }
+                return !explicit && !pinned && !(layout?.columns || []).some(candidate => candidate.active && dashboardCalendarColumnMatchesEntry(candidate, entry));
+            };
+            if (!isWeek && dashboardCalendarScope === 'office' && layout?.hideUnassignedWhenEmpty && columns.length > 1 && !entries.some(entry => entryBelongsToColumn(columns[0], entry))) columns.shift();
             const firstHour = 0;
             const lastHour = 24;
             const hourHeight = 64;
@@ -61485,16 +61744,7 @@
             const lanes = columns.map(column => {
                 const dayEntries = (isWeek ? getDashboardCalendarEntries(new Date(`${column.date}T00:00:00`)).filter(entry => dashboardCalendarScope === 'mine' ? entry.isMine : entry.isOffice) : entries).filter(entry => {
                     if (isWeek || dashboardCalendarScope === 'mine') return true;
-                    const record = entry.record || {};
-                    const explicit = record.calendarLayoutId === layout?.id && layout?.columns.some(candidate => candidate.active && candidate.id === record.calendarColumnId);
-                    const pin = entry.kind === 'Calendar' ? '' : dashboardCalendarColumnPin(entry);
-                    const pinned = !!(pin && layout && pin.startsWith(`${layout.id}:`) && layout.columns.some(candidate => candidate.active && `${layout.id}:${candidate.id}` === pin));
-                    if (column.id) {
-                        if (explicit) return record.calendarColumnId === column.id;
-                        if (pinned) return pin === `${layout.id}:${column.id}`;
-                        return dashboardCalendarColumnMatchesEntry(column, entry);
-                    }
-                    return !explicit && !pinned && !(layout?.columns || []).some(candidate => candidate.active && dashboardCalendarColumnMatchesEntry(candidate, entry));
+                    return entryBelongsToColumn(column, entry);
                 }).sort((left, right) => left.start - right.start);
                 const positioned = [];
                 let group = [];
@@ -136989,7 +137239,8 @@ console.log('? Global functions exported to window object');
             'manage-schedules': [canOpenPlanner, 'Manage Schedules'],
             'schedule-builder': [function () { return can('schedules', 'create'); }, 'the Schedule Builder'],
             'manage-duties': [function () { return can('tasks', 'view_all', 'readonly'); }, 'Manage Duties'],
-            'manage-reset-data': [function () { return can('system', 'reset_data'); }, 'Reset Data']
+            'manage-reset-data': [function () { return can('system', 'reset_data'); }, 'Reset Data'],
+            'manage-calendar-settings': [function () { return typeof canManageDashboardCalendarLayouts === 'function' ? canManageDashboardCalendarLayouts() : can('calendar', 'manage_layouts'); }, 'Calendar Settings']
         };
 
         var NAV_EXTRA = { equipment: '.nav-item[data-equipment-ns]', supplies: '.nav-item[data-supply-ns]' };

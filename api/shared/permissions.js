@@ -24,6 +24,7 @@ const CATALOG = {
     supplies: ['view', 'create', 'edit', 'delete'],
     utilities: ['view', 'create', 'edit', 'delete'],
     teams: ['view', 'create', 'edit', 'delete'],
+    calendar: ['manage_layouts', 'move_events'],
     reports: ['view', 'export'],
     system: ['reset_data', 'manage_settings']
 };
@@ -39,7 +40,8 @@ const OVERRIDES = {
         tasks: { view_all: 'full', create: 'full', edit: 'full', delete: 'full', assign: 'full' },
         password_manager: { edit: 'full', export: 'full' },
         reports: { view: 'full', export: 'full' },
-        supplies: { create: 'full' }
+        supplies: { create: 'full' },
+        calendar: { manage_layouts: 'hidden', move_events: 'full' }
     },
     user: {
         instruments: { view: 'readonly' },

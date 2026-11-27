@@ -1,5 +1,48 @@
 const { sql, getPool } = require('../shared/database');
 const { getRequestUserId, isPlatformAdmin, resolveVisibleClinicId } = require('../shared/tenant');
+const permissions = require('../shared/permissions');
+
+const CALENDAR_ID = /^[a-zA-Z0-9_-]{1,80}$/;
+const CALENDAR_PIN_VALUE = /^[a-zA-Z0-9_-]{1,80}:[a-zA-Z0-9_-]{1,80}$/;
+const MAX_CALENDAR_PINS = 5000;
+
+function parsePinMap(value) {
+    const parsed = parseSettingValue(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+}
+
+// Applies placement changes inside a transaction so two people dragging at the same moment
+// don't overwrite each other's change.
+async function applyCalendarPins(pool, pinsKey, changes) {
+    const tx = new sql.Transaction(pool);
+    await tx.begin();
+    try {
+        const current = await new sql.Request(tx)
+            .input('key', sql.NVarChar, pinsKey)
+            .query('SELECT TOP 1 SettingValue FROM Settings WITH (UPDLOCK, HOLDLOCK) WHERE SettingKey = @key');
+        const pins = parsePinMap(current.recordset?.[0]?.SettingValue);
+        changes.forEach((change) => {
+            delete pins[change.key];
+            if (change.value) pins[change.key] = change.value;
+        });
+        const keys = Object.keys(pins);
+        if (keys.length > MAX_CALENDAR_PINS) keys.slice(0, keys.length - MAX_CALENDAR_PINS).forEach((key) => { delete pins[key]; });
+        await new sql.Request(tx)
+            .input('key', sql.NVarChar, pinsKey)
+            .input('value', sql.NVarChar(sql.MAX), JSON.stringify(pins))
+            .query(`
+                IF EXISTS (SELECT 1 FROM Settings WHERE SettingKey = @key)
+                    UPDATE Settings SET SettingValue = @value, ModifiedDate = GETUTCDATE() WHERE SettingKey = @key
+                ELSE
+                    INSERT INTO Settings (SettingKey, SettingValue) VALUES (@key, @value)
+            `);
+        await tx.commit();
+        return pins;
+    } catch (err) {
+        try { await tx.rollback(); } catch (_) { /* already rolled back */ }
+        throw err;
+    }
+}
 
 const PLATFORM_BRANDING_KEYS = new Set(['companyName', 'tagline', 'logoData']);
 const OFFICE_PLAN_KEYS = new Set([
@@ -95,9 +138,10 @@ module.exports = async function (context, req) {
         const requestUserId = getRequestUserId(req);
         const isPlatformOwner = await isPlatformAdmin(pool, requestUserId);
         const calendarBody = parseRequestBody(req.body);
-        const wantsCalendar = req.query?.calendarClinicId !== undefined || calendarBody.calendarLayouts !== undefined;
+        const wantsCalendar = req.query?.calendarClinicId !== undefined || calendarBody.calendarLayouts !== undefined || calendarBody.calendarPin !== undefined;
         const subscriptionId = isPlatformOwner || wantsCalendar ? null : await getSubscriptionIdForUser(pool, requestUserId);
         let calendarKey = null;
+        let calendarPinsKey = null;
         if (wantsCalendar) {
             const requestedClinicId = Number(req.query?.calendarClinicId || calendarBody.calendarClinicId || 0);
             const clinicId = requestedClinicId > 0 ? await resolveVisibleClinicId(pool, requestedClinicId, requestUserId) : null;
@@ -106,6 +150,7 @@ module.exports = async function (context, req) {
                 return;
             }
             calendarKey = `calendarLayouts:clinic:${clinicId}`;
+            calendarPinsKey = `calendarPins:clinic:${clinicId}`;
         }
 
         if (req.method === 'GET') {
@@ -118,7 +163,7 @@ module.exports = async function (context, req) {
             result.recordset.forEach(row => {
                 const key = String(row.SettingKey || '');
                 if (!key) return;
-                if (key === 'calendarLayouts' || key.startsWith('calendarLayouts:')) return;
+                if (key === 'calendarLayouts' || key.startsWith('calendarLayouts:') || key.startsWith('calendarPins:')) return;
                 if (key.includes(':subscription:')) return;
                 if (OFFICE_PLAN_KEYS.has(key) && !isPlatformOwner) return;
                 settings[key] = parseSettingValue(row.SettingValue);
@@ -127,6 +172,8 @@ module.exports = async function (context, req) {
             if (calendarKey) {
                 const row = result.recordset.find(item => item.SettingKey === calendarKey);
                 settings.calendarLayouts = row ? parseSettingValue(row.SettingValue) : [];
+                const pinsRow = result.recordset.find(item => item.SettingKey === calendarPinsKey);
+                settings.calendarPins = pinsRow ? parsePinMap(pinsRow.SettingValue) : {};
             }
 
             if (subscriptionId) {
@@ -145,20 +192,20 @@ module.exports = async function (context, req) {
         } else if (req.method === 'POST' || req.method === 'PUT') {
             // Save settings
             const body = parseRequestBody(req.body);
-            if (Object.keys(body).some(key => key.startsWith('calendarLayouts:'))) {
+            if (Object.keys(body).some(key => key.startsWith('calendarLayouts:') || key.startsWith('calendarPins:'))) {
                 context.res = { status: 400, headers, body: { error: 'Use calendarLayouts with calendarClinicId.' } };
                 return;
             }
             if (body.calendarLayouts !== undefined) {
-                const actor = await pool.request().input('calendarActorId', sql.Int, requestUserId)
-                    .query('SELECT TOP 1 Role FROM Users WHERE Id = @calendarActorId');
-                const role = String(actor.recordset?.[0]?.Role || '').trim().toLowerCase();
-                if (!isPlatformOwner && !['admin', 'owner', 'manager-admin', 'manageradmin'].includes(role)) {
-                    context.res = { status: 403, headers, body: { error: 'Only administrators can change calendar layouts.' } };
+                if (!isPlatformOwner && !(await permissions.can(pool, req, 'calendar', 'manage_layouts'))) {
+                    context.res = { status: 403, headers, body: { error: "You don't have permission to change calendar layouts. Ask an admin to turn on Office Calendar > Edit Calendar Layouts.", code: 'PERMISSION_DENIED' } };
                     return;
                 }
                 const layouts = body.calendarLayouts;
-                const validId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
+                const validId = value => typeof value === 'string' && CALENDAR_ID.test(value);
+                const validUnassigned = layout =>
+                    (layout.unassignedName === undefined || (typeof layout.unassignedName === 'string' && layout.unassignedName.length <= 80)) &&
+                    (layout.hideUnassignedWhenEmpty === undefined || typeof layout.hideUnassignedWhenEmpty === 'boolean');
                 const validName = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 80;
                 const validEntity = column =>
                     (column.entityType === undefined || (typeof column.entityType === 'string' && column.entityType.length <= 40)) &&
@@ -166,7 +213,7 @@ module.exports = async function (context, req) {
                     (column.entityName === undefined || (typeof column.entityName === 'string' && column.entityName.length <= 160));
                 const valid = Array.isArray(layouts) && layouts.length <= 20 &&
                     new Set(layouts.map(layout => layout?.id)).size === layouts.length && layouts.every(layout =>
-                        layout && validId(layout.id) && validName(layout.name) && Array.isArray(layout.columns) && layout.columns.length <= 30 &&
+                        layout && validId(layout.id) && validName(layout.name) && validUnassigned(layout) && Array.isArray(layout.columns) && layout.columns.length <= 30 &&
                         new Set(layout.columns.map(column => column?.id)).size === layout.columns.length && layout.columns.every(column =>
                             column && validId(column.id) && validName(column.name) && /^#[0-9a-f]{6}$/i.test(column.color || '') && typeof column.active === 'boolean' && validEntity(column)));
                 if (!valid) {
@@ -175,9 +222,30 @@ module.exports = async function (context, req) {
                 }
                 await upsertSetting(pool, calendarKey, JSON.stringify(layouts), true);
             }
+            if (body.calendarPin !== undefined) {
+                if (!isPlatformOwner && !(await permissions.can(pool, req, 'calendar', 'move_events'))) {
+                    context.res = { status: 403, headers, body: { error: "You don't have permission to arrange the office calendar. Ask an admin to turn on Office Calendar > Move Anyone's Events.", code: 'PERMISSION_DENIED' } };
+                    return;
+                }
+                const changes = (Array.isArray(body.calendarPin) ? body.calendarPin : [body.calendarPin]).map((change) => ({
+                    key: change && change.key,
+                    value: change && (change.value === null || change.value === undefined) ? '' : change && change.value
+                }));
+                const valid = changes.length > 0 && changes.length <= 200 && changes.every((change) =>
+                    typeof change.key === 'string' && change.key.length > 0 && change.key.length <= 200 &&
+                    typeof change.value === 'string' && (change.value === '' || CALENDAR_PIN_VALUE.test(change.value)));
+                if (!valid) {
+                    context.res = { status: 400, headers, body: { error: 'Invalid calendar placement.' } };
+                    return;
+                }
+                const pins = await applyCalendarPins(pool, calendarPinsKey, changes);
+                context.res = { status: 200, headers, body: { message: 'Calendar placement saved', calendarPins: pins } };
+                return;
+            }
             const knownKeys = new Set([
                 'calendarLayouts',
                 'calendarClinicId',
+                'calendarPin',
                 'companyName',
                 'tagline',
                 'logoData',
