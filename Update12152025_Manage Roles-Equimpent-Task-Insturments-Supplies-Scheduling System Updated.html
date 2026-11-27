@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261126-compact-insights-v214';
+                const buildVersion = '20261126-quick-bar-v215';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -106156,6 +106156,64 @@ console.log('? Global functions exported to window object');
                 font-size: 0.82rem;
             }
             .rd-tab-close-btn.save { background: var(--accent-primary); border-color: var(--accent-primary); color: #fff; }
+            #rdViewTabsBar { container-type: inline-size; container-name: rdtabs; }
+            .rd-view-quick { display: inline-flex; align-items: center; gap: 0.3rem; }
+            .rd-view-quick-btn {
+                height: 32px;
+                padding: 0 0.6rem;
+                border: 1px solid var(--border-color);
+                border-radius: 8px;
+                background: var(--card-bg);
+                color: var(--text-secondary);
+                display: inline-flex;
+                align-items: center;
+                gap: 0.4rem;
+                font-size: 0.8rem;
+                font-weight: 650;
+                line-height: 1;
+                white-space: nowrap;
+                cursor: pointer;
+                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+                transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+            }
+            .rd-view-quick-btn i { font-size: 0.85rem; }
+            .rd-view-quick-btn:hover,
+            .rd-view-quick-btn:focus-visible {
+                background: var(--bg-secondary);
+                border-color: var(--accent-primary);
+                color: var(--text-primary);
+                outline: none;
+            }
+            .rd-view-quick-btn.is-active {
+                background: var(--bg-secondary);
+                background: color-mix(in srgb, var(--accent-primary) 10%, var(--card-bg));
+                border-color: var(--accent-primary);
+                color: var(--accent-primary);
+            }
+            .rd-view-quick-btn .chat-unread-badge {
+                background: #ef4444;
+                color: #ffffff;
+                font-size: 0.58rem;
+                min-width: 15px;
+                height: 15px;
+                padding: 0 4px;
+                box-sizing: border-box;
+                border-radius: 8px;
+                align-items: center;
+                justify-content: center;
+                font-weight: 700;
+                line-height: 1;
+            }
+            #rdViewTabsTools .rd-view-tools-menu-trigger { display: none; }
+            #rdViewTabsBar.rd-quick-compact .rd-view-quick-label { display: none; }
+            #rdViewTabsBar.rd-quick-compact .rd-view-quick-btn { padding: 0 0.55rem; }
+            @container rdtabs (max-width: 520px) {
+                .rd-view-quick { display: none; }
+                #rdViewTabsTools .rd-view-tools-menu-trigger { display: inline-flex; }
+            }
+            @container rdtabs (min-width: 521px) {
+                #rdViewTabsTools .rd-view-tools-menu { display: none !important; }
+            }
         `;
         document.head.appendChild(style);
     }
@@ -106179,6 +106237,13 @@ console.log('? Global functions exported to window object');
     function getTabToolsMarkup() {
         return `
             <div id="rdViewTabsTools" class="rd-view-tabs-tools" aria-label="Quick tools">
+                <nav class="rd-view-quick" aria-label="Quick tools">
+                    <button type="button" class="rd-view-quick-btn" data-quick-view="dashboard" title="Dashboard" onclick="if(window.switchContentView){ window.switchContentView('dashboard', event); } return false;"><i class="fas fa-chart-pie" aria-hidden="true"></i><span class="rd-view-quick-label">Dashboard</span></button>
+                    <button type="button" class="rd-view-quick-btn" title="Office Info" onclick="showOfficeInfo(); return false;"><i class="fas fa-map-marked-alt" aria-hidden="true"></i><span class="rd-view-quick-label">Office Info</span></button>
+                    <button type="button" class="rd-view-quick-btn" title="Team Chat" onclick="openChat(); return false;"><i class="fas fa-comments" aria-hidden="true"></i><span class="rd-view-quick-label">Team Chat</span><span class="chat-unread-badge" style="display: none;">0</span></button>
+                    <button type="button" class="rd-view-quick-btn" title="DentaBrain AI" onclick="if(window.ReformCopilot && typeof window.ReformCopilot.toggle === 'function'){ window.ReformCopilot.toggle(); } return false;"><i class="fas fa-brain" aria-hidden="true"></i><span class="rd-view-quick-label">DentaBrain AI</span></button>
+                    <button type="button" class="rd-view-quick-btn" data-quick-view="calendar" title="Calendar" onclick="if(window.switchContentView){ window.switchContentView('calendar', event); } return false;"><i class="fas fa-calendar-alt" aria-hidden="true"></i><span class="rd-view-quick-label">Calendar</span></button>
+                </nav>
                 <button type="button" class="rd-view-tools-menu-trigger" onclick="toggleRdViewToolsMenu(event); return false;" aria-haspopup="true" aria-expanded="false" title="Quick tools" aria-label="Open quick tools menu">
                     <i class="fas fa-th-large"></i><i class="fas fa-chevron-down"></i>
                 </button>
@@ -106322,6 +106387,49 @@ console.log('? Global functions exported to window object');
         });
 
         updateGlobalSaveButton();
+        syncRdViewQuickButtons();
+        fitRdViewQuickBar();
+    }
+
+    // Show the button names when they fit next to the open tabs; otherwise icons only
+    // (names stay in the tooltips), so the bar stays on one line.
+    function fitRdViewQuickBar() {
+        const bar = document.getElementById('rdViewTabsBar');
+        if (!bar || !bar.querySelector('.rd-view-quick')) return;
+        bar.classList.remove('rd-quick-compact');
+        const list = document.getElementById('rdViewTabsList');
+        const tools = document.getElementById('rdViewTabsTools');
+        if (!list || !tools || !bar.clientWidth) return;
+        const tooTall = bar.offsetHeight > 48;
+        const wrapped = tools.offsetTop > list.offsetTop + 4;
+        if (tooTall || wrapped) bar.classList.add('rd-quick-compact');
+        bar.__rdQuickWidth = bar.clientWidth;
+    }
+
+    if (typeof ResizeObserver === 'function') {
+        let fitPending = false;
+        const fitObserver = new ResizeObserver(() => {
+            const bar = document.getElementById('rdViewTabsBar');
+            if (!bar || bar.clientWidth === bar.__rdQuickWidth || fitPending) return;
+            fitPending = true;
+            requestAnimationFrame(() => { fitPending = false; fitRdViewQuickBar(); });
+        });
+        const watchBar = () => {
+            const bar = document.getElementById('rdViewTabsBar');
+            if (bar && !bar.__rdQuickObserved) { bar.__rdQuickObserved = true; fitObserver.observe(bar); }
+        };
+        [500, 2000, 6000].forEach((ms) => setTimeout(watchBar, ms));
+        document.addEventListener('click', () => setTimeout(watchBar, 0), { once: true });
+    }
+    window.addEventListener('resize', () => requestAnimationFrame(fitRdViewQuickBar));
+
+    function syncRdViewQuickButtons() {
+        document.querySelectorAll('#rdViewTabsTools .rd-view-quick-btn[data-quick-view]').forEach((btn) => {
+            const isActive = btn.dataset.quickView === state.active;
+            btn.classList.toggle('is-active', isActive);
+            if (isActive) btn.setAttribute('aria-current', 'page');
+            else btn.removeAttribute('aria-current');
+        });
     }
 
     function markDirty(viewName, dirty = true) {
