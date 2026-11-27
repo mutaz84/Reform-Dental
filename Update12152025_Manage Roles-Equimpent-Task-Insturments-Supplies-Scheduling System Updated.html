@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261126-calendar-layouts-v211';
+                const buildVersion = '20261126-now-line-v212';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -61706,6 +61706,45 @@
             document.head.appendChild(style);
         }
 
+        // Current-time line on the dashboard Day and Week grid. Drawn on top of the events in
+        // every column that shows today; one timer moves it every 30 seconds.
+        const DASHBOARD_NOW_COLOR = '#DC2626';
+
+        function dashboardNowLineParts(now = new Date()) {
+            return {
+                date: dashboardLocalDateIso(now),
+                minutes: now.getHours() * 60 + now.getMinutes(),
+                label: now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+            };
+        }
+
+        function dashboardNowLineHtml(top, date, withDot, faint = false) {
+            const dot = withDot ? `<span style="position:absolute;left:-5px;top:-6px;width:10px;height:10px;border-radius:50%;background:${DASHBOARD_NOW_COLOR};"></span>` : '';
+            const border = faint ? '1px solid rgba(220,38,38,.35)' : `2px solid ${DASHBOARD_NOW_COLOR}`;
+            return `<div data-dashboard-now-line="true" data-date="${date}"${faint ? ' data-faint="true"' : ''} aria-hidden="true" style="position:absolute;left:0;right:0;top:${top}px;height:0;border-top:${border};z-index:3;pointer-events:none;">${dot}</div>`;
+        }
+
+        function dashboardNowLabelHtml(top, date, label) {
+            return `<div data-dashboard-now-label="true" data-date="${date}" title="Current time" style="position:absolute;right:3px;top:${top}px;transform:translateY(-50%);z-index:4;pointer-events:none;background:${DASHBOARD_NOW_COLOR};color:#fff;font-size:10px;font-weight:700;line-height:1;padding:3px 5px;border-radius:999px;white-space:nowrap;">${escapeDashboardHtml(label)}</div>`;
+        }
+
+        function updateDashboardNowLines() {
+            const marks = document.querySelectorAll('[data-dashboard-now-line], [data-dashboard-now-label]');
+            if (!marks.length) return;
+            const now = dashboardNowLineParts();
+            const top = `${now.minutes / 60 * 64}px`;
+            marks.forEach(mark => {
+                // After midnight the old day's line is hidden; the next redraw puts it on the new day.
+                const isToday = mark.dataset.date === now.date;
+                mark.style.display = isToday ? '' : 'none';
+                if (!isToday) return;
+                mark.style.top = top;
+                if (mark.hasAttribute('data-dashboard-now-label')) mark.textContent = now.label;
+            });
+        }
+        window.updateDashboardNowLines = updateDashboardNowLines;
+        if (!window.__rdDashboardNowLineTimer) window.__rdDashboardNowLineTimer = setInterval(updateDashboardNowLines, 30000);
+
         function renderDashboardScheduleBody(entries, activeDate) {
             if (dashboardCalendarViewMode === 'month') return `<div>${renderDashboardMonthGridHtml(dashboardCalendarDate)}</div>`;
             if (dashboardCalendarViewMode === 'list') {
@@ -61736,12 +61775,15 @@
             const firstHour = 0;
             const lastHour = 24;
             const hourHeight = 64;
+            const nowParts = dashboardNowLineParts();
+            const nowTop = nowParts.minutes / 60 * hourHeight;
+            const firstTodayIndex = columns.findIndex(column => column.date === nowParts.date);
             const headers = columns.map(column => {
                 const entityLabel = column.entityType && column.entityName ? `${dashboardCalendarEntityTypeLabel(column.entityType)}: ${column.entityName}` : '';
                 return `<div style="position:sticky;top:0;z-index:5;background:var(--card-bg,#fff);padding:12px;border-left:1px solid #D9D6CF;border-top:3px solid ${column.color || '#0F5E75'};font-weight:700;text-align:center;overflow-wrap:anywhere;">${escapeDashboardHtml(column.name)}${entityLabel ? `<div style="font-size:11px;font-weight:500;color:#64748b;">${escapeDashboardHtml(entityLabel)}</div>` : ''}</div>`;
             }).join('');
             const times = Array.from({ length: 24 }, (_, hour) => `<div style="height:${hourHeight}px;box-sizing:border-box;padding:4px;font-size:12px;border-top:1px solid #D9D6CF;">${hour % 12 || 12} ${hour < 12 ? 'AM' : 'PM'}</div>`).join('');
-            const lanes = columns.map(column => {
+            const lanes = columns.map((column, columnIndex) => {
                 const dayEntries = (isWeek ? getDashboardCalendarEntries(new Date(`${column.date}T00:00:00`)).filter(entry => dashboardCalendarScope === 'mine' ? entry.isMine : entry.isOffice) : entries).filter(entry => {
                     if (isWeek || dashboardCalendarScope === 'mine') return true;
                     return entryBelongsToColumn(column, entry);
@@ -61773,9 +61815,9 @@
                     return `<div style="position:absolute;top:${top}px;left:calc(${track * 100 / total}% + 3px);width:calc(${100 / total}% - 6px);height:${height}px;box-sizing:border-box;z-index:2;background:var(--card-bg,#fff);border:1px solid #D9D6CF;border-radius:6px;overflow:hidden;">${dashboardScheduleEntryHtml(entry)}</div>`;
                 }).join('');
                 const slots = Array.from({ length: 48 }, (_, index) => `<button type="button" data-calendar-time="${String(Math.floor(index / 2)).padStart(2, '0')}:${index % 2 ? '30' : '00'}" aria-label="${escapeDashboardHtml(`${column.name}, ${column.date}, ${String(Math.floor(index / 2)).padStart(2, '0')}:${index % 2 ? '30' : '00'}`)}" onclick="window.openDashboardCalendarCell(this.parentElement,event)" style="position:absolute;top:${index * 32}px;left:0;right:0;width:100%;height:32px;background:transparent;border:0;cursor:pointer;"></button>`).join('');
-                return `<div data-dashboard-calendar-dropzone="true" data-calendar-date="${column.date}" data-calendar-column="${column.id && layout ? `${layout.id}:${column.id}` : ''}" data-calendar-start-hour="${firstHour}" data-calendar-end-hour="${lastHour}" style="position:relative;min-width:180px;height:${24 * hourHeight}px;border-left:1px solid #D9D6CF;background:repeating-linear-gradient(to bottom,transparent 0,transparent 31px,#ECEAE6 31px,#ECEAE6 32px,transparent 32px,transparent 63px,#D9D6CF 63px,#D9D6CF 64px);">${slots}${cards}</div>`;
+                return `<div data-dashboard-calendar-dropzone="true" data-calendar-date="${column.date}" data-calendar-column="${column.id && layout ? `${layout.id}:${column.id}` : ''}" data-calendar-start-hour="${firstHour}" data-calendar-end-hour="${lastHour}" style="position:relative;min-width:180px;height:${24 * hourHeight}px;border-left:1px solid #D9D6CF;background:repeating-linear-gradient(to bottom,transparent 0,transparent 31px,#ECEAE6 31px,#ECEAE6 32px,transparent 32px,transparent 63px,#D9D6CF 63px,#D9D6CF 64px);">${slots}${cards}${column.date === nowParts.date ? dashboardNowLineHtml(nowTop, nowParts.date, columnIndex === firstTodayIndex) : (isWeek && firstTodayIndex >= 0 ? dashboardNowLineHtml(nowTop, nowParts.date, false, true) : '')}</div>`;
             }).join('');
-            return `<style>.rd-calendar-time-grid .rd-ops-scheduled-item{height:100%;box-sizing:border-box;padding:3px;gap:3px;display:flex;align-items:flex-start;min-width:0}.rd-calendar-time-grid .rd-ops-scheduled-item[draggable="true"]{cursor:grab}.rd-calendar-time-grid .rd-ops-scheduled-item[draggable="true"]:active{cursor:grabbing;opacity:.72}.rd-calendar-time-grid .rd-ops-scheduled-kind{display:none}.rd-calendar-time-grid .rd-ops-scheduled-time{font-size:10px;min-width:30px;width:30px;flex-shrink:0}.rd-calendar-time-grid .rd-ops-scheduled-body{min-width:0;flex:1}.rd-calendar-time-grid .rd-ops-scheduled-body strong{font-size:12px;overflow-wrap:anywhere}.rd-calendar-time-grid .rd-ops-scheduled-body>span{font-size:10px;overflow-wrap:anywhere}.rd-calendar-time-grid .rd-ops-scheduled-body>div{gap:4px!important}.rd-calendar-time-grid button:focus-visible{outline:2px solid #0F5E75;outline-offset:-2px}.rd-ops-event-form>label{min-width:0}.rd-ops-event-form select{max-width:100%;min-width:0;padding:8px;box-sizing:border-box;}</style><div class="rd-calendar-time-grid" data-dashboard-time-grid="true" style="overflow:auto;max-height:650px;border:1px solid #D9D6CF;border-radius:6px;"><div style="min-width:${64 + columns.length * 180}px;display:grid;grid-template-columns:64px repeat(${columns.length},minmax(180px,1fr));"><div style="position:sticky;top:0;z-index:5;background:var(--card-bg,#fff);padding:12px 4px;font-size:12px;">Time</div>${headers}<div>${times}</div>${lanes}</div></div>`;
+            return `<style>.rd-calendar-time-grid>div>div.rd-calendar-time-axis[style]{font-weight:400!important;color:inherit!important;font-size:inherit!important;line-height:normal}.rd-calendar-time-grid .rd-ops-scheduled-item{height:100%;box-sizing:border-box;padding:3px;gap:3px;display:flex;align-items:flex-start;min-width:0}.rd-calendar-time-grid .rd-ops-scheduled-item[draggable="true"]{cursor:grab}.rd-calendar-time-grid .rd-ops-scheduled-item[draggable="true"]:active{cursor:grabbing;opacity:.72}.rd-calendar-time-grid .rd-ops-scheduled-kind{display:none}.rd-calendar-time-grid .rd-ops-scheduled-time{font-size:10px;min-width:30px;width:30px;flex-shrink:0}.rd-calendar-time-grid .rd-ops-scheduled-body{min-width:0;flex:1}.rd-calendar-time-grid .rd-ops-scheduled-body strong{font-size:12px;overflow-wrap:anywhere}.rd-calendar-time-grid .rd-ops-scheduled-body>span{font-size:10px;overflow-wrap:anywhere}.rd-calendar-time-grid .rd-ops-scheduled-body>div{gap:4px!important}.rd-calendar-time-grid button:focus-visible{outline:2px solid #0F5E75;outline-offset:-2px}.rd-ops-event-form>label{min-width:0}.rd-ops-event-form select{max-width:100%;min-width:0;padding:8px;box-sizing:border-box;}</style><div class="rd-calendar-time-grid" data-dashboard-time-grid="true" data-view="${isWeek ? 'week' : 'day'}" style="overflow:auto;max-height:650px;border:1px solid #D9D6CF;border-radius:6px;"><div style="min-width:${64 + columns.length * 180}px;display:grid;grid-template-columns:64px repeat(${columns.length},minmax(180px,1fr));"><div style="position:sticky;top:0;left:0;z-index:6;background:var(--card-bg,#fff);padding:12px 4px;font-size:12px;">Time</div>${headers}<div class="rd-calendar-time-axis" style="position:sticky;left:0;z-index:4;background:var(--card-bg,#fff);">${times}${firstTodayIndex >= 0 ? dashboardNowLabelHtml(nowTop, nowParts.date, nowParts.label) : ''}</div>${lanes}</div></div>`;
         }
 
         function syncDashboardOperationPanelHeight(root) {
@@ -61799,7 +61841,10 @@
         function renderDashboardScheduleCard(target, model = dashboardBuildModel()) {
             if (!target) return;
             ensureDashboardCalendarTypography();
-            const previousScroll = target.querySelector('[data-dashboard-time-grid]')?.scrollTop;
+            const previousGrid = target.querySelector('[data-dashboard-time-grid]');
+            const previousScroll = previousGrid?.scrollTop;
+            const previousView = previousGrid?.dataset.view;
+            const previousScrollLeft = previousGrid?.scrollLeft;
             loadDashboardCalendarLayouts();
             const entries = getDashboardVisibleCalendarEntries();
             const activeDate = dashboardLocalDateIso(dashboardCalendarDate);
@@ -61810,7 +61855,23 @@
             target.innerHTML = `<section class="rd-ops-card" id="opsScheduleSection"><div class="rd-ops-schedule-head"><div class="rd-ops-schedule-title"><h3>Today's schedule</h3><span>${escapeDashboardHtml(dateLabel)}</span></div><div class="rd-ops-date-nav"><button type="button" class="rd-ops-btn" aria-label="Previous day" onclick="window.shiftDashboardCalendar(-1)"><i class="fas fa-chevron-left"></i></button><button type="button" class="rd-ops-btn" onclick="window.resetDashboardCalendar()">Today</button><button type="button" class="rd-ops-btn" aria-label="Next day" onclick="window.shiftDashboardCalendar(1)"><i class="fas fa-chevron-right"></i></button></div></div><div class="rd-ops-toolbar"><span class="rd-ops-segment" role="group" aria-label="Schedule view"><button type="button" class="${isMode('calendar') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('calendar')">Day</button><button type="button" class="${isMode('week') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('week')">Week</button><button type="button" class="${isMode('month') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('month')">Month</button><button type="button" class="${isMode('list') ? 'active' : ''}" onclick="window.setDashboardCalendarViewMode('list')">List</button></span>${scopeSegmentHtml}<button type="button" class="rd-ops-btn rd-ops-btn-primary rd-ops-toolbar-push" onclick="window.toggleDashboardEventForm(true)"><i class="fas fa-plus"></i>Add event</button></div>${renderDashboardEventForm()}${renderDashboardScheduleBody(entries, activeDate)}</section>`;
             enableDashboardScheduledCardDragging(target);
             const grid = target.querySelector('[data-dashboard-time-grid]');
-            if (grid) grid.scrollTop = previousScroll ?? 7 * 64;
+            if (grid) {
+                let initialScroll = 7 * 64;
+                const nowLine = grid.querySelector('[data-dashboard-now-line]');
+                if (nowLine) {
+                    const nowTop = parseFloat(nowLine.style.top) || 0;
+                    const visible = grid.clientHeight || 600;
+                    if (nowTop < initialScroll + 32 || nowTop > initialScroll + visible - 96) initialScroll = Math.max(0, nowTop - 2 * 64);
+                }
+                grid.scrollTop = previousScroll ?? initialScroll;
+                // Keep the sideways position when redrawing the same view; a fresh Week view
+                // starts at today's column so the line is in sight on a narrow screen.
+                if (previousView && previousView === grid.dataset.view) grid.scrollLeft = previousScrollLeft || 0;
+                else if (grid.dataset.view === 'week') {
+                    const todayLane = grid.querySelector('[data-dashboard-now-line]:not([data-faint])')?.parentElement;
+                    if (todayLane) grid.scrollLeft = Math.max(0, todayLane.getBoundingClientRect().left - grid.getBoundingClientRect().left + grid.scrollLeft - 64);
+                }
+            }
             const period = dashboardCalendarViewMode === 'week' ? 'week' : dashboardCalendarViewMode === 'month' ? 'month' : 'day';
             const navButtons = target.querySelectorAll('.rd-ops-date-nav button');
             if (navButtons[0]) navButtons[0].setAttribute('aria-label', `Previous ${period}`);
