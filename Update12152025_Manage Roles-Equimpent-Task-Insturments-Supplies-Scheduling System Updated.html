@@ -87,7 +87,7 @@
     <link rel="stylesheet" href="dental-rail.css?v=20260714-view-tools-menu-v93">
     <script>
         (function() {
-                const buildVersion = '20261126-now-line-v212';
+                const buildVersion = '20261126-now-on-top-v213';
             const host = window.location.hostname || '';
             if (!/azurestaticapps\.net$/i.test(host)) return;
 
@@ -60306,7 +60306,7 @@
             syncQuickCalendarFromDashboard();
             refreshDashboardScheduleSurfaces();
         };
-        window.resetDashboardCalendar = function () { dashboardCalendarDate = new Date(); syncQuickCalendarFromDashboard(); refreshDashboardScheduleSurfaces(); };
+        window.resetDashboardCalendar = function () { dashboardCalendarJumpToNow = true; dashboardCalendarDate = new Date(); syncQuickCalendarFromDashboard(); refreshDashboardScheduleSurfaces(); };
         window.setDashboardCalendarViewMode = function (mode) { dashboardCalendarViewMode = (mode === 'list' || mode === 'month' || mode === 'week') ? mode : 'calendar'; refreshDashboardScheduleSurfaces(); };
         window.setDashboardCalendarScope = function (scope) { dashboardCalendarScope = scope === 'office' ? 'office' : 'mine'; refreshDashboardScheduleSurfaces(); };
 
@@ -61725,7 +61725,59 @@
         }
 
         function dashboardNowLabelHtml(top, date, label) {
-            return `<div data-dashboard-now-label="true" data-date="${date}" title="Current time" style="position:absolute;right:3px;top:${top}px;transform:translateY(-50%);z-index:4;pointer-events:none;background:${DASHBOARD_NOW_COLOR};color:#fff;font-size:10px;font-weight:700;line-height:1;padding:3px 5px;border-radius:999px;white-space:nowrap;">${escapeDashboardHtml(label)}</div>`;
+            return `<div data-dashboard-now-label="true" data-date="${date}" title="Current time" style="position:absolute;left:2px;right:2px;top:${top}px;transform:translateY(-50%);z-index:4;pointer-events:none;background:${DASHBOARD_NOW_COLOR};color:#fff;font-size:10px;font-weight:700;line-height:1;padding:3px 0;text-align:center;border-radius:999px;white-space:nowrap;overflow:hidden;">${escapeDashboardHtml(label)}</div>`;
+        }
+
+        // Today's calendar opens with the current time at the top (30 minutes above it stay in view
+        // for appointments already under way). Other days open at 7 AM.
+        let dashboardCalendarJumpToNow = false;
+        const DASHBOARD_NOW_LEAD = 32;
+
+        function dashboardCalendarStartPosition(grid) {
+            const nowLine = grid.querySelector('[data-dashboard-now-line]');
+            if (!nowLine) return { top: 7 * 64, left: 0 };
+            const top = Math.max(0, (parseFloat(nowLine.style.top) || 0) - DASHBOARD_NOW_LEAD);
+            let left = 0;
+            if (grid.dataset.view === 'week') {
+                const todayLane = grid.querySelector('[data-dashboard-now-line]:not([data-faint])')?.parentElement;
+                if (todayLane) left = Math.max(0, todayLane.getBoundingClientRect().left - grid.getBoundingClientRect().left + grid.scrollLeft - 64);
+            }
+            return { top, left, follows: true };
+        }
+
+        function applyDashboardCalendarStartPosition(grid) {
+            const position = dashboardCalendarStartPosition(grid);
+            grid.scrollTop = position.top;
+            grid.scrollLeft = position.left;
+            // Remember where we put it: while the person doesn't scroll, the view follows the time.
+            grid.__rdAutoTop = position.follows ? grid.scrollTop : undefined;
+            grid.__rdAutoLeft = grid.scrollLeft;
+        }
+
+        // A grid drawn while hidden (behind the sign-in screen or on another page), or one the
+        // person comes back to, jumps to the current time when it shows.
+        function watchDashboardGridVisibility(grid) {
+            if (typeof ResizeObserver !== 'function') return;
+            let shown = grid.clientHeight > 0;
+            const observer = new ResizeObserver(() => {
+                if (!grid.isConnected) { observer.disconnect(); return; }
+                const visibleNow = grid.clientHeight > 0;
+                if (visibleNow && !shown) applyDashboardCalendarStartPosition(grid);
+                shown = visibleNow;
+            });
+            observer.observe(grid);
+            grid.__rdVisibilityObserver = observer;
+        }
+
+        function followDashboardNowLine() {
+            document.querySelectorAll('[data-dashboard-time-grid]').forEach(grid => {
+                if (grid.__rdAutoTop === undefined || grid.clientHeight === 0) return;
+                if (Math.abs(grid.scrollTop - grid.__rdAutoTop) > 2) { grid.__rdAutoTop = undefined; return; }
+                const position = dashboardCalendarStartPosition(grid);
+                if (!position.follows) return;
+                grid.scrollTop = position.top;
+                grid.__rdAutoTop = grid.scrollTop;
+            });
         }
 
         function updateDashboardNowLines() {
@@ -61741,6 +61793,7 @@
                 mark.style.top = top;
                 if (mark.hasAttribute('data-dashboard-now-label')) mark.textContent = now.label;
             });
+            followDashboardNowLine();
         }
         window.updateDashboardNowLines = updateDashboardNowLines;
         if (!window.__rdDashboardNowLineTimer) window.__rdDashboardNowLineTimer = setInterval(updateDashboardNowLines, 30000);
@@ -61778,6 +61831,8 @@
             const nowParts = dashboardNowLineParts();
             const nowTop = nowParts.minutes / 60 * hourHeight;
             const firstTodayIndex = columns.findIndex(column => column.date === nowParts.date);
+            const DASHBOARD_GRID_VIEW_HEIGHT = 650;
+            const dayEndPad = firstTodayIndex >= 0 && nowTop - DASHBOARD_NOW_LEAD + DASHBOARD_GRID_VIEW_HEIGHT > 24 * hourHeight ? DASHBOARD_GRID_VIEW_HEIGHT : 0;
             const headers = columns.map(column => {
                 const entityLabel = column.entityType && column.entityName ? `${dashboardCalendarEntityTypeLabel(column.entityType)}: ${column.entityName}` : '';
                 return `<div style="position:sticky;top:0;z-index:5;background:var(--card-bg,#fff);padding:12px;border-left:1px solid #D9D6CF;border-top:3px solid ${column.color || '#0F5E75'};font-weight:700;text-align:center;overflow-wrap:anywhere;">${escapeDashboardHtml(column.name)}${entityLabel ? `<div style="font-size:11px;font-weight:500;color:#64748b;">${escapeDashboardHtml(entityLabel)}</div>` : ''}</div>`;
@@ -61817,7 +61872,7 @@
                 const slots = Array.from({ length: 48 }, (_, index) => `<button type="button" data-calendar-time="${String(Math.floor(index / 2)).padStart(2, '0')}:${index % 2 ? '30' : '00'}" aria-label="${escapeDashboardHtml(`${column.name}, ${column.date}, ${String(Math.floor(index / 2)).padStart(2, '0')}:${index % 2 ? '30' : '00'}`)}" onclick="window.openDashboardCalendarCell(this.parentElement,event)" style="position:absolute;top:${index * 32}px;left:0;right:0;width:100%;height:32px;background:transparent;border:0;cursor:pointer;"></button>`).join('');
                 return `<div data-dashboard-calendar-dropzone="true" data-calendar-date="${column.date}" data-calendar-column="${column.id && layout ? `${layout.id}:${column.id}` : ''}" data-calendar-start-hour="${firstHour}" data-calendar-end-hour="${lastHour}" style="position:relative;min-width:180px;height:${24 * hourHeight}px;border-left:1px solid #D9D6CF;background:repeating-linear-gradient(to bottom,transparent 0,transparent 31px,#ECEAE6 31px,#ECEAE6 32px,transparent 32px,transparent 63px,#D9D6CF 63px,#D9D6CF 64px);">${slots}${cards}${column.date === nowParts.date ? dashboardNowLineHtml(nowTop, nowParts.date, columnIndex === firstTodayIndex) : (isWeek && firstTodayIndex >= 0 ? dashboardNowLineHtml(nowTop, nowParts.date, false, true) : '')}</div>`;
             }).join('');
-            return `<style>.rd-calendar-time-grid>div>div.rd-calendar-time-axis[style]{font-weight:400!important;color:inherit!important;font-size:inherit!important;line-height:normal}.rd-calendar-time-grid .rd-ops-scheduled-item{height:100%;box-sizing:border-box;padding:3px;gap:3px;display:flex;align-items:flex-start;min-width:0}.rd-calendar-time-grid .rd-ops-scheduled-item[draggable="true"]{cursor:grab}.rd-calendar-time-grid .rd-ops-scheduled-item[draggable="true"]:active{cursor:grabbing;opacity:.72}.rd-calendar-time-grid .rd-ops-scheduled-kind{display:none}.rd-calendar-time-grid .rd-ops-scheduled-time{font-size:10px;min-width:30px;width:30px;flex-shrink:0}.rd-calendar-time-grid .rd-ops-scheduled-body{min-width:0;flex:1}.rd-calendar-time-grid .rd-ops-scheduled-body strong{font-size:12px;overflow-wrap:anywhere}.rd-calendar-time-grid .rd-ops-scheduled-body>span{font-size:10px;overflow-wrap:anywhere}.rd-calendar-time-grid .rd-ops-scheduled-body>div{gap:4px!important}.rd-calendar-time-grid button:focus-visible{outline:2px solid #0F5E75;outline-offset:-2px}.rd-ops-event-form>label{min-width:0}.rd-ops-event-form select{max-width:100%;min-width:0;padding:8px;box-sizing:border-box;}</style><div class="rd-calendar-time-grid" data-dashboard-time-grid="true" data-view="${isWeek ? 'week' : 'day'}" style="overflow:auto;max-height:650px;border:1px solid #D9D6CF;border-radius:6px;"><div style="min-width:${64 + columns.length * 180}px;display:grid;grid-template-columns:64px repeat(${columns.length},minmax(180px,1fr));"><div style="position:sticky;top:0;left:0;z-index:6;background:var(--card-bg,#fff);padding:12px 4px;font-size:12px;">Time</div>${headers}<div class="rd-calendar-time-axis" style="position:sticky;left:0;z-index:4;background:var(--card-bg,#fff);">${times}${firstTodayIndex >= 0 ? dashboardNowLabelHtml(nowTop, nowParts.date, nowParts.label) : ''}</div>${lanes}</div></div>`;
+            return `<style>.rd-calendar-time-grid>div>div.rd-calendar-time-axis[style]{font-weight:400!important;color:inherit!important;font-size:inherit!important;line-height:normal}.rd-calendar-time-grid .rd-ops-scheduled-item{height:100%;box-sizing:border-box;padding:3px;gap:3px;display:flex;align-items:flex-start;min-width:0}.rd-calendar-time-grid .rd-ops-scheduled-item[draggable="true"]{cursor:grab}.rd-calendar-time-grid .rd-ops-scheduled-item[draggable="true"]:active{cursor:grabbing;opacity:.72}.rd-calendar-time-grid .rd-ops-scheduled-kind{display:none}.rd-calendar-time-grid .rd-ops-scheduled-time{font-size:10px;min-width:30px;width:30px;flex-shrink:0}.rd-calendar-time-grid .rd-ops-scheduled-body{min-width:0;flex:1}.rd-calendar-time-grid .rd-ops-scheduled-body strong{font-size:12px;overflow-wrap:anywhere}.rd-calendar-time-grid .rd-ops-scheduled-body>span{font-size:10px;overflow-wrap:anywhere}.rd-calendar-time-grid .rd-ops-scheduled-body>div{gap:4px!important}.rd-calendar-time-grid button:focus-visible{outline:2px solid #0F5E75;outline-offset:-2px}.rd-ops-event-form>label{min-width:0}.rd-ops-event-form select{max-width:100%;min-width:0;padding:8px;box-sizing:border-box;}</style><div class="rd-calendar-time-grid" data-dashboard-time-grid="true" data-view="${isWeek ? 'week' : 'day'}" style="overflow:auto;overflow-anchor:none;max-height:650px;border:1px solid #D9D6CF;border-radius:6px;"><div style="min-width:${64 + columns.length * 180}px;display:grid;grid-template-columns:64px repeat(${columns.length},minmax(180px,1fr));"><div style="position:sticky;top:0;left:0;z-index:6;background:var(--card-bg,#fff);padding:12px 4px;font-size:12px;">Time</div>${headers}<div class="rd-calendar-time-axis" style="position:sticky;left:0;z-index:4;background:var(--card-bg,#fff);">${times}${firstTodayIndex >= 0 ? dashboardNowLabelHtml(nowTop, nowParts.date, nowParts.label) : ''}</div>${lanes}${dayEndPad ? `<div data-dashboard-day-end="true" style="grid-column:1 / -1;height:${dayEndPad}px;box-sizing:border-box;border-top:1px solid #D9D6CF;background:#FAFAF8;color:#94a3b8;font-size:12px;padding:8px 12px;"><span style="position:sticky;left:12px;">End of day</span></div>` : ''}</div></div>`;
         }
 
         function syncDashboardOperationPanelHeight(root) {
@@ -61842,9 +61897,12 @@
             if (!target) return;
             ensureDashboardCalendarTypography();
             const previousGrid = target.querySelector('[data-dashboard-time-grid]');
-            const previousScroll = previousGrid?.scrollTop;
-            const previousView = previousGrid?.dataset.view;
-            const previousScrollLeft = previousGrid?.scrollLeft;
+            const previousScroll = previousGrid?.scrollTop || 0;
+            const previousScrollLeft = previousGrid?.scrollLeft || 0;
+            const previousKey = previousGrid?.dataset.scrollKey || '';
+            const previousOnScreen = !!previousGrid && previousGrid.clientHeight > 0;
+            const previousFollowing = !!previousGrid && previousGrid.__rdAutoTop !== undefined && Math.abs(previousScroll - previousGrid.__rdAutoTop) <= 2 && Math.abs(previousScrollLeft - (previousGrid.__rdAutoLeft || 0)) <= 2;
+            previousGrid?.__rdVisibilityObserver?.disconnect();
             loadDashboardCalendarLayouts();
             const entries = getDashboardVisibleCalendarEntries();
             const activeDate = dashboardLocalDateIso(dashboardCalendarDate);
@@ -61856,21 +61914,17 @@
             enableDashboardScheduledCardDragging(target);
             const grid = target.querySelector('[data-dashboard-time-grid]');
             if (grid) {
-                let initialScroll = 7 * 64;
-                const nowLine = grid.querySelector('[data-dashboard-now-line]');
-                if (nowLine) {
-                    const nowTop = parseFloat(nowLine.style.top) || 0;
-                    const visible = grid.clientHeight || 600;
-                    if (nowTop < initialScroll + 32 || nowTop > initialScroll + visible - 96) initialScroll = Math.max(0, nowTop - 2 * 64);
+                const scrollKey = `${grid.dataset.view}|${activeDate}|${dashboardCalendarScope}`;
+                grid.dataset.scrollKey = scrollKey;
+                const keepPlace = previousOnScreen && previousKey === scrollKey && !previousFollowing && !dashboardCalendarJumpToNow;
+                dashboardCalendarJumpToNow = false;
+                if (keepPlace) {
+                    grid.scrollTop = previousScroll;
+                    grid.scrollLeft = previousScrollLeft;
+                } else if (grid.clientHeight > 0) {
+                    applyDashboardCalendarStartPosition(grid);
                 }
-                grid.scrollTop = previousScroll ?? initialScroll;
-                // Keep the sideways position when redrawing the same view; a fresh Week view
-                // starts at today's column so the line is in sight on a narrow screen.
-                if (previousView && previousView === grid.dataset.view) grid.scrollLeft = previousScrollLeft || 0;
-                else if (grid.dataset.view === 'week') {
-                    const todayLane = grid.querySelector('[data-dashboard-now-line]:not([data-faint])')?.parentElement;
-                    if (todayLane) grid.scrollLeft = Math.max(0, todayLane.getBoundingClientRect().left - grid.getBoundingClientRect().left + grid.scrollLeft - 64);
-                }
+                watchDashboardGridVisibility(grid);
             }
             const period = dashboardCalendarViewMode === 'week' ? 'week' : dashboardCalendarViewMode === 'month' ? 'month' : 'day';
             const navButtons = target.querySelectorAll('.rd-ops-date-nav button');
